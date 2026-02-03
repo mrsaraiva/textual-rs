@@ -26,6 +26,33 @@ impl WidgetId {
 pub trait Widget: Send + Sync {
     fn id(&self) -> WidgetId;
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
+    fn render_styled_dyn(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: Option<&DebugLayout>,
+    ) -> Segments
+    where
+        Self: Sized,
+    {
+        let segments = match debug {
+            Some(debug) => self.render_with_debug(console, options, debug),
+            None => self.render(console, options),
+        };
+        apply_stylesheet(self, segments)
+    }
+    fn render_styled_dyn_obj(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: Option<&DebugLayout>,
+    ) -> Segments {
+        let segments = match debug {
+            Some(debug) => self.render_with_debug(console, options, debug),
+            None => self.render(console, options),
+        };
+        apply_stylesheet(self, segments)
+    }
     fn render_with_debug(
         &self,
         console: &Console,
@@ -66,8 +93,7 @@ pub trait Widget: Send + Sync {
         empty_classes()
     }
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let segments = self.render(console, options);
-        apply_stylesheet(self, segments)
+        self.render_styled_dyn_obj(console, options, None)
     }
     fn render_styled_with_debug(
         &self,
@@ -75,8 +101,7 @@ pub trait Widget: Send + Sync {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        let segments = self.render_with_debug(console, options, debug);
-        apply_stylesheet(self, segments)
+        self.render_styled_dyn_obj(console, options, Some(debug))
     }
 }
 
@@ -143,7 +168,7 @@ fn empty_classes() -> &'static [String] {
     EMPTY.get_or_init(Vec::new)
 }
 
-fn apply_stylesheet(widget: &dyn Widget, segments: Segments) -> Segments {
+fn apply_stylesheet<T: Widget + ?Sized>(widget: &T, segments: Segments) -> Segments {
     let mut style = STYLE_CONTEXT
         .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget)))
         .unwrap_or_default();
@@ -518,7 +543,7 @@ impl StyleSheet {
         self.add_rule(StyleSelector::Class(class), style);
     }
 
-    fn style_for(&self, widget: &dyn Widget) -> Style {
+    fn style_for<T: Widget + ?Sized>(&self, widget: &T) -> Style {
         let mut out = Style::new();
         for rule in &self.rules {
             let matches = match rule.selector {

@@ -18,7 +18,8 @@ fn stylesheet_applies_type_and_id_styles() {
     sheet.add_id("hero", Style::new().underline(true));
 
     let _guard = set_style_context(sheet);
-    let buf = FrameBuffer::from_renderable(&console, &options, &label, None);
+    let renderable = WidgetRenderable::new(&label);
+    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style to be set");
