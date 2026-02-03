@@ -43,6 +43,12 @@ primitive, not a full styling system.
 
 Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, and `Overlay`.
 
+## Styling MVP
+
+Inline styling is available via `Style` and the `Styled` wrapper widget. This is a minimal, typed API
+(`fg`, `bg`, `bold`, `dim`, `italic`, `underline`) to enable quick visual iteration before a full
+selector/cascade system lands.
+
 ## Rich-rs integration contract
 
 Textual (Python) uses Rich (Python) as a rendering + styling engine. `textual-rs` should treat `rich-rs` the same way.

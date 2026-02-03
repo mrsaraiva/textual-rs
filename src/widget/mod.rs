@@ -5,6 +5,7 @@ use rich_rs::markdown::Markdown as RichMarkdown;
 
 use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
+use crate::style::Style;
 use crossterm::event::KeyCode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -43,6 +44,30 @@ pub trait Widget: Send + Sync {
     }
     fn layout_constraints(&self) -> LayoutConstraints {
         LayoutConstraints::default()
+    }
+    fn style(&self) -> Option<Style> {
+        None
+    }
+    fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let segments = self.render(console, options);
+        if let Some(style) = self.style() {
+            apply_style_to_segments(segments, style)
+        } else {
+            segments
+        }
+    }
+    fn render_styled_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        let segments = self.render_with_debug(console, options, debug);
+        if let Some(style) = self.style() {
+            apply_style_to_segments(segments, style)
+        } else {
+            segments
+        }
     }
 }
 
@@ -100,6 +125,28 @@ fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment
     lines
         .into_iter()
         .map(|line| Segment::adjust_line_length(&line, width, None, true))
+        .collect()
+}
+
+fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
+    if style.is_empty() {
+        return segments;
+    }
+    let rich_style = style.to_rich();
+    segments
+        .into_iter()
+        .map(|mut seg| {
+            if seg.control.is_some() {
+                return seg;
+            }
+            if let Some(rich_style) = rich_style {
+                seg.style = Some(match seg.style {
+                    Some(existing) => existing.combine(&rich_style),
+                    None => rich_style,
+                });
+            }
+            seg
+        })
         .collect()
 }
 
@@ -216,7 +263,7 @@ impl Widget for Container {
             child_options.max_width = render_width;
             child_options.max_height = render_height;
 
-            let segments = child.render(console, &child_options);
+            let segments = child.render_styled(console, &child_options);
             let mut child_lines =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
             let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
@@ -287,7 +334,7 @@ impl Widget for Container {
             child_options.max_width = render_width;
             child_options.max_height = render_height;
 
-            let segments = child.render(console, &child_options);
+            let segments = child.render_styled(console, &child_options);
             let mut child_lines =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
             let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
@@ -400,7 +447,7 @@ impl<'a> WidgetRenderable<'a> {
 
 impl Renderable for WidgetRenderable<'_> {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.widget.render(console, options)
+        self.widget.render_styled(console, options)
     }
 }
 
@@ -446,7 +493,7 @@ impl Widget for Constrained {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.child.render(console, options)
+        self.child.render_styled(console, options)
     }
 
     fn render_with_debug(
@@ -455,7 +502,7 @@ impl Widget for Constrained {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        self.child.render_with_debug(console, options, debug)
+        self.child.render_styled_with_debug(console, options, debug)
     }
 
     fn on_mount(&mut self) {
@@ -505,6 +552,96 @@ impl Widget for Constrained {
 }
 
 impl Renderable for Constrained {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct Styled {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    style: Style,
+}
+
+impl Styled {
+    pub fn new(child: impl Widget + 'static, style: Style) -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Box::new(child),
+            style,
+        }
+    }
+
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
+}
+
+impl Widget for Styled {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.child.render_styled(console, options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        self.child.render_styled_with_debug(console, options, debug)
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.child.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.child.set_focus(focused);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.child.layout_height()
+    }
+
+    fn layout_constraints(&self) -> LayoutConstraints {
+        self.child.layout_constraints()
+    }
+
+    fn style(&self) -> Option<Style> {
+        Some(self.style)
+    }
+}
+
+impl Renderable for Styled {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }
@@ -616,7 +753,7 @@ impl Widget for Row {
             child_options.max_width = render_width;
             child_options.max_height = render_height;
 
-            let segments = child.render(console, &child_options);
+            let segments = child.render_styled(console, &child_options);
             let mut lines =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
             let mut target_height = child.layout_height().unwrap_or(lines.len().max(1));
@@ -703,7 +840,7 @@ impl Widget for Row {
             child_options.max_width = render_width;
             child_options.max_height = render_height;
 
-            let segments = child.render(console, &child_options);
+            let segments = child.render_styled(console, &child_options);
             let mut lines =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
             let mut target_height = child.layout_height().unwrap_or(lines.len().max(1));
@@ -938,7 +1075,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -969,7 +1106,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -996,7 +1133,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -1024,7 +1161,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -1051,7 +1188,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -1156,7 +1293,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -1200,7 +1337,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -1240,7 +1377,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -1281,7 +1418,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -1321,7 +1458,7 @@ impl Widget for Dock {
                     child_options.size = (render_width, render_height);
                     child_options.max_width = render_width;
                     child_options.max_height = render_height;
-                    let segments = item.child.render(console, &child_options);
+                    let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
@@ -2386,7 +2523,7 @@ impl Widget for Tabs {
                 child_options.size = (width, height - 1);
                 child_options.max_width = width;
                 child_options.max_height = height - 1;
-                let child_segments = tab.child.render(console, &child_options);
+                let child_segments = tab.child.render_styled(console, &child_options);
                 let mut child_lines =
                     Segment::split_and_crop_lines(child_segments, width, None, true, false);
                 child_lines =
@@ -2791,7 +2928,7 @@ impl Widget for AppRoot {
             child_options.max_width = render_width;
             child_options.max_height = render_height;
 
-            let segments = child.render(console, &child_options);
+            let segments = child.render_styled(console, &child_options);
             let mut child_lines =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
             let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
@@ -2848,12 +2985,33 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for (idx, child) in self.children.iter().enumerate() {
-            let segments = child.render(console, options);
+            let constraints = child.layout_constraints();
+            let render_width =
+                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+
+            let segments = child.render_styled(console, &child_options);
             let mut child_lines =
-                Segment::split_and_crop_lines(segments, width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                child_lines = Segment::set_shape(&child_lines, width, Some(height), None, false);
-            }
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            child_lines =
+                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
+            child_lines = pad_lines_to_width(child_lines, width);
             let child_height = child_lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
             let child_region =
@@ -3028,7 +3186,7 @@ impl Widget for Frame {
         child_options.max_width = inner_width;
         child_options.max_height = inner_height;
 
-        let child_segments = self.child.render(console, &child_options);
+        let child_segments = self.child.render_styled(console, &child_options);
         let mut child_lines =
             Segment::split_and_crop_lines(child_segments, inner_width, None, true, false);
         if let Some(height) = self.child.layout_height() {
@@ -3309,7 +3467,7 @@ impl Widget for ScrollView {
         child_options.max_width = render_width;
         child_options.max_height = render_height;
 
-        let segments = self.child.render(console, &child_options);
+        let segments = self.child.render_styled(console, &child_options);
         let mut lines = Segment::split_and_crop_lines(segments, render_width, None, true, false);
         if let Some(height) = self.child.layout_height() {
             lines = Segment::set_shape(&lines, render_width, Some(height.max(1)), None, false);
@@ -3599,7 +3757,7 @@ impl Widget for Grid {
                 child_options.max_width = render_width;
                 child_options.max_height = render_height;
                 let lines = if let Some(child) = &self.cells[idx] {
-                    let segments = child.render(console, &child_options);
+                    let segments = child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -3714,7 +3872,7 @@ impl Widget for Grid {
                 child_options.max_width = render_width;
                 child_options.max_height = render_height;
                 let lines = if let Some(child) = &self.cells[idx] {
-                    let segments = child.render(console, &child_options);
+                    let segments = child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
@@ -3869,7 +4027,7 @@ impl Widget for Overlay {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         if !self.visible {
-            return self.base.render(console, options);
+            return self.base.render_styled(console, options);
         }
         let base_renderable = WidgetRenderable::new(self.base.as_ref());
         let modal_renderable = WidgetRenderable::new(self.modal.as_ref());

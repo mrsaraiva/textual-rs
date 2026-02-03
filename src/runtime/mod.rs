@@ -2,6 +2,7 @@ use crate::driver::{Size, TerminalDriver};
 use crate::render::FrameBuffer;
 use crate::debug::DebugLayout;
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
+use crate::style::Theme;
 use crate::widget::Widget;
 use crate::{Error, Result};
 use crossterm::event::{
@@ -17,6 +18,7 @@ pub struct App {
     frame: FrameBuffer,
     debug_layout: DebugLayout,
     action_map: ActionMap,
+    theme: Theme,
     running: bool,
 }
 
@@ -35,6 +37,7 @@ impl App {
             frame,
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
+            theme: Theme::default(),
             running: true,
         })
     }
@@ -49,6 +52,10 @@ impl App {
 
     pub fn enable_debug_layout(&mut self, enabled: bool) {
         self.debug_layout.enabled = enabled;
+    }
+
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
     pub fn bind_key(&mut self, key: KeyBind, action: Action) {
@@ -67,7 +74,13 @@ impl App {
 
     pub fn render(&mut self, renderable: &dyn Renderable) -> Result<()> {
         self.refresh_size()?;
-        let next = FrameBuffer::from_renderable(&self.console, &self.options, renderable, None);
+        let base_style = self.theme.base.to_rich();
+        let next = FrameBuffer::from_renderable(
+            &self.console,
+            &self.options,
+            renderable,
+            base_style,
+        );
         let diff = next.diff_to_segments(&self.frame);
         self.console.print_segments(&diff)?;
         self.frame = next;
@@ -77,13 +90,14 @@ impl App {
     pub fn render_widget(&mut self, widget: &dyn Widget) -> Result<()> {
         self.refresh_size()?;
         let segments = if self.debug_layout.enabled {
-            widget.render_with_debug(&self.console, &self.options, &self.debug_layout)
+            widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {
-            widget.render(&self.console, &self.options)
+            widget.render_styled(&self.console, &self.options)
         };
         let (width, height) = self.options.size;
         let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
-        let next = FrameBuffer::from_lines(&lines, width, height, None);
+        let base_style = self.theme.base.to_rich();
+        let next = FrameBuffer::from_lines(&lines, width, height, base_style);
         let diff = next.diff_to_segments(&self.frame);
         self.console.print_segments(&diff)?;
         self.frame = next;
