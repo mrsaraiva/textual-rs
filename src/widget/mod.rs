@@ -1262,6 +1262,7 @@ impl Widget for AppRoot {
                     ctx.set_handled();
                     return;
                 }
+                _ => {}
             }
         }
         if let Event::Key(key) = event {
@@ -1476,6 +1477,480 @@ impl Widget for Frame {
 }
 
 impl Renderable for Frame {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct ScrollView {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    height: Option<usize>,
+    offset_y: usize,
+    scroll_step: usize,
+}
+
+impl ScrollView {
+    pub fn new(child: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Box::new(child),
+            height: None,
+            offset_y: 0,
+            scroll_step: 1,
+        }
+    }
+
+    pub fn height(mut self, height: usize) -> Self {
+        self.height = Some(height.max(1));
+        self
+    }
+
+    pub fn scroll_to(&mut self, offset_y: usize) {
+        self.offset_y = offset_y;
+    }
+
+    pub fn scroll_by(&mut self, delta: i32) {
+        if delta.is_negative() {
+            self.offset_y = self.offset_y.saturating_sub(delta.unsigned_abs() as usize);
+        } else {
+            self.offset_y = self.offset_y.saturating_add(delta as usize);
+        }
+    }
+
+    pub fn scroll_step(mut self, step: usize) -> Self {
+        self.scroll_step = step.max(1);
+        self
+    }
+}
+
+impl Widget for ScrollView {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
+
+        let mut child_options = options.clone();
+        child_options.size = (width, viewport_height.saturating_add(self.offset_y).max(1));
+        child_options.max_width = width;
+        child_options.max_height = child_options.size.1;
+
+        let segments = self.child.render(console, &child_options);
+        let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+        if let Some(height) = self.child.layout_height() {
+            let capped = height.max(viewport_height + self.offset_y);
+            lines = Segment::set_shape(&lines, width, Some(capped), None, false);
+        }
+
+        let start = self.offset_y.min(lines.len());
+        let end = (start + viewport_height).min(lines.len());
+        let slice = lines[start..end].to_vec();
+        let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+
+        let line_count = slice.len();
+        let mut out = Segments::new();
+        for (idx, line) in slice.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        let width = options.size.0.max(1);
+        let height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        let segments = Widget::render(self, console, options);
+        let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+        let label = if debug.show_sizes {
+            Some(format!("{width}x{height}"))
+        } else {
+            None
+        };
+        lines = apply_debug_box(lines, width, height.max(3), label.as_deref(), debug.style_for(0));
+        let line_count = lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::Action(action) = event {
+            match action {
+                Action::ScrollUp => {
+                    self.scroll_by(-(self.scroll_step as i32));
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollDown => {
+                    self.scroll_by(self.scroll_step as i32);
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollPageUp => {
+                    let page = self.height.unwrap_or(1).max(1);
+                    self.scroll_by(-(page as i32));
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollPageDown => {
+                    let page = self.height.unwrap_or(1).max(1);
+                    self.scroll_by(page as i32);
+                    ctx.set_handled();
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.child.on_event(event, ctx);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.height
+    }
+}
+
+impl Renderable for ScrollView {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct Grid {
+    id: WidgetId,
+    rows: usize,
+    cols: usize,
+    cells: Vec<Option<Box<dyn Widget>>>,
+    row_gaps: usize,
+    col_gaps: usize,
+    row_sizes: Option<Vec<usize>>,
+    col_sizes: Option<Vec<usize>>,
+}
+
+impl Grid {
+    pub fn new(rows: usize, cols: usize) -> Self {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        Self {
+            id: WidgetId::new(),
+            rows,
+            cols,
+            cells: (0..rows * cols).map(|_| None).collect(),
+            row_gaps: 0,
+            col_gaps: 0,
+            row_sizes: None,
+            col_sizes: None,
+        }
+    }
+
+    pub fn set(&mut self, row: usize, col: usize, child: impl Widget + 'static) {
+        if row >= self.rows || col >= self.cols {
+            return;
+        }
+        let idx = row * self.cols + col;
+        self.cells[idx] = Some(Box::new(child));
+    }
+
+    pub fn with_cell(mut self, row: usize, col: usize, child: impl Widget + 'static) -> Self {
+        self.set(row, col, child);
+        self
+    }
+
+    pub fn row_gap(mut self, gap: usize) -> Self {
+        self.row_gaps = gap;
+        self
+    }
+
+    pub fn col_gap(mut self, gap: usize) -> Self {
+        self.col_gaps = gap;
+        self
+    }
+
+    pub fn row_sizes(mut self, sizes: Vec<usize>) -> Self {
+        if sizes.len() == self.rows {
+            self.row_sizes = Some(sizes);
+        }
+        self
+    }
+
+    pub fn col_sizes(mut self, sizes: Vec<usize>) -> Self {
+        if sizes.len() == self.cols {
+            self.col_sizes = Some(sizes);
+        }
+        self
+    }
+}
+
+impl Widget for Grid {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let total_col_gaps = self.col_gaps.saturating_mul(self.cols.saturating_sub(1));
+        let total_row_gaps = self.row_gaps.saturating_mul(self.rows.saturating_sub(1));
+        let inner_width = width.saturating_sub(total_col_gaps).max(1);
+        let inner_height = height.saturating_sub(total_row_gaps).max(1);
+
+        let col_widths: Vec<usize> = if let Some(sizes) = &self.col_sizes {
+            sizes.clone()
+        } else {
+            let base_w = inner_width / self.cols;
+            let rem_w = inner_width % self.cols;
+            (0..self.cols)
+                .map(|c| base_w + if c < rem_w { 1 } else { 0 })
+                .collect()
+        };
+
+        let row_heights: Vec<usize> = if let Some(sizes) = &self.row_sizes {
+            sizes.clone()
+        } else {
+            let base_h = inner_height / self.rows;
+            let rem_h = inner_height % self.rows;
+            (0..self.rows)
+                .map(|r| base_h + if r < rem_h { 1 } else { 0 })
+                .collect()
+        };
+
+        let mut cell_lines: Vec<Vec<Vec<Vec<Segment>>>> = Vec::new();
+        for r in 0..self.rows {
+            let mut row_cells = Vec::new();
+            for c in 0..self.cols {
+                let idx = r * self.cols + c;
+                let cell_width = col_widths[c].max(1);
+                let cell_height = row_heights[r].max(1);
+                let mut child_options = options.clone();
+                child_options.size = (cell_width, cell_height);
+                child_options.max_width = cell_width;
+                child_options.max_height = cell_height;
+                let lines = if let Some(child) = &self.cells[idx] {
+                    let segments = child.render(console, &child_options);
+                    let mut lines =
+                        Segment::split_and_crop_lines(segments, cell_width, None, true, false);
+                    lines = Segment::set_shape(&lines, cell_width, Some(cell_height), None, false);
+                    lines
+                } else {
+                    Segment::set_shape(&[], cell_width, Some(cell_height), None, false)
+                };
+                row_cells.push(lines);
+            }
+            cell_lines.push(row_cells);
+        }
+
+        let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+        for r in 0..self.rows {
+            let cell_height = row_heights[r].max(1);
+            for row in 0..cell_height {
+                let mut line: Vec<Segment> = Vec::new();
+                for c in 0..self.cols {
+                    let cell_width = col_widths[c].max(1);
+                    let lines = &cell_lines[r][c];
+                    let cell_line = lines.get(row).cloned().unwrap_or_else(|| {
+                        vec![Segment::new(" ".repeat(cell_width))]
+                    });
+                    let adjusted = Segment::adjust_line_length(&cell_line, cell_width, None, true);
+                    line.extend(adjusted);
+                    if c + 1 < self.cols && self.col_gaps > 0 {
+                        line.push(Segment::new(" ".repeat(self.col_gaps)));
+                    }
+                }
+                out_lines.push(line);
+            }
+            if r + 1 < self.rows && self.row_gaps > 0 {
+                let gap_line = vec![Segment::new(" ".repeat(width))];
+                for _ in 0..self.row_gaps {
+                    out_lines.push(gap_line.clone());
+                }
+            }
+        }
+
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let total_col_gaps = self.col_gaps.saturating_mul(self.cols.saturating_sub(1));
+        let total_row_gaps = self.row_gaps.saturating_mul(self.rows.saturating_sub(1));
+        let inner_width = width.saturating_sub(total_col_gaps).max(1);
+        let inner_height = height.saturating_sub(total_row_gaps).max(1);
+
+        let col_widths: Vec<usize> = if let Some(sizes) = &self.col_sizes {
+            sizes.clone()
+        } else {
+            let base_w = inner_width / self.cols;
+            let rem_w = inner_width % self.cols;
+            (0..self.cols)
+                .map(|c| base_w + if c < rem_w { 1 } else { 0 })
+                .collect()
+        };
+
+        let row_heights: Vec<usize> = if let Some(sizes) = &self.row_sizes {
+            sizes.clone()
+        } else {
+            let base_h = inner_height / self.rows;
+            let rem_h = inner_height % self.rows;
+            (0..self.rows)
+                .map(|r| base_h + if r < rem_h { 1 } else { 0 })
+                .collect()
+        };
+
+        let mut cell_lines: Vec<Vec<Vec<Vec<Segment>>>> = Vec::new();
+        let mut cell_index = 0;
+        for r in 0..self.rows {
+            let mut row_cells = Vec::new();
+            for c in 0..self.cols {
+                let idx = r * self.cols + c;
+                let cell_width = col_widths[c].max(1);
+                let cell_height = row_heights[r].max(1);
+                let mut child_options = options.clone();
+                child_options.size = (cell_width, cell_height);
+                child_options.max_width = cell_width;
+                child_options.max_height = cell_height;
+                let lines = if let Some(child) = &self.cells[idx] {
+                    let segments = child.render(console, &child_options);
+                    let mut lines =
+                        Segment::split_and_crop_lines(segments, cell_width, None, true, false);
+                    lines = Segment::set_shape(&lines, cell_width, Some(cell_height), None, false);
+                    let label = if debug.show_sizes {
+                        Some(format!("{cell_width}x{cell_height}"))
+                    } else {
+                        None
+                    };
+                    apply_debug_box(
+                        lines,
+                        cell_width,
+                        (cell_height + 2).max(3),
+                        label.as_deref(),
+                        debug.style_for(cell_index),
+                    )
+                } else {
+                    Segment::set_shape(&[], cell_width, Some(cell_height), None, false)
+                };
+                row_cells.push(lines);
+                cell_index += 1;
+            }
+            cell_lines.push(row_cells);
+        }
+
+        let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+        for r in 0..self.rows {
+            let cell_height = row_heights[r].max(1);
+            for row in 0..cell_height {
+                let mut line: Vec<Segment> = Vec::new();
+                for c in 0..self.cols {
+                    let cell_width = col_widths[c].max(1);
+                    let lines = &cell_lines[r][c];
+                    let cell_line = lines.get(row).cloned().unwrap_or_else(|| {
+                        vec![Segment::new(" ".repeat(cell_width))]
+                    });
+                    let adjusted = Segment::adjust_line_length(&cell_line, cell_width, None, true);
+                    line.extend(adjusted);
+                    if c + 1 < self.cols && self.col_gaps > 0 {
+                        line.push(Segment::new(" ".repeat(self.col_gaps)));
+                    }
+                }
+                out_lines.push(line);
+            }
+            if r + 1 < self.rows && self.row_gaps > 0 {
+                let gap_line = vec![Segment::new(" ".repeat(width))];
+                for _ in 0..self.row_gaps {
+                    out_lines.push(gap_line.clone());
+                }
+            }
+        }
+
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_mount();
+            }
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_unmount();
+            }
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_tick(tick);
+            }
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_event(event, ctx);
+                if ctx.handled() {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl Renderable for Grid {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }

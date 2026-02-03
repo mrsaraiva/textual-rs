@@ -14,9 +14,10 @@ pub use runtime::App;
 pub mod prelude {
     pub use crate::runtime::App;
     pub use crate::debug::DebugLayout;
-    pub use crate::event::{Action, Event, EventCtx};
+    pub use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
     pub use crate::widget::{
-        AppRoot, Button, Container, Dock, Frame, Label, Row, Widget, WidgetId, WidgetRenderable,
+        AppRoot, Button, Container, Dock, Frame, Grid, Label, Row, ScrollView, Widget, WidgetId,
+        WidgetRenderable,
     };
     pub use crate::{Error, Result};
 }

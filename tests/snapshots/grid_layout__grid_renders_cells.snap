@@ -1,0 +1,11 @@
+---
+source: tests/grid_layout.rs
+assertion_line: 20
+expression: buf.debug_dump()
+---
+lines:
+0: "a   b   "
+1: "        "
+2: "c   d   "
+3: "        "
+meta:

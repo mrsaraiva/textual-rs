@@ -74,7 +74,7 @@ Deliverable: compose a view with multiple widgets and update state to trigger re
 | Todo | Event types | key, mouse, paste, resize |
 | Todo | Event routing | bubbling/capture (as needed) |
 | Todo | Focus system | focusable widgets, tab order |
-| Todo | Key bindings | map keys → actions/commands |
+| In progress | Key bindings | map keys → actions/commands |
 | Todo | Resize handling | recompute layout + rerender |
 
 Deliverable: focusable button-like widget + key bindings + mouse click.
@@ -91,7 +91,7 @@ Textual’s layout is powerful; start with an MVP that can evolve.
 |--------|------|-------|
 | In progress | Box model | padding, border, margin (subset) |
 | In progress | Layout primitives | vertical/horizontal, dock, grid-ish |
-| In progress | Clipping + regions | render-only visible area |
+| In progress | Clipping + regions | render-only visible area + scroll regions (MVP) |
 | Todo | Scroll containers | vertical scrolling first |
 
 Deliverable: sidebar + main view + footer layout with scrolling content.

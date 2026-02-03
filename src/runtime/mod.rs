@@ -1,10 +1,12 @@
 use crate::driver::{Size, TerminalDriver};
 use crate::render::FrameBuffer;
 use crate::debug::DebugLayout;
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
 use crate::widget::Widget;
 use crate::{Error, Result};
-use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers,
+};
 use rich_rs::{Console, ConsoleOptions, Renderable};
 use std::time::{Duration, Instant};
 
@@ -14,6 +16,7 @@ pub struct App {
     options: ConsoleOptions,
     frame: FrameBuffer,
     debug_layout: DebugLayout,
+    action_map: ActionMap,
     running: bool,
 }
 
@@ -31,6 +34,7 @@ impl App {
             options,
             frame,
             debug_layout: DebugLayout::default(),
+            action_map: default_action_map(),
             running: true,
         })
     }
@@ -45,6 +49,10 @@ impl App {
 
     pub fn enable_debug_layout(&mut self, enabled: bool) {
         self.debug_layout.enabled = enabled;
+    }
+
+    pub fn bind_key(&mut self, key: KeyBind, action: Action) {
+        self.action_map.bind(key, action);
     }
 
     pub fn start(&mut self) -> Result<()> {
@@ -159,16 +167,11 @@ impl App {
                             break;
                         }
                         let mut ctx = EventCtx::default();
-                        match key.code {
-                            KeyCode::Tab => {
-                                root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
-                            }
-                            KeyCode::BackTab => {
-                                root.on_event(&Event::Action(Action::FocusPrev), &mut ctx);
-                            }
-                            _ => {
-                                root.on_event(&Event::Key(key), &mut ctx);
-                            }
+                        let bind = KeyBind::from_event(&key);
+                        if let Some(action) = self.action_map.lookup(&bind) {
+                            root.on_event(&Event::Action(action), &mut ctx);
+                        } else {
+                            root.on_event(&Event::Key(key), &mut ctx);
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
@@ -212,4 +215,41 @@ fn apply_size(options: &mut ConsoleOptions, size: Size) {
     options.size = (width, height);
     options.max_width = width;
     options.max_height = height;
+}
+
+fn default_action_map() -> ActionMap {
+    let mut map = ActionMap::new();
+    map.bind(
+        KeyBind::new(KeyCode::Tab, KeyModifiers::empty()),
+        Action::FocusNext,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+        Action::FocusPrev,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Up, KeyModifiers::empty()),
+        Action::ScrollUp,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Down, KeyModifiers::empty()),
+        Action::ScrollDown,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::PageUp, KeyModifiers::empty()),
+        Action::ScrollPageUp,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::PageDown, KeyModifiers::empty()),
+        Action::ScrollPageDown,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Char('k'), KeyModifiers::empty()),
+        Action::ScrollUp,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Char('j'), KeyModifiers::empty()),
+        Action::ScrollDown,
+    );
+    map
 }
