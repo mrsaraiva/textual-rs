@@ -76,6 +76,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let mut app = App::new()?;
+    if std::path::Path::new("demo.css").exists() {
+        app.watch_stylesheet("demo.css", std::time::Duration::from_millis(500))?;
+    }
     app.enable_debug_layout(true);
     let size = app.driver().size();
     let row = Row::new()
