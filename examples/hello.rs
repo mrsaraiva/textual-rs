@@ -135,7 +135,7 @@ async fn main() -> Result<()> {
     .title("Controls")
     .padding(1);
 
-    let mut root = AppRoot::new()
+    let root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))
         .with_child(Label::new(format!("size: {}x{}", size.width, size.height)))
         .with_child(row)
@@ -156,7 +156,6 @@ async fn main() -> Result<()> {
         .with_child(MountedLabel::new())
         .with_child(Spacer::new(1))
         .with_child(Label::new("press q to quit"));
-    let mut scroll_root = ScrollView::new(root).scroll_step(2);
-    scroll_root.scroll_step_x(4);
+    let mut scroll_root = ScrollView::new(root).scroll_step(2).scroll_step_x(4);
     app.run_widget_tree(&mut scroll_root).await
 }
