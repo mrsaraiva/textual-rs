@@ -12,6 +12,7 @@ use crossterm::event::KeyCode;
 thread_local! {
     static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
     static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
+    static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -33,15 +34,20 @@ pub trait Widget: Send + Sync {
         options: &ConsoleOptions,
         debug: Option<&DebugLayout>,
     ) -> Segments {
-        let resolved = resolve_style(self);
-        let segments = STYLE_STACK.with(|stack| {
-            stack.borrow_mut().push(resolved);
-            let rendered = match debug {
-                Some(debug) => self.render_with_debug(console, options, debug),
-                None => self.render(console, options),
-            };
-            stack.borrow_mut().pop();
-            rendered
+        let meta = selector_meta_generic(self);
+        let resolved = resolve_style(self, &meta);
+        let segments = STYLE_STACK.with(|style_stack| {
+            SELECTOR_STACK.with(|selector_stack| {
+                style_stack.borrow_mut().push(resolved);
+                selector_stack.borrow_mut().push(meta);
+                let rendered = match debug {
+                    Some(debug) => self.render_with_debug(console, options, debug),
+                    None => self.render(console, options),
+                };
+                selector_stack.borrow_mut().pop();
+                style_stack.borrow_mut().pop();
+                rendered
+            })
         });
         apply_style_to_segments(segments, resolved)
     }
@@ -160,9 +166,24 @@ fn empty_classes() -> &'static [String] {
     EMPTY.get_or_init(Vec::new)
 }
 
-fn resolve_style<T: Widget + ?Sized>(widget: &T) -> Style {
+#[derive(Debug, Clone)]
+struct SelectorMeta {
+    type_name: String,
+    id: Option<String>,
+    classes: Vec<String>,
+}
+
+fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
+    SelectorMeta {
+        type_name: widget.style_type().to_string(),
+        id: widget.style_id().map(|value| value.to_string()),
+        classes: widget.style_classes().to_vec(),
+    }
+}
+
+fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
     let sheet_style = STYLE_CONTEXT
-        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget)))
+        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget, meta)))
         .unwrap_or_default();
     let mut style = sheet_style;
     if let Some(inline) = widget.style() {
@@ -194,6 +215,84 @@ fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
             seg
         })
         .collect()
+}
+
+fn selector_matches_meta(selector: &StyleSelector, meta: &SelectorMeta) -> bool {
+    match selector {
+        StyleSelector::Type(name) => meta.type_name == *name,
+        StyleSelector::Id(id) => meta.id.as_deref() == Some(id.as_str()),
+        StyleSelector::Class(class) => meta.classes.iter().any(|value| value == class),
+    }
+}
+
+fn selector_specificity(selector: &StyleSelector) -> u8 {
+    match selector {
+        StyleSelector::Type(_) => 1,
+        StyleSelector::Class(_) => 10,
+        StyleSelector::Id(_) => 100,
+    }
+}
+
+fn rule_specificity(rule: &StyleRule, meta: &SelectorMeta) -> Option<u8> {
+    if rule.selector_chain.is_empty() {
+        return None;
+    }
+    let last = rule.selector_chain.last().unwrap();
+    if !selector_matches_meta(last, meta) {
+        return None;
+    }
+    if rule.selector_chain.len() == 1 {
+        return Some(selector_specificity(last));
+    }
+
+    let stack_snapshot = SELECTOR_STACK.with(|stack| stack.borrow().clone());
+    let mut idx = stack_snapshot.len() as isize - 2;
+    for selector in rule.selector_chain[..rule.selector_chain.len() - 1]
+        .iter()
+        .rev()
+    {
+        let mut found = false;
+        let mut current = idx;
+        while current >= 0 {
+            let meta = &stack_snapshot[current as usize];
+            if selector_matches_meta(selector, meta) {
+                found = true;
+                idx = current - 1;
+                break;
+            }
+            current -= 1;
+        }
+        if !found {
+            return None;
+        }
+    }
+
+    let score = rule
+        .selector_chain
+        .iter()
+        .map(selector_specificity)
+        .sum();
+    Some(score)
+}
+
+fn parse_selector_list(selector: &str) -> Vec<Vec<StyleSelector>> {
+    let mut groups = Vec::new();
+    for group in selector.split(',') {
+        let group = group.trim();
+        if group.is_empty() {
+            continue;
+        }
+        let mut chain = Vec::new();
+        for part in group.split_whitespace() {
+            if let Some(sel) = parse_selector(part) {
+                chain.push(sel);
+            }
+        }
+        if !chain.is_empty() {
+            groups.push(chain);
+        }
+    }
+    groups
 }
 
 fn parse_selector(selector: &str) -> Option<StyleSelector> {
@@ -581,7 +680,7 @@ pub enum StyleSelector {
 
 #[derive(Debug, Clone)]
 pub struct StyleRule {
-    selector: StyleSelector,
+    selector_chain: Vec<StyleSelector>,
     style: Style,
 }
 
@@ -596,7 +695,10 @@ impl StyleSheet {
     }
 
     pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
-        self.rules.push(StyleRule { selector, style });
+        self.rules.push(StyleRule {
+            selector_chain: vec![selector],
+            style,
+        });
     }
 
     pub fn add_type(&mut self, name: impl Into<String>, style: Style) {
@@ -611,18 +713,10 @@ impl StyleSheet {
         self.add_rule(StyleSelector::Class(class.into()), style);
     }
 
-    fn style_for<T: Widget + ?Sized>(&self, widget: &T) -> Style {
+    fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {
         let mut matches: Vec<(u8, usize, Style)> = Vec::new();
         for (idx, rule) in self.rules.iter().enumerate() {
-            let (score, matched) = match &rule.selector {
-                StyleSelector::Type(name) => (1, widget.style_type() == name.as_str()),
-                StyleSelector::Class(class) => (
-                    10,
-                    widget.style_classes().iter().any(|value| value == class),
-                ),
-                StyleSelector::Id(id) => (100, widget.style_id() == Some(id.as_str())),
-            };
-            if matched {
+            if let Some(score) = rule_specificity(rule, meta) {
                 matches.push((score, idx, rule.style));
             }
         }
@@ -645,10 +739,13 @@ impl StyleSheet {
                 None => break,
             };
             let body = &after[..end];
-            if let Some(selector_kind) = parse_selector(selector) {
-                let style = parse_style_body(body);
-                if !style.is_empty() {
-                    sheet.add_rule(selector_kind, style);
+            let style = parse_style_body(body);
+            if !style.is_empty() {
+                for selector_chain in parse_selector_list(selector) {
+                    sheet.rules.push(StyleRule {
+                        selector_chain,
+                        style,
+                    });
                 }
             }
             rest = &after[end + 1..];
