@@ -1080,6 +1080,169 @@ impl Renderable for Button {
 }
 
 #[derive(Debug, Clone)]
+pub struct ListView {
+    id: WidgetId,
+    items: Vec<String>,
+    selected: usize,
+    offset: usize,
+    focused: bool,
+}
+
+impl ListView {
+    pub fn new(items: Vec<String>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            items,
+            selected: 0,
+            offset: 0,
+            focused: false,
+        }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn set_selected(&mut self, index: usize) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        self.selected = index.min(self.items.len() - 1);
+    }
+
+    fn ensure_visible(&mut self, height: usize) {
+        if self.items.is_empty() {
+            self.offset = 0;
+            return;
+        }
+        if self.selected < self.offset {
+            self.offset = self.selected;
+        } else if self.selected >= self.offset + height {
+            self.offset = self.selected + 1 - height;
+        }
+    }
+}
+
+impl Widget for ListView {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.focused {
+            return;
+        }
+        let mut handled = false;
+        match event {
+            Event::Action(Action::ScrollUp) => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollDown) => {
+                if self.selected + 1 < self.items.len() {
+                    self.selected += 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageUp) => {
+                if self.selected > 0 {
+                    let step = 5.min(self.selected);
+                    self.selected -= step;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageDown) => {
+                if self.selected + 1 < self.items.len() {
+                    let step = 5.min(self.items.len().saturating_sub(1) - self.selected);
+                    self.selected += step;
+                }
+                handled = true;
+            }
+            Event::Key(key) => match key.code {
+                KeyCode::Up => {
+                    if self.selected > 0 {
+                        self.selected -= 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::Down => {
+                    if self.selected + 1 < self.items.len() {
+                        self.selected += 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageUp => {
+                    if self.selected > 0 {
+                        let step = 5.min(self.selected);
+                        self.selected -= step;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageDown => {
+                    if self.selected + 1 < self.items.len() {
+                        let step = 5.min(self.items.len().saturating_sub(1) - self.selected);
+                        self.selected += step;
+                    }
+                    handled = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        if handled {
+            ctx.set_handled();
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let height = options.size.1.max(1);
+        let mut view = self.clone();
+        view.ensure_visible(height);
+
+        let mut lines: Vec<String> = Vec::new();
+        for (idx, item) in view.items.iter().enumerate() {
+            if idx < view.offset {
+                continue;
+            }
+            if lines.len() >= height {
+                break;
+            }
+            let marker = if self.focused && idx == view.selected {
+                "> "
+            } else if idx == view.selected {
+                "* "
+            } else {
+                "  "
+            };
+            lines.push(format!("{marker}{item}"));
+        }
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+        let text = Text::plain(lines.join("\n"));
+        text.render(console, options)
+    }
+}
+
+impl Renderable for ListView {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Checkbox {
     id: WidgetId,
     label: String,
@@ -2270,6 +2433,107 @@ impl Widget for Grid {
 }
 
 impl Renderable for Grid {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct Overlay {
+    id: WidgetId,
+    base: Box<dyn Widget>,
+    modal: Box<dyn Widget>,
+    visible: bool,
+}
+
+impl Overlay {
+    pub fn new(base: impl Widget + 'static, modal: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            base: Box::new(base),
+            modal: Box::new(modal),
+            visible: true,
+        }
+    }
+
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+}
+
+impl Widget for Overlay {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if !self.visible {
+            return self.base.render(console, options);
+        }
+        let base_renderable = WidgetRenderable::new(self.base.as_ref());
+        let modal_renderable = WidgetRenderable::new(self.modal.as_ref());
+        let base = crate::render::FrameBuffer::from_renderable(
+            console,
+            options,
+            &base_renderable,
+            None,
+        );
+        let top = crate::render::FrameBuffer::from_renderable(
+            console,
+            options,
+            &modal_renderable,
+            None,
+        );
+        let mut merged = base.clone();
+        for y in 0..base.height {
+            for x in 0..base.width {
+                let cell = top.get(x, y);
+                if !cell.continuation && !cell.text.is_empty() && cell.text != " " {
+                    let out = merged.get_mut(x, y);
+                    *out = cell.clone();
+                }
+            }
+        }
+        let lines = merged.as_plain_lines().join("\n");
+        Text::plain(lines).render(console, options)
+    }
+
+    fn on_mount(&mut self) {
+        self.base.on_mount();
+        self.modal.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.base.on_unmount();
+        self.modal.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.base.on_tick(tick);
+        self.modal.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.base.on_resize(width, height);
+        self.modal.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.modal.on_event_capture(event, ctx);
+        if !ctx.handled() {
+            self.base.on_event_capture(event, ctx);
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.modal.on_event(event, ctx);
+        if !ctx.handled() {
+            self.base.on_event(event, ctx);
+        }
+    }
+}
+
+impl Renderable for Overlay {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }

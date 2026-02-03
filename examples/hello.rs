@@ -100,6 +100,15 @@ async fn main() -> Result<()> {
         .with_child(row)
         .with_child(dock)
         .with_child(scroller)
+        .with_child(ListView::new(vec![
+            "item one".to_string(),
+            "item two".to_string(),
+            "item three".to_string(),
+        ]))
+        .with_child(Overlay::new(
+            Label::new("overlay base"),
+            Frame::new(Label::new("overlay modal")).padding(1),
+        ))
         .with_child(Input::new().with_placeholder("type here..."))
         .with_child(Checkbox::new("accept terms"))
         .with_child(TickLabel::new())

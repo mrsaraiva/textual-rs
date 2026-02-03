@@ -1,0 +1,10 @@
+---
+source: tests/overlay_widget.rs
+assertion_line: 18
+expression: buf.debug_dump()
+---
+lines:
+0: "┌──────────┐"
+1: "│          │"
+2: "│ modal    │"
+meta:

@@ -40,6 +40,8 @@ with padding and an optional border (Unicode box drawing). Basic layout primitiv
 Containers clip children to the current viewport height (MVP clipping). This is an MVP layout
 primitive, not a full styling system.
 
+Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, and `Overlay`.
+
 ## Rich-rs integration contract
 
 Textual (Python) uses Rich (Python) as a rendering + styling engine. `textual-rs` should treat `rich-rs` the same way.
