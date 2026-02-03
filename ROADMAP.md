@@ -92,7 +92,7 @@ Textual’s layout is powerful; start with an MVP that can evolve.
 | In progress | Box model | padding, border, margin (subset) |
 | In progress | Layout primitives | vertical/horizontal, dock, grid-ish |
 | In progress | Clipping + regions | render-only visible area + scroll regions (MVP) |
-| Todo | Scroll containers | vertical scrolling first |
+| Done | Scroll containers | vertical scrolling first |
 
 Deliverable: sidebar + main view + footer layout with scrolling content.
 

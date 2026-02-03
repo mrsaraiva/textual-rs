@@ -1,0 +1,10 @@
+---
+source: tests/scroll_view.rs
+assertion_line: 23
+expression: buf.debug_dump()
+---
+lines:
+0: "* item 1      "
+1: "  item 2      "
+2: "  item 3      "
+meta:

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use rich_rs::markdown::Markdown as RichMarkdown;
@@ -2714,6 +2714,8 @@ pub struct ScrollView {
     height: Option<usize>,
     offset_y: usize,
     scroll_step: usize,
+    content_height: AtomicUsize,
+    viewport_height: AtomicUsize,
 }
 
 impl ScrollView {
@@ -2724,6 +2726,8 @@ impl ScrollView {
             height: None,
             offset_y: 0,
             scroll_step: 1,
+            content_height: AtomicUsize::new(0),
+            viewport_height: AtomicUsize::new(0),
         }
     }
 
@@ -2734,6 +2738,7 @@ impl ScrollView {
 
     pub fn scroll_to(&mut self, offset_y: usize) {
         self.offset_y = offset_y;
+        self.clamp_offset();
     }
 
     pub fn scroll_by(&mut self, delta: i32) {
@@ -2742,11 +2747,29 @@ impl ScrollView {
         } else {
             self.offset_y = self.offset_y.saturating_add(delta as usize);
         }
+        self.clamp_offset();
     }
 
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.scroll_step = step.max(1);
         self
+    }
+
+    pub fn offset_y(&self) -> usize {
+        self.offset_y
+    }
+
+    fn max_offset(&self) -> usize {
+        let content = self.content_height.load(Ordering::Relaxed);
+        let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
+        content.saturating_sub(viewport)
+    }
+
+    fn clamp_offset(&mut self) {
+        let max = self.max_offset();
+        if self.offset_y > max {
+            self.offset_y = max;
+        }
     }
 }
 
@@ -2758,6 +2781,8 @@ impl Widget for ScrollView {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        self.viewport_height
+            .store(viewport_height, Ordering::Relaxed);
 
         let mut child_options = options.clone();
         child_options.size = (width, viewport_height.saturating_add(self.offset_y).max(1));
@@ -2767,11 +2792,15 @@ impl Widget for ScrollView {
         let segments = self.child.render(console, &child_options);
         let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
         if let Some(height) = self.child.layout_height() {
-            let capped = height.max(viewport_height + self.offset_y);
-            lines = Segment::set_shape(&lines, width, Some(capped), None, false);
+            lines = Segment::set_shape(&lines, width, Some(height.max(1)), None, false);
         }
 
-        let start = self.offset_y.min(lines.len());
+        let content_height = lines.len().max(viewport_height);
+        self.content_height
+            .store(content_height, Ordering::Relaxed);
+        let max_offset = content_height.saturating_sub(viewport_height);
+        let offset = self.offset_y.min(max_offset);
+        let start = offset.min(lines.len());
         let end = (start + viewport_height).min(lines.len());
         let slice = lines[start..end].to_vec();
         let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
@@ -2835,6 +2864,12 @@ impl Widget for ScrollView {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let mut child_ctx = EventCtx::default();
+        self.child.on_event(event, &mut child_ctx);
+        if child_ctx.handled() {
+            ctx.set_handled();
+            return;
+        }
         if let Event::Action(action) = event {
             match action {
                 Action::ScrollUp => {
