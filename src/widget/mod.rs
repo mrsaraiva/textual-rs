@@ -41,6 +41,66 @@ pub trait Widget: Send + Sync {
     fn layout_height(&self) -> Option<usize> {
         None
     }
+    fn layout_constraints(&self) -> LayoutConstraints {
+        LayoutConstraints::default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LayoutConstraints {
+    pub min_width: Option<usize>,
+    pub max_width: Option<usize>,
+    pub min_height: Option<usize>,
+    pub max_height: Option<usize>,
+}
+
+impl LayoutConstraints {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn min_width(mut self, value: usize) -> Self {
+        self.min_width = Some(value.max(1));
+        self
+    }
+
+    pub fn max_width(mut self, value: usize) -> Self {
+        self.max_width = Some(value.max(1));
+        self
+    }
+
+    pub fn min_height(mut self, value: usize) -> Self {
+        self.min_height = Some(value.max(1));
+        self
+    }
+
+    pub fn max_height(mut self, value: usize) -> Self {
+        self.max_height = Some(value.max(1));
+        self
+    }
+}
+
+fn clamp_with_constraints(
+    value: usize,
+    min: Option<usize>,
+    max: Option<usize>,
+    limit: usize,
+) -> usize {
+    let mut out = value.max(1);
+    if let Some(min) = min {
+        out = out.max(min);
+    }
+    if let Some(max) = max {
+        out = out.min(max);
+    }
+    out.min(limit.max(1))
+}
+
+fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment>> {
+    lines
+        .into_iter()
+        .map(|line| Segment::adjust_line_length(&line, width, None, true))
+        .collect()
 }
 
 pub struct WidgetRenderable<'a> {
@@ -85,12 +145,33 @@ impl Widget for Container {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let segments = child.render(console, options);
+            let constraints = child.layout_constraints();
+            let render_width =
+                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+
+            let segments = child.render(console, &child_options);
             let mut child_lines =
-                Segment::split_and_crop_lines(segments, width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                child_lines = Segment::set_shape(&child_lines, width, Some(height), None, false);
-            }
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            child_lines =
+                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
+            child_lines = pad_lines_to_width(child_lines, width);
             let child_height = child_lines.len();
             let child_region =
                 rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
@@ -135,12 +216,33 @@ impl Widget for Container {
         let mut cursor_y: i32 = 0;
 
         for (idx, child) in self.children.iter().enumerate() {
-            let segments = child.render(console, options);
+            let constraints = child.layout_constraints();
+            let render_width =
+                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+
+            let segments = child.render(console, &child_options);
             let mut child_lines =
-                Segment::split_and_crop_lines(segments, width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                child_lines = Segment::set_shape(&child_lines, width, Some(height), None, false);
-            }
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            child_lines =
+                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
+            child_lines = pad_lines_to_width(child_lines, width);
             let child_height = child_lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
             let child_region =
@@ -245,6 +347,112 @@ impl Renderable for WidgetRenderable<'_> {
     }
 }
 
+pub struct Constrained {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    constraints: LayoutConstraints,
+}
+
+impl Constrained {
+    pub fn new(child: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Box::new(child),
+            constraints: LayoutConstraints::default(),
+        }
+    }
+
+    pub fn min_width(mut self, value: usize) -> Self {
+        self.constraints = self.constraints.min_width(value);
+        self
+    }
+
+    pub fn max_width(mut self, value: usize) -> Self {
+        self.constraints = self.constraints.max_width(value);
+        self
+    }
+
+    pub fn min_height(mut self, value: usize) -> Self {
+        self.constraints = self.constraints.min_height(value);
+        self
+    }
+
+    pub fn max_height(mut self, value: usize) -> Self {
+        self.constraints = self.constraints.max_height(value);
+        self
+    }
+}
+
+impl Widget for Constrained {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.child.render(console, options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        self.child.render_with_debug(console, options, debug)
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.child.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.child.set_focus(focused);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let (Some(min), Some(max)) = (self.constraints.min_height, self.constraints.max_height) {
+            if min == max {
+                return Some(min);
+            }
+        }
+        self.child.layout_height()
+    }
+
+    fn layout_constraints(&self) -> LayoutConstraints {
+        self.constraints
+    }
+}
+
+impl Renderable for Constrained {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Label {
     id: WidgetId,
@@ -333,17 +541,36 @@ impl Widget for Row {
 
         for (idx, child) in self.children.iter().enumerate() {
             let child_width = widths[idx].max(1);
+            let constraints = child.layout_constraints();
+            let render_width = clamp_with_constraints(
+                child_width,
+                constraints.min_width,
+                constraints.max_width,
+                child_width,
+            );
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
             let mut child_options = options.clone();
-            child_options.size = (child_width, height_limit);
-            child_options.max_width = child_width;
-            child_options.max_height = height_limit;
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
 
             let segments = child.render(console, &child_options);
-            let mut lines = Segment::split_and_crop_lines(segments, child_width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                let capped = height.min(height_limit);
-                lines = Segment::set_shape(&lines, child_width, Some(capped), None, false);
-            }
+            let mut lines =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            lines = Segment::set_shape(&lines, render_width, Some(target_height), None, false);
+            lines = pad_lines_to_width(lines, child_width);
             child_lines.push(lines);
         }
 
@@ -401,17 +628,36 @@ impl Widget for Row {
 
         for (idx, child) in self.children.iter().enumerate() {
             let child_width = widths[idx].max(1);
+            let constraints = child.layout_constraints();
+            let render_width = clamp_with_constraints(
+                child_width,
+                constraints.min_width,
+                constraints.max_width,
+                child_width,
+            );
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
             let mut child_options = options.clone();
-            child_options.size = (child_width, height_limit);
-            child_options.max_width = child_width;
-            child_options.max_height = height_limit;
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
 
             let segments = child.render(console, &child_options);
-            let mut lines = Segment::split_and_crop_lines(segments, child_width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                let capped = height.min(height_limit);
-                lines = Segment::set_shape(&lines, child_width, Some(capped), None, false);
-            }
+            let mut lines =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            lines = Segment::set_shape(&lines, render_width, Some(target_height), None, false);
+            lines = pad_lines_to_width(lines, child_width);
             let child_height = lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
             let label = if debug.show_sizes {
@@ -618,14 +864,28 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
+                    let constraints = item.child.layout_constraints();
+                    let render_height = clamp_with_constraints(
+                        height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        height,
+                    );
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
-                    lines = Segment::set_shape(&lines, remaining_width, Some(height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     top_lines.extend(lines);
                     remaining_height = remaining_height.saturating_sub(height);
                 }
@@ -635,55 +895,111 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
+                    let constraints = item.child.layout_constraints();
+                    let render_height = clamp_with_constraints(
+                        height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        height,
+                    );
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
-                    lines = Segment::set_shape(&lines, remaining_width, Some(height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     bottom_lines.extend(lines);
                     remaining_height = remaining_height.saturating_sub(height);
                 }
                 DockKind::Left => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (width, remaining_height);
-                    child_options.max_width = width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, width);
                     left_columns.push((width, lines));
                     remaining_width = remaining_width.saturating_sub(width);
                 }
                 DockKind::Right => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (width, remaining_height);
-                    child_options.max_width = width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, width);
                     right_columns.push((width, lines));
                     remaining_width = remaining_width.saturating_sub(width);
                 }
                 DockKind::Fill => {
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, remaining_height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, remaining_width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     fill_lines = Some(lines);
                 }
             }
@@ -766,14 +1082,28 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
+                    let constraints = item.child.layout_constraints();
+                    let render_height = clamp_with_constraints(
+                        height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        height,
+                    );
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
-                    lines = Segment::set_shape(&lines, remaining_width, Some(height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     let debug_height = (height + 2).max(3);
                     let label = if debug.show_sizes {
                         Some(format!("{remaining_width}x{debug_height}"))
@@ -796,14 +1126,28 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
+                    let constraints = item.child.layout_constraints();
+                    let render_height = clamp_with_constraints(
+                        height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        height,
+                    );
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
-                    lines = Segment::set_shape(&lines, remaining_width, Some(height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     let debug_height = (height + 2).max(3);
                     let label = if debug.show_sizes {
                         Some(format!("{remaining_width}x{debug_height}"))
@@ -822,15 +1166,29 @@ impl Widget for Dock {
                 }
                 DockKind::Left => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (width, remaining_height);
-                    child_options.max_width = width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, width);
                     let debug_height = (remaining_height + 2).max(3);
                     let label = if debug.show_sizes {
                         Some(format!("{width}x{debug_height}"))
@@ -849,15 +1207,29 @@ impl Widget for Dock {
                 }
                 DockKind::Right => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (width, remaining_height);
-                    child_options.max_width = width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, width);
                     let debug_height = (remaining_height + 2).max(3);
                     let label = if debug.show_sizes {
                         Some(format!("{width}x{debug_height}"))
@@ -875,15 +1247,29 @@ impl Widget for Dock {
                     remaining_width = remaining_width.saturating_sub(width);
                 }
                 DockKind::Fill => {
+                    let constraints = item.child.layout_constraints();
+                    let render_width = clamp_with_constraints(
+                        remaining_width,
+                        constraints.min_width,
+                        constraints.max_width,
+                        remaining_width,
+                    );
+                    let render_height = clamp_with_constraints(
+                        remaining_height,
+                        constraints.min_height,
+                        constraints.max_height,
+                        remaining_height,
+                    );
                     let mut child_options = options.clone();
-                    child_options.size = (remaining_width, remaining_height);
-                    child_options.max_width = remaining_width;
-                    child_options.max_height = remaining_height;
+                    child_options.size = (render_width, render_height);
+                    child_options.max_width = render_width;
+                    child_options.max_height = render_height;
                     let segments = item.child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, remaining_width, None, true, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines =
-                        Segment::set_shape(&lines, remaining_width, Some(remaining_height), None, false);
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, remaining_width);
                     let debug_height = (remaining_height + 2).max(3);
                     let label = if debug.show_sizes {
                         Some(format!("{remaining_width}x{debug_height}"))
@@ -2334,12 +2720,33 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let segments = child.render(console, options);
+            let constraints = child.layout_constraints();
+            let render_width =
+                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+            let render_height = clamp_with_constraints(
+                height_limit,
+                constraints.min_height,
+                constraints.max_height,
+                height_limit,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+
+            let segments = child.render(console, &child_options);
             let mut child_lines =
-                Segment::split_and_crop_lines(segments, width, None, true, false);
-            if let Some(height) = child.layout_height() {
-                child_lines = Segment::set_shape(&child_lines, width, Some(height), None, false);
-            }
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
+            target_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            child_lines =
+                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
+            child_lines = pad_lines_to_width(child_lines, width);
             let child_height = child_lines.len();
             let child_region =
                 rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
@@ -2784,16 +3191,30 @@ impl Widget for ScrollView {
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
 
+        let constraints = self.child.layout_constraints();
+        let target_height = self
+            .child
+            .layout_height()
+            .unwrap_or_else(|| viewport_height.saturating_add(self.offset_y).max(1));
+        let render_width =
+            clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+        let render_height = clamp_with_constraints(
+            target_height,
+            constraints.min_height,
+            constraints.max_height,
+            target_height,
+        );
         let mut child_options = options.clone();
-        child_options.size = (width, viewport_height.saturating_add(self.offset_y).max(1));
-        child_options.max_width = width;
-        child_options.max_height = child_options.size.1;
+        child_options.size = (render_width, render_height);
+        child_options.max_width = render_width;
+        child_options.max_height = render_height;
 
         let segments = self.child.render(console, &child_options);
-        let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+        let mut lines = Segment::split_and_crop_lines(segments, render_width, None, true, false);
         if let Some(height) = self.child.layout_height() {
-            lines = Segment::set_shape(&lines, width, Some(height.max(1)), None, false);
+            lines = Segment::set_shape(&lines, render_width, Some(height.max(1)), None, false);
         }
+        lines = pad_lines_to_width(lines, width);
 
         let content_height = lines.len().max(viewport_height);
         self.content_height
@@ -3017,15 +3438,32 @@ impl Widget for Grid {
                 let idx = r * self.cols + c;
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
+                let constraints = self.cells[idx]
+                    .as_ref()
+                    .map(|child| child.layout_constraints())
+                    .unwrap_or_default();
+                let render_width = clamp_with_constraints(
+                    cell_width,
+                    constraints.min_width,
+                    constraints.max_width,
+                    cell_width,
+                );
+                let render_height = clamp_with_constraints(
+                    cell_height,
+                    constraints.min_height,
+                    constraints.max_height,
+                    cell_height,
+                );
                 let mut child_options = options.clone();
-                child_options.size = (cell_width, cell_height);
-                child_options.max_width = cell_width;
-                child_options.max_height = cell_height;
+                child_options.size = (render_width, render_height);
+                child_options.max_width = render_width;
+                child_options.max_height = render_height;
                 let lines = if let Some(child) = &self.cells[idx] {
                     let segments = child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, cell_width, None, true, false);
-                    lines = Segment::set_shape(&lines, cell_width, Some(cell_height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, cell_width);
                     lines
                 } else {
                     Segment::set_shape(&[], cell_width, Some(cell_height), None, false)
@@ -3115,15 +3553,32 @@ impl Widget for Grid {
                 let idx = r * self.cols + c;
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
+                let constraints = self.cells[idx]
+                    .as_ref()
+                    .map(|child| child.layout_constraints())
+                    .unwrap_or_default();
+                let render_width = clamp_with_constraints(
+                    cell_width,
+                    constraints.min_width,
+                    constraints.max_width,
+                    cell_width,
+                );
+                let render_height = clamp_with_constraints(
+                    cell_height,
+                    constraints.min_height,
+                    constraints.max_height,
+                    cell_height,
+                );
                 let mut child_options = options.clone();
-                child_options.size = (cell_width, cell_height);
-                child_options.max_width = cell_width;
-                child_options.max_height = cell_height;
+                child_options.size = (render_width, render_height);
+                child_options.max_width = render_width;
+                child_options.max_height = render_height;
                 let lines = if let Some(child) = &self.cells[idx] {
                     let segments = child.render(console, &child_options);
                     let mut lines =
-                        Segment::split_and_crop_lines(segments, cell_width, None, true, false);
-                    lines = Segment::set_shape(&lines, cell_width, Some(cell_height), None, false);
+                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
+                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines = pad_lines_to_width(lines, cell_width);
                     let label = if debug.show_sizes {
                         Some(format!("{cell_width}x{cell_height}"))
                     } else {

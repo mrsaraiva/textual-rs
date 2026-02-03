@@ -1,0 +1,12 @@
+---
+source: tests/constrained.rs
+assertion_line: 22
+expression: buf.debug_dump()
+---
+lines:
+0: "* one       "
+1: "  two       "
+2: "            "
+3: "            "
+4: "            "
+meta:

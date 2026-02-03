@@ -36,8 +36,9 @@ This repository assumes `rich-rs` exists as the underlying rendering engine (seg
 `textual-rs` includes a minimal box model via the `Frame` widget: it wraps a single child
 with padding and an optional border (Unicode box drawing). Basic layout primitives include
 `Container` (vertical), `Row` (horizontal), `Dock` (top/bottom/left/right/fill), and `Grid`
-(fixed rows/cols). `ScrollView` provides MVP vertical scrolling within a fixed height.
-Containers clip children to the current viewport height (MVP clipping). This is an MVP layout
+(fixed rows/cols). `ScrollView` provides MVP vertical scrolling within a fixed height. Use
+`Constrained` (or `LayoutConstraints`) to apply simple min/max sizing hints. Containers clip
+children to the current viewport height (MVP clipping). This is an MVP layout
 primitive, not a full styling system.
 
 Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, and `Overlay`.
