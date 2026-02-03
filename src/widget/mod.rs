@@ -1045,6 +1045,11 @@ impl Widget for Button {
         if !self.focused {
             return;
         }
+        if let Event::Action(Action::Toggle) = event {
+            self.pressed = !self.pressed;
+            ctx.set_handled();
+            return;
+        }
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
@@ -1069,6 +1074,203 @@ impl Widget for Button {
 }
 
 impl Renderable for Button {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Checkbox {
+    id: WidgetId,
+    label: String,
+    checked: bool,
+    focused: bool,
+}
+
+impl Checkbox {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            label: label.into(),
+            checked: false,
+            focused: false,
+        }
+    }
+
+    pub fn checked(&self) -> bool {
+        self.checked
+    }
+
+    pub fn set_checked(&mut self, checked: bool) {
+        self.checked = checked;
+    }
+}
+
+impl Widget for Checkbox {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.focused {
+            return;
+        }
+        if let Event::Action(Action::Toggle) = event {
+            self.checked = !self.checked;
+            ctx.set_handled();
+            return;
+        }
+        if let Event::Key(key) = event {
+            match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.checked = !self.checked;
+                    ctx.set_handled();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let marker = if self.focused { "> " } else { "  " };
+        let state = if self.checked { "[x]" } else { "[ ]" };
+        let text = Text::plain(format!("{marker}{state} {}", self.label));
+        text.render(console, options)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl Renderable for Checkbox {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Input {
+    id: WidgetId,
+    text: String,
+    cursor: usize,
+    focused: bool,
+    placeholder: Option<String>,
+}
+
+impl Input {
+    pub fn new() -> Self {
+        Self {
+            id: WidgetId::new(),
+            text: String::new(),
+            cursor: 0,
+            focused: false,
+            placeholder: None,
+        }
+    }
+
+    pub fn with_placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    pub fn value(&self) -> &str {
+        &self.text
+    }
+
+    pub fn set_value(&mut self, value: impl Into<String>) {
+        self.text = value.into();
+        self.cursor = self.text.len();
+    }
+}
+
+impl Widget for Input {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.focused {
+            return;
+        }
+        if let Event::Key(key) = event {
+            match key.code {
+                KeyCode::Char(ch) => {
+                    self.text.insert(self.cursor, ch);
+                    self.cursor += 1;
+                    ctx.set_handled();
+                }
+                KeyCode::Backspace => {
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
+                        self.text.remove(self.cursor);
+                        ctx.set_handled();
+                    }
+                }
+                KeyCode::Delete => {
+                    if self.cursor < self.text.len() {
+                        self.text.remove(self.cursor);
+                        ctx.set_handled();
+                    }
+                }
+                KeyCode::Left => {
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
+                        ctx.set_handled();
+                    }
+                }
+                KeyCode::Right => {
+                    if self.cursor < self.text.len() {
+                        self.cursor += 1;
+                        ctx.set_handled();
+                    }
+                }
+                KeyCode::Home => {
+                    self.cursor = 0;
+                    ctx.set_handled();
+                }
+                KeyCode::End => {
+                    self.cursor = self.text.len();
+                    ctx.set_handled();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let marker = if self.focused { "> " } else { "  " };
+        let content = if self.text.is_empty() {
+            self.placeholder.clone().unwrap_or_default()
+        } else {
+            self.text.clone()
+        };
+        let text = Text::plain(format!("{marker}{content}"));
+        text.render(console, options)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl Renderable for Input {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }

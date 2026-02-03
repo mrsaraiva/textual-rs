@@ -100,6 +100,8 @@ async fn main() -> Result<()> {
         .with_child(row)
         .with_child(dock)
         .with_child(scroller)
+        .with_child(Input::new().with_placeholder("type here..."))
+        .with_child(Checkbox::new("accept terms"))
         .with_child(TickLabel::new())
         .with_child(MountedLabel::new())
         .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1))

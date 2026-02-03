@@ -17,6 +17,7 @@ pub enum Action {
     ScrollDown,
     ScrollPageUp,
     ScrollPageDown,
+    Toggle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

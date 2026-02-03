@@ -249,6 +249,14 @@ fn default_action_map() -> ActionMap {
         KeyBind::new(KeyCode::Char('j'), KeyModifiers::empty()),
         Action::ScrollDown,
     );
+    map.bind(
+        KeyBind::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        Action::Toggle,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Enter, KeyModifiers::empty()),
+        Action::Toggle,
+    );
     map
 }
 

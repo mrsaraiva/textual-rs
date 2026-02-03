@@ -1,0 +1,8 @@
+---
+source: tests/checkbox_widget.rs
+assertion_line: 21
+expression: buf.debug_dump()
+---
+lines:
+0: "> [x] remember  "
+meta:

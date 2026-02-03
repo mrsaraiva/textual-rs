@@ -16,8 +16,8 @@ pub mod prelude {
     pub use crate::debug::DebugLayout;
     pub use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
     pub use crate::widget::{
-        AppRoot, Button, Container, Dock, Frame, Grid, Label, Row, ScrollView, Widget, WidgetId,
-        WidgetRenderable,
+        AppRoot, Button, Checkbox, Container, Dock, Frame, Grid, Input, Label, Row, ScrollView,
+        Widget, WidgetId, WidgetRenderable,
     };
     pub use crate::{Error, Result};
 }
