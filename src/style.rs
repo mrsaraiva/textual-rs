@@ -63,6 +63,18 @@ impl Style {
         }
     }
 
+    pub fn inherit_from(&self, parent: &Style) -> Style {
+        Style {
+            fg: self.fg.or(parent.fg),
+            bg: self.bg.or(parent.bg),
+            bold: self.bold.or(parent.bold),
+            dim: self.dim.or(parent.dim),
+            italic: self.italic.or(parent.italic),
+            underline: self.underline.or(parent.underline),
+            border: self.border.or(parent.border),
+        }
+    }
+
     pub fn to_rich(&self) -> Option<rich_rs::Style> {
         if self.is_empty() {
             return None;

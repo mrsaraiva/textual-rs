@@ -51,6 +51,7 @@ selector/cascade system lands.
 
 Selector styling (MVP) is available via `StyleSheet` with `Type`, `Id`, and `Class` selectors.
 Use `Node` to attach ids/classes to existing widgets.
+Minimal stylesheet parsing is available via `StyleSheet::parse`.
 
 ## Rich-rs integration contract
 

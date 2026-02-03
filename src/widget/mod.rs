@@ -11,6 +11,7 @@ use crossterm::event::KeyCode;
 
 thread_local! {
     static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
+    static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -26,32 +27,23 @@ impl WidgetId {
 pub trait Widget: Send + Sync {
     fn id(&self) -> WidgetId;
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
-    fn render_styled_dyn(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: Option<&DebugLayout>,
-    ) -> Segments
-    where
-        Self: Sized,
-    {
-        let segments = match debug {
-            Some(debug) => self.render_with_debug(console, options, debug),
-            None => self.render(console, options),
-        };
-        apply_stylesheet(self, segments)
-    }
     fn render_styled_dyn_obj(
         &self,
         console: &Console,
         options: &ConsoleOptions,
         debug: Option<&DebugLayout>,
     ) -> Segments {
-        let segments = match debug {
-            Some(debug) => self.render_with_debug(console, options, debug),
-            None => self.render(console, options),
-        };
-        apply_stylesheet(self, segments)
+        let resolved = resolve_style(self);
+        let segments = STYLE_STACK.with(|stack| {
+            stack.borrow_mut().push(resolved);
+            let rendered = match debug {
+                Some(debug) => self.render_with_debug(console, options, debug),
+                None => self.render(console, options),
+            };
+            stack.borrow_mut().pop();
+            rendered
+        });
+        apply_style_to_segments(segments, resolved)
     }
     fn render_with_debug(
         &self,
@@ -168,17 +160,18 @@ fn empty_classes() -> &'static [String] {
     EMPTY.get_or_init(Vec::new)
 }
 
-fn apply_stylesheet<T: Widget + ?Sized>(widget: &T, segments: Segments) -> Segments {
-    let mut style = STYLE_CONTEXT
+fn resolve_style<T: Widget + ?Sized>(widget: &T) -> Style {
+    let sheet_style = STYLE_CONTEXT
         .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget)))
         .unwrap_or_default();
+    let mut style = sheet_style;
     if let Some(inline) = widget.style() {
         style = style.combine(&inline);
     }
-    if style.is_empty() {
-        return segments;
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
+        style = style.inherit_from(&parent);
     }
-    apply_style_to_segments(segments, style)
+    style
 }
 
 fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
@@ -202,6 +195,81 @@ fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
         })
         .collect()
 }
+
+fn parse_selector(selector: &str) -> Option<StyleSelector> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return None;
+    }
+    if let Some(rest) = selector.strip_prefix('#') {
+        return Some(StyleSelector::Id(rest.trim().to_string()));
+    }
+    if let Some(rest) = selector.strip_prefix('.') {
+        return Some(StyleSelector::Class(rest.trim().to_string()));
+    }
+    Some(StyleSelector::Type(selector.to_string()))
+}
+
+fn parse_style_body(body: &str) -> Style {
+    let mut style = Style::new();
+    for decl in body.split(';') {
+        let decl = decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        let mut parts = decl.splitn(2, ':');
+        let key = parts.next().unwrap_or("").trim().to_lowercase();
+        let value = parts.next().unwrap_or("").trim();
+        match key.as_str() {
+            "fg" | "color" => {
+                if let Some(color) = crate::style::Color::parse(value) {
+                    style = style.fg(color);
+                }
+            }
+            "bg" | "background" => {
+                if let Some(color) = crate::style::Color::parse(value) {
+                    style = style.bg(color);
+                }
+            }
+            "bold" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.bold(val);
+                }
+            }
+            "dim" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.dim(val);
+                }
+            }
+            "italic" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.italic(val);
+                }
+            }
+            "underline" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.underline(val);
+                }
+            }
+            "border" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.border(val);
+                }
+            }
+            _ => {}
+        }
+    }
+    style
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 
 fn crop_line_horizontal(line: &[Segment], start: usize, width: usize) -> Vec<Segment> {
     if width == 0 {
@@ -504,14 +572,14 @@ impl Renderable for WidgetRenderable<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum StyleSelector {
-    Type(&'static str),
-    Id(&'static str),
-    Class(&'static str),
+    Type(String),
+    Id(String),
+    Class(String),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct StyleRule {
     selector: StyleSelector,
     style: Style,
@@ -531,34 +599,61 @@ impl StyleSheet {
         self.rules.push(StyleRule { selector, style });
     }
 
-    pub fn add_type(&mut self, name: &'static str, style: Style) {
-        self.add_rule(StyleSelector::Type(name), style);
+    pub fn add_type(&mut self, name: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::Type(name.into()), style);
     }
 
-    pub fn add_id(&mut self, id: &'static str, style: Style) {
-        self.add_rule(StyleSelector::Id(id), style);
+    pub fn add_id(&mut self, id: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::Id(id.into()), style);
     }
 
-    pub fn add_class(&mut self, class: &'static str, style: Style) {
-        self.add_rule(StyleSelector::Class(class), style);
+    pub fn add_class(&mut self, class: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::Class(class.into()), style);
     }
 
     fn style_for<T: Widget + ?Sized>(&self, widget: &T) -> Style {
-        let mut out = Style::new();
-        for rule in &self.rules {
-            let matches = match rule.selector {
-                StyleSelector::Type(name) => widget.style_type() == name,
-                StyleSelector::Id(id) => widget.style_id() == Some(id),
-                StyleSelector::Class(class) => widget
-                    .style_classes()
-                    .iter()
-                    .any(|value| value == class),
+        let mut matches: Vec<(u8, usize, Style)> = Vec::new();
+        for (idx, rule) in self.rules.iter().enumerate() {
+            let (score, matched) = match &rule.selector {
+                StyleSelector::Type(name) => (1, widget.style_type() == name.as_str()),
+                StyleSelector::Class(class) => (
+                    10,
+                    widget.style_classes().iter().any(|value| value == class),
+                ),
+                StyleSelector::Id(id) => (100, widget.style_id() == Some(id.as_str())),
             };
-            if matches {
-                out = out.combine(&rule.style);
+            if matched {
+                matches.push((score, idx, rule.style));
             }
         }
+        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let mut out = Style::new();
+        for (_, _, style) in matches {
+            out = out.combine(&style);
+        }
         out
+    }
+
+    pub fn parse(input: &str) -> Self {
+        let mut sheet = StyleSheet::new();
+        let mut rest = input;
+        while let Some(start) = rest.find('{') {
+            let selector = rest[..start].trim();
+            let after = &rest[start + 1..];
+            let end = match after.find('}') {
+                Some(pos) => pos,
+                None => break,
+            };
+            let body = &after[..end];
+            if let Some(selector_kind) = parse_selector(selector) {
+                let style = parse_style_body(body);
+                if !style.is_empty() {
+                    sheet.add_rule(selector_kind, style);
+                }
+            }
+            rest = &after[end + 1..];
+        }
+        sheet
     }
 }
 

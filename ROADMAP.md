@@ -108,6 +108,8 @@ Deliverable: sidebar + main view + footer layout with scrolling content.
 | Done | Typed style props | color, bg, bold, border, etc. |
 | Done | Inline style API | `Style` + `Styled` wrapper |
 | Done | Selector model | by id/class/type (subset) |
+| Done | Style inheritance | basic parent → child propagation |
+| Done | Stylesheet parser | minimal `StyleSheet::parse` |
 | Todo | Cascading + computed styles | resolve inheritance and overrides |
 | Todo | Style invalidation | update styles without rebuilding tree |
 
