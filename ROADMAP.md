@@ -137,7 +137,7 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 | Todo | Label / Static | text rendering + wrapping |
 | Todo | Button | focus + click + states |
 | Todo | Input | text entry, cursor, selection |
-| In progress | ListView / DataTable | virtualization later |
+| Done | ListView / DataTable | virtualization later |
 | In progress | Modal / overlay | stacking and focus trap |
 
 ---

@@ -1243,6 +1243,204 @@ impl Renderable for ListView {
 }
 
 #[derive(Debug, Clone)]
+pub struct DataTable {
+    id: WidgetId,
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+    selected: usize,
+    offset: usize,
+    focused: bool,
+}
+
+impl DataTable {
+    pub fn new(headers: Vec<String>, rows: Vec<Vec<String>>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            headers,
+            rows,
+            selected: 0,
+            offset: 0,
+            focused: false,
+        }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn set_selected(&mut self, index: usize) {
+        if self.rows.is_empty() {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        self.selected = index.min(self.rows.len() - 1);
+    }
+
+    fn ensure_visible(&mut self, height: usize) {
+        if self.rows.is_empty() || height == 0 {
+            self.offset = 0;
+            return;
+        }
+        if self.selected < self.offset {
+            self.offset = self.selected;
+        } else if self.selected >= self.offset + height {
+            self.offset = self.selected + 1 - height;
+        }
+    }
+}
+
+impl Widget for DataTable {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.focused {
+            return;
+        }
+        let mut handled = false;
+        match event {
+            Event::Action(Action::ScrollUp) => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollDown) => {
+                if self.selected + 1 < self.rows.len() {
+                    self.selected += 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageUp) => {
+                if self.selected > 0 {
+                    let step = 5.min(self.selected);
+                    self.selected -= step;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageDown) => {
+                if self.selected + 1 < self.rows.len() {
+                    let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
+                    self.selected += step;
+                }
+                handled = true;
+            }
+            Event::Key(key) => match key.code {
+                KeyCode::Up => {
+                    if self.selected > 0 {
+                        self.selected -= 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::Down => {
+                    if self.selected + 1 < self.rows.len() {
+                        self.selected += 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageUp => {
+                    if self.selected > 0 {
+                        let step = 5.min(self.selected);
+                        self.selected -= step;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageDown => {
+                    if self.selected + 1 < self.rows.len() {
+                        let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
+                        self.selected += step;
+                    }
+                    handled = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        if handled {
+            ctx.set_handled();
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let cols = self.headers.len().max(1);
+
+        let sep_width = 3usize; // " | "
+        let total_sep = sep_width.saturating_mul(cols.saturating_sub(1));
+        let inner_width = width.saturating_sub(total_sep).max(1);
+        let base = inner_width / cols;
+        let rem = inner_width % cols;
+        let col_widths: Vec<usize> = (0..cols)
+            .map(|idx| base + if idx < rem { 1 } else { 0 })
+            .collect();
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut header_cells: Vec<String> = Vec::new();
+        for (idx, header) in self.headers.iter().enumerate() {
+            let w = col_widths.get(idx).copied().unwrap_or(1).max(1);
+            header_cells.push(rich_rs::set_cell_size(header, w));
+        }
+        if !header_cells.is_empty() {
+            lines.push(header_cells.join(" | "));
+            let sep = header_cells
+                .iter()
+                .map(|h| "-".repeat(rich_rs::cell_len(h)))
+                .collect::<Vec<_>>()
+                .join("-+-");
+            lines.push(sep);
+        }
+
+        let mut view = self.clone();
+        let rows_available = height.saturating_sub(lines.len()).max(0);
+        view.ensure_visible(rows_available);
+
+        for (row_idx, row) in view.rows.iter().enumerate() {
+            if row_idx < view.offset {
+                continue;
+            }
+            if lines.len() >= height {
+                break;
+            }
+            let mut cells: Vec<String> = Vec::new();
+            for (idx, w) in col_widths.iter().enumerate() {
+                let mut cell = row.get(idx).cloned().unwrap_or_default();
+                if idx == 0 && row_idx == view.selected {
+                    if *w >= 2 {
+                        let marker = if self.focused { "> " } else { "* " };
+                        cell = format!("{marker}{cell}");
+                    }
+                }
+                cells.push(rich_rs::set_cell_size(&cell, *w));
+            }
+            lines.push(cells.join(" | "));
+        }
+
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+        let text = Text::plain(lines.join("\n"));
+        text.render(console, options)
+    }
+}
+
+impl Renderable for DataTable {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Checkbox {
     id: WidgetId,
     label: String,

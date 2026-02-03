@@ -94,6 +94,14 @@ async fn main() -> Result<()> {
     grid.set(1, 0, Label::new("g(1,0)"));
     grid.set(1, 1, Label::new("g(1,1)"));
     let scroller = ScrollView::new(grid).height(4);
+    let table = DataTable::new(
+        vec!["Name".into(), "Value".into()],
+        vec![
+            vec!["Alpha".into(), "1".into()],
+            vec!["Beta".into(), "2".into()],
+            vec!["Gamma".into(), "3".into()],
+        ],
+    );
     let mut root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))
         .with_child(Label::new(format!("size: {}x{}", size.width, size.height)))
@@ -105,6 +113,7 @@ async fn main() -> Result<()> {
             "item two".to_string(),
             "item three".to_string(),
         ]))
+        .with_child(table)
         .with_child(Overlay::new(
             Label::new("overlay base"),
             Frame::new(Label::new("overlay modal")).padding(1),
