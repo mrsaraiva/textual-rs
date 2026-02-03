@@ -30,6 +30,8 @@ pub trait Widget: Send + Sync {
     fn on_mount(&mut self) {}
     fn on_unmount(&mut self) {}
     fn on_tick(&mut self, _tick: u64) {}
+    fn on_resize(&mut self, _width: u16, _height: u16) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn focusable(&self) -> bool {
         false
@@ -196,6 +198,21 @@ impl Widget for Container {
     fn on_tick(&mut self, tick: u64) {
         for child in &mut self.children {
             child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        for child in &mut self.children {
+            child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for child in &mut self.children {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
         }
     }
 
@@ -459,6 +476,21 @@ impl Widget for Row {
     fn on_tick(&mut self, tick: u64) {
         for child in &mut self.children {
             child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        for child in &mut self.children {
+            child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for child in &mut self.children {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
         }
     }
 
@@ -938,6 +970,21 @@ impl Widget for Dock {
         }
     }
 
+    fn on_resize(&mut self, width: u16, height: u16) {
+        for item in &mut self.items {
+            item.child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for item in &mut self.items {
+            item.child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         for item in &mut self.items {
             item.child.on_event(event, ctx);
@@ -1051,7 +1098,7 @@ impl AppRoot {
         self.children.push(Box::new(child));
     }
 
-    fn focus_first(&mut self) {
+    pub fn focus_first(&mut self) {
         self.focused = None;
         for (idx, child) in self.children.iter_mut().enumerate() {
             if child.focusable() {
@@ -1062,7 +1109,7 @@ impl AppRoot {
         }
     }
 
-    fn focus_next(&mut self) {
+    pub fn focus_next(&mut self) {
         if self.children.is_empty() {
             return;
         }
@@ -1084,7 +1131,7 @@ impl AppRoot {
         self.focused = None;
     }
 
-    fn focus_prev(&mut self) {
+    pub fn focus_prev(&mut self) {
         if self.children.is_empty() {
             return;
         }
@@ -1108,6 +1155,26 @@ impl AppRoot {
             visited += 1;
         }
         self.focused = None;
+    }
+
+    pub fn focus(&mut self, id: WidgetId) -> bool {
+        let target = self
+            .children
+            .iter()
+            .enumerate()
+            .find(|(_, child)| child.id() == id && child.focusable())
+            .map(|(idx, _)| idx);
+
+        if let Some(idx) = target {
+            if let Some(cur) = self.focused {
+                self.children[cur].set_focus(false);
+            }
+            self.children[idx].set_focus(true);
+            self.focused = Some(idx);
+            return true;
+        }
+
+        false
     }
 }
 
@@ -1246,6 +1313,21 @@ impl Widget for AppRoot {
     fn on_tick(&mut self, tick: u64) {
         for child in &mut self.children {
             child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        for child in &mut self.children {
+            child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for child in &mut self.children {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
         }
     }
 
@@ -1457,6 +1539,14 @@ impl Widget for Frame {
         self.child.on_tick(tick);
     }
 
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
     }
@@ -1598,6 +1688,14 @@ impl Widget for ScrollView {
 
     fn on_tick(&mut self, tick: u64) {
         self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1934,6 +2032,25 @@ impl Widget for Grid {
         for cell in &mut self.cells {
             if let Some(child) = cell {
                 child.on_tick(tick);
+            }
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_resize(width, height);
+            }
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                child.on_event_capture(event, ctx);
+                if ctx.handled() {
+                    break;
+                }
             }
         }
     }

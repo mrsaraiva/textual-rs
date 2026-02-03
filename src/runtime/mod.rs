@@ -166,19 +166,18 @@ impl App {
                         if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
                             break;
                         }
-                        let mut ctx = EventCtx::default();
                         let bind = KeyBind::from_event(&key);
                         if let Some(action) = self.action_map.lookup(&bind) {
-                            root.on_event(&Event::Action(action), &mut ctx);
+                            dispatch_event(root, Event::Action(action));
                         } else {
-                            root.on_event(&Event::Key(key), &mut ctx);
+                            dispatch_event(root, Event::Key(key));
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
                         self.refresh_size()?;
-                        let mut ctx = EventCtx::default();
                         let size = self.driver.size();
-                        root.on_event(&Event::Resize(size.width, size.height), &mut ctx);
+                        root.on_resize(size.width, size.height);
+                        dispatch_event(root, Event::Resize(size.width, size.height));
                     }
                     _ => {}
                 }
@@ -186,8 +185,7 @@ impl App {
 
             if last_render.elapsed() >= tick_rate {
                 root.on_tick(tick);
-                let mut ctx = EventCtx::default();
-                root.on_event(&Event::Tick(tick), &mut ctx);
+                dispatch_event(root, Event::Tick(tick));
                 self.render_widget(root)?;
                 tick += 1;
                 last_render = Instant::now();
@@ -252,4 +250,12 @@ fn default_action_map() -> ActionMap {
         Action::ScrollDown,
     );
     map
+}
+
+fn dispatch_event(root: &mut dyn Widget, event: Event) {
+    let mut ctx = EventCtx::default();
+    root.on_event_capture(&event, &mut ctx);
+    if !ctx.handled() {
+        root.on_event(&event, &mut ctx);
+    }
 }

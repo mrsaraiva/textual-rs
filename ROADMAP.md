@@ -72,10 +72,10 @@ Deliverable: compose a view with multiple widgets and update state to trigger re
 | Status | Task | Notes |
 |--------|------|-------|
 | Todo | Event types | key, mouse, paste, resize |
-| Todo | Event routing | bubbling/capture (as needed) |
-| Todo | Focus system | focusable widgets, tab order |
+| In progress | Event routing | bubbling/capture (as needed) |
+| In progress | Focus system | focusable widgets, tab order |
 | In progress | Key bindings | map keys → actions/commands |
-| Todo | Resize handling | recompute layout + rerender |
+| In progress | Resize handling | recompute layout + rerender |
 
 Deliverable: focusable button-like widget + key bindings + mouse click.
 
