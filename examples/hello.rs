@@ -102,6 +102,20 @@ async fn main() -> Result<()> {
             vec!["Gamma".into(), "3".into()],
         ],
     );
+    let tree = Tree::new(vec![
+        TreeNode::new("Root")
+            .with_child(TreeNode::new("Child A"))
+            .with_child(
+                TreeNode::new("Child B")
+                    .expanded(false)
+                    .with_child(TreeNode::new("Leaf")),
+            ),
+        TreeNode::new("Other"),
+    ]);
+    let tabs = Tabs::new()
+        .with_tab("One", Label::new("first tab"))
+        .with_tab("Two", Label::new("second tab"));
+    let markdown = Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`");
     let mut root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))
         .with_child(Label::new(format!("size: {}x{}", size.width, size.height)))
@@ -114,6 +128,9 @@ async fn main() -> Result<()> {
             "item three".to_string(),
         ]))
         .with_child(table)
+        .with_child(tree)
+        .with_child(tabs)
+        .with_child(markdown)
         .with_child(Overlay::new(
             Label::new("overlay base"),
             Frame::new(Label::new("overlay modal")).padding(1),

@@ -40,7 +40,7 @@ with padding and an optional border (Unicode box drawing). Basic layout primitiv
 Containers clip children to the current viewport height (MVP clipping). This is an MVP layout
 primitive, not a full styling system.
 
-Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, and `Overlay`.
+Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, and `Overlay`.
 
 ## Rich-rs integration contract
 

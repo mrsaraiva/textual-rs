@@ -134,11 +134,14 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Label / Static | text rendering + wrapping |
-| Todo | Button | focus + click + states |
-| Todo | Input | text entry, cursor, selection |
+| Done | Label / Static | text rendering + wrapping |
+| Done | Button | focus + click + states |
+| Done | Input | text entry, cursor, selection |
 | Done | ListView / DataTable | virtualization later |
 | In progress | Modal / overlay | stacking and focus trap |
+| Done | Tree | expand/collapse + selection |
+| Done | Tabs | header + active pane |
+| Done | Markdown | render via rich-rs |
 
 ---
 

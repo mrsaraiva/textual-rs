@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::markdown::Markdown as RichMarkdown;
 
 use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
@@ -1435,6 +1436,578 @@ impl Widget for DataTable {
 }
 
 impl Renderable for DataTable {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNode {
+    label: String,
+    children: Vec<TreeNode>,
+    expanded: bool,
+}
+
+impl TreeNode {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            children: Vec::new(),
+            expanded: true,
+        }
+    }
+
+    pub fn with_child(mut self, child: TreeNode) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    pub fn push(&mut self, child: TreeNode) {
+        self.children.push(child);
+    }
+
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = expanded;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Tree {
+    id: WidgetId,
+    roots: Vec<TreeNode>,
+    selected: usize,
+    offset: usize,
+    focused: bool,
+}
+
+impl Tree {
+    pub fn new(roots: Vec<TreeNode>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            roots,
+            selected: 0,
+            offset: 0,
+            focused: false,
+        }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn set_selected(&mut self, index: usize) {
+        let total = self.visible_count();
+        if total == 0 {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        self.selected = index.min(total - 1);
+    }
+
+    fn visible_count(&self) -> usize {
+        fn walk(nodes: &[TreeNode], count: &mut usize) {
+            for node in nodes {
+                *count += 1;
+                if node.expanded {
+                    walk(&node.children, count);
+                }
+            }
+        }
+        let mut count = 0;
+        walk(&self.roots, &mut count);
+        count
+    }
+
+    fn ensure_visible(&mut self, height: usize) {
+        if height == 0 {
+            self.offset = 0;
+            return;
+        }
+        let total = self.visible_count();
+        if total == 0 {
+            self.offset = 0;
+            return;
+        }
+        if self.selected < self.offset {
+            self.offset = self.selected;
+        } else if self.selected >= self.offset + height {
+            self.offset = self.selected + 1 - height;
+        }
+    }
+
+    fn toggle_selected(&mut self) {
+        let mut index = 0usize;
+        if let Some(node) = node_mut_by_visible_index(&mut self.roots, self.selected, &mut index) {
+            if !node.children.is_empty() {
+                node.expanded = !node.expanded;
+            }
+        }
+    }
+}
+
+impl Widget for Tree {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.focused {
+            return;
+        }
+        let mut handled = false;
+        match event {
+            Event::Action(Action::ScrollUp) => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollDown) => {
+                let total = self.visible_count();
+                if self.selected + 1 < total {
+                    self.selected += 1;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageUp) => {
+                if self.selected > 0 {
+                    let step = 5.min(self.selected);
+                    self.selected -= step;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollPageDown) => {
+                let total = self.visible_count();
+                if self.selected + 1 < total {
+                    let step = 5.min(total.saturating_sub(1) - self.selected);
+                    self.selected += step;
+                }
+                handled = true;
+            }
+            Event::Action(Action::Toggle) => {
+                self.toggle_selected();
+                handled = true;
+            }
+            Event::Key(key) => match key.code {
+                KeyCode::Up => {
+                    if self.selected > 0 {
+                        self.selected -= 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::Down => {
+                    let total = self.visible_count();
+                    if self.selected + 1 < total {
+                        self.selected += 1;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageUp => {
+                    if self.selected > 0 {
+                        let step = 5.min(self.selected);
+                        self.selected -= step;
+                    }
+                    handled = true;
+                }
+                KeyCode::PageDown => {
+                    let total = self.visible_count();
+                    if self.selected + 1 < total {
+                        let step = 5.min(total.saturating_sub(1) - self.selected);
+                        self.selected += step;
+                    }
+                    handled = true;
+                }
+                KeyCode::Left => {
+                    let mut index = 0usize;
+                    if let Some(node) =
+                        node_mut_by_visible_index(&mut self.roots, self.selected, &mut index)
+                    {
+                        if node.expanded {
+                            node.expanded = false;
+                        }
+                    }
+                    handled = true;
+                }
+                KeyCode::Right => {
+                    let mut index = 0usize;
+                    if let Some(node) =
+                        node_mut_by_visible_index(&mut self.roots, self.selected, &mut index)
+                    {
+                        if !node.children.is_empty() {
+                            node.expanded = true;
+                        }
+                    }
+                    handled = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        if handled {
+            ctx.set_handled();
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let height = options.size.1.max(1);
+        let mut view = self.clone();
+        view.ensure_visible(height);
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut index = 0usize;
+        render_tree_lines(
+            &view.roots,
+            0,
+            &mut index,
+            view.selected,
+            view.offset,
+            height,
+            view.focused,
+            &mut lines,
+        );
+
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+        let text = Text::plain(lines.join("\n"));
+        text.render(console, options)
+    }
+}
+
+impl Renderable for Tree {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+fn node_mut_by_visible_index<'a>(
+    nodes: &'a mut [TreeNode],
+    target: usize,
+    index: &mut usize,
+) -> Option<&'a mut TreeNode> {
+    for node in nodes {
+        if *index == target {
+            return Some(node);
+        }
+        *index += 1;
+        if node.expanded {
+            if let Some(found) = node_mut_by_visible_index(&mut node.children, target, index) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn render_tree_lines(
+    nodes: &[TreeNode],
+    depth: usize,
+    index: &mut usize,
+    selected: usize,
+    offset: usize,
+    height: usize,
+    focused: bool,
+    lines: &mut Vec<String>,
+) {
+    for node in nodes {
+        if lines.len() >= height {
+            return;
+        }
+        if *index >= offset && lines.len() < height {
+            let marker = if *index == selected {
+                if focused { "> " } else { "* " }
+            } else {
+                "  "
+            };
+            let twist = if node.children.is_empty() {
+                " "
+            } else if node.expanded {
+                "v"
+            } else {
+                ">"
+            };
+            let indent = "  ".repeat(depth);
+            lines.push(format!("{marker}{indent}{twist} {}", node.label));
+        }
+        *index += 1;
+        if node.expanded {
+            render_tree_lines(
+                &node.children,
+                depth + 1,
+                index,
+                selected,
+                offset,
+                height,
+                focused,
+                lines,
+            );
+        }
+    }
+}
+
+pub struct Tabs {
+    id: WidgetId,
+    tabs: Vec<Tab>,
+    active: usize,
+    focused: bool,
+}
+
+pub struct Tab {
+    title: String,
+    child: Box<dyn Widget>,
+}
+
+impl Tabs {
+    pub fn new() -> Self {
+        Self {
+            id: WidgetId::new(),
+            tabs: Vec::new(),
+            active: 0,
+            focused: false,
+        }
+    }
+
+    pub fn with_tab(mut self, title: impl Into<String>, child: impl Widget + 'static) -> Self {
+        self.tabs.push(Tab {
+            title: title.into(),
+            child: Box::new(child),
+        });
+        self
+    }
+
+    pub fn push(&mut self, title: impl Into<String>, child: impl Widget + 'static) {
+        self.tabs.push(Tab {
+            title: title.into(),
+            child: Box::new(child),
+        });
+    }
+
+    pub fn active(&self) -> usize {
+        self.active
+    }
+
+    pub fn set_active(&mut self, index: usize) {
+        if self.tabs.is_empty() {
+            self.active = 0;
+            return;
+        }
+        let next = index.min(self.tabs.len() - 1);
+        if self.focused {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.child.set_focus(false);
+            }
+        }
+        self.active = next;
+        if self.focused {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.child.set_focus(true);
+            }
+        }
+    }
+
+    fn activate_prev(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let next = if self.active == 0 {
+            self.tabs.len() - 1
+        } else {
+            self.active - 1
+        };
+        self.set_active(next);
+    }
+
+    fn activate_next(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let next = (self.active + 1) % self.tabs.len();
+        self.set_active(next);
+    }
+}
+
+impl Widget for Tabs {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.set_focus(focused);
+        }
+    }
+
+    fn on_mount(&mut self) {
+        for tab in &mut self.tabs {
+            tab.child.on_mount();
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        for tab in &mut self.tabs {
+            tab.child.on_unmount();
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_event_capture(event, ctx);
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.focused {
+            if let Event::Key(key) = event {
+                match key.code {
+                    KeyCode::Left => {
+                        self.activate_prev();
+                        ctx.set_handled();
+                        return;
+                    }
+                    KeyCode::Right => {
+                        self.activate_next();
+                        ctx.set_handled();
+                        return;
+                    }
+                    KeyCode::Char('h') => {
+                        self.activate_prev();
+                        ctx.set_handled();
+                        return;
+                    }
+                    KeyCode::Char('l') => {
+                        self.activate_next();
+                        ctx.set_handled();
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_event(event, ctx);
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let header = if self.tabs.is_empty() {
+            "no tabs".to_string()
+        } else {
+            let mut parts = Vec::new();
+            for (idx, tab) in self.tabs.iter().enumerate() {
+                if idx == self.active {
+                    parts.push(format!("[{}]", tab.title));
+                } else {
+                    parts.push(format!(" {} ", tab.title));
+                }
+            }
+            parts.join(" ")
+        };
+        let header_line = rich_rs::set_cell_size(&header, width);
+        let header_segments = Text::plain(header_line).render(console, options);
+        let mut lines = Segment::split_and_crop_lines(header_segments, width, None, true, false);
+        lines = Segment::set_shape(&lines, width, Some(1), None, false);
+
+        if height > 1 {
+            if let Some(tab) = self.tabs.get(self.active) {
+                let mut child_options = options.clone();
+                child_options.size = (width, height - 1);
+                child_options.max_width = width;
+                child_options.max_height = height - 1;
+                let child_segments = tab.child.render(console, &child_options);
+                let mut child_lines =
+                    Segment::split_and_crop_lines(child_segments, width, None, true, false);
+                child_lines =
+                    Segment::set_shape(&child_lines, width, Some(height - 1), None, false);
+                lines.extend(child_lines);
+            }
+        }
+
+        let line_count = lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let child_height = self
+            .tabs
+            .get(self.active)
+            .and_then(|tab| tab.child.layout_height());
+        child_height.map(|height| height + 1)
+    }
+}
+
+impl Renderable for Tabs {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Markdown {
+    id: WidgetId,
+    markup: String,
+}
+
+impl Markdown {
+    pub fn new(markup: impl Into<String>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            markup: markup.into(),
+        }
+    }
+
+    pub fn set_markup(&mut self, markup: impl Into<String>) {
+        self.markup = markup.into();
+    }
+}
+
+impl Widget for Markdown {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        RichMarkdown::new(self.markup.clone()).render(console, options)
+    }
+}
+
+impl Renderable for Markdown {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }
