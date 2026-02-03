@@ -49,6 +49,9 @@ Inline styling is available via `Style` and the `Styled` wrapper widget. This is
 (`fg`, `bg`, `bold`, `dim`, `italic`, `underline`) to enable quick visual iteration before a full
 selector/cascade system lands.
 
+Selector styling (MVP) is available via `StyleSheet` with `Type`, `Id`, and `Class` selectors.
+Use `Node` to attach ids/classes to existing widgets.
+
 ## Rich-rs integration contract
 
 Textual (Python) uses Rich (Python) as a rendering + styling engine. `textual-rs` should treat `rich-rs` the same way.

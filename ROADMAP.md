@@ -106,8 +106,8 @@ Deliverable: sidebar + main view + footer layout with scrolling content.
 | Status | Task | Notes |
 |--------|------|-------|
 | Done | Typed style props | color, bg, bold, border, etc. |
-| In progress | Inline style API | `Style` + `Styled` wrapper |
-| Todo | Selector model | by id/class/type (subset) |
+| Done | Inline style API | `Style` + `Styled` wrapper |
+| Done | Selector model | by id/class/type (subset) |
 | Todo | Cascading + computed styles | resolve inheritance and overrides |
 | Todo | Style invalidation | update styles without rebuilding tree |
 

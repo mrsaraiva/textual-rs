@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
@@ -7,6 +8,10 @@ use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
 use crate::style::Style;
 use crossterm::event::KeyCode;
+
+thread_local! {
+    static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct WidgetId(u64);
@@ -48,13 +53,21 @@ pub trait Widget: Send + Sync {
     fn style(&self) -> Option<Style> {
         None
     }
+    fn style_type(&self) -> &'static str {
+        std::any::type_name::<Self>()
+            .rsplit("::")
+            .next()
+            .unwrap_or("Widget")
+    }
+    fn style_id(&self) -> Option<&str> {
+        None
+    }
+    fn style_classes(&self) -> &[String] {
+        empty_classes()
+    }
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let segments = self.render(console, options);
-        if let Some(style) = self.style() {
-            apply_style_to_segments(segments, style)
-        } else {
-            segments
-        }
+        apply_stylesheet(self, segments)
     }
     fn render_styled_with_debug(
         &self,
@@ -63,11 +76,7 @@ pub trait Widget: Send + Sync {
         debug: &DebugLayout,
     ) -> Segments {
         let segments = self.render_with_debug(console, options, debug);
-        if let Some(style) = self.style() {
-            apply_style_to_segments(segments, style)
-        } else {
-            segments
-        }
+        apply_stylesheet(self, segments)
     }
 }
 
@@ -126,6 +135,25 @@ fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment
         .into_iter()
         .map(|line| Segment::adjust_line_length(&line, width, None, true))
         .collect()
+}
+
+fn empty_classes() -> &'static [String] {
+    use std::sync::OnceLock;
+    static EMPTY: OnceLock<Vec<String>> = OnceLock::new();
+    EMPTY.get_or_init(Vec::new)
+}
+
+fn apply_stylesheet(widget: &dyn Widget, segments: Segments) -> Segments {
+    let mut style = STYLE_CONTEXT
+        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget)))
+        .unwrap_or_default();
+    if let Some(inline) = widget.style() {
+        style = style.combine(&inline);
+    }
+    if style.is_empty() {
+        return segments;
+    }
+    apply_style_to_segments(segments, style)
 }
 
 fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
@@ -451,6 +479,81 @@ impl Renderable for WidgetRenderable<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum StyleSelector {
+    Type(&'static str),
+    Id(&'static str),
+    Class(&'static str),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StyleRule {
+    selector: StyleSelector,
+    style: Style,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StyleSheet {
+    rules: Vec<StyleRule>,
+}
+
+impl StyleSheet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
+        self.rules.push(StyleRule { selector, style });
+    }
+
+    pub fn add_type(&mut self, name: &'static str, style: Style) {
+        self.add_rule(StyleSelector::Type(name), style);
+    }
+
+    pub fn add_id(&mut self, id: &'static str, style: Style) {
+        self.add_rule(StyleSelector::Id(id), style);
+    }
+
+    pub fn add_class(&mut self, class: &'static str, style: Style) {
+        self.add_rule(StyleSelector::Class(class), style);
+    }
+
+    fn style_for(&self, widget: &dyn Widget) -> Style {
+        let mut out = Style::new();
+        for rule in &self.rules {
+            let matches = match rule.selector {
+                StyleSelector::Type(name) => widget.style_type() == name,
+                StyleSelector::Id(id) => widget.style_id() == Some(id),
+                StyleSelector::Class(class) => widget
+                    .style_classes()
+                    .iter()
+                    .any(|value| value == class),
+            };
+            if matches {
+                out = out.combine(&rule.style);
+            }
+        }
+        out
+    }
+}
+
+pub struct StyleContextGuard;
+
+pub fn set_style_context(stylesheet: StyleSheet) -> StyleContextGuard {
+    STYLE_CONTEXT.with(|ctx| {
+        *ctx.borrow_mut() = Some(stylesheet);
+    });
+    StyleContextGuard
+}
+
+impl Drop for StyleContextGuard {
+    fn drop(&mut self) {
+        STYLE_CONTEXT.with(|ctx| {
+            *ctx.borrow_mut() = None;
+        });
+    }
+}
+
 pub struct Constrained {
     id: WidgetId,
     child: Box<dyn Widget>,
@@ -639,9 +742,129 @@ impl Widget for Styled {
     fn style(&self) -> Option<Style> {
         Some(self.style)
     }
+
+    fn style_type(&self) -> &'static str {
+        self.child.style_type()
+    }
 }
 
 impl Renderable for Styled {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct Node {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    style_id: Option<String>,
+    classes: Vec<String>,
+}
+
+impl Node {
+    pub fn new(child: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Box::new(child),
+            style_id: None,
+            classes: Vec::new(),
+        }
+    }
+
+    pub fn id(mut self, value: impl Into<String>) -> Self {
+        self.style_id = Some(value.into());
+        self
+    }
+
+    pub fn class(mut self, value: impl Into<String>) -> Self {
+        self.classes.push(value.into());
+        self
+    }
+
+    pub fn classes(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        for value in values {
+            self.classes.push(value.into());
+        }
+        self
+    }
+}
+
+impl Widget for Node {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.child.render_styled(console, options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        self.child.render_styled_with_debug(console, options, debug)
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.child.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.child.set_focus(focused);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.child.layout_height()
+    }
+
+    fn layout_constraints(&self) -> LayoutConstraints {
+        self.child.layout_constraints()
+    }
+
+    fn style(&self) -> Option<Style> {
+        self.child.style()
+    }
+
+    fn style_type(&self) -> &'static str {
+        self.child.style_type()
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.style_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
+    }
+}
+
+impl Renderable for Node {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }

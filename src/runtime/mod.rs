@@ -3,7 +3,7 @@ use crate::render::FrameBuffer;
 use crate::debug::DebugLayout;
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
 use crate::style::Theme;
-use crate::widget::Widget;
+use crate::widget::{set_style_context, StyleSheet, Widget};
 use crate::{Error, Result};
 use crossterm::event::{
     self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers,
@@ -19,6 +19,7 @@ pub struct App {
     debug_layout: DebugLayout,
     action_map: ActionMap,
     theme: Theme,
+    stylesheet: StyleSheet,
     running: bool,
 }
 
@@ -38,6 +39,7 @@ impl App {
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
             theme: Theme::default(),
+            stylesheet: StyleSheet::default(),
             running: true,
         })
     }
@@ -56,6 +58,14 @@ impl App {
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+    }
+
+    pub fn set_stylesheet(&mut self, stylesheet: StyleSheet) {
+        self.stylesheet = stylesheet;
+    }
+
+    pub fn stylesheet_mut(&mut self) -> &mut StyleSheet {
+        &mut self.stylesheet
     }
 
     pub fn bind_key(&mut self, key: KeyBind, action: Action) {
@@ -89,6 +99,7 @@ impl App {
 
     pub fn render_widget(&mut self, widget: &dyn Widget) -> Result<()> {
         self.refresh_size()?;
+        let _guard = set_style_context(self.stylesheet.clone());
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {
