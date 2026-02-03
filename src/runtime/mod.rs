@@ -250,6 +250,22 @@ fn default_action_map() -> ActionMap {
         Action::ScrollDown,
     );
     map.bind(
+        KeyBind::new(KeyCode::Left, KeyModifiers::empty()),
+        Action::ScrollLeft,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Right, KeyModifiers::empty()),
+        Action::ScrollRight,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Char('h'), KeyModifiers::empty()),
+        Action::ScrollLeft,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::Char('l'), KeyModifiers::empty()),
+        Action::ScrollRight,
+    );
+    map.bind(
         KeyBind::new(KeyCode::Char(' '), KeyModifiers::empty()),
         Action::Toggle,
     );

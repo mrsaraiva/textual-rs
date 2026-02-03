@@ -103,6 +103,63 @@ fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment
         .collect()
 }
 
+fn crop_line_horizontal(line: &[Segment], start: usize, width: usize) -> Vec<Segment> {
+    if width == 0 {
+        return Vec::new();
+    }
+    if start == 0 {
+        return Segment::adjust_line_length(line, width, None, true);
+    }
+
+    let mut out: Vec<Segment> = Vec::new();
+    let mut skipped = 0usize;
+    let mut remaining = width;
+
+    for segment in line {
+        if segment.control.is_some() {
+            out.push(segment.clone());
+            continue;
+        }
+
+        let seg_len = segment.cell_len();
+        if skipped + seg_len <= start {
+            skipped += seg_len;
+            continue;
+        }
+
+        let offset_in_seg = start.saturating_sub(skipped);
+        let visible_len = seg_len.saturating_sub(offset_in_seg);
+        if visible_len == 0 {
+            skipped += seg_len;
+            continue;
+        }
+
+        let slice_len = visible_len.min(remaining);
+        let mut text = segment.text.to_string();
+        if offset_in_seg > 0 {
+            text = rich_rs::set_cell_size(&text, seg_len - offset_in_seg);
+            text = text.chars().skip(offset_in_seg).collect();
+        }
+        let cropped_text = rich_rs::set_cell_size(&text, slice_len);
+        let mut out_segment = segment.clone();
+        out_segment.text = cropped_text.into();
+        out_segment.control = None;
+        out.push(out_segment);
+        remaining = remaining.saturating_sub(slice_len);
+        skipped += seg_len;
+        if remaining == 0 {
+            break;
+        }
+    }
+
+    if remaining > 0 {
+        let padding = " ".repeat(remaining);
+        out.push(Segment::new(padding));
+    }
+
+    out
+}
+
 pub struct WidgetRenderable<'a> {
     widget: &'a dyn Widget,
 }
@@ -3123,6 +3180,10 @@ pub struct ScrollView {
     scroll_step: usize,
     content_height: AtomicUsize,
     viewport_height: AtomicUsize,
+    offset_x: usize,
+    scroll_step_x: usize,
+    content_width: AtomicUsize,
+    viewport_width: AtomicUsize,
 }
 
 impl ScrollView {
@@ -3135,6 +3196,10 @@ impl ScrollView {
             scroll_step: 1,
             content_height: AtomicUsize::new(0),
             viewport_height: AtomicUsize::new(0),
+            offset_x: 0,
+            scroll_step_x: 2,
+            content_width: AtomicUsize::new(0),
+            viewport_width: AtomicUsize::new(0),
         }
     }
 
@@ -3148,6 +3213,11 @@ impl ScrollView {
         self.clamp_offset();
     }
 
+    pub fn scroll_to_x(&mut self, offset_x: usize) {
+        self.offset_x = offset_x;
+        self.clamp_offset();
+    }
+
     pub fn scroll_by(&mut self, delta: i32) {
         if delta.is_negative() {
             self.offset_y = self.offset_y.saturating_sub(delta.unsigned_abs() as usize);
@@ -3157,13 +3227,31 @@ impl ScrollView {
         self.clamp_offset();
     }
 
+    pub fn scroll_by_x(&mut self, delta: i32) {
+        if delta.is_negative() {
+            self.offset_x = self.offset_x.saturating_sub(delta.unsigned_abs() as usize);
+        } else {
+            self.offset_x = self.offset_x.saturating_add(delta as usize);
+        }
+        self.clamp_offset();
+    }
+
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.scroll_step = step.max(1);
         self
     }
 
+    pub fn scroll_step_x(mut self, step: usize) -> Self {
+        self.scroll_step_x = step.max(1);
+        self
+    }
+
     pub fn offset_y(&self) -> usize {
         self.offset_y
+    }
+
+    pub fn offset_x(&self) -> usize {
+        self.offset_x
     }
 
     fn max_offset(&self) -> usize {
@@ -3172,10 +3260,20 @@ impl ScrollView {
         content.saturating_sub(viewport)
     }
 
+    fn max_offset_x(&self) -> usize {
+        let content = self.content_width.load(Ordering::Relaxed);
+        let viewport = self.viewport_width.load(Ordering::Relaxed).max(1);
+        content.saturating_sub(viewport)
+    }
+
     fn clamp_offset(&mut self) {
-        let max = self.max_offset();
-        if self.offset_y > max {
-            self.offset_y = max;
+        let max_y = self.max_offset();
+        if self.offset_y > max_y {
+            self.offset_y = max_y;
+        }
+        let max_x = self.max_offset_x();
+        if self.offset_x > max_x {
+            self.offset_x = max_x;
         }
     }
 }
@@ -3190,6 +3288,8 @@ impl Widget for ScrollView {
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
+        self.viewport_width
+            .store(width, Ordering::Relaxed);
 
         let constraints = self.child.layout_constraints();
         let target_height = self
@@ -3219,11 +3319,29 @@ impl Widget for ScrollView {
         let content_height = lines.len().max(viewport_height);
         self.content_height
             .store(content_height, Ordering::Relaxed);
+        let content_width = lines
+            .iter()
+            .map(|line| Segment::get_line_length(line))
+            .max()
+            .unwrap_or(width)
+            .max(width);
+        self.content_width
+            .store(content_width, Ordering::Relaxed);
+
         let max_offset = content_height.saturating_sub(viewport_height);
         let offset = self.offset_y.min(max_offset);
+        let max_offset_x = content_width.saturating_sub(width);
+        let offset_x = self.offset_x.min(max_offset_x);
         let start = offset.min(lines.len());
         let end = (start + viewport_height).min(lines.len());
-        let slice = lines[start..end].to_vec();
+        let slice = lines[start..end]
+            .to_vec()
+            .into_iter()
+            .map(|line| {
+                let cropped = crop_line_horizontal(&line, offset_x, width);
+                Segment::adjust_line_length(&cropped, width, None, true)
+            })
+            .collect::<Vec<_>>();
         let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
 
         let line_count = slice.len();
@@ -3312,6 +3430,28 @@ impl Widget for ScrollView {
                 Action::ScrollPageDown => {
                     let page = self.height.unwrap_or(1).max(1);
                     self.scroll_by(page as i32);
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollLeft => {
+                    self.scroll_by_x(-(self.scroll_step_x as i32));
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollRight => {
+                    self.scroll_by_x(self.scroll_step_x as i32);
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollPageLeft => {
+                    let page = self.viewport_width.load(Ordering::Relaxed).max(1);
+                    self.scroll_by_x(-(page as i32));
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollPageRight => {
+                    let page = self.viewport_width.load(Ordering::Relaxed).max(1);
+                    self.scroll_by_x(page as i32);
                     ctx.set_handled();
                     return;
                 }

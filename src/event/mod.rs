@@ -17,6 +17,10 @@ pub enum Action {
     ScrollDown,
     ScrollPageUp,
     ScrollPageDown,
+    ScrollLeft,
+    ScrollRight,
+    ScrollPageLeft,
+    ScrollPageRight,
     Toggle,
 }
 
