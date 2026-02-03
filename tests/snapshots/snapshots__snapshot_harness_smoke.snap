@@ -1,0 +1,6 @@
+---
+source: tests/snapshots.rs
+assertion_line: 3
+expression: "\"textual-rs snapshot harness ready\""
+---
+textual-rs snapshot harness ready

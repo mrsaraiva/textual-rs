@@ -1,0 +1,9 @@
+---
+source: tests/row_layout.rs
+assertion_line: 18
+expression: buf.debug_dump()
+---
+lines:
+0: "left right"
+1: "          "
+meta:

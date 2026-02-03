@@ -1,0 +1,26 @@
+[package]
+name = "textual"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "A reactive TUI framework inspired by Textual"
+keywords = ["terminal", "tui", "textual", "ui", "widgets"]
+categories = ["command-line-interface"]
+
+[dependencies]
+rich-rs = { path = "../rich-rs" }
+crossterm = "0.28"
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }
+thiserror = "2.0"
+unicode-width = "0.2"
+
+[dev-dependencies]
+insta = { version = "1.41", features = ["glob"] }
+
+[features]
+default = []
+
+[[example]]
+name = "hello"
+path = "examples/hello.rs"
+test = false

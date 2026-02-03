@@ -1,0 +1,10 @@
+---
+source: tests/render_metadata.rs
+assertion_line: 42
+expression: next.debug_dump()
+---
+lines:
+0: "OK  "
+meta:
+(0,0): StyleMeta { link: None, link_id: None, meta: Some({"@click": Tuple([Str("button_1")])}) }
+(1,0): StyleMeta { link: None, link_id: None, meta: Some({"@click": Tuple([Str("button_1")])}) }

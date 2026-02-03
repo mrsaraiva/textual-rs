@@ -1,0 +1,10 @@
+---
+source: tests/clipping_layout.rs
+assertion_line: 20
+expression: buf.debug_dump()
+---
+lines:
+0: "line1     "
+1: "line2     "
+2: "line3     "
+meta:

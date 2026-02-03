@@ -1,0 +1,12 @@
+---
+source: tests/frame_layout.rs
+assertion_line: 16
+expression: buf.debug_dump()
+---
+lines:
+0: "┌──────────────┐"
+1: "│              │"
+2: "│   [ ] OK     │"
+3: "│              │"
+4: "└──────────────┘"
+meta:

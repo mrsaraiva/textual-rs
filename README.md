@@ -31,6 +31,14 @@ This repository assumes `rich-rs` exists as the underlying rendering engine (seg
 - **Widget tree**: mount/unmount lifecycle, render, layout, focus, scrolling, event routing.
 - **Styles**: CSS-ish rules → computed styles per widget (subset at first).
 
+## Minimal layout support
+
+`textual-rs` includes a minimal box model via the `Frame` widget: it wraps a single child
+with padding and an optional border (Unicode box drawing). Basic layout primitives include
+`Container` (vertical), `Row` (horizontal), and `Dock` (top/bottom/left/right/fill). Containers
+clip children to the current viewport height (MVP clipping). This is an MVP layout primitive,
+not a full styling system.
+
 ## Rich-rs integration contract
 
 Textual (Python) uses Rich (Python) as a rendering + styling engine. `textual-rs` should treat `rich-rs` the same way.
