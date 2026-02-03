@@ -119,21 +119,24 @@ async fn main() -> Result<()> {
         .with_tab("One", Label::new("first tab"))
         .with_tab("Two", Label::new("second tab"));
     let markdown = Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`");
-    let controls = Panel::new(
-        Container::new()
-            .with_child(
-                Constrained::new(ListView::new(vec![
-                    "item one".to_string(),
-                    "item two".to_string(),
-                    "item three".to_string(),
-                ]))
-                .max_height(4),
-            )
-            .with_child(Spacer::new(1))
-            .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
+    let controls = Constrained::new(
+        Panel::new(
+            Container::new()
+                .with_child(
+                    Constrained::new(ListView::new(vec![
+                        "item one".to_string(),
+                        "item two".to_string(),
+                        "item three".to_string(),
+                    ]))
+                    .max_height(4),
+                )
+                .with_child(Spacer::new(1))
+                .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
+        )
+        .title("Controls")
+        .padding(1),
     )
-    .title("Controls")
-    .padding(1);
+    .max_height(10);
 
     let root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))
