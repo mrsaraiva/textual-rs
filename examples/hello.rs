@@ -121,11 +121,14 @@ async fn main() -> Result<()> {
     let markdown = Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`");
     let controls = Panel::new(
         Container::new()
-            .with_child(ListView::new(vec![
-                "item one".to_string(),
-                "item two".to_string(),
-                "item three".to_string(),
-            ]))
+            .with_child(
+                Constrained::new(ListView::new(vec![
+                    "item one".to_string(),
+                    "item two".to_string(),
+                    "item three".to_string(),
+                ]))
+                .max_height(4),
+            )
             .with_child(Spacer::new(1))
             .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
     )
@@ -153,5 +156,7 @@ async fn main() -> Result<()> {
         .with_child(MountedLabel::new())
         .with_child(Spacer::new(1))
         .with_child(Label::new("press q to quit"));
-    app.run_widget_tree(&mut root).await
+    let mut scroll_root = ScrollView::new(root).scroll_step(2);
+    scroll_root.scroll_step_x(4);
+    app.run_widget_tree(&mut scroll_root).await
 }

@@ -773,6 +773,17 @@ impl Widget for Container {
             f(child.as_mut());
         }
     }
+
+    fn layout_height(&self) -> Option<usize> {
+        let mut total = 0usize;
+        for child in &self.children {
+            match child.layout_height() {
+                Some(height) => total = total.saturating_add(height),
+                None => return None,
+            }
+        }
+        Some(total.max(1))
+    }
 }
 
 impl Renderable for Container {
