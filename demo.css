@@ -3,3 +3,4 @@ body { fg: white; bg: default; }
 .panel .title { bold: true; }
 .controls Label { fg: green; }
 button { fg: yellow; }
+.focused { bg: color(236); fg: white; }

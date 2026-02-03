@@ -65,6 +65,7 @@ pub trait Widget: Send + Sync {
     fn on_resize(&mut self, _width: u16, _height: u16) {}
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
     fn focusable(&self) -> bool {
         false
     }
@@ -164,6 +165,12 @@ fn empty_classes() -> &'static [String] {
     use std::sync::OnceLock;
     static EMPTY: OnceLock<Vec<String>> = OnceLock::new();
     EMPTY.get_or_init(Vec::new)
+}
+
+fn focused_classes() -> &'static [String] {
+    use std::sync::OnceLock;
+    static FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
+    FOCUSED.get_or_init(|| vec!["focused".to_string()])
 }
 
 #[derive(Debug, Clone)]
@@ -505,6 +512,37 @@ fn crop_line_horizontal(line: &[Segment], start: usize, width: usize) -> Vec<Seg
     out
 }
 
+fn collect_focus_ids(widget: &mut dyn Widget, out: &mut Vec<WidgetId>) {
+    if widget.focusable() {
+        out.push(widget.id());
+    }
+    widget.visit_children_mut(&mut |child| collect_focus_ids(child, out));
+}
+
+fn set_focus_by_id(widget: &mut dyn Widget, target: Option<WidgetId>) {
+    if widget.focusable() {
+        widget.set_focus(target == Some(widget.id()));
+    }
+    widget.visit_children_mut(&mut |child| set_focus_by_id(child, target));
+}
+
+fn dispatch_event_to_focus(
+    widget: &mut dyn Widget,
+    target: WidgetId,
+    event: &Event,
+    ctx: &mut EventCtx,
+) {
+    if widget.id() == target {
+        widget.on_event(event, ctx);
+        return;
+    }
+    widget.visit_children_mut(&mut |child| {
+        if !ctx.handled() {
+            dispatch_event_to_focus(child, target, event, ctx);
+        }
+    });
+}
+
 pub struct WidgetRenderable<'a> {
     widget: &'a dyn Widget,
 }
@@ -727,6 +765,12 @@ impl Widget for Container {
             if ctx.handled() {
                 break;
             }
+        }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for child in &mut self.children {
+            f(child.as_mut());
         }
     }
 }
@@ -1017,6 +1061,10 @@ impl Widget for Constrained {
     fn layout_constraints(&self) -> LayoutConstraints {
         self.constraints
     }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
+    }
 }
 
 impl Renderable for Constrained {
@@ -1110,6 +1158,10 @@ impl Widget for Styled {
 
     fn style_type(&self) -> &'static str {
         self.child.style_type()
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
     }
 }
 
@@ -1226,6 +1278,10 @@ impl Widget for Node {
 
     fn style_classes(&self) -> &[String] {
         &self.classes
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
     }
 }
 
@@ -1587,6 +1643,12 @@ impl Widget for Row {
             if ctx.handled() {
                 break;
             }
+        }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for child in &mut self.children {
+            f(child.as_mut());
         }
     }
 }
@@ -2221,6 +2283,12 @@ impl Widget for Dock {
         }
     }
 
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for item in &mut self.items {
+            f(item.child.as_mut());
+        }
+    }
+
     fn layout_height(&self) -> Option<usize> {
         self.fixed_height
     }
@@ -2297,6 +2365,14 @@ impl Widget for Button {
 
     fn layout_height(&self) -> Option<usize> {
         Some(1)
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
     }
 }
 
@@ -2460,6 +2536,14 @@ impl Widget for ListView {
         }
         let text = Text::plain(lines.join("\n"));
         text.render(console, options)
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
     }
 }
 
@@ -2658,6 +2742,14 @@ impl Widget for DataTable {
         }
         let text = Text::plain(lines.join("\n"));
         text.render(console, options)
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
     }
 }
 
@@ -2908,6 +3000,14 @@ impl Widget for Tree {
         let text = Text::plain(lines.join("\n"));
         text.render(console, options)
     }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
+    }
 }
 
 impl Renderable for Tree {
@@ -3141,6 +3241,12 @@ impl Widget for Tabs {
         }
     }
 
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for tab in &mut self.tabs {
+            f(tab.child.as_mut());
+        }
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -3195,6 +3301,14 @@ impl Widget for Tabs {
             .get(self.active)
             .and_then(|tab| tab.child.layout_height());
         child_height.map(|height| height + 1)
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
     }
 }
 
@@ -3352,6 +3466,14 @@ impl Widget for Checkbox {
     fn layout_height(&self) -> Option<usize> {
         Some(1)
     }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
+    }
 }
 
 impl Renderable for Checkbox {
@@ -3471,6 +3593,14 @@ impl Widget for Input {
     fn layout_height(&self) -> Option<usize> {
         Some(1)
     }
+
+    fn style_classes(&self) -> &[String] {
+        if self.focused {
+            focused_classes()
+        } else {
+            empty_classes()
+        }
+    }
 }
 
 impl Renderable for Input {
@@ -3482,7 +3612,7 @@ impl Renderable for Input {
 pub struct AppRoot {
     id: WidgetId,
     children: Vec<Box<dyn Widget>>,
-    focused: Option<usize>,
+    focused: Option<WidgetId>,
 }
 
 impl AppRoot {
@@ -3504,81 +3634,81 @@ impl AppRoot {
     }
 
     pub fn focus_first(&mut self) {
-        self.focused = None;
-        for (idx, child) in self.children.iter_mut().enumerate() {
-            if child.focusable() {
-                child.set_focus(true);
-                self.focused = Some(idx);
-                break;
-            }
+        let mut ids = Vec::new();
+        for child in &mut self.children {
+            collect_focus_ids(child.as_mut(), &mut ids);
         }
+        let target = ids.first().copied();
+        for child in &mut self.children {
+            set_focus_by_id(child.as_mut(), target);
+        }
+        self.focused = target;
     }
 
     pub fn focus_next(&mut self) {
-        if self.children.is_empty() {
+        let mut ids = Vec::new();
+        for child in &mut self.children {
+            collect_focus_ids(child.as_mut(), &mut ids);
+        }
+        if ids.is_empty() {
+            self.focused = None;
             return;
         }
-        let start = self.focused.unwrap_or(usize::MAX);
-        if let Some(idx) = self.focused {
-            self.children[idx].set_focus(false);
-        }
-        let mut i = if start == usize::MAX { 0 } else { (start + 1) % self.children.len() };
-        let mut visited = 0;
-        while visited < self.children.len() {
-            if self.children[i].focusable() {
-                self.children[i].set_focus(true);
-                self.focused = Some(i);
-                return;
+        let next = if let Some(current) = self.focused {
+            if let Some(idx) = ids.iter().position(|id| *id == current) {
+                ids[(idx + 1) % ids.len()]
+            } else {
+                ids[0]
             }
-            i = (i + 1) % self.children.len();
-            visited += 1;
+        } else {
+            ids[0]
+        };
+        for child in &mut self.children {
+            set_focus_by_id(child.as_mut(), Some(next));
         }
-        self.focused = None;
+        self.focused = Some(next);
     }
 
     pub fn focus_prev(&mut self) {
-        if self.children.is_empty() {
+        let mut ids = Vec::new();
+        for child in &mut self.children {
+            collect_focus_ids(child.as_mut(), &mut ids);
+        }
+        if ids.is_empty() {
+            self.focused = None;
             return;
         }
-        let start = self.focused.unwrap_or(0);
-        if let Some(idx) = self.focused {
-            self.children[idx].set_focus(false);
-        }
-        let mut i = if start == 0 { self.children.len() - 1 } else { start - 1 };
-        let mut visited = 0;
-        while visited < self.children.len() {
-            if self.children[i].focusable() {
-                self.children[i].set_focus(true);
-                self.focused = Some(i);
-                return;
-            }
-            if i == 0 {
-                i = self.children.len() - 1;
+        let prev = if let Some(current) = self.focused {
+            if let Some(idx) = ids.iter().position(|id| *id == current) {
+                if idx == 0 {
+                    ids[ids.len() - 1]
+                } else {
+                    ids[idx - 1]
+                }
             } else {
-                i -= 1;
+                ids[0]
             }
-            visited += 1;
+        } else {
+            ids[0]
+        };
+        for child in &mut self.children {
+            set_focus_by_id(child.as_mut(), Some(prev));
         }
-        self.focused = None;
+        self.focused = Some(prev);
     }
 
     pub fn focus(&mut self, id: WidgetId) -> bool {
-        let target = self
-            .children
-            .iter()
-            .enumerate()
-            .find(|(_, child)| child.id() == id && child.focusable())
-            .map(|(idx, _)| idx);
-
-        if let Some(idx) = target {
-            if let Some(cur) = self.focused {
-                self.children[cur].set_focus(false);
+        let mut ids = Vec::new();
+        for child in &mut self.children {
+            collect_focus_ids(child.as_mut(), &mut ids);
+        }
+        if ids.iter().any(|target| *target == id) {
+            for child in &mut self.children {
+                set_focus_by_id(child.as_mut(), Some(id));
             }
-            self.children[idx].set_focus(true);
-            self.focused = Some(idx);
+            self.focused = Some(id);
             return true;
         }
-
         false
     }
 }
@@ -3802,10 +3932,12 @@ impl Widget for AppRoot {
             }
         }
 
-        if let Some(idx) = self.focused {
-            self.children[idx].on_event(event, ctx);
-            if ctx.handled() {
-                return;
+        if let Some(id) = self.focused {
+            for child in &mut self.children {
+                dispatch_event_to_focus(child.as_mut(), id, event, ctx);
+                if ctx.handled() {
+                    return;
+                }
             }
         }
 
@@ -3814,6 +3946,12 @@ impl Widget for AppRoot {
             if ctx.handled() {
                 break;
             }
+        }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for child in &mut self.children {
+            f(child.as_mut());
         }
     }
 }
@@ -3991,9 +4129,14 @@ impl Widget for Panel {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let border = if self.border { 2 } else { 0 };
-        let child = self.child.layout_height().unwrap_or(1);
-        Some(child + self.padding * 2 + border)
+        self.child.layout_height().map(|child| {
+            let border = if self.border { 2 } else { 0 };
+            child + self.padding * 2 + border
+        })
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
     }
 }
 
@@ -4161,6 +4304,10 @@ impl Widget for Frame {
 
     fn set_focus(&mut self, focused: bool) {
         self.child.set_focus(focused);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
     }
 }
 
@@ -4457,6 +4604,10 @@ impl Widget for ScrollView {
             }
         }
         self.child.on_event(event, ctx);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -4829,6 +4980,14 @@ impl Widget for Grid {
             }
         }
     }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        for cell in &mut self.cells {
+            if let Some(child) = cell {
+                f(child.as_mut());
+            }
+        }
+    }
 }
 
 impl Renderable for Grid {
@@ -4929,6 +5088,11 @@ impl Widget for Overlay {
         if !ctx.handled() {
             self.base.on_event(event, ctx);
         }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.modal.as_mut());
+        f(self.base.as_mut());
     }
 }
 
