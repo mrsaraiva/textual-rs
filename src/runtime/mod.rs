@@ -9,6 +9,8 @@ use crossterm::event::{
     self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers,
 };
 use rich_rs::{Console, ConsoleOptions, Renderable};
+use std::fs;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 pub struct App {
@@ -20,7 +22,15 @@ pub struct App {
     action_map: ActionMap,
     theme: Theme,
     stylesheet: StyleSheet,
+    stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
+}
+
+struct StylesheetWatcher {
+    path: PathBuf,
+    last_modified: Option<std::time::SystemTime>,
+    interval: Duration,
+    last_checked: Instant,
 }
 
 impl App {
@@ -40,6 +50,7 @@ impl App {
             action_map: default_action_map(),
             theme: Theme::default(),
             stylesheet: StyleSheet::default(),
+            stylesheet_watch: None,
             running: true,
         })
     }
@@ -66,6 +77,35 @@ impl App {
 
     pub fn stylesheet_mut(&mut self) -> &mut StyleSheet {
         &mut self.stylesheet
+    }
+
+    pub fn load_stylesheet(&mut self, css: &str) {
+        self.stylesheet = StyleSheet::parse(css);
+    }
+
+    pub fn load_stylesheet_file(&mut self, path: impl Into<PathBuf>) -> Result<()> {
+        let path = path.into();
+        let css = fs::read_to_string(&path)?;
+        self.stylesheet = StyleSheet::parse(&css);
+        Ok(())
+    }
+
+    pub fn watch_stylesheet(
+        &mut self,
+        path: impl Into<PathBuf>,
+        interval: Duration,
+    ) -> Result<()> {
+        let path = path.into();
+        let css = fs::read_to_string(&path)?;
+        self.stylesheet = StyleSheet::parse(&css);
+        let last_modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
+        self.stylesheet_watch = Some(StylesheetWatcher {
+            path,
+            last_modified,
+            interval: interval.max(Duration::from_millis(50)),
+            last_checked: Instant::now(),
+        });
+        Ok(())
     }
 
     pub fn bind_key(&mut self, key: KeyBind, action: Action) {
@@ -160,6 +200,7 @@ impl App {
             }
 
             if last_render.elapsed() >= tick_rate {
+                self.poll_stylesheet();
                 let renderable = render(self, tick);
                 self.render(&renderable)?;
                 tick += 1;
@@ -209,6 +250,7 @@ impl App {
             }
 
             if last_render.elapsed() >= tick_rate {
+                self.poll_stylesheet();
                 root.on_tick(tick);
                 dispatch_event(root, Event::Tick(tick));
                 self.render_widget(root)?;
@@ -229,6 +271,33 @@ impl App {
             self.frame = FrameBuffer::new(size.width as usize, size.height as usize, None);
         }
         Ok(())
+    }
+
+    fn poll_stylesheet(&mut self) {
+        let Some(watch) = &mut self.stylesheet_watch else {
+            return;
+        };
+        if watch.last_checked.elapsed() < watch.interval {
+            return;
+        }
+        watch.last_checked = Instant::now();
+        let Ok(meta) = fs::metadata(&watch.path) else {
+            return;
+        };
+        let Ok(modified) = meta.modified() else {
+            return;
+        };
+        let changed = watch
+            .last_modified
+            .map(|prev| modified > prev)
+            .unwrap_or(true);
+        if !changed {
+            return;
+        }
+        if let Ok(css) = fs::read_to_string(&watch.path) {
+            self.stylesheet = StyleSheet::parse(&css);
+            watch.last_modified = Some(modified);
+        }
     }
 }
 

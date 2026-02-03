@@ -217,78 +217,66 @@ fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
         .collect()
 }
 
-fn selector_matches_meta(selector: &StyleSelector, meta: &SelectorMeta) -> bool {
-    match selector {
-        StyleSelector::Type(name) => meta.type_name == *name,
-        StyleSelector::Id(id) => meta.id.as_deref() == Some(id.as_str()),
-        StyleSelector::Class(class) => meta.classes.iter().any(|value| value == class),
-    }
-}
-
-fn selector_specificity(selector: &StyleSelector) -> u8 {
-    match selector {
-        StyleSelector::Type(_) => 1,
-        StyleSelector::Class(_) => 10,
-        StyleSelector::Id(_) => 100,
-    }
-}
-
 fn rule_specificity(rule: &StyleRule, meta: &SelectorMeta) -> Option<u8> {
-    if rule.selector_chain.is_empty() {
+    if rule.selector_chain.parts.is_empty() {
         return None;
     }
-    let last = rule.selector_chain.last().unwrap();
-    if !selector_matches_meta(last, meta) {
+    let last = rule.selector_chain.parts.last().unwrap();
+    if !last.matches(meta) {
         return None;
     }
-    if rule.selector_chain.len() == 1 {
-        return Some(selector_specificity(last));
+    if rule.selector_chain.parts.len() == 1 {
+        return Some(last.specificity());
     }
 
     let stack_snapshot = SELECTOR_STACK.with(|stack| stack.borrow().clone());
     let mut idx = stack_snapshot.len() as isize - 2;
-    for selector in rule.selector_chain[..rule.selector_chain.len() - 1]
-        .iter()
-        .rev()
-    {
-        let mut found = false;
-        let mut current = idx;
-        while current >= 0 {
-            let meta = &stack_snapshot[current as usize];
-            if selector_matches_meta(selector, meta) {
-                found = true;
-                idx = current - 1;
-                break;
+    let combinators = &rule.selector_chain.combinators;
+    let parts = &rule.selector_chain.parts;
+    for (part_index, selector) in parts[..parts.len() - 1].iter().rev().enumerate() {
+        let comb = combinators[combinators.len() - 1 - part_index];
+        match comb {
+            Combinator::Child => {
+                if idx < 0 {
+                    return None;
+                }
+                let meta = &stack_snapshot[idx as usize];
+                if !selector.matches(meta) {
+                    return None;
+                }
+                idx -= 1;
             }
-            current -= 1;
-        }
-        if !found {
-            return None;
+            Combinator::Descendant => {
+                let mut found = false;
+                let mut current = idx;
+                while current >= 0 {
+                    let meta = &stack_snapshot[current as usize];
+                    if selector.matches(meta) {
+                        found = true;
+                        idx = current - 1;
+                        break;
+                    }
+                    current -= 1;
+                }
+                if !found {
+                    return None;
+                }
+            }
         }
     }
 
-    let score = rule
-        .selector_chain
-        .iter()
-        .map(selector_specificity)
-        .sum();
+    let score = parts.iter().map(|part| part.specificity()).sum();
     Some(score)
 }
 
-fn parse_selector_list(selector: &str) -> Vec<Vec<StyleSelector>> {
+fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
     let mut groups = Vec::new();
     for group in selector.split(',') {
         let group = group.trim();
         if group.is_empty() {
             continue;
         }
-        let mut chain = Vec::new();
-        for part in group.split_whitespace() {
-            if let Some(sel) = parse_selector(part) {
-                chain.push(sel);
-            }
-        }
-        if !chain.is_empty() {
+        if let Some(chain) = parse_selector_chain(group) {
             groups.push(chain);
         }
     }
@@ -300,13 +288,103 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
     if selector.is_empty() {
         return None;
     }
-    if let Some(rest) = selector.strip_prefix('#') {
-        return Some(StyleSelector::Id(rest.trim().to_string()));
+
+    let mut type_name: Option<String> = None;
+    let mut id: Option<String> = None;
+    let mut classes: Vec<String> = Vec::new();
+
+    let mut chars = selector.chars().peekable();
+    let mut current = String::new();
+    let mut mode: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '#' | '.' => {
+                if mode.is_none() && !current.is_empty() {
+                    type_name = Some(current.clone());
+                } else if let Some(mode) = mode {
+                    match mode {
+                        '#' => id = Some(current.clone()),
+                        '.' => classes.push(current.clone()),
+                        _ => {}
+                    }
+                }
+                current.clear();
+                mode = Some(ch);
+            }
+            _ => current.push(ch),
+        }
     }
-    if let Some(rest) = selector.strip_prefix('.') {
-        return Some(StyleSelector::Class(rest.trim().to_string()));
+
+    if !current.is_empty() {
+        match mode {
+            None => type_name = Some(current),
+            Some('#') => id = Some(current),
+            Some('.') => classes.push(current),
+            _ => {}
+        }
     }
-    Some(StyleSelector::Type(selector.to_string()))
+
+    let mut selector = StyleSelector::default();
+    if let Some(type_name) = type_name {
+        selector = StyleSelector::new(type_name);
+    }
+    if let Some(id) = id {
+        selector = selector.id(id);
+    }
+    for class in classes {
+        selector = selector.class(class);
+    }
+    Some(selector)
+}
+
+fn parse_selector_chain(selector: &str) -> Option<SelectorChain> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for ch in selector.chars() {
+        match ch {
+            '>' => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                }
+                tokens.push(">".to_string());
+                buf.clear();
+            }
+            c if c.is_whitespace() => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                    buf.clear();
+                }
+            }
+            _ => buf.push(ch),
+        }
+    }
+    if !buf.trim().is_empty() {
+        tokens.push(buf.trim().to_string());
+    }
+
+    let mut parts = Vec::new();
+    let mut combinators = Vec::new();
+    let mut pending: Option<Combinator> = None;
+    for token in tokens {
+        if token == ">" {
+            pending = Some(Combinator::Child);
+            continue;
+        }
+        if let Some(selector) = parse_selector(&token) {
+            if !parts.is_empty() {
+                combinators.push(pending.unwrap_or(Combinator::Descendant));
+            }
+            parts.push(selector);
+            pending = None;
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(SelectorChain { parts, combinators })
 }
 
 fn parse_style_body(body: &str) -> Style {
@@ -671,16 +749,83 @@ impl Renderable for WidgetRenderable<'_> {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StyleSelector {
+    type_name: Option<String>,
+    id: Option<String>,
+    classes: Vec<String>,
+}
+
+impl StyleSelector {
+    pub fn new(type_name: impl Into<String>) -> Self {
+        Self {
+            type_name: Some(type_name.into()),
+            id: None,
+            classes: Vec::new(),
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn class(mut self, class: impl Into<String>) -> Self {
+        self.classes.push(class.into());
+        self
+    }
+
+    fn matches(&self, meta: &SelectorMeta) -> bool {
+        if let Some(type_name) = &self.type_name {
+            if meta.type_name != *type_name {
+                return false;
+            }
+        }
+        if let Some(id) = &self.id {
+            if meta.id.as_deref() != Some(id.as_str()) {
+                return false;
+            }
+        }
+        if !self.classes.is_empty() {
+            if !self
+                .classes
+                .iter()
+                .all(|class| meta.classes.iter().any(|value| value == class))
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn specificity(&self) -> u8 {
+        let mut score = 0u8;
+        if self.type_name.is_some() {
+            score += 1;
+        }
+        score = score.saturating_add(self.classes.len().saturating_mul(10) as u8);
+        if self.id.is_some() {
+            score = score.saturating_add(100);
+        }
+        score
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Combinator {
+    Descendant,
+    Child,
+}
+
 #[derive(Debug, Clone)]
-pub enum StyleSelector {
-    Type(String),
-    Id(String),
-    Class(String),
+struct SelectorChain {
+    parts: Vec<StyleSelector>,
+    combinators: Vec<Combinator>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StyleRule {
-    selector_chain: Vec<StyleSelector>,
+    selector_chain: SelectorChain,
     style: Style,
 }
 
@@ -696,21 +841,24 @@ impl StyleSheet {
 
     pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
         self.rules.push(StyleRule {
-            selector_chain: vec![selector],
+            selector_chain: SelectorChain {
+                parts: vec![selector],
+                combinators: Vec::new(),
+            },
             style,
         });
     }
 
     pub fn add_type(&mut self, name: impl Into<String>, style: Style) {
-        self.add_rule(StyleSelector::Type(name.into()), style);
+        self.add_rule(StyleSelector::new(name), style);
     }
 
     pub fn add_id(&mut self, id: impl Into<String>, style: Style) {
-        self.add_rule(StyleSelector::Id(id.into()), style);
+        self.add_rule(StyleSelector::default().id(id), style);
     }
 
     pub fn add_class(&mut self, class: impl Into<String>, style: Style) {
-        self.add_rule(StyleSelector::Class(class.into()), style);
+        self.add_rule(StyleSelector::default().class(class), style);
     }
 
     fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {

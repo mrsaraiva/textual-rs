@@ -110,6 +110,8 @@ Deliverable: sidebar + main view + footer layout with scrolling content.
 | Done | Selector model | by id/class/type (subset) |
 | Done | Style inheritance | basic parent → child propagation |
 | Done | Stylesheet parser | minimal `StyleSheet::parse` |
+| Done | Selector combinators | grouping + descendant/child |
+| Done | Stylesheet hot reload | file watch + reload |
 | Todo | Cascading + computed styles | resolve inheritance and overrides |
 | Todo | Style invalidation | update styles without rebuilding tree |
 
