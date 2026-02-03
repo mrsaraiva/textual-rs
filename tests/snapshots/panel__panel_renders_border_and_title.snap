@@ -1,0 +1,11 @@
+---
+source: tests/panel.rs
+assertion_line: 15
+expression: buf.debug_dump()
+---
+lines:
+0: "┌─ Title ──┐  "
+1: "│          │  "
+2: "│hello     │  "
+3: "└──────────┘  "
+meta:

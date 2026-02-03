@@ -41,7 +41,7 @@ with padding and an optional border (Unicode box drawing). Basic layout primitiv
 children to the current viewport height (MVP clipping). This is an MVP layout
 primitive, not a full styling system.
 
-Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, and `Overlay`.
+Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, `Panel`, `Spacer`, and `Overlay`.
 
 ## Styling MVP
 

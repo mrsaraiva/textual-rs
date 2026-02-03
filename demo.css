@@ -1,0 +1,5 @@
+body { fg: white; bg: default; }
+.panel { fg: cyan; }
+.panel .title { bold: true; }
+.controls Label { fg: green; }
+button { fg: yellow; }

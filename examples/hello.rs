@@ -119,17 +119,26 @@ async fn main() -> Result<()> {
         .with_tab("One", Label::new("first tab"))
         .with_tab("Two", Label::new("second tab"));
     let markdown = Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`");
+    let controls = Panel::new(
+        Container::new()
+            .with_child(ListView::new(vec![
+                "item one".to_string(),
+                "item two".to_string(),
+                "item three".to_string(),
+            ]))
+            .with_child(Spacer::new(1))
+            .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
+    )
+    .title("Controls")
+    .padding(1);
+
     let mut root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))
         .with_child(Label::new(format!("size: {}x{}", size.width, size.height)))
         .with_child(row)
         .with_child(dock)
         .with_child(scroller)
-        .with_child(ListView::new(vec![
-            "item one".to_string(),
-            "item two".to_string(),
-            "item three".to_string(),
-        ]))
+        .with_child(Node::new(controls).class("panel").class("controls"))
         .with_child(table)
         .with_child(tree)
         .with_child(tabs)
@@ -142,7 +151,7 @@ async fn main() -> Result<()> {
         .with_child(Checkbox::new("accept terms"))
         .with_child(TickLabel::new())
         .with_child(MountedLabel::new())
-        .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1))
+        .with_child(Spacer::new(1))
         .with_child(Label::new("press q to quit"));
     app.run_widget_tree(&mut root).await
 }

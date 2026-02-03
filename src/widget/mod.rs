@@ -1282,6 +1282,7 @@ impl Renderable for Label {
 pub struct Row {
     id: WidgetId,
     children: Vec<Box<dyn Widget>>,
+    align: RowAlign,
 }
 
 impl Row {
@@ -1289,6 +1290,7 @@ impl Row {
         Self {
             id: WidgetId::new(),
             children: Vec::new(),
+            align: RowAlign::Top,
         }
     }
 
@@ -1300,6 +1302,18 @@ impl Row {
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
     }
+
+    pub fn align(mut self, align: RowAlign) -> Self {
+        self.align = align;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RowAlign {
+    Top,
+    Center,
+    Bottom,
 }
 
 impl Widget for Row {
@@ -1364,10 +1378,32 @@ impl Widget for Row {
             .max(1)
             .min(height_limit);
 
+        let mut normalized_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
+        for lines in child_lines {
+            let height = lines.len().max(1);
+            let (pad_top, pad_bottom) = match self.align {
+                RowAlign::Top => (0, max_child_height.saturating_sub(height)),
+                RowAlign::Center => {
+                    let total = max_child_height.saturating_sub(height);
+                    (total / 2, total - total / 2)
+                }
+                RowAlign::Bottom => (max_child_height.saturating_sub(height), 0),
+            };
+            let mut padded = Vec::new();
+            for _ in 0..pad_top {
+                padded.push(Vec::new());
+            }
+            padded.extend(lines);
+            for _ in 0..pad_bottom {
+                padded.push(Vec::new());
+            }
+            normalized_lines.push(padded);
+        }
+
         let mut out_lines: Vec<Vec<Segment>> = Vec::new();
         for row in 0..max_child_height {
             let mut line: Vec<Segment> = Vec::new();
-            for (idx, lines) in child_lines.iter().enumerate() {
+            for (idx, lines) in normalized_lines.iter().enumerate() {
                 let child_width = widths.get(idx).copied().unwrap_or(1).max(1);
                 let child_line = lines.get(row).cloned().unwrap_or_else(|| {
                     vec![Segment::new(" ".repeat(child_width))]
@@ -1465,10 +1501,32 @@ impl Widget for Row {
             .max(1)
             .min(height_limit);
 
+        let mut normalized_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
+        for lines in child_lines {
+            let height = lines.len().max(1);
+            let (pad_top, pad_bottom) = match self.align {
+                RowAlign::Top => (0, max_child_height.saturating_sub(height)),
+                RowAlign::Center => {
+                    let total = max_child_height.saturating_sub(height);
+                    (total / 2, total - total / 2)
+                }
+                RowAlign::Bottom => (max_child_height.saturating_sub(height), 0),
+            };
+            let mut padded = Vec::new();
+            for _ in 0..pad_top {
+                padded.push(Vec::new());
+            }
+            padded.extend(lines);
+            for _ in 0..pad_bottom {
+                padded.push(Vec::new());
+            }
+            normalized_lines.push(padded);
+        }
+
         let mut out_lines: Vec<Vec<Segment>> = Vec::new();
         for row in 0..max_child_height {
             let mut line: Vec<Segment> = Vec::new();
-            for (idx, lines) in child_lines.iter().enumerate() {
+            for (idx, lines) in normalized_lines.iter().enumerate() {
                 let child_width = widths.get(idx).copied().unwrap_or(1).max(1);
                 let child_line = lines.get(row).cloned().unwrap_or_else(|| {
                     vec![Segment::new(" ".repeat(child_width))]
@@ -3208,6 +3266,49 @@ impl Checkbox {
     }
 }
 
+pub struct Spacer {
+    id: WidgetId,
+    height: usize,
+}
+
+impl Spacer {
+    pub fn new(height: usize) -> Self {
+        Self {
+            id: WidgetId::new(),
+            height: height.max(1),
+        }
+    }
+}
+
+impl Widget for Spacer {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let line = " ".repeat(width);
+        let mut out = Segments::new();
+        for idx in 0..self.height {
+            out.push(Segment::new(line.clone()));
+            if idx + 1 < self.height {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(self.height)
+    }
+}
+
+impl Renderable for Spacer {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
 impl Widget for Checkbox {
     fn id(&self) -> WidgetId {
         self.id
@@ -3748,6 +3849,157 @@ impl Frame {
     pub fn border(mut self, border: bool) -> Self {
         self.border = border;
         self
+    }
+}
+
+pub struct Panel {
+    id: WidgetId,
+    child: Box<dyn Widget>,
+    title: Option<String>,
+    padding: usize,
+    border: bool,
+}
+
+impl Panel {
+    pub fn new(child: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Box::new(child),
+            title: None,
+            padding: 0,
+            border: true,
+        }
+    }
+
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    pub fn padding(mut self, padding: usize) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    pub fn border(mut self, border: bool) -> Self {
+        self.border = border;
+        self
+    }
+}
+
+impl Widget for Panel {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let border_width = if self.border { 1 } else { 0 };
+        let total_padding = self.padding * 2;
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let inner_width = width.saturating_sub(border_width * 2 + total_padding).max(1);
+        let inner_height = height.saturating_sub(border_width * 2 + total_padding).max(1);
+
+        let mut child_options = options.clone();
+        child_options.size = (inner_width, inner_height);
+        child_options.max_width = inner_width;
+        child_options.max_height = inner_height;
+
+        let child_segments = self.child.render_styled(console, &child_options);
+        let mut child_lines =
+            Segment::split_and_crop_lines(child_segments, inner_width, None, true, false);
+        if let Some(height) = self.child.layout_height() {
+            let capped = height.min(inner_height);
+            child_lines = Segment::set_shape(&child_lines, inner_width, Some(capped), None, false);
+        }
+
+        let padding_line = vec![Segment::new(" ".repeat(inner_width))];
+        let mut content_lines: Vec<Vec<Segment>> = Vec::new();
+        for _ in 0..self.padding {
+            content_lines.push(padding_line.clone());
+        }
+        content_lines.extend(child_lines.into_iter());
+        for _ in 0..self.padding {
+            content_lines.push(padding_line.clone());
+        }
+
+        let content_height = content_lines.len().max(1);
+        let content_height = content_height.min(height.saturating_sub(border_width * 2).max(1));
+        let mut content_lines =
+            Segment::set_shape(&content_lines, inner_width, Some(content_height), None, false);
+
+        if !self.border {
+            let line_count = content_lines.len();
+            let mut out = Segments::new();
+            for (idx, line) in content_lines.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
+        let box_chars = rich_rs::r#box::SQUARE;
+        let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+
+        let mut top = String::new();
+        top.push(box_chars.top_left);
+        let mut title = self.title.clone().unwrap_or_default();
+        if !title.is_empty() && inner_width >= 2 {
+            title = format!(" {title} ");
+        }
+        let title_width = rich_rs::cell_len(&title);
+        if title_width >= inner_width {
+            top.push_str(&rich_rs::set_cell_size(&title, inner_width));
+        } else {
+            let remaining = inner_width.saturating_sub(title_width);
+            let left = remaining / 2;
+            let right = remaining - left;
+            top.push_str(&box_chars.top.to_string().repeat(left));
+            top.push_str(&title);
+            top.push_str(&box_chars.top.to_string().repeat(right));
+        }
+        top.push(box_chars.top_right);
+        out_lines.push(vec![Segment::new(top)]);
+
+        for line in content_lines.drain(..) {
+            let mut middle = Vec::new();
+            middle.push(Segment::new(box_chars.mid_left.to_string()));
+            middle.extend(line);
+            middle.push(Segment::new(box_chars.mid_right.to_string()));
+            out_lines.push(middle);
+        }
+
+        let mut bottom = String::new();
+        bottom.push(box_chars.bottom_left);
+        bottom.push_str(&box_chars.bottom.to_string().repeat(inner_width));
+        bottom.push(box_chars.bottom_right);
+        out_lines.push(vec![Segment::new(bottom)]);
+
+        let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let border = if self.border { 2 } else { 0 };
+        let child = self.child.layout_height().unwrap_or(1);
+        Some(child + self.padding * 2 + border)
+    }
+}
+
+impl Renderable for Panel {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
     }
 }
 
