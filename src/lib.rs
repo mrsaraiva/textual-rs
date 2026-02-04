@@ -1,6 +1,7 @@
 //! Textual-inspired reactive TUI framework built on rich-rs.
 
 pub mod debug;
+pub mod demo_snapshot;
 pub mod driver;
 mod error;
 pub mod event;
