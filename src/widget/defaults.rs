@@ -24,7 +24,11 @@ Button {
 .button.error { fg: $button-color-foreground; bg: $error; border-top: tall $error-lighten-2; border-bottom: tall $error-darken-3; }
 
 .button.disabled { dim: true; }
-.button.flat { border-top: none; border-bottom: none; }
+.button.flat { text-style: bold; fg: $foreground; bg: $surface; border: block $surface; }
+.button.flat.primary { fg: $text; bg: $primary-muted; border: block $primary-muted; }
+.button.flat.success { fg: $text; bg: $success-muted; border: block $success-muted; }
+.button.flat.warning { fg: $text; bg: $warning-muted; border: block $warning-muted; }
+.button.flat.error { fg: $text; bg: $error-muted; border: block $error-muted; }
 "#;
 
 pub fn default_widget_stylesheet() -> StyleSheet {

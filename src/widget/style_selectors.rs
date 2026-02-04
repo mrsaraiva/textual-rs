@@ -528,11 +528,6 @@ fn parse_style_body(body: &str) -> Style {
                     }
                 }
             }
-            "border" => {
-                if let Some(val) = parse_bool(value) {
-                    style = style.border(val);
-                }
-            }
             "line-pad" => {
                 if let Ok(value) = value.parse() {
                     style = style.line_pad(value);
@@ -543,9 +538,27 @@ fn parse_style_body(body: &str) -> Style {
                     style.border_top = edge;
                 }
             }
+            "border-right" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_right = edge;
+                }
+            }
             "border-bottom" => {
                 if let Some(edge) = parse_border_edge(value) {
                     style.border_bottom = edge;
+                }
+            }
+            "border-left" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_left = edge;
+                }
+            }
+            "border" => {
+                if let Some(edges) = parse_border_shorthand(value) {
+                    style.border_top = edges.0;
+                    style.border_right = edges.1;
+                    style.border_bottom = edges.2;
+                    style.border_left = edges.3;
                 }
             }
             _ => {}
@@ -589,4 +602,25 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
         }
     }
     parse_color_like(value).map(BorderEdge::Color)
+}
+
+fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("none") {
+        return Some((BorderEdge::None, BorderEdge::None, BorderEdge::None, BorderEdge::None));
+    }
+    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
+    let kind = tokens.next()?.to_lowercase();
+    if kind == "block" || kind == "solid" || kind == "tall" {
+        // Take the remaining tokens and pick the last resolvable color.
+        let rest: Vec<&str> = tokens.collect();
+        for token in rest.iter().rev() {
+            if let Some(color) = parse_color_like(token) {
+                let edge = BorderEdge::Color(color);
+                return Some((edge, edge, edge, edge));
+            }
+        }
+        return None;
+    }
+    None
 }

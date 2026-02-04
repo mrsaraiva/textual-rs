@@ -154,7 +154,9 @@ pub struct Style {
     pub margin: Option<Margin>,
     pub line_pad: Option<usize>,
     pub border_top: BorderEdge,
+    pub border_right: BorderEdge,
     pub border_bottom: BorderEdge,
+    pub border_left: BorderEdge,
     pub width_auto: Option<bool>,
     pub height_auto: Option<bool>,
     pub min_width: Option<usize>,
@@ -218,8 +220,18 @@ impl Style {
         self
     }
 
+    pub fn border_right(mut self, color: Color) -> Self {
+        self.border_right = BorderEdge::Color(color);
+        self
+    }
+
     pub fn border_bottom(mut self, color: Color) -> Self {
         self.border_bottom = BorderEdge::Color(color);
+        self
+    }
+
+    pub fn border_left(mut self, color: Color) -> Self {
+        self.border_left = BorderEdge::Color(color);
         self
     }
 
@@ -275,10 +287,20 @@ impl Style {
             } else {
                 self.border_top
             },
+            border_right: if other.border_right != BorderEdge::Unset {
+                other.border_right
+            } else {
+                self.border_right
+            },
             border_bottom: if other.border_bottom != BorderEdge::Unset {
                 other.border_bottom
             } else {
                 self.border_bottom
+            },
+            border_left: if other.border_left != BorderEdge::Unset {
+                other.border_left
+            } else {
+                self.border_left
             },
             width_auto: other.width_auto.or(self.width_auto),
             height_auto: other.height_auto.or(self.height_auto),
@@ -301,7 +323,9 @@ impl Style {
             margin: self.margin,
             line_pad: self.line_pad,
             border_top: self.border_top,
+            border_right: self.border_right,
             border_bottom: self.border_bottom,
+            border_left: self.border_left,
             width_auto: self.width_auto,
             height_auto: self.height_auto,
             min_width: self.min_width,
@@ -348,7 +372,9 @@ impl Style {
             && self.margin.is_none()
             && self.line_pad.is_none()
             && self.border_top == BorderEdge::Unset
+            && self.border_right == BorderEdge::Unset
             && self.border_bottom == BorderEdge::Unset
+            && self.border_left == BorderEdge::Unset
             && self.width_auto.is_none()
             && self.height_auto.is_none()
             && self.min_width.is_none()

@@ -237,12 +237,22 @@ pub(crate) fn border_spacing_from_style(style: &Style) -> (usize, usize, usize, 
     } else {
         0
     };
+    let right = if matches!(style.border_right, BorderEdge::Color(_)) {
+        1
+    } else {
+        0
+    };
     let bottom = if matches!(style.border_bottom, BorderEdge::Color(_)) {
         1
     } else {
         0
     };
-    (top, bottom, 0, 0)
+    let left = if matches!(style.border_left, BorderEdge::Color(_)) {
+        1
+    } else {
+        0
+    };
+    (top, bottom, left, right)
 }
 
 pub(crate) fn border_vertical_padding(style: &Style) -> usize {
@@ -252,33 +262,69 @@ pub(crate) fn border_vertical_padding(style: &Style) -> usize {
 
 pub(crate) fn apply_border_edges(
     segments: Segments,
-    width: usize,
-    top: BorderEdge,
-    bottom: BorderEdge,
+    inner_width: usize,
+    border_top: BorderEdge,
+    border_right: BorderEdge,
+    border_bottom: BorderEdge,
+    border_left: BorderEdge,
+    full_width: usize,
+    full_height: usize,
 ) -> Segments {
-    let top = match top {
+    let top = match border_top {
         BorderEdge::Color(color) => Some(color),
         _ => None,
     };
-    let bottom = match bottom {
+    let right = match border_right {
         BorderEdge::Color(color) => Some(color),
         _ => None,
     };
-    if top.is_none() && bottom.is_none() {
+    let bottom = match border_bottom {
+        BorderEdge::Color(color) => Some(color),
+        _ => None,
+    };
+    let left = match border_left {
+        BorderEdge::Color(color) => Some(color),
+        _ => None,
+    };
+    if top.is_none() && right.is_none() && bottom.is_none() && left.is_none() {
         return segments;
     }
-    let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+
+    let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, true, false);
+    lines = Segment::set_shape(&lines, inner_width.max(1), None, None, false);
+
+    // Add left/right edges (inside the final full width).
+    let mut edged: Vec<Vec<Segment>> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let mut row: Vec<Segment> = Vec::new();
+        if let Some(left_color) = left {
+            let style = rich_rs::Style::new().with_bgcolor(left_color);
+            row.push(Segment::styled(" ".to_string(), style));
+        }
+        row.extend(Segment::adjust_line_length(&line, inner_width.max(1), None, true));
+        if let Some(right_color) = right {
+            let style = rich_rs::Style::new().with_bgcolor(right_color);
+            row.push(Segment::styled(" ".to_string(), style));
+        }
+        let row = Segment::adjust_line_length(&row, full_width.max(1), None, true);
+        edged.push(row);
+    }
+
     if let Some(top_color) = top {
         let style = rich_rs::Style::new().with_bgcolor(top_color);
-        lines.insert(0, vec![Segment::styled(" ".repeat(width), style)]);
+        edged.insert(0, vec![Segment::styled(" ".repeat(full_width.max(1)), style)]);
     }
     if let Some(bottom_color) = bottom {
         let style = rich_rs::Style::new().with_bgcolor(bottom_color);
-        lines.push(vec![Segment::styled(" ".repeat(width), style)]);
+        edged.push(vec![Segment::styled(" ".repeat(full_width.max(1)), style)]);
     }
-    let line_count = lines.len();
+
+    // Clamp/pad to requested height.
+    edged = Segment::set_shape(&edged, full_width.max(1), Some(full_height.max(1)), None, false);
+
+    let line_count = edged.len();
     let mut out = Segments::new();
-    for (idx, line) in lines.into_iter().enumerate() {
+    for (idx, line) in edged.into_iter().enumerate() {
         out.extend(line);
         if idx + 1 < line_count {
             out.push(Segment::line());
