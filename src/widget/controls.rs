@@ -2,6 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
+use super::style_selectors;
 
 use super::{
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
@@ -143,115 +144,54 @@ impl Widget for Button {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         let padding_h = 2usize;
-        let padding_v = 0usize;
-        let border = !self.flat;
+        let inner_width = width.saturating_sub(padding_h * 2).max(1);
 
-        let inner_width = width
-            .saturating_sub(padding_h * 2 + if border { 2 } else { 0 })
-            .max(1);
-        let inner_height = height
-            .saturating_sub(padding_v * 2 + if border { 2 } else { 0 })
-            .max(1);
-
-        let label = self.label.as_str();
-        let label_width = rich_rs::cell_len(label);
-        let label_width = label_width.min(inner_width);
-        let left = inner_width.saturating_sub(label_width) / 2;
-        let right = inner_width.saturating_sub(label_width) - left;
-        let line = format!(
-            "{}{}{}",
-            " ".repeat(left),
-            rich_rs::set_cell_size(label, label_width),
-            " ".repeat(right)
-        );
-        let mut lines = vec![vec![Segment::new(line)]];
-        lines = Segment::set_shape(&lines, inner_width, Some(inner_height), None, false);
-
-        if border {
-            let b = rich_rs::r#box::SQUARE;
-            let mut out_lines: Vec<Vec<Segment>> = Vec::new();
-            let inner_total = inner_width + padding_h * 2;
-
-            let top = format!(
-                "{}{}{}",
-                b.top_left,
-                std::iter::repeat(b.top).take(inner_total).collect::<String>(),
-                b.top_right
-            );
-            out_lines.push(vec![Segment::new(top)]);
-
-            for line in lines.into_iter() {
-                let mut row = Vec::new();
-                row.push(Segment::new(b.mid_left.to_string()));
-                if padding_h > 0 {
-                    row.push(Segment::new(" ".repeat(padding_h)));
-                }
-                let adjusted = Segment::adjust_line_length(&line, inner_width, None, true);
-                row.extend(adjusted);
-                if padding_h > 0 {
-                    row.push(Segment::new(" ".repeat(padding_h)));
-                }
-                row.push(Segment::new(b.mid_right.to_string()));
-                out_lines.push(row);
+        let label_row = height / 2;
+        let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+        for row in 0..height {
+            let line = if row == label_row {
+                let label = self.label.as_str();
+                let label_width = rich_rs::cell_len(label).min(inner_width);
+                let left = inner_width.saturating_sub(label_width) / 2;
+                let right = inner_width.saturating_sub(label_width) - left;
+                let label_line = format!(
+                    "{}{}{}",
+                    " ".repeat(left),
+                    rich_rs::set_cell_size(label, label_width),
+                    " ".repeat(right)
+                );
+                label_line
+            } else {
+                " ".repeat(inner_width)
+            };
+            let mut row_segments: Vec<Segment> = Vec::new();
+            if padding_h > 0 {
+                row_segments.push(Segment::new(" ".repeat(padding_h)));
             }
-
-            let bottom = format!(
-                "{}{}{}",
-                b.bottom_left,
-                std::iter::repeat(b.bottom).take(inner_total).collect::<String>(),
-                b.bottom_right
-            );
-            out_lines.push(vec![Segment::new(bottom)]);
-
-            let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
-            let line_count = out_lines.len();
-            let mut out = Segments::new();
-            for (idx, line) in out_lines.into_iter().enumerate() {
-                out.extend(line);
-                if idx + 1 < line_count {
-                    out.push(Segment::line());
-                }
+            row_segments.push(Segment::new(line));
+            if padding_h > 0 {
+                row_segments.push(Segment::new(" ".repeat(padding_h)));
             }
-            out
-        } else {
-            let mut content_lines: Vec<Vec<Segment>> = Vec::new();
-            for _ in 0..padding_v {
-                content_lines.push(vec![Segment::new(" ".repeat(inner_width))]);
-            }
-            content_lines.extend(lines);
-            for _ in 0..padding_v {
-                content_lines.push(vec![Segment::new(" ".repeat(inner_width))]);
-            }
-            let content_lines =
-                Segment::set_shape(&content_lines, inner_width, Some(inner_height), None, false);
-            let mut out_lines: Vec<Vec<Segment>> = Vec::new();
-            for line in content_lines.into_iter() {
-                let mut row: Vec<Segment> = Vec::new();
-                if padding_h > 0 {
-                    row.push(Segment::new(" ".repeat(padding_h)));
-                }
-                let adjusted = Segment::adjust_line_length(&line, inner_width, None, true);
-                row.extend(adjusted);
-                if padding_h > 0 {
-                    row.push(Segment::new(" ".repeat(padding_h)));
-                }
-                out_lines.push(row);
-            }
-            let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
-            let line_count = out_lines.len();
-            let mut out = Segments::new();
-            for (idx, line) in out_lines.into_iter().enumerate() {
-                out.extend(line);
-                if idx + 1 < line_count {
-                    out.push(Segment::line());
-                }
-            }
-            out
+            out_lines.push(row_segments);
         }
+        let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(3))
+        let meta = style_selectors::selector_meta_generic(self);
+        let base_style = style_selectors::resolve_style(self, &meta);
+        let line_pad = base_style.line_pad.unwrap_or(1);
+        let default_height = 1 + line_pad * 2 + super::helpers::border_vertical_padding(&base_style);
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
     }
 
     fn style_classes(&self) -> &[String] {
@@ -272,6 +212,7 @@ impl Widget for Button {
         Some(&mut self.styles)
     }
 }
+
 
 impl Renderable for Button {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -597,20 +538,59 @@ impl Widget for DataTable {
         let mut view = self.clone();
         view.ensure_visible(height.saturating_sub(1));
 
-        let mut header = String::new();
-        let mut column_widths = Vec::new();
-        for (idx, col) in self.headers.iter().enumerate() {
-            let col_width = col.len().max(3);
-            column_widths.push(col_width);
-            if idx > 0 {
-                header.push_str(" | ");
+        let col_count = self.headers.len().max(1);
+        let sep_width = 3usize.saturating_mul(col_count.saturating_sub(1));
+
+        // Natural widths based on headers + row values.
+        let mut natural_widths: Vec<usize> = self
+            .headers
+            .iter()
+            .map(|h| rich_rs::cell_len(h).max(3))
+            .collect();
+        for row in &self.rows {
+            for (idx, value) in row.iter().enumerate() {
+                if let Some(w) = natural_widths.get_mut(idx) {
+                    *w = (*w).max(rich_rs::cell_len(value).max(1));
+                }
             }
-            header.push_str(&rich_rs::set_cell_size(col, col_width));
         }
+
+        // Distribute remaining space (if any) to the first columns so the table fills the width.
+        let natural_total: usize = natural_widths.iter().sum::<usize>().saturating_add(sep_width);
+        let mut column_widths = natural_widths;
+        if natural_total < width {
+            let mut remaining = width - natural_total;
+            let mut idx = 0usize;
+            while remaining > 0 && idx < column_widths.len() {
+                column_widths[idx] += remaining;
+                remaining = 0;
+                idx += 1;
+            }
+        }
+
+        let header = self
+            .headers
+            .iter()
+            .enumerate()
+            .map(|(idx, col)| {
+                let col_width = *column_widths.get(idx).unwrap_or(&3);
+                rich_rs::set_cell_size(col, col_width)
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
 
         let header_line = rich_rs::set_cell_size(&header, width);
         let mut lines = vec![header_line];
-        lines.push("-".repeat(width));
+        if col_count >= 2 {
+            let left = (*column_widths.get(0).unwrap_or(&3)).min(width);
+            lines.push(format!(
+                "{}+{}",
+                "-".repeat(left),
+                "-".repeat(width.saturating_sub(left + 1))
+            ));
+        } else {
+            lines.push("-".repeat(width));
+        }
 
         for (idx, row) in view.rows.iter().enumerate() {
             if idx < view.offset {
@@ -622,18 +602,15 @@ impl Widget for DataTable {
             let mut parts = Vec::new();
             for (col_idx, value) in row.iter().enumerate() {
                 let col_width = *column_widths.get(col_idx).unwrap_or(&3);
-                parts.push(rich_rs::set_cell_size(value, col_width));
+                let value = if col_idx == 0 && self.focused && idx == view.selected {
+                    format!("> {value}")
+                } else {
+                    value.to_string()
+                };
+                parts.push(rich_rs::set_cell_size(&value, col_width));
             }
             let line = parts.join(" | ");
-            let marker = if self.focused && idx == view.selected {
-                "> "
-            } else if idx == view.selected {
-                "* "
-            } else {
-                "  "
-            };
-            let rendered = format!("{marker}{line}");
-            lines.push(rich_rs::set_cell_size(&rendered, width));
+            lines.push(rich_rs::set_cell_size(&line, width));
         }
 
         let text = Text::plain(lines.join("\n"));
@@ -710,6 +687,20 @@ impl Tree {
             focused: false,
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn set_selected(&mut self, index: usize) {
+        let total = self.visible_count();
+        if total == 0 {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        self.selected = index.min(total.saturating_sub(1));
     }
 
     fn visible_count(&self) -> usize {

@@ -10,6 +10,9 @@ pub struct Style {
     pub underline: Option<bool>,
     pub border: Option<bool>,
     pub margin: Option<Margin>,
+    pub line_pad: Option<usize>,
+    pub border_top: Option<Color>,
+    pub border_bottom: Option<Color>,
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub min_height: Option<usize>,
@@ -61,6 +64,21 @@ impl Style {
         self
     }
 
+    pub fn line_pad(mut self, value: usize) -> Self {
+        self.line_pad = Some(value);
+        self
+    }
+
+    pub fn border_top(mut self, color: Color) -> Self {
+        self.border_top = Some(color);
+        self
+    }
+
+    pub fn border_bottom(mut self, color: Color) -> Self {
+        self.border_bottom = Some(color);
+        self
+    }
+
     pub fn width(mut self, value: usize) -> Self {
         let value = value.max(1);
         self.min_width = Some(value);
@@ -105,6 +123,9 @@ impl Style {
             underline: other.underline.or(self.underline),
             border: other.border.or(self.border),
             margin: other.margin.or(self.margin),
+            line_pad: other.line_pad.or(self.line_pad),
+            border_top: other.border_top.or(self.border_top),
+            border_bottom: other.border_bottom.or(self.border_bottom),
             min_width: other.min_width.or(self.min_width),
             max_width: other.max_width.or(self.max_width),
             min_height: other.min_height.or(self.min_height),
@@ -122,6 +143,9 @@ impl Style {
             underline: self.underline.or(parent.underline),
             border: self.border.or(parent.border),
             margin: self.margin,
+            line_pad: self.line_pad,
+            border_top: self.border_top,
+            border_bottom: self.border_bottom,
             min_width: self.min_width,
             max_width: self.max_width,
             min_height: self.min_height,
@@ -164,6 +188,9 @@ impl Style {
             && self.underline.is_none()
             && self.border.is_none()
             && self.margin.is_none()
+            && self.line_pad.is_none()
+            && self.border_top.is_none()
+            && self.border_bottom.is_none()
             && self.min_width.is_none()
             && self.max_width.is_none()
             && self.min_height.is_none()

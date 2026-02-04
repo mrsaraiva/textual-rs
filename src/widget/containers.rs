@@ -59,20 +59,41 @@ impl Widget for Container {
             let meta = style_selectors::selector_meta_generic(child.as_ref());
             let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
+            let (border_top, border_bottom, border_left, border_right) =
+                super::helpers::border_spacing_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width = clamp_with_constraints(
-                width.saturating_sub(margin.left + margin.right).max(1),
+                width
+                    .saturating_sub(margin.left + margin.right + border_left + border_right)
+                    .max(1),
                 constraints.min_width,
                 constraints.max_width,
-                width.saturating_sub(margin.left + margin.right).max(1),
+                width
+                    .saturating_sub(margin.left + margin.right + border_left + border_right)
+                    .max(1),
             );
             let render_height = clamp_with_constraints(
-                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
             );
+            // If the child has a fixed layout height, cap the *content* height we render with.
+            // This avoids centering/placement bugs when a widget renders relative to an oversized
+            // height and is later cropped back down.
+            let render_height = if let Some(fixed_total) = child.layout_height() {
+                let fixed_content = fixed_total
+                    .saturating_sub(border_top + border_bottom)
+                    .max(1);
+                render_height.min(fixed_content)
+            } else {
+                render_height
+            };
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
             child_options.max_width = render_width;
@@ -260,8 +281,15 @@ impl Widget for Container {
         }
         let mut total = 0usize;
         for child in &self.children {
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
             match child.layout_height() {
-                Some(height) => total = total.saturating_add(height),
+                Some(height) => {
+                    total = total
+                        .saturating_add(height)
+                        .saturating_add(margin.top + margin.bottom);
+                }
                 None => return None,
             }
         }
@@ -774,15 +802,42 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let constraints = child.layout_constraints();
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let (border_top, border_bottom, border_left, border_right) =
+                super::helpers::border_spacing_from_style(&resolved);
+            let style_constraints = constraints_from_style(&resolved);
+            let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width =
-                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+                clamp_with_constraints(
+                    width
+                        .saturating_sub(margin.left + margin.right + border_left + border_right)
+                        .max(1),
+                    constraints.min_width,
+                    constraints.max_width,
+                    width
+                        .saturating_sub(margin.left + margin.right + border_left + border_right)
+                        .max(1),
+                );
             let render_height = clamp_with_constraints(
-                height_limit,
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit,
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
             );
+            let render_height = if let Some(fixed_total) = child.layout_height() {
+                let fixed_content = fixed_total
+                    .saturating_sub(border_top + border_bottom)
+                    .max(1);
+                render_height.min(fixed_content)
+            } else {
+                render_height
+            };
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
             child_options.max_width = render_width;
@@ -800,7 +855,8 @@ impl Widget for AppRoot {
             );
             child_lines =
                 Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
-            child_lines = pad_lines_to_width(child_lines, width);
+            child_lines = pad_lines_to_width(child_lines, render_width);
+            child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len();
             let child_region =
                 rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
@@ -845,15 +901,42 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for (idx, child) in self.children.iter().enumerate() {
-            let constraints = child.layout_constraints();
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let (border_top, border_bottom, border_left, border_right) =
+                super::helpers::border_spacing_from_style(&resolved);
+            let style_constraints = constraints_from_style(&resolved);
+            let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width =
-                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+                clamp_with_constraints(
+                    width
+                        .saturating_sub(margin.left + margin.right + border_left + border_right)
+                        .max(1),
+                    constraints.min_width,
+                    constraints.max_width,
+                    width
+                        .saturating_sub(margin.left + margin.right + border_left + border_right)
+                        .max(1),
+                );
             let render_height = clamp_with_constraints(
-                height_limit,
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit,
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
             );
+            let render_height = if let Some(fixed_total) = child.layout_height() {
+                let fixed_content = fixed_total
+                    .saturating_sub(border_top + border_bottom)
+                    .max(1);
+                render_height.min(fixed_content)
+            } else {
+                render_height
+            };
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
             child_options.max_width = render_width;
@@ -871,7 +954,8 @@ impl Widget for AppRoot {
             );
             child_lines =
                 Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
-            child_lines = pad_lines_to_width(child_lines, width);
+            child_lines = pad_lines_to_width(child_lines, render_width);
+            child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
             let child_region =
@@ -988,6 +1072,27 @@ impl Widget for AppRoot {
                 break;
             }
         }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
+        let mut total = 0usize;
+        for child in &self.children {
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            match child.layout_height() {
+                Some(height) => {
+                    total = total
+                        .saturating_add(height)
+                        .saturating_add(margin.top + margin.bottom);
+                }
+                None => return None,
+            }
+        }
+        Some(total.max(1))
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {

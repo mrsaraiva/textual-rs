@@ -1,5 +1,11 @@
 Button {
     margin: 1 2;
+    min-width: 16;
+    line-pad: 1;
+    fg: color(15);
+    bg: color(236);
+    border-top: color(239);
+    border-bottom: color(233);
 }
 
 Horizontal > VerticalScroll {
@@ -12,8 +18,12 @@ Horizontal > VerticalScroll {
 }
 
 .button.primary { fg: color(15); bg: color(27); }
+.button.primary { border-top: color(33); border-bottom: color(19); }
 .button.success { fg: color(15); bg: color(34); }
+.button.success { border-top: color(40); border-bottom: color(28); }
 .button.warning { fg: color(16); bg: color(220); }
+.button.warning { border-top: color(228); border-bottom: color(178); }
 .button.error { fg: color(15); bg: color(196); }
+.button.error { border-top: color(203); border-bottom: color(160); }
 .button.disabled { dim: true; }
 .button.flat { border: false; }

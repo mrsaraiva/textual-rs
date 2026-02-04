@@ -74,21 +74,39 @@ impl Widget for Row {
             let meta = style_selectors::selector_meta_generic(child.as_ref());
             let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
+            let (border_top, border_bottom, border_left, border_right) =
+                super::helpers::border_spacing_from_style(&resolved);
             let child_width = widths[idx].max(1);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width = clamp_with_constraints(
-                child_width.saturating_sub(margin.left + margin.right).max(1),
+                child_width
+                    .saturating_sub(margin.left + margin.right + border_left + border_right)
+                    .max(1),
                 constraints.min_width,
                 constraints.max_width,
-                child_width.saturating_sub(margin.left + margin.right).max(1),
+                child_width
+                    .saturating_sub(margin.left + margin.right + border_left + border_right)
+                    .max(1),
             );
             let render_height = clamp_with_constraints(
-                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
+                height_limit
+                    .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)
+                    .max(1),
             );
+            let render_height = if let Some(fixed_total) = child.layout_height() {
+                let fixed_content = fixed_total
+                    .saturating_sub(border_top + border_bottom)
+                    .max(1);
+                render_height.min(fixed_content)
+            } else {
+                render_height
+            };
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
             child_options.max_width = render_width;

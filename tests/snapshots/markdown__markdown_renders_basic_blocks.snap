@@ -4,10 +4,10 @@ assertion_line: 16
 expression: buf.debug_dump()
 ---
 lines:
-0: "╔════════════════════════╗"
-1: "║         Title          ║"
-2: "╚════════════════════════╝"
-3: "                          "
-4: " • Alpha                  "
-5: " • Beta                   "
+0: "          Title           "
+1: "                          "
+2: " • Alpha                  "
+3: " • Beta                   "
+4: "                          "
+5: "code                      "
 meta:

@@ -4,8 +4,8 @@ assertion_line: 24
 expression: buf.debug_dump()
 ---
 lines:
-0: "Name    | Value "
+0: "Name     | Value"
 1: "--------+-------"
-2: "Alpha   | 1     "
-3: "> Beta  | 2     "
+2: "Alpha    | 1    "
+3: "> Beta   | 2    "
 meta:

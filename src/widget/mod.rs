@@ -51,7 +51,13 @@ pub trait Widget: Send + Sync {
             Some(debug) => self.render_with_debug(console, options, debug),
             None => self.render(console, options),
         });
-        style_selectors::apply_style_to_segments(segments, resolved)
+        let styled = style_selectors::apply_style_to_segments(segments, resolved);
+        helpers::apply_border_edges(
+            styled,
+            options.size.0.max(1),
+            resolved.border_top,
+            resolved.border_bottom,
+        )
     }
     fn render_with_debug(
         &self,

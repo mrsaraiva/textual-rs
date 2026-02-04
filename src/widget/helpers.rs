@@ -2,7 +2,7 @@ use rich_rs::{Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
 
-use crate::style::{Margin, Style};
+use crate::style::{Color, Margin, Style};
 
 use super::{LayoutConstraints, Widget, WidgetId};
 
@@ -229,6 +229,46 @@ pub(crate) fn constraints_from_style(style: &Style) -> LayoutConstraints {
         min_height: style.min_height,
         max_height: style.max_height,
     }
+}
+
+pub(crate) fn border_spacing_from_style(style: &Style) -> (usize, usize, usize, usize) {
+    let top = if style.border_top.is_some() { 1 } else { 0 };
+    let bottom = if style.border_bottom.is_some() { 1 } else { 0 };
+    (top, bottom, 0, 0)
+}
+
+pub(crate) fn border_vertical_padding(style: &Style) -> usize {
+    let (top, bottom, _, _) = border_spacing_from_style(style);
+    top + bottom
+}
+
+pub(crate) fn apply_border_edges(
+    segments: Segments,
+    width: usize,
+    top: Option<Color>,
+    bottom: Option<Color>,
+) -> Segments {
+    if top.is_none() && bottom.is_none() {
+        return segments;
+    }
+    let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+    if let Some(top_color) = top {
+        let style = rich_rs::Style::new().with_bgcolor(top_color);
+        lines.insert(0, vec![Segment::styled(" ".repeat(width), style)]);
+    }
+    if let Some(bottom_color) = bottom {
+        let style = rich_rs::Style::new().with_bgcolor(bottom_color);
+        lines.push(vec![Segment::styled(" ".repeat(width), style)]);
+    }
+    let line_count = lines.len();
+    let mut out = Segments::new();
+    for (idx, line) in lines.into_iter().enumerate() {
+        out.extend(line);
+        if idx + 1 < line_count {
+            out.push(Segment::line());
+        }
+    }
+    out
 }
 
 pub(crate) fn apply_margin(

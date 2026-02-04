@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use rich_rs::Segments;
+use rich_rs::{MetaValue, Segments};
 
 use crate::style::{Color, Margin, Style};
 
@@ -11,6 +11,7 @@ thread_local! {
     static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
     static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
 }
+
 
 #[derive(Debug, Clone, Default)]
 pub struct StyleSelector {
@@ -234,6 +235,18 @@ pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segme
         .map(|mut seg| {
             if seg.control.is_some() {
                 return seg;
+            }
+            let mut rich_style = rich_style;
+            if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
+                if let Some(MetaValue::Bool(true)) = meta.get("textual:no_style") {
+                    return seg;
+                }
+                if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
+                    if let Some(mut style) = rich_style {
+                        style.bgcolor = None;
+                        rich_style = Some(style);
+                    }
+                }
             }
             if let Some(rich_style) = rich_style {
                 seg.style = Some(match seg.style {
@@ -512,6 +525,21 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.border(val);
                 }
             }
+            "line-pad" => {
+                if let Ok(value) = value.parse() {
+                    style = style.line_pad(value);
+                }
+            }
+            "border-top" => {
+                if let Some(color) = parse_border_color(value) {
+                    style = style.border_top(color);
+                }
+            }
+            "border-bottom" => {
+                if let Some(color) = parse_border_color(value) {
+                    style = style.border_bottom(color);
+                }
+            }
             _ => {}
         }
     }
@@ -539,4 +567,18 @@ fn parse_margin(value: &str) -> Option<Margin> {
         4 => Some(Margin::new(nums[0], nums[1], nums[2], nums[3])),
         _ => None,
     }
+}
+
+fn parse_border_color(value: &str) -> Option<Color> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    for part in parts.iter().rev() {
+        if let Some(color) = Color::parse(part) {
+            return Some(color);
+        }
+    }
+    Color::parse(value)
 }
