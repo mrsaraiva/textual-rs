@@ -9,6 +9,7 @@ use crate::style::{Color, Style};
 mod controls;
 mod containers;
 mod aliases;
+mod defaults;
 mod helpers;
 mod layout;
 mod style_selectors;
@@ -25,6 +26,7 @@ pub use helpers::WidgetRenderable;
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use style_selectors::{set_style_context, StyleContextGuard, StyleRule, StyleSelector, StyleSheet};
 pub use text::{Label, Markdown};
+pub use defaults::default_widget_stylesheet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct WidgetId(u64);

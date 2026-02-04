@@ -21,6 +21,7 @@ pub struct App {
     debug_layout: DebugLayout,
     action_map: ActionMap,
     theme: Theme,
+    default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
@@ -49,6 +50,7 @@ impl App {
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
             theme: Theme::default(),
+            default_stylesheet: crate::widget::default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
             stylesheet_watch: None,
             running: true,
@@ -139,7 +141,9 @@ impl App {
 
     pub fn render_widget(&mut self, widget: &dyn Widget) -> Result<()> {
         self.refresh_size()?;
-        let _guard = set_style_context(self.stylesheet.clone());
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        let _guard = set_style_context(sheet);
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {

@@ -5,7 +5,8 @@ use textual::widget::{set_style_context, StyleSheet, WidgetRenderable};
 #[test]
 fn buttons_demo_renders_labels() {
     let css = std::fs::read_to_string("examples/button.tcss").expect("read button.tcss");
-    let stylesheet = StyleSheet::parse(&css);
+    let mut stylesheet = textual::widget::default_widget_stylesheet();
+    stylesheet.extend(&StyleSheet::parse(&css));
     let _guard = set_style_context(stylesheet);
 
     let buttons = Horizontal::new()
@@ -68,4 +69,3 @@ fn buttons_demo_renders_labels() {
         buf.debug_dump()
     );
 }
-

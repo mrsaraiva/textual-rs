@@ -103,6 +103,10 @@ impl StyleSheet {
         Self::default()
     }
 
+    pub fn extend(&mut self, other: &StyleSheet) {
+        self.rules.extend(other.rules.iter().cloned());
+    }
+
     pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
         self.rules.push(StyleRule {
             selector_chain: SelectorChain {
