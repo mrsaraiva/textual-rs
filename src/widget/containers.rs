@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossterm::event::KeyCode;
@@ -724,11 +725,22 @@ impl AppRoot {
             collect_focus_ids(child.as_mut(), &mut ids);
         }
         if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
-            eprintln!(
+            let line = format!(
                 "[focus] chain (len={}): {:?}",
                 ids.len(),
                 ids.iter().map(|id| id.as_u64()).collect::<Vec<_>>()
             );
+            if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let _ = writeln!(file, "{line}");
+                }
+            } else {
+                eprintln!("{line}");
+            }
         }
         if ids.is_empty() {
             self.focused = None;
@@ -744,11 +756,22 @@ impl AppRoot {
             ids[0]
         };
         if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
-            eprintln!(
+            let line = format!(
                 "[focus] current={:?} -> next={:?}",
                 self.focused.map(|id| id.as_u64()),
                 next.as_u64()
             );
+            if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let _ = writeln!(file, "{line}");
+                }
+            } else {
+                eprintln!("{line}");
+            }
         }
         for child in &mut self.children {
             set_focus_by_id(child.as_mut(), Some(next));

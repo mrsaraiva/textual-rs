@@ -45,6 +45,8 @@ Button.-style-flat.-success { fg: $text; bg: $success-muted; border: block $succ
 Button.-style-flat.-warning { fg: $text; bg: $warning-muted; border: block $warning-muted; }
 Button.-style-flat.-error { fg: $text; bg: $error-muted; border: block $error-muted; }
 
+Button.-style-flat:focus { text-style: $button-focus-text-style; background-tint: $foreground 5%; }
+
 Button.-style-flat:hover { fg: $text; bg: $primary; border: block $primary; }
 Button.-style-flat.-primary:hover { fg: $text; bg: $primary; border: block $primary; }
 Button.-style-flat.-success:hover { fg: $text; bg: $success; border: block $success; }
