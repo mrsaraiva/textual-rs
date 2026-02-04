@@ -63,16 +63,29 @@ impl Widget for Container {
                 super::helpers::border_spacing_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let render_width = clamp_with_constraints(
-                width
-                    .saturating_sub(margin.left + margin.right + border_left + border_right)
-                    .max(1),
+            let available_width = width
+                .saturating_sub(margin.left + margin.right + border_left + border_right)
+                .max(1);
+            let mut render_width = clamp_with_constraints(
+                available_width,
                 constraints.min_width,
                 constraints.max_width,
-                width
-                    .saturating_sub(margin.left + margin.right + border_left + border_right)
-                    .max(1),
+                available_width,
             );
+            if resolved.width_auto == Some(true) {
+                let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+                let intrinsic = child
+                    .content_width()
+                    .unwrap_or(render_width)
+                    .saturating_add(pad)
+                    .max(1);
+                render_width = clamp_with_constraints(
+                    intrinsic,
+                    constraints.min_width,
+                    constraints.max_width,
+                    available_width,
+                );
+            }
             let render_height = clamp_with_constraints(
                 height_limit
                     .saturating_sub(margin.top + margin.bottom + border_top + border_bottom)

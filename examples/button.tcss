@@ -1,5 +1,7 @@
 Button {
     margin: 1 2;
+    width: auto;
+    height: auto;
     min-width: 16;
     line-pad: 1;
     fg: color(15);

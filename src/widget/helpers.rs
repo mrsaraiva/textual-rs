@@ -271,6 +271,43 @@ pub(crate) fn apply_border_edges(
     out
 }
 
+pub(crate) fn apply_line_pad(
+    segments: Segments,
+    content_width: usize,
+    full_width: usize,
+    line_pad: usize,
+) -> Segments {
+    if line_pad == 0 || full_width == content_width {
+        return segments;
+    }
+    let mut lines = Segment::split_and_crop_lines(segments, content_width.max(1), None, true, false);
+    // Ensure consistent shaping before we pad.
+    lines = Segment::set_shape(&lines, content_width.max(1), None, None, false);
+
+    let mut padded: Vec<Vec<Segment>> = Vec::with_capacity(lines.len());
+    let left = vec![Segment::new(" ".repeat(line_pad))];
+    let right = vec![Segment::new(" ".repeat(line_pad))];
+
+    for line in lines {
+        let mut row: Vec<Segment> = Vec::new();
+        row.extend(left.iter().cloned());
+        row.extend(Segment::adjust_line_length(&line, content_width.max(1), None, true));
+        row.extend(right.iter().cloned());
+        let row = Segment::adjust_line_length(&row, full_width.max(1), None, true);
+        padded.push(row);
+    }
+
+    let line_count = padded.len();
+    let mut out = Segments::new();
+    for (idx, line) in padded.into_iter().enumerate() {
+        out.extend(line);
+        if idx + 1 < line_count {
+            out.push(Segment::line());
+        }
+    }
+    out
+}
+
 pub(crate) fn apply_margin(
     lines: Vec<Vec<Segment>>,
     width: usize,

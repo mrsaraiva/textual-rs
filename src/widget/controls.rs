@@ -120,6 +120,11 @@ impl Widget for Button {
         self.focused = focused;
     }
 
+    fn content_width(&self) -> Option<usize> {
+        // Match Textual's default behavior: content width is label width + a small padding.
+        Some(rich_rs::cell_len(&self.label).saturating_add(2).max(1))
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if !self.focused || self.disabled {
             return;
@@ -142,55 +147,25 @@ impl Widget for Button {
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let padding_h = 2usize;
-        let inner_width = width.saturating_sub(padding_h * 2).max(1);
-
-        let label_row = height / 2;
-        let mut out_lines: Vec<Vec<Segment>> = Vec::new();
-        for row in 0..height {
-            let line = if row == label_row {
-                let label = self.label.as_str();
-                let label_width = rich_rs::cell_len(label).min(inner_width);
-                let left = inner_width.saturating_sub(label_width) / 2;
-                let right = inner_width.saturating_sub(label_width) - left;
-                let label_line = format!(
-                    "{}{}{}",
-                    " ".repeat(left),
-                    rich_rs::set_cell_size(label, label_width),
-                    " ".repeat(right)
-                );
-                label_line
-            } else {
-                " ".repeat(inner_width)
-            };
-            let mut row_segments: Vec<Segment> = Vec::new();
-            if padding_h > 0 {
-                row_segments.push(Segment::new(" ".repeat(padding_h)));
-            }
-            row_segments.push(Segment::new(line));
-            if padding_h > 0 {
-                row_segments.push(Segment::new(" ".repeat(padding_h)));
-            }
-            out_lines.push(row_segments);
-        }
-        let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
-        let line_count = out_lines.len();
+        let label = self.label.as_str();
+        let label_width = rich_rs::cell_len(label).min(width);
+        let left = width.saturating_sub(label_width) / 2;
+        let right = width.saturating_sub(label_width) - left;
+        let line = format!(
+            "{}{}{}",
+            " ".repeat(left),
+            rich_rs::set_cell_size(label, label_width),
+            " ".repeat(right)
+        );
         let mut out = Segments::new();
-        for (idx, line) in out_lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
+        out.push(Segment::new(line));
         out
     }
 
     fn layout_height(&self) -> Option<usize> {
         let meta = style_selectors::selector_meta_generic(self);
         let base_style = style_selectors::resolve_style(self, &meta);
-        let line_pad = base_style.line_pad.unwrap_or(1);
-        let default_height = 1 + line_pad * 2 + super::helpers::border_vertical_padding(&base_style);
+        let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
         fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
     }
 

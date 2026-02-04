@@ -451,12 +451,16 @@ fn parse_style_body(body: &str) -> Style {
                 }
             }
             "width" => {
-                if let Ok(value) = value.parse() {
+                if value.trim().eq_ignore_ascii_case("auto") {
+                    style.width_auto = Some(true);
+                } else if let Ok(value) = value.parse() {
                     style = style.width(value);
                 }
             }
             "height" => {
-                if let Ok(value) = value.parse() {
+                if value.trim().eq_ignore_ascii_case("auto") {
+                    style.height_auto = Some(true);
+                } else if let Ok(value) = value.parse() {
                     style = style.height(value);
                 }
             }

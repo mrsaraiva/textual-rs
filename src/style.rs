@@ -13,6 +13,8 @@ pub struct Style {
     pub line_pad: Option<usize>,
     pub border_top: Option<Color>,
     pub border_bottom: Option<Color>,
+    pub width_auto: Option<bool>,
+    pub height_auto: Option<bool>,
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub min_height: Option<usize>,
@@ -81,6 +83,7 @@ impl Style {
 
     pub fn width(mut self, value: usize) -> Self {
         let value = value.max(1);
+        self.width_auto = Some(false);
         self.min_width = Some(value);
         self.max_width = Some(value);
         self
@@ -88,6 +91,7 @@ impl Style {
 
     pub fn height(mut self, value: usize) -> Self {
         let value = value.max(1);
+        self.height_auto = Some(false);
         self.min_height = Some(value);
         self.max_height = Some(value);
         self
@@ -126,6 +130,8 @@ impl Style {
             line_pad: other.line_pad.or(self.line_pad),
             border_top: other.border_top.or(self.border_top),
             border_bottom: other.border_bottom.or(self.border_bottom),
+            width_auto: other.width_auto.or(self.width_auto),
+            height_auto: other.height_auto.or(self.height_auto),
             min_width: other.min_width.or(self.min_width),
             max_width: other.max_width.or(self.max_width),
             min_height: other.min_height.or(self.min_height),
@@ -146,6 +152,8 @@ impl Style {
             line_pad: self.line_pad,
             border_top: self.border_top,
             border_bottom: self.border_bottom,
+            width_auto: self.width_auto,
+            height_auto: self.height_auto,
             min_width: self.min_width,
             max_width: self.max_width,
             min_height: self.min_height,
@@ -191,6 +199,8 @@ impl Style {
             && self.line_pad.is_none()
             && self.border_top.is_none()
             && self.border_bottom.is_none()
+            && self.width_auto.is_none()
+            && self.height_auto.is_none()
             && self.min_width.is_none()
             && self.max_width.is_none()
             && self.min_height.is_none()

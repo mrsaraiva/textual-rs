@@ -47,17 +47,29 @@ pub trait Widget: Send + Sync {
     ) -> Segments {
         let meta = style_selectors::selector_meta_generic(self);
         let resolved = style_selectors::resolve_style(self, &meta);
+        let line_pad = resolved.line_pad.unwrap_or(0);
+        let full_width = options.size.0.max(1);
+        let content_width = full_width.saturating_sub(line_pad.saturating_mul(2)).max(1);
+
+        // Textual's `line-pad` is horizontal padding applied to each line. To model this, render the
+        // widget into a smaller content width and then wrap each line with `line_pad` spaces.
+        let mut content_options = options.clone();
+        content_options.size = (content_width, content_options.size.1.max(1));
+        content_options.max_width = content_width;
+
         let segments = style_selectors::with_style_stack(meta, resolved, || match debug {
-            Some(debug) => self.render_with_debug(console, options, debug),
-            None => self.render(console, options),
+            Some(debug) => self.render_with_debug(console, &content_options, debug),
+            None => self.render(console, &content_options),
         });
+
+        let segments = if line_pad > 0 {
+            helpers::apply_line_pad(segments, content_width, full_width, line_pad)
+        } else {
+            segments
+        };
+
         let styled = style_selectors::apply_style_to_segments(segments, resolved);
-        helpers::apply_border_edges(
-            styled,
-            options.size.0.max(1),
-            resolved.border_top,
-            resolved.border_bottom,
-        )
+        helpers::apply_border_edges(styled, full_width, resolved.border_top, resolved.border_bottom)
     }
     fn render_with_debug(
         &self,
@@ -78,6 +90,12 @@ pub trait Widget: Send + Sync {
         false
     }
     fn set_focus(&mut self, _focused: bool) {}
+    /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
+    ///
+    /// This should return the width of the widget's *content* (excluding margins and borders).
+    fn content_width(&self) -> Option<usize> {
+        None
+    }
     fn layout_height(&self) -> Option<usize> {
         helpers::fixed_height_from_constraints(self.layout_constraints())
     }
