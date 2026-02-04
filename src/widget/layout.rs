@@ -62,22 +62,82 @@ impl Widget for Row {
         let height_limit = options.size.1.max(1);
 
         let count = self.children.len().max(1);
-        let base = width / count;
-        let remainder = width % count;
-
-        let widths: Vec<usize> = (0..count)
-            .map(|idx| base + if idx < remainder { 1 } else { 0 })
-            .collect();
-
-        let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
+        let mut fixed_widths: Vec<Option<usize>> = vec![None; count];
+        let mut margins: Vec<Margin> = vec![Margin::default(); count];
+        let mut constraints_list: Vec<LayoutConstraints> = Vec::with_capacity(count);
+        let mut resolved_list: Vec<crate::style::Style> = Vec::with_capacity(count);
 
         for (idx, child) in self.children.iter().enumerate() {
             let meta = style_selectors::selector_meta_generic(child.as_ref());
             let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
-            let child_width = widths[idx].max(1);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
+
+            let fixed =
+                if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
+                    if min == max { Some(min) } else { None }
+                } else if resolved.width_auto == Some(true) {
+                    let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+                    let (_, _, border_left, border_right) =
+                        super::helpers::border_spacing_from_style(&resolved);
+                    child
+                        .content_width()
+                        .map(|w| w.saturating_add(pad + border_left + border_right).max(1))
+                } else {
+                    None
+                };
+
+            fixed_widths[idx] = fixed;
+            margins[idx] = margin;
+            constraints_list.push(constraints);
+            resolved_list.push(resolved);
+        }
+
+        let mut fixed_total = 0usize;
+        let mut flex_count = 0usize;
+        for (idx, fixed) in fixed_widths.iter().enumerate() {
+            if let Some(width) = fixed {
+                let margin = margins[idx];
+                fixed_total = fixed_total.saturating_add(width + margin.left + margin.right);
+            } else {
+                flex_count += 1;
+            }
+        }
+
+        let remaining = width.saturating_sub(fixed_total);
+        let base = if flex_count > 0 {
+            remaining / flex_count
+        } else {
+            0
+        };
+        let remainder = if flex_count > 0 {
+            remaining % flex_count
+        } else {
+            0
+        };
+
+        let mut flex_seen = 0usize;
+        let widths: Vec<usize> = (0..count)
+            .map(|idx| {
+                if let Some(fixed) = fixed_widths[idx] {
+                    let margin = margins[idx];
+                    (fixed + margin.left + margin.right).max(1)
+                } else {
+                    let extra = if flex_seen < remainder { 1 } else { 0 };
+                    flex_seen += 1;
+                    (base + extra).max(1)
+                }
+            })
+            .collect();
+
+        let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
+
+        for (idx, child) in self.children.iter().enumerate() {
+            let _resolved = resolved_list[idx];
+            let margin = margins[idx];
+            let child_width = widths[idx].max(1);
+            let constraints = constraints_list[idx];
             let render_width = clamp_with_constraints(
                 child_width
                     .saturating_sub(margin.left + margin.right)
@@ -169,6 +229,7 @@ impl Widget for Row {
             out_lines.push(line);
         }
 
+        let out_lines = Segment::set_shape(&out_lines, width, Some(max_child_height), None, false);
         let line_count = out_lines.len();
         let mut out = Segments::new();
         for (idx, line) in out_lines.into_iter().enumerate() {
@@ -198,23 +259,90 @@ impl Widget for Row {
         let height_limit = options.size.1.max(1);
 
         let count = self.children.len().max(1);
-        let base = width / count;
-        let remainder = width % count;
+        let mut fixed_widths: Vec<Option<usize>> = vec![None; count];
+        let mut margins: Vec<Margin> = vec![Margin::default(); count];
+        let mut constraints_list: Vec<LayoutConstraints> = Vec::with_capacity(count);
+        let mut resolved_list: Vec<crate::style::Style> = Vec::with_capacity(count);
 
+        for (idx, child) in self.children.iter().enumerate() {
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let style_constraints = constraints_from_style(&resolved);
+            let constraints = merge_constraints(style_constraints, child.layout_constraints());
+
+            let fixed =
+                if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
+                    if min == max { Some(min) } else { None }
+                } else if resolved.width_auto == Some(true) {
+                    let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+                    let (_, _, border_left, border_right) =
+                        super::helpers::border_spacing_from_style(&resolved);
+                    child
+                        .content_width()
+                        .map(|w| w.saturating_add(pad + border_left + border_right).max(1))
+                } else {
+                    None
+                };
+
+            fixed_widths[idx] = fixed;
+            margins[idx] = margin;
+            constraints_list.push(constraints);
+            resolved_list.push(resolved);
+        }
+
+        let mut fixed_total = 0usize;
+        let mut flex_count = 0usize;
+        for (idx, fixed) in fixed_widths.iter().enumerate() {
+            if let Some(width) = fixed {
+                let margin = margins[idx];
+                fixed_total = fixed_total.saturating_add(width + margin.left + margin.right);
+            } else {
+                flex_count += 1;
+            }
+        }
+
+        let remaining = width.saturating_sub(fixed_total);
+        let base = if flex_count > 0 {
+            remaining / flex_count
+        } else {
+            0
+        };
+        let remainder = if flex_count > 0 {
+            remaining % flex_count
+        } else {
+            0
+        };
+
+        let mut flex_seen = 0usize;
         let widths: Vec<usize> = (0..count)
-            .map(|idx| base + if idx < remainder { 1 } else { 0 })
+            .map(|idx| {
+                if let Some(fixed) = fixed_widths[idx] {
+                    let margin = margins[idx];
+                    (fixed + margin.left + margin.right).max(1)
+                } else {
+                    let extra = if flex_seen < remainder { 1 } else { 0 };
+                    flex_seen += 1;
+                    (base + extra).max(1)
+                }
+            })
             .collect();
 
         let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
 
         for (idx, child) in self.children.iter().enumerate() {
             let child_width = widths[idx].max(1);
-            let constraints = child.layout_constraints();
+            let constraints = constraints_list[idx];
+            let margin = margins[idx];
             let render_width = clamp_with_constraints(
-                child_width,
+                child_width
+                    .saturating_sub(margin.left + margin.right)
+                    .max(1),
                 constraints.min_width,
                 constraints.max_width,
-                child_width,
+                child_width
+                    .saturating_sub(margin.left + margin.right)
+                    .max(1),
             );
             let render_height = clamp_with_constraints(
                 height_limit,
@@ -238,7 +366,8 @@ impl Widget for Row {
                 height_limit,
             );
             lines = Segment::set_shape(&lines, render_width, Some(target_height), None, false);
-            lines = pad_lines_to_width(lines, child_width);
+            lines = pad_lines_to_width(lines, render_width);
+            lines = apply_margin(lines, child_width, margin);
             let child_height = lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
             let label = if debug.show_sizes {
@@ -301,6 +430,7 @@ impl Widget for Row {
             out_lines.push(line);
         }
 
+        let out_lines = Segment::set_shape(&out_lines, width, Some(max_child_height), None, false);
         let line_count = out_lines.len();
         let mut out = Segments::new();
         for (idx, line) in out_lines.into_iter().enumerate() {
