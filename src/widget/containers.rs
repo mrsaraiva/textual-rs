@@ -8,9 +8,12 @@ use crate::event::{Action, Event, EventCtx};
 use crate::style::Style;
 
 use super::{
-    apply_debug_box, clamp_with_constraints, collect_focus_ids, crop_line_horizontal,
-    dispatch_event_to_focus, fixed_height_from_constraints, merge_constraints, pad_lines_to_width,
-    set_focus_by_id, LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    helpers::{
+        apply_debug_box, clamp_with_constraints, collect_focus_ids, crop_line_horizontal,
+        dispatch_event_to_focus, fixed_height_from_constraints, merge_constraints, pad_lines_to_width,
+        set_focus_by_id,
+    },
+    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 pub struct Container {
@@ -267,18 +270,6 @@ impl Widget for Container {
 impl Renderable for Container {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
-    }
-}
-
-impl<'a> WidgetRenderable<'a> {
-    pub fn new(widget: &'a dyn Widget) -> Self {
-        Self { widget }
-    }
-}
-
-impl Renderable for WidgetRenderable<'_> {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.widget.render_styled(console, options)
     }
 }
 

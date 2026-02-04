@@ -4,7 +4,7 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
 use super::{
-    apply_debug_box, clamp_with_constraints, fixed_height_from_constraints, pad_lines_to_width,
+    helpers::{apply_debug_box, clamp_with_constraints, fixed_height_from_constraints, pad_lines_to_width},
     Widget, WidgetId, WidgetStyles,
 };
 

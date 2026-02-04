@@ -1,0 +1,477 @@
+use std::cell::RefCell;
+
+use rich_rs::Segments;
+
+use crate::style::{Color, Style};
+
+use super::Widget;
+
+thread_local! {
+    static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
+    static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
+    static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StyleSelector {
+    type_name: Option<String>,
+    id: Option<String>,
+    classes: Vec<String>,
+}
+
+impl StyleSelector {
+    pub fn new(type_name: impl Into<String>) -> Self {
+        Self {
+            type_name: Some(type_name.into()),
+            id: None,
+            classes: Vec::new(),
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn class(mut self, class: impl Into<String>) -> Self {
+        self.classes.push(class.into());
+        self
+    }
+
+    fn matches(&self, meta: &SelectorMeta) -> bool {
+        if let Some(type_name) = &self.type_name {
+            if meta.type_name != *type_name {
+                return false;
+            }
+        }
+        if let Some(id) = &self.id {
+            if meta.id.as_deref() != Some(id.as_str()) {
+                return false;
+            }
+        }
+        if !self.classes.is_empty() {
+            if !self
+                .classes
+                .iter()
+                .all(|class| meta.classes.iter().any(|value| value == class))
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn specificity(&self) -> u8 {
+        let mut score = 0u8;
+        if self.type_name.is_some() {
+            score += 1;
+        }
+        score = score.saturating_add(self.classes.len().saturating_mul(10) as u8);
+        if self.id.is_some() {
+            score = score.saturating_add(100);
+        }
+        score
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Combinator {
+    Descendant,
+    Child,
+}
+
+#[derive(Debug, Clone)]
+struct SelectorChain {
+    parts: Vec<StyleSelector>,
+    combinators: Vec<Combinator>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StyleRule {
+    selector_chain: SelectorChain,
+    style: Style,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StyleSheet {
+    rules: Vec<StyleRule>,
+}
+
+impl StyleSheet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
+        self.rules.push(StyleRule {
+            selector_chain: SelectorChain {
+                parts: vec![selector],
+                combinators: Vec::new(),
+            },
+            style,
+        });
+    }
+
+    pub fn add_type(&mut self, name: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::new(name), style);
+    }
+
+    pub fn add_id(&mut self, id: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::default().id(id), style);
+    }
+
+    pub fn add_class(&mut self, class: impl Into<String>, style: Style) {
+        self.add_rule(StyleSelector::default().class(class), style);
+    }
+
+    fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {
+        let mut matches: Vec<(u8, usize, Style)> = Vec::new();
+        for (idx, rule) in self.rules.iter().enumerate() {
+            if let Some(score) = rule_specificity(rule, meta) {
+                matches.push((score, idx, rule.style));
+            }
+        }
+        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let mut out = Style::new();
+        for (_, _, style) in matches {
+            out = out.combine(&style);
+        }
+        out
+    }
+
+    pub fn parse(input: &str) -> Self {
+        let mut sheet = StyleSheet::new();
+        let mut rest = input;
+        while let Some(start) = rest.find('{') {
+            let selector = rest[..start].trim();
+            let after = &rest[start + 1..];
+            let end = match after.find('}') {
+                Some(pos) => pos,
+                None => break,
+            };
+            let body = &after[..end];
+            let style = parse_style_body(body);
+            if !style.is_empty() {
+                for selector_chain in parse_selector_list(selector) {
+                    sheet.rules.push(StyleRule {
+                        selector_chain,
+                        style,
+                    });
+                }
+            }
+            rest = &after[end + 1..];
+        }
+        sheet
+    }
+}
+
+pub struct StyleContextGuard;
+
+pub fn set_style_context(stylesheet: StyleSheet) -> StyleContextGuard {
+    STYLE_CONTEXT.with(|ctx| {
+        *ctx.borrow_mut() = Some(stylesheet);
+    });
+    StyleContextGuard
+}
+
+impl Drop for StyleContextGuard {
+    fn drop(&mut self) {
+        STYLE_CONTEXT.with(|ctx| {
+            *ctx.borrow_mut() = None;
+        });
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SelectorMeta {
+    type_name: String,
+    id: Option<String>,
+    classes: Vec<String>,
+}
+
+pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
+    SelectorMeta {
+        type_name: widget.style_type().to_string(),
+        id: widget.style_id().map(|value| value.to_string()),
+        classes: widget.style_classes().to_vec(),
+    }
+}
+
+pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
+    let sheet_style = STYLE_CONTEXT
+        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget, meta)))
+        .unwrap_or_default();
+    let mut style = sheet_style;
+    if let Some(inline) = widget.style() {
+        style = style.combine(&inline);
+    }
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
+        style = style.inherit_from(&parent);
+    }
+    style
+}
+
+pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl FnOnce() -> T) -> T {
+    STYLE_STACK.with(|style_stack| {
+        SELECTOR_STACK.with(|selector_stack| {
+            style_stack.borrow_mut().push(resolved);
+            selector_stack.borrow_mut().push(meta);
+            let out = f();
+            selector_stack.borrow_mut().pop();
+            style_stack.borrow_mut().pop();
+            out
+        })
+    })
+}
+
+pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
+    if style.is_empty() {
+        return segments;
+    }
+    let rich_style = style.to_rich();
+    segments
+        .into_iter()
+        .map(|mut seg| {
+            if seg.control.is_some() {
+                return seg;
+            }
+            if let Some(rich_style) = rich_style {
+                seg.style = Some(match seg.style {
+                    Some(existing) => existing.combine(&rich_style),
+                    None => rich_style,
+                });
+            }
+            seg
+        })
+        .collect()
+}
+
+fn rule_specificity(rule: &StyleRule, meta: &SelectorMeta) -> Option<u8> {
+    if rule.selector_chain.parts.is_empty() {
+        return None;
+    }
+    let last = rule.selector_chain.parts.last().unwrap();
+    if !last.matches(meta) {
+        return None;
+    }
+    if rule.selector_chain.parts.len() == 1 {
+        return Some(last.specificity());
+    }
+
+    let stack_snapshot = SELECTOR_STACK.with(|stack| stack.borrow().clone());
+    let mut idx = stack_snapshot.len() as isize - 2;
+    let combinators = &rule.selector_chain.combinators;
+    let parts = &rule.selector_chain.parts;
+    for (part_index, selector) in parts[..parts.len() - 1].iter().rev().enumerate() {
+        let comb = combinators[combinators.len() - 1 - part_index];
+        match comb {
+            Combinator::Child => {
+                if idx < 0 {
+                    return None;
+                }
+                let meta = &stack_snapshot[idx as usize];
+                if !selector.matches(meta) {
+                    return None;
+                }
+                idx -= 1;
+            }
+            Combinator::Descendant => {
+                let mut found = false;
+                let mut current = idx;
+                while current >= 0 {
+                    let meta = &stack_snapshot[current as usize];
+                    if selector.matches(meta) {
+                        found = true;
+                        idx = current - 1;
+                        break;
+                    }
+                    current -= 1;
+                }
+                if !found {
+                    return None;
+                }
+            }
+        }
+    }
+
+    let score = parts.iter().map(|part| part.specificity()).sum();
+    Some(score)
+}
+
+fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
+    let mut groups = Vec::new();
+    for group in selector.split(',') {
+        let group = group.trim();
+        if group.is_empty() {
+            continue;
+        }
+        if let Some(chain) = parse_selector_chain(group) {
+            groups.push(chain);
+        }
+    }
+    groups
+}
+
+fn parse_selector(selector: &str) -> Option<StyleSelector> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return None;
+    }
+
+    let mut type_name: Option<String> = None;
+    let mut id: Option<String> = None;
+    let mut classes: Vec<String> = Vec::new();
+
+    let mut chars = selector.chars().peekable();
+    let mut current = String::new();
+    let mut mode: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '#' | '.' => {
+                if mode.is_none() && !current.is_empty() {
+                    type_name = Some(current.clone());
+                } else if let Some(mode) = mode {
+                    match mode {
+                        '#' => id = Some(current.clone()),
+                        '.' => classes.push(current.clone()),
+                        _ => {}
+                    }
+                }
+                current.clear();
+                mode = Some(ch);
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        match mode {
+            None => type_name = Some(current),
+            Some('#') => id = Some(current),
+            Some('.') => classes.push(current),
+            _ => {}
+        }
+    }
+
+    let mut selector = StyleSelector::default();
+    if let Some(type_name) = type_name {
+        selector = StyleSelector::new(type_name);
+    }
+    if let Some(id) = id {
+        selector = selector.id(id);
+    }
+    for class in classes {
+        selector = selector.class(class);
+    }
+    Some(selector)
+}
+
+fn parse_selector_chain(selector: &str) -> Option<SelectorChain> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for ch in selector.chars() {
+        match ch {
+            '>' => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                }
+                tokens.push(">".to_string());
+                buf.clear();
+            }
+            c if c.is_whitespace() => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                    buf.clear();
+                }
+            }
+            _ => buf.push(ch),
+        }
+    }
+    if !buf.trim().is_empty() {
+        tokens.push(buf.trim().to_string());
+    }
+
+    let mut parts = Vec::new();
+    let mut combinators = Vec::new();
+    let mut pending: Option<Combinator> = None;
+    for token in tokens {
+        if token == ">" {
+            pending = Some(Combinator::Child);
+            continue;
+        }
+        if let Some(selector) = parse_selector(&token) {
+            if !parts.is_empty() {
+                combinators.push(pending.unwrap_or(Combinator::Descendant));
+            }
+            parts.push(selector);
+            pending = None;
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(SelectorChain { parts, combinators })
+}
+
+fn parse_style_body(body: &str) -> Style {
+    let mut style = Style::new();
+    for decl in body.split(';') {
+        let decl = decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        let mut parts = decl.splitn(2, ':');
+        let key = parts.next().unwrap_or("").trim().to_lowercase();
+        let value = parts.next().unwrap_or("").trim();
+        match key.as_str() {
+            "fg" | "color" => {
+                if let Some(color) = Color::parse(value) {
+                    style = style.fg(color);
+                }
+            }
+            "bg" | "background" => {
+                if let Some(color) = Color::parse(value) {
+                    style = style.bg(color);
+                }
+            }
+            "bold" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.bold(val);
+                }
+            }
+            "dim" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.dim(val);
+                }
+            }
+            "italic" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.italic(val);
+                }
+            }
+            "underline" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.underline(val);
+                }
+            }
+            "border" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.border(val);
+                }
+            }
+            _ => {}
+        }
+    }
+    style
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
