@@ -1,6 +1,17 @@
 pub use rich_rs::SimpleColor as Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderEdge {
+    /// Not specified by any rule / inline style.
+    #[default]
+    Unset,
+    /// Explicitly clear the edge.
+    None,
+    /// Render a 1-row edge using this background color.
+    Color(Color),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Style {
     pub fg: Option<Color>,
     pub bg: Option<Color>,
@@ -11,8 +22,8 @@ pub struct Style {
     pub border: Option<bool>,
     pub margin: Option<Margin>,
     pub line_pad: Option<usize>,
-    pub border_top: Option<Color>,
-    pub border_bottom: Option<Color>,
+    pub border_top: BorderEdge,
+    pub border_bottom: BorderEdge,
     pub width_auto: Option<bool>,
     pub height_auto: Option<bool>,
     pub min_width: Option<usize>,
@@ -72,12 +83,12 @@ impl Style {
     }
 
     pub fn border_top(mut self, color: Color) -> Self {
-        self.border_top = Some(color);
+        self.border_top = BorderEdge::Color(color);
         self
     }
 
     pub fn border_bottom(mut self, color: Color) -> Self {
-        self.border_bottom = Some(color);
+        self.border_bottom = BorderEdge::Color(color);
         self
     }
 
@@ -128,8 +139,16 @@ impl Style {
             border: other.border.or(self.border),
             margin: other.margin.or(self.margin),
             line_pad: other.line_pad.or(self.line_pad),
-            border_top: other.border_top.or(self.border_top),
-            border_bottom: other.border_bottom.or(self.border_bottom),
+            border_top: if other.border_top != BorderEdge::Unset {
+                other.border_top
+            } else {
+                self.border_top
+            },
+            border_bottom: if other.border_bottom != BorderEdge::Unset {
+                other.border_bottom
+            } else {
+                self.border_bottom
+            },
             width_auto: other.width_auto.or(self.width_auto),
             height_auto: other.height_auto.or(self.height_auto),
             min_width: other.min_width.or(self.min_width),
@@ -197,8 +216,8 @@ impl Style {
             && self.border.is_none()
             && self.margin.is_none()
             && self.line_pad.is_none()
-            && self.border_top.is_none()
-            && self.border_bottom.is_none()
+            && self.border_top == BorderEdge::Unset
+            && self.border_bottom == BorderEdge::Unset
             && self.width_auto.is_none()
             && self.height_auto.is_none()
             && self.min_width.is_none()

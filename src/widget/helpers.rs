@@ -2,7 +2,7 @@ use rich_rs::{Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
 
-use crate::style::{Color, Margin, Style};
+use crate::style::{BorderEdge, Margin, Style};
 
 use super::{LayoutConstraints, Widget, WidgetId};
 
@@ -232,8 +232,16 @@ pub(crate) fn constraints_from_style(style: &Style) -> LayoutConstraints {
 }
 
 pub(crate) fn border_spacing_from_style(style: &Style) -> (usize, usize, usize, usize) {
-    let top = if style.border_top.is_some() { 1 } else { 0 };
-    let bottom = if style.border_bottom.is_some() { 1 } else { 0 };
+    let top = if matches!(style.border_top, BorderEdge::Color(_)) {
+        1
+    } else {
+        0
+    };
+    let bottom = if matches!(style.border_bottom, BorderEdge::Color(_)) {
+        1
+    } else {
+        0
+    };
     (top, bottom, 0, 0)
 }
 
@@ -245,9 +253,17 @@ pub(crate) fn border_vertical_padding(style: &Style) -> usize {
 pub(crate) fn apply_border_edges(
     segments: Segments,
     width: usize,
-    top: Option<Color>,
-    bottom: Option<Color>,
+    top: BorderEdge,
+    bottom: BorderEdge,
 ) -> Segments {
+    let top = match top {
+        BorderEdge::Color(color) => Some(color),
+        _ => None,
+    };
+    let bottom = match bottom {
+        BorderEdge::Color(color) => Some(color),
+        _ => None,
+    };
     if top.is_none() && bottom.is_none() {
         return segments;
     }

@@ -28,4 +28,4 @@ Horizontal > VerticalScroll {
 .button.error { fg: color(15); bg: color(196); }
 .button.error { border-top: color(203); border-bottom: color(160); }
 .button.disabled { dim: true; }
-.button.flat { border: false; }
+.button.flat { border-top: none; border-bottom: none; }
