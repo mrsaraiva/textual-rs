@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use rich_rs::{MetaValue, Segments};
 
-use crate::style::{BorderEdge, Color, Margin, Style};
+use crate::style::{parse_color_like, BorderEdge, Margin, Style};
 
 use super::Widget;
 
@@ -445,12 +445,12 @@ fn parse_style_body(body: &str) -> Style {
         let value = parts.next().unwrap_or("").trim();
         match key.as_str() {
             "fg" | "color" => {
-                if let Some(color) = Color::parse(value) {
+                if let Some(color) = parse_color_like(value) {
                     style = style.fg(color);
                 }
             }
             "bg" | "background" => {
-                if let Some(color) = Color::parse(value) {
+                if let Some(color) = parse_color_like(value) {
                     style = style.bg(color);
                 }
             }
@@ -584,9 +584,9 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
     }
     let parts: Vec<&str> = value.split_whitespace().collect();
     for part in parts.iter().rev() {
-        if let Some(color) = Color::parse(part) {
+        if let Some(color) = parse_color_like(part) {
             return Some(BorderEdge::Color(color));
         }
     }
-    Color::parse(value).map(BorderEdge::Color)
+    parse_color_like(value).map(BorderEdge::Color)
 }

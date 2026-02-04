@@ -11,16 +11,17 @@ Button {
     height: auto;
     min-width: 16;
     line-pad: 1;
-    fg: color(15);
-    bg: color(236);
-    border-top: color(239);
-    border-bottom: color(233);
+    text-style: bold;
+    fg: $button-foreground;
+    bg: $surface;
+    border-top: tall $surface-lighten-1;
+    border-bottom: tall $surface-darken-1;
 }
 
-.button.primary { fg: color(15); bg: color(27); border-top: color(33); border-bottom: color(19); }
-.button.success { fg: color(15); bg: color(34); border-top: color(40); border-bottom: color(28); }
-.button.warning { fg: color(16); bg: color(220); border-top: color(228); border-bottom: color(178); }
-.button.error { fg: color(15); bg: color(196); border-top: color(203); border-bottom: color(160); }
+.button.primary { fg: $button-color-foreground; bg: $primary; border-top: tall $primary-lighten-3; border-bottom: tall $primary-darken-3; }
+.button.success { fg: $button-color-foreground; bg: $success; border-top: tall $success-lighten-2; border-bottom: tall $success-darken-3; }
+.button.warning { fg: $button-color-foreground; bg: $warning; border-top: tall $warning-lighten-2; border-bottom: tall $warning-darken-3; }
+.button.error { fg: $button-color-foreground; bg: $error; border-top: tall $error-lighten-2; border-bottom: tall $error-darken-3; }
 
 .button.disabled { dim: true; }
 .button.flat { border-top: none; border-bottom: none; }
@@ -29,4 +30,3 @@ Button {
 pub fn default_widget_stylesheet() -> StyleSheet {
     StyleSheet::parse(DEFAULT_WIDGET_CSS)
 }
-

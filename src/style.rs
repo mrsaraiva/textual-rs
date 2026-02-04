@@ -1,5 +1,136 @@
 pub use rich_rs::SimpleColor as Color;
 
+pub fn parse_color_like(value: &str) -> Option<Color> {
+    // Fast path: try rich-rs simple color parsing.
+    if let Some(color) = Color::parse(value.trim()) {
+        return Some(color);
+    }
+    // Token / variable syntax: `$name` and `$name-lighten-1` / `$name-darken-2`.
+    for token in value.split_whitespace() {
+        if let Some(color) = resolve_color_token(token) {
+            return Some(color);
+        }
+    }
+    None
+}
+
+fn resolve_color_token(token: &str) -> Option<Color> {
+    let token = token.trim();
+    let name = token.strip_prefix('$')?;
+    resolve_textual_dark_token(name)
+}
+
+fn resolve_textual_dark_token(name: &str) -> Option<Color> {
+    // MVP: approximate Textual's default "textual-dark" theme.
+    // Source of base values (Python Textual): `textual/theme.py` + `textual/design.py`.
+    // We intentionally keep this simple: truecolor RGB + linear blend lighten/darken.
+    use std::sync::OnceLock;
+
+    static BASE: OnceLock<std::collections::HashMap<&'static str, Color>> = OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let mut m = std::collections::HashMap::new();
+        // Theme "textual-dark" from Python Textual.
+        m.insert("primary", Color::parse("#0178D4").unwrap());
+        m.insert("secondary", Color::parse("#004578").unwrap());
+        m.insert("accent", Color::parse("#ffa62b").unwrap());
+        m.insert("warning", Color::parse("#ffa62b").unwrap());
+        m.insert("error", Color::parse("#ba3c5b").unwrap());
+        m.insert("success", Color::parse("#4EBF71").unwrap());
+        m.insert("foreground", Color::parse("#e0e0e0").unwrap());
+        // Defaults from `textual/design.py` for dark mode.
+        m.insert("background", Color::parse("#121212").unwrap());
+        m.insert("surface", Color::parse("#1e1e1e").unwrap());
+        // Minimal convenience aliases.
+        m.insert("text", Color::parse("#e0e0e0").unwrap());
+        m.insert("button-foreground", Color::parse("#e0e0e0").unwrap());
+        m.insert("button-color-foreground", Color::parse("#e0e0e0").unwrap());
+        m
+    });
+
+    // Direct hit.
+    if let Some(color) = base.get(name).copied() {
+        return Some(color);
+    }
+
+    // Muted variants (blend towards background).
+    if let Some(base_name) = name.strip_suffix("-muted") {
+        let color = base.get(base_name).copied()?;
+        let background = base.get("background").copied()?;
+        return Some(blend(color, background, 0.70));
+    }
+
+    // Lighten / darken variants.
+    // Textual uses luminosity_spread=0.15 and NUMBER_OF_SHADES=3, so step=0.075.
+    if let Some((base_name, kind, n)) = parse_shade(name) {
+        let color = base.get(base_name).copied()?;
+        let step = 0.15 / 2.0;
+        let delta = step * (n as f32);
+        return Some(match kind {
+            ShadeKind::Lighten => lighten(color, delta),
+            ShadeKind::Darken => darken(color, delta),
+        });
+    }
+
+    None
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ShadeKind {
+    Lighten,
+    Darken,
+}
+
+fn parse_shade(name: &str) -> Option<(&str, ShadeKind, u8)> {
+    // Accept: `<base>-lighten-<n>` or `<base>-darken-<n>`.
+    let (base, suffix) = name.rsplit_once('-')?;
+    let n: u8 = suffix.parse().ok()?;
+    let (base, kind_suffix) = base.rsplit_once('-')?;
+    let kind = match kind_suffix {
+        "lighten" => ShadeKind::Lighten,
+        "darken" => ShadeKind::Darken,
+        _ => return None,
+    };
+    Some((base, kind, n))
+}
+
+fn to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Rgb { r, g, b } => (r, g, b),
+        other => {
+            // Convert indexed colors via their palette hex.
+            let hex = other.get_hex();
+            match Color::parse(&hex) {
+                Some(Color::Rgb { r, g, b }) => (r, g, b),
+                _ => (255, 255, 255),
+            }
+        }
+    }
+}
+
+fn from_rgb(r: u8, g: u8, b: u8) -> Color {
+    Color::Rgb { r, g, b }
+}
+
+fn blend(a: Color, b: Color, t: f32) -> Color {
+    let (ar, ag, ab) = to_rgb(a);
+    let (br, bg, bb) = to_rgb(b);
+    let t = t.clamp(0.0, 1.0);
+    let mix = |x: u8, y: u8| -> u8 {
+        let xf = x as f32;
+        let yf = y as f32;
+        (xf + (yf - xf) * t).round().clamp(0.0, 255.0) as u8
+    };
+    from_rgb(mix(ar, br), mix(ag, bg), mix(ab, bb))
+}
+
+fn lighten(color: Color, amount: f32) -> Color {
+    blend(color, from_rgb(255, 255, 255), amount)
+}
+
+fn darken(color: Color, amount: f32) -> Color {
+    blend(color, from_rgb(0, 0, 0), amount)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderEdge {
     /// Not specified by any rule / inline style.
