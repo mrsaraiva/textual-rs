@@ -1,16 +1,76 @@
+use std::sync::{Arc, Mutex};
+
+use rich_rs::{Segment, Segments};
 use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
 
+struct StatusLine {
+    id: WidgetId,
+    text: Arc<Mutex<String>>,
+}
+
+impl StatusLine {
+    fn new(text: Arc<Mutex<String>>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            text,
+        }
+    }
+}
+
+impl Widget for StatusLine {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
+        let line = rich_rs::set_cell_size(&text, width);
+        let mut out = Segments::new();
+        out.push(Segment::new(line));
+        out
+    }
+}
+
 fn build_buttons_widget() -> ScrollView {
+    let status = Arc::new(Mutex::new(String::from("")));
+    let status_clone = status.clone();
+
     let buttons = Horizontal::new()
         .with_child(
             VerticalScroll::new()
                 .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
-                .with_child(Button::new("Default"))
-                .with_child(Button::primary("Primary!"))
-                .with_child(Button::success("Success!"))
-                .with_child(Button::warning("Warning!"))
-                .with_child(Button::error("Error!")),
+                .with_child(Button::new("Default").on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::primary("Primary!").on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::success("Success!").on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::warning("Warning!").on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::error("Error!").on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                })),
         )
         .with_child(
             VerticalScroll::new()
@@ -40,7 +100,9 @@ fn build_buttons_widget() -> ScrollView {
                 .with_child(Button::error("Error!").disabled(true).flat(true)),
         );
 
-    let root = AppRoot::new().with_child(buttons);
+    let root = AppRoot::new()
+        .with_child(buttons)
+        .with_child(StatusLine::new(status_clone));
     ScrollView::new(root).scroll_step(2)
 }
 

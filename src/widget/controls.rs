@@ -8,6 +8,7 @@ use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonVariant {
@@ -18,7 +19,7 @@ pub enum ButtonVariant {
     Error,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Button {
     id: WidgetId,
     label: String,
@@ -28,9 +29,26 @@ pub struct Button {
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
+    on_press: Option<Arc<dyn Fn(&Button) + Send + Sync>>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
+}
+
+impl std::fmt::Debug for Button {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Button")
+            .field("id", &self.id)
+            .field("label", &self.label)
+            .field("focused", &self.focused)
+            .field("hovered", &self.hovered)
+            .field("pressed", &self.pressed)
+            .field("variant", &self.variant)
+            .field("disabled", &self.disabled)
+            .field("flat", &self.flat)
+            .field("classes", &self.classes)
+            .finish()
+    }
 }
 
 impl Button {
@@ -44,6 +62,7 @@ impl Button {
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
+            on_press: None,
             classes: Vec::new(),
             focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -84,6 +103,27 @@ impl Button {
     pub fn flat(mut self, flat: bool) -> Self {
         self.flat = flat;
         self.rebuild_classes()
+    }
+
+    pub fn on_press(mut self, handler: impl Fn(&Button) + Send + Sync + 'static) -> Self {
+        self.on_press = Some(Arc::new(handler));
+        self
+    }
+
+    pub fn describe(&self) -> String {
+        let mut classes = self.classes.clone();
+        if self.pressed {
+            classes.push("-active".to_string());
+        }
+        let class_str = classes.join(" ");
+        let variant = match self.variant {
+            ButtonVariant::Default => "default",
+            ButtonVariant::Primary => "primary",
+            ButtonVariant::Success => "success",
+            ButtonVariant::Warning => "warning",
+            ButtonVariant::Error => "error",
+        };
+        format!("Button(classes='{}', variant='{}')", class_str, variant)
     }
 
     fn rebuild_classes(mut self) -> Self {
@@ -170,6 +210,9 @@ impl Widget for Button {
         }
         if let Event::Action(Action::Toggle) = event {
             self.pressed = !self.pressed;
+            if let Some(handler) = &self.on_press {
+                handler(self);
+            }
             ctx.set_handled();
             return;
         }
@@ -177,6 +220,9 @@ impl Widget for Button {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.pressed = !self.pressed;
+                    if let Some(handler) = &self.on_press {
+                        handler(self);
+                    }
                     ctx.set_handled();
                 }
                 _ => {}
