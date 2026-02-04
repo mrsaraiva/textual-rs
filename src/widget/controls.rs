@@ -142,7 +142,7 @@ impl Widget for Button {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let padding_h = 1usize;
+        let padding_h = 2usize;
         let padding_v = 0usize;
         let border = !self.flat;
 
@@ -153,10 +153,17 @@ impl Widget for Button {
             .saturating_sub(padding_v * 2 + if border { 2 } else { 0 })
             .max(1);
 
-        let marker = if self.focused { "> " } else { "  " };
-        let state = if self.pressed { "[x]" } else { "[ ]" };
-        let content = format!("{marker}{state} {}", self.label);
-        let line = rich_rs::set_cell_size(&content, inner_width);
+        let label = self.label.as_str();
+        let label_width = rich_rs::cell_len(label);
+        let label_width = label_width.min(inner_width);
+        let left = inner_width.saturating_sub(label_width) / 2;
+        let right = inner_width.saturating_sub(label_width) - left;
+        let line = format!(
+            "{}{}{}",
+            " ".repeat(left),
+            rich_rs::set_cell_size(label, label_width),
+            " ".repeat(right)
+        );
         let mut lines = vec![vec![Segment::new(line)]];
         lines = Segment::set_shape(&lines, inner_width, Some(inner_height), None, false);
 
@@ -215,11 +222,26 @@ impl Widget for Button {
             for _ in 0..padding_v {
                 content_lines.push(vec![Segment::new(" ".repeat(inner_width))]);
             }
-            let mut out = Segments::new();
-            let line_count = content_lines.len();
-            for (idx, line) in content_lines.into_iter().enumerate() {
+            let content_lines =
+                Segment::set_shape(&content_lines, inner_width, Some(inner_height), None, false);
+            let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+            for line in content_lines.into_iter() {
+                let mut row: Vec<Segment> = Vec::new();
+                if padding_h > 0 {
+                    row.push(Segment::new(" ".repeat(padding_h)));
+                }
                 let adjusted = Segment::adjust_line_length(&line, inner_width, None, true);
-                out.extend(adjusted);
+                row.extend(adjusted);
+                if padding_h > 0 {
+                    row.push(Segment::new(" ".repeat(padding_h)));
+                }
+                out_lines.push(row);
+            }
+            let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
+            let line_count = out_lines.len();
+            let mut out = Segments::new();
+            for (idx, line) in out_lines.into_iter().enumerate() {
+                out.extend(line);
                 if idx + 1 < line_count {
                     out.push(Segment::line());
                 }
