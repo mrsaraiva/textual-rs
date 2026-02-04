@@ -32,24 +32,24 @@ def take_rust_snapshot(demo: str, out_path: Path, columns: int, rows: int) -> No
     env = os.environ.copy()
     env.setdefault("CARGO_INCREMENTAL", "0")
     env.setdefault("CARGO_TARGET_DIR", "/tmp/textual-rs-target")
+    example_map = {
+        "button": "buttons",
+    }
+    example = example_map.get(demo, demo)
     subprocess.check_call(
         [
             "cargo",
             "run",
             "--quiet",
-            "--bin",
-            "demo_snapshot",
+            "--example",
+            example,
             "--",
-            "--demo",
-            demo,
+            "--snapshot",
+            str(out_path),
             "--width",
             str(columns),
             "--height",
             str(rows),
-            "--out",
-            str(out_path),
-            "--title",
-            f"textual-rs {demo}",
         ],
         cwd=repo_root,
         env=env,
