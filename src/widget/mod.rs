@@ -24,7 +24,7 @@ pub use controls::{
 };
 pub use defaults::default_widget_stylesheet;
 pub use helpers::WidgetRenderable;
-pub(crate) use helpers::set_hover_by_id;
+pub(crate) use helpers::{hover_target_is_enabled, set_hover_by_id};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use style_selectors::{
     StyleContextGuard, StyleRule, StyleSelector, StyleSheet, set_style_context,

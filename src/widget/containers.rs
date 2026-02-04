@@ -985,7 +985,6 @@ impl Widget for AppRoot {
         for child in &mut self.children {
             child.on_mount();
         }
-        self.focus_first();
     }
 
     fn on_unmount(&mut self) {

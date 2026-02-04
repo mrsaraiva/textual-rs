@@ -238,7 +238,10 @@ impl App {
                     }
                     CrosstermEvent::Mouse(mouse) => {
                         if matches!(mouse.kind, MouseEventKind::Moved) {
-                            self.update_hover_from_frame(mouse.column, mouse.row, root);
+                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                self.render_widget(root)?;
+                                last_render = Instant::now();
+                            }
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
@@ -266,11 +269,11 @@ impl App {
         Ok(())
     }
 
-    fn update_hover_from_frame(&mut self, x: u16, y: u16, root: &mut dyn Widget) {
+    fn update_hover_from_frame(&mut self, x: u16, y: u16, root: &mut dyn Widget) -> bool {
         let x = x as usize;
         let y = y as usize;
         if x >= self.frame.width || y >= self.frame.height {
-            return;
+            return false;
         }
 
         let cell = self.frame.get(x, y);
@@ -284,10 +287,21 @@ impl App {
                 _ => None,
             });
 
+        let hovered = hovered.and_then(|id| {
+            let enabled = crate::widget::hover_target_is_enabled(root, id);
+            match enabled {
+                Some(true) => Some(id),
+                _ => None,
+            }
+        });
+
         if hovered != self.hovered {
             self.hovered = hovered;
             crate::widget::set_hover_by_id(root, self.hovered);
+            return true;
         }
+
+        false
     }
 
     fn refresh_size(&mut self) -> Result<()> {
