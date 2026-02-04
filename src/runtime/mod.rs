@@ -287,14 +287,6 @@ impl App {
                 _ => None,
             });
 
-        let hovered = hovered.and_then(|id| {
-            let enabled = crate::widget::hover_target_is_enabled(root, id);
-            match enabled {
-                Some(true) => Some(id),
-                _ => None,
-            }
-        });
-
         if hovered != self.hovered {
             self.hovered = hovered;
             crate::widget::set_hover_by_id(root, self.hovered);

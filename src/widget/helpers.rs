@@ -147,19 +147,6 @@ pub(crate) fn set_hover_by_id(widget: &mut dyn Widget, target: Option<WidgetId>)
     widget.visit_children_mut(&mut |child| set_hover_by_id(child, target));
 }
 
-pub(crate) fn hover_target_is_enabled(widget: &mut dyn Widget, target: WidgetId) -> Option<bool> {
-    if widget.id() == target {
-        return Some(!widget.is_disabled());
-    }
-    let mut found = None;
-    widget.visit_children_mut(&mut |child| {
-        if found.is_none() {
-            found = hover_target_is_enabled(child, target);
-        }
-    });
-    found
-}
-
 pub(crate) fn dispatch_event_to_focus(
     widget: &mut dyn Widget,
     target: WidgetId,
