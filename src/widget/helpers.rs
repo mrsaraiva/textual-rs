@@ -41,10 +41,22 @@ pub(crate) fn clamp_with_constraints(
     out.min(limit.max(1))
 }
 
+pub(crate) fn adjust_line_length_no_bg(line: &[Segment], width: usize) -> Vec<Segment> {
+    let width = width.max(1);
+    // Crop to width, but do not pad with the end-style background. We'll add an explicit
+    // no-style padding segment instead.
+    let mut out = Segment::adjust_line_length(line, width, None, false);
+    let len = Segment::get_line_length(&out);
+    if len < width {
+        out.push(Segment::new(" ".repeat(width - len)));
+    }
+    out
+}
+
 pub(crate) fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment>> {
     lines
         .into_iter()
-        .map(|line| Segment::adjust_line_length(&line, width, None, true))
+        .map(|line| adjust_line_length_no_bg(&line, width))
         .collect()
 }
 
@@ -65,7 +77,7 @@ pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize)
         return Vec::new();
     }
     if start == 0 {
-        return Segment::adjust_line_length(line, width, None, true);
+        return adjust_line_length_no_bg(line, width);
     }
 
     let mut out: Vec<Segment> = Vec::new();
@@ -110,8 +122,7 @@ pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize)
     }
 
     if remaining > 0 {
-        let padding = " ".repeat(remaining);
-        out.push(Segment::new(padding));
+        out.push(Segment::new(" ".repeat(remaining)));
     }
 
     out
@@ -203,7 +214,7 @@ pub(crate) fn apply_debug_box(
     for line in content.into_iter().take(height - 2) {
         let mut row: Vec<Segment> = Vec::new();
         row.push(Segment::styled(b.mid_left.to_string(), style));
-        let inner = Segment::adjust_line_length(&line, width - 2, None, true);
+        let inner = adjust_line_length_no_bg(&line, width - 2);
         row.extend(inner);
         row.push(Segment::styled(b.mid_right.to_string(), style));
         out.push(row);
@@ -301,12 +312,12 @@ pub(crate) fn apply_border_edges(
             let style = rich_rs::Style::new().with_bgcolor(left_color);
             row.push(Segment::styled(" ".to_string(), style));
         }
-        row.extend(Segment::adjust_line_length(&line, inner_width.max(1), None, true));
+        row.extend(adjust_line_length_no_bg(&line, inner_width.max(1)));
         if let Some(right_color) = right {
             let style = rich_rs::Style::new().with_bgcolor(right_color);
             row.push(Segment::styled(" ".to_string(), style));
         }
-        let row = Segment::adjust_line_length(&row, full_width.max(1), None, true);
+        let row = adjust_line_length_no_bg(&row, full_width.max(1));
         edged.push(row);
     }
 
@@ -353,9 +364,9 @@ pub(crate) fn apply_line_pad(
     for line in lines {
         let mut row: Vec<Segment> = Vec::new();
         row.extend(left.iter().cloned());
-        row.extend(Segment::adjust_line_length(&line, content_width.max(1), None, true));
+        row.extend(adjust_line_length_no_bg(&line, content_width.max(1)));
         row.extend(right.iter().cloned());
-        let row = Segment::adjust_line_length(&row, full_width.max(1), None, true);
+        let row = adjust_line_length_no_bg(&row, full_width.max(1));
         padded.push(row);
     }
 
@@ -389,7 +400,7 @@ pub(crate) fn apply_margin(
         if margin.right > 0 {
             row.push(Segment::new(" ".repeat(margin.right)));
         }
-        let adjusted = Segment::adjust_line_length(&row, width, None, true);
+        let adjusted = adjust_line_length_no_bg(&row, width);
         out.push(adjusted);
     }
     for _ in 0..margin.bottom {

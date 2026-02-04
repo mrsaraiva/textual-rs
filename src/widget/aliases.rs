@@ -5,6 +5,7 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 
 use super::helpers::{clamp_with_constraints, pad_lines_to_width};
+use super::helpers::adjust_line_length_no_bg;
 use super::{Container, Row, RowAlign, Widget, WidgetId, WidgetStyles};
 
 pub struct Horizontal {
@@ -238,7 +239,7 @@ impl Widget for VerticalScroll {
         let slice = lines[start..end]
             .to_vec()
             .into_iter()
-            .map(|line| Segment::adjust_line_length(&line, width, None, true))
+            .map(|line| adjust_line_length_no_bg(&line, width))
             .collect::<Vec<_>>();
         let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
 
