@@ -142,6 +142,11 @@ pub(crate) fn set_focus_by_id(widget: &mut dyn Widget, target: Option<WidgetId>)
     widget.visit_children_mut(&mut |child| set_focus_by_id(child, target));
 }
 
+pub(crate) fn set_hover_by_id(widget: &mut dyn Widget, target: Option<WidgetId>) {
+    widget.set_hovered(target == Some(widget.id()));
+    widget.visit_children_mut(&mut |child| set_hover_by_id(child, target));
+}
+
 pub(crate) fn dispatch_event_to_focus(
     widget: &mut dyn Widget,
     target: WidgetId,

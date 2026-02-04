@@ -1,7 +1,7 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use rich_rs::markdown::Markdown as RichMarkdown;
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 
-use super::{helpers::fixed_height_from_constraints, Widget, WidgetId, WidgetStyles};
+use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
 
 #[derive(Debug, Clone)]
 pub struct Label {

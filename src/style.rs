@@ -40,6 +40,13 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         // Defaults from `textual/design.py` for dark mode.
         m.insert("background", Color::parse("#121212").unwrap());
         m.insert("surface", Color::parse("#1e1e1e").unwrap());
+        // Approximated default panel for textual-dark (Textual computes panel from surface + primary).
+        let panel = blend(
+            m.get("surface").copied().unwrap(),
+            m.get("primary").copied().unwrap(),
+            0.10,
+        );
+        m.insert("panel", panel);
         // Minimal convenience aliases.
         m.insert("text", Color::parse("#e0e0e0").unwrap());
         m.insert("button-foreground", Color::parse("#e0e0e0").unwrap());
@@ -131,6 +138,10 @@ fn darken(color: Color, amount: f32) -> Color {
     blend(color, from_rgb(0, 0, 0), amount)
 }
 
+pub(crate) fn blend_colors(a: Color, b: Color, percent: u8) -> Color {
+    blend(a, b, (percent as f32 / 100.0).clamp(0.0, 1.0))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderType {
     Solid,
@@ -195,6 +206,7 @@ pub struct Style {
     pub dim: Option<bool>,
     pub italic: Option<bool>,
     pub underline: Option<bool>,
+    pub reverse: Option<bool>,
     pub border: Option<bool>,
     pub margin: Option<Margin>,
     pub line_pad: Option<usize>,
@@ -202,12 +214,33 @@ pub struct Style {
     pub border_right: BorderEdge,
     pub border_bottom: BorderEdge,
     pub border_left: BorderEdge,
+    pub tint: Option<Tint>,
+    pub background_tint: Option<Tint>,
     pub width_auto: Option<bool>,
     pub height_auto: Option<bool>,
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub min_height: Option<usize>,
     pub max_height: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tint {
+    pub color: Color,
+    pub percent: u8,
+}
+
+impl Tint {
+    pub fn new(color: Color, percent: u8) -> Self {
+        Self {
+            color,
+            percent: percent.min(100),
+        }
+    }
+
+    pub fn amount(self) -> f32 {
+        (self.percent as f32) / 100.0
+    }
 }
 
 impl Style {
@@ -242,6 +275,11 @@ impl Style {
 
     pub fn underline(mut self, value: bool) -> Self {
         self.underline = Some(value);
+        self
+    }
+
+    pub fn reverse(mut self, value: bool) -> Self {
+        self.reverse = Some(value);
         self
     }
 
@@ -336,6 +374,7 @@ impl Style {
             dim: other.dim.or(self.dim),
             italic: other.italic.or(self.italic),
             underline: other.underline.or(self.underline),
+            reverse: other.reverse.or(self.reverse),
             border: other.border.or(self.border),
             margin: other.margin.or(self.margin),
             line_pad: other.line_pad.or(self.line_pad),
@@ -359,6 +398,8 @@ impl Style {
             } else {
                 self.border_left
             },
+            tint: other.tint.or(self.tint),
+            background_tint: other.background_tint.or(self.background_tint),
             width_auto: other.width_auto.or(self.width_auto),
             height_auto: other.height_auto.or(self.height_auto),
             min_width: other.min_width.or(self.min_width),
@@ -376,6 +417,7 @@ impl Style {
             dim: self.dim.or(parent.dim),
             italic: self.italic.or(parent.italic),
             underline: self.underline.or(parent.underline),
+            reverse: self.reverse.or(parent.reverse),
             border: self.border.or(parent.border),
             margin: self.margin,
             line_pad: self.line_pad,
@@ -383,6 +425,8 @@ impl Style {
             border_right: self.border_right,
             border_bottom: self.border_bottom,
             border_left: self.border_left,
+            tint: self.tint,
+            background_tint: self.background_tint,
             width_auto: self.width_auto,
             height_auto: self.height_auto,
             min_width: self.min_width,
@@ -415,6 +459,9 @@ impl Style {
         if let Some(underline) = self.underline {
             style = style.with_underline(underline);
         }
+        if let Some(reverse) = self.reverse {
+            style.reverse = Some(reverse);
+        }
         Some(style)
     }
 
@@ -425,6 +472,7 @@ impl Style {
             && self.dim.is_none()
             && self.italic.is_none()
             && self.underline.is_none()
+            && self.reverse.is_none()
             && self.border.is_none()
             && self.margin.is_none()
             && self.line_pad.is_none()
@@ -432,6 +480,8 @@ impl Style {
             && self.border_right == BorderEdge::Unset
             && self.border_bottom == BorderEdge::Unset
             && self.border_left == BorderEdge::Unset
+            && self.tint.is_none()
+            && self.background_tint.is_none()
             && self.width_auto.is_none()
             && self.height_auto.is_none()
             && self.min_width.is_none()

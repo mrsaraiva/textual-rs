@@ -23,6 +23,7 @@ pub struct Button {
     id: WidgetId,
     label: String,
     focused: bool,
+    hovered: bool,
     pressed: bool,
     variant: ButtonVariant,
     disabled: bool,
@@ -38,6 +39,7 @@ impl Button {
             id: WidgetId::new(),
             label: label.into(),
             focused: false,
+            hovered: false,
             pressed: false,
             variant: ButtonVariant::Default,
             disabled: false,
@@ -143,6 +145,14 @@ impl Widget for Button {
 
     fn has_focus(&self) -> bool {
         self.focused
+    }
+
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
     }
 
     fn is_active(&self) -> bool {

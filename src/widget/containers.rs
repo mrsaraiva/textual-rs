@@ -8,13 +8,14 @@ use crate::event::{Action, Event, EventCtx};
 use crate::style::Style;
 
 use super::{
+    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     helpers::{
         apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
         constraints_from_style, crop_line_horizontal, dispatch_event_to_focus,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
         set_focus_by_id,
     },
-    style_selectors, LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    style_selectors,
 };
 
 pub struct Container {
@@ -61,9 +62,7 @@ impl Widget for Container {
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let available_width = width
-                .saturating_sub(margin.left + margin.right)
-                .max(1);
+            let available_width = width.saturating_sub(margin.left + margin.right).max(1);
             let mut render_width = clamp_with_constraints(
                 available_width,
                 constraints.min_width,
@@ -121,8 +120,7 @@ impl Widget for Container {
             child_lines = pad_lines_to_width(child_lines, render_width);
             child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len();
-            let child_region =
-                rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
+            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
             if let Some(visible) = child_region.intersection(&bounds) {
                 let start = (visible.y - child_region.y).max(0) as usize;
                 let end = (start + visible.height as usize).min(child_lines.len());
@@ -193,8 +191,7 @@ impl Widget for Container {
             child_lines = pad_lines_to_width(child_lines, width);
             let child_height = child_lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
-            let child_region =
-                rich_rs::Region::new(0, cursor_y, width as u32, debug_height as u32);
+            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, debug_height as u32);
             if let Some(visible) = child_region.intersection(&bounds) {
                 let start = (visible.y - child_region.y).max(0) as usize;
                 let end = (start + visible.height as usize).min(debug_height);
@@ -814,17 +811,12 @@ impl Widget for AppRoot {
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let render_width =
-                clamp_with_constraints(
-                    width
-                        .saturating_sub(margin.left + margin.right)
-                        .max(1),
-                    constraints.min_width,
-                    constraints.max_width,
-                    width
-                        .saturating_sub(margin.left + margin.right)
-                        .max(1),
-                );
+            let render_width = clamp_with_constraints(
+                width.saturating_sub(margin.left + margin.right).max(1),
+                constraints.min_width,
+                constraints.max_width,
+                width.saturating_sub(margin.left + margin.right).max(1),
+            );
             let render_height = clamp_with_constraints(
                 height_limit
                     .saturating_sub(margin.top + margin.bottom)
@@ -860,8 +852,7 @@ impl Widget for AppRoot {
             child_lines = pad_lines_to_width(child_lines, render_width);
             child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len();
-            let child_region =
-                rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
+            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
             if let Some(visible) = child_region.intersection(&bounds) {
                 let start = (visible.y - child_region.y).max(0) as usize;
                 let end = (start + visible.height as usize).min(child_lines.len());
@@ -908,17 +899,12 @@ impl Widget for AppRoot {
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let render_width =
-                clamp_with_constraints(
-                    width
-                        .saturating_sub(margin.left + margin.right)
-                        .max(1),
-                    constraints.min_width,
-                    constraints.max_width,
-                    width
-                        .saturating_sub(margin.left + margin.right)
-                        .max(1),
-                );
+            let render_width = clamp_with_constraints(
+                width.saturating_sub(margin.left + margin.right).max(1),
+                constraints.min_width,
+                constraints.max_width,
+                width.saturating_sub(margin.left + margin.right).max(1),
+            );
             let render_height = clamp_with_constraints(
                 height_limit
                     .saturating_sub(margin.top + margin.bottom)
@@ -955,8 +941,7 @@ impl Widget for AppRoot {
             child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len().max(1);
             let debug_height = (child_height + 2).max(3);
-            let child_region =
-                rich_rs::Region::new(0, cursor_y, width as u32, debug_height as u32);
+            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, debug_height as u32);
             if let Some(visible) = child_region.intersection(&bounds) {
                 let start = (visible.y - child_region.y).max(0) as usize;
                 let end = (start + visible.height as usize).min(debug_height);
@@ -1191,8 +1176,12 @@ impl Widget for Panel {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
 
-        let inner_width = width.saturating_sub(border_width * 2 + total_padding).max(1);
-        let inner_height = height.saturating_sub(border_width * 2 + total_padding).max(1);
+        let inner_width = width
+            .saturating_sub(border_width * 2 + total_padding)
+            .max(1);
+        let inner_height = height
+            .saturating_sub(border_width * 2 + total_padding)
+            .max(1);
 
         let mut child_options = options.clone();
         child_options.size = (inner_width, inner_height);
@@ -1219,8 +1208,13 @@ impl Widget for Panel {
 
         let content_height = content_lines.len().max(1);
         let content_height = content_height.min(height.saturating_sub(border_width * 2).max(1));
-        let mut content_lines =
-            Segment::set_shape(&content_lines, inner_width, Some(content_height), None, false);
+        let mut content_lines = Segment::set_shape(
+            &content_lines,
+            inner_width,
+            Some(content_height),
+            None,
+            false,
+        );
 
         if !self.border {
             let line_count = content_lines.len();
@@ -1324,8 +1318,12 @@ impl Widget for Frame {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
 
-        let inner_width = width.saturating_sub(border_width * 2 + total_padding).max(1);
-        let mut inner_height = height.saturating_sub(border_width * 2 + total_padding).max(1);
+        let inner_width = width
+            .saturating_sub(border_width * 2 + total_padding)
+            .max(1);
+        let mut inner_height = height
+            .saturating_sub(border_width * 2 + total_padding)
+            .max(1);
         if let Some(child_height) = self.child.layout_height() {
             inner_height = inner_height.min(child_height.max(1));
         }
@@ -1352,8 +1350,13 @@ impl Widget for Frame {
         for _ in 0..self.padding {
             content_lines.push(padding_line.clone());
         }
-        content_lines =
-            Segment::set_shape(&content_lines, inner_width, Some(inner_height + total_padding), None, false);
+        content_lines = Segment::set_shape(
+            &content_lines,
+            inner_width,
+            Some(inner_height + total_padding),
+            None,
+            false,
+        );
 
         let inner_total = inner_width + total_padding;
         let mut out = Segments::new();
@@ -1364,7 +1367,9 @@ impl Widget for Frame {
             let top = format!(
                 "{}{}{}",
                 b.top_left,
-                std::iter::repeat(b.top).take(inner_total).collect::<String>(),
+                std::iter::repeat(b.top)
+                    .take(inner_total)
+                    .collect::<String>(),
                 b.top_right
             );
             out.push(Segment::new(top));
@@ -1389,7 +1394,9 @@ impl Widget for Frame {
             let bottom = format!(
                 "{}{}{}",
                 b.bottom_left,
-                std::iter::repeat(b.bottom).take(inner_total).collect::<String>(),
+                std::iter::repeat(b.bottom)
+                    .take(inner_total)
+                    .collect::<String>(),
                 b.bottom_right
             );
             out.push(Segment::line());
@@ -1612,8 +1619,7 @@ impl Widget for ScrollView {
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
-        self.viewport_width
-            .store(width, Ordering::Relaxed);
+        self.viewport_width.store(width, Ordering::Relaxed);
 
         let constraints = self.child.layout_constraints();
         let target_height = self
@@ -1641,16 +1647,14 @@ impl Widget for ScrollView {
         lines = pad_lines_to_width(lines, width);
 
         let content_height = lines.len().max(viewport_height);
-        self.content_height
-            .store(content_height, Ordering::Relaxed);
+        self.content_height.store(content_height, Ordering::Relaxed);
         let content_width = lines
             .iter()
             .map(|line| Segment::get_line_length(line))
             .max()
             .unwrap_or(width)
             .max(width);
-        self.content_width
-            .store(content_width, Ordering::Relaxed);
+        self.content_width.store(content_width, Ordering::Relaxed);
 
         let max_offset = content_height.saturating_sub(viewport_height);
         let offset = self.offset_y.min(max_offset);
@@ -1702,7 +1706,13 @@ impl Widget for ScrollView {
         } else {
             None
         };
-        lines = apply_debug_box(lines, width, height.max(3), label.as_deref(), debug.style_for(0));
+        lines = apply_debug_box(
+            lines,
+            width,
+            height.max(3),
+            label.as_deref(),
+            debug.style_for(0),
+        );
         let line_count = lines.len();
         let mut out = Segments::new();
         for (idx, line) in lines.into_iter().enumerate() {
@@ -1847,18 +1857,10 @@ impl Widget for Overlay {
         }
         let base_renderable = WidgetRenderable::new(self.base.as_ref());
         let modal_renderable = WidgetRenderable::new(self.modal.as_ref());
-        let base = crate::render::FrameBuffer::from_renderable(
-            console,
-            options,
-            &base_renderable,
-            None,
-        );
-        let top = crate::render::FrameBuffer::from_renderable(
-            console,
-            options,
-            &modal_renderable,
-            None,
-        );
+        let base =
+            crate::render::FrameBuffer::from_renderable(console, options, &base_renderable, None);
+        let top =
+            crate::render::FrameBuffer::from_renderable(console, options, &modal_renderable, None);
         let mut merged = base.clone();
         for y in 0..base.height {
             for x in 0..base.width {

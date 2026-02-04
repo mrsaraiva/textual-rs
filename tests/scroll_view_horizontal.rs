@@ -10,10 +10,7 @@ fn scroll_view_renders_horizontal_offset() {
     options.max_width = 8;
     options.max_height = 2;
 
-    let rows = ListView::new(vec![
-        "alpha-bravo".to_string(),
-        "charlie-delta".to_string(),
-    ]);
+    let rows = ListView::new(vec!["alpha-bravo".to_string(), "charlie-delta".to_string()]);
     let mut scroll = ScrollView::new(rows).height(2);
     scroll.scroll_to_x(6);
 

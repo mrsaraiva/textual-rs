@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rich_rs::{Console, ConsoleOptions, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
 
 use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
@@ -24,11 +24,14 @@ pub use controls::{
 };
 pub use defaults::default_widget_stylesheet;
 pub use helpers::WidgetRenderable;
+pub(crate) use helpers::set_hover_by_id;
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use style_selectors::{
     StyleContextGuard, StyleRule, StyleSelector, StyleSheet, set_style_context,
 };
 pub use text::{Label, Markdown};
+
+const META_WIDGET_ID: &str = "textual:widget_id";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct WidgetId(u64);
@@ -37,6 +40,14 @@ impl WidgetId {
     pub fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    pub fn from_u64(value: u64) -> Self {
+        Self(value)
     }
 }
 
@@ -77,6 +88,7 @@ pub trait Widget: Send + Sync {
             Some(debug) => self.render_with_debug(console, &content_options, debug),
             None => self.render(console, &content_options),
         });
+        let segments = tag_widget_meta(self.id(), segments);
 
         let inner_width = content_width
             .saturating_add(line_pad.saturating_mul(2))
@@ -129,6 +141,7 @@ pub trait Widget: Send + Sync {
     fn is_hovered(&self) -> bool {
         false
     }
+    fn set_hovered(&mut self, _hovered: bool) {}
     /// Whether the widget is active (e.g. pressed/dragging).
     fn is_active(&self) -> bool {
         false
@@ -214,6 +227,44 @@ pub trait Widget: Send + Sync {
             styles.set_max_height(value);
         }
     }
+}
+
+fn tag_widget_meta(widget_id: WidgetId, segments: Segments) -> Segments {
+    let mut out = Segments::new();
+    for mut seg in segments {
+        if seg.control.is_some() {
+            out.push(seg);
+            continue;
+        }
+
+        let has_widget_id = seg
+            .meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .map(|map| map.contains_key(META_WIDGET_ID))
+            .unwrap_or(false);
+        if has_widget_id {
+            out.push(seg);
+            continue;
+        }
+
+        let mut map = seg
+            .meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .map(|m| (**m).clone())
+            .unwrap_or_default();
+        map.insert(
+            META_WIDGET_ID.to_string(),
+            MetaValue::Int(widget_id.as_u64() as i64),
+        );
+
+        let mut meta = seg.meta.unwrap_or_else(StyleMeta::new);
+        meta.meta = Some(std::sync::Arc::new(map));
+        seg.meta = Some(meta);
+        out.push(seg);
+    }
+    out
 }
 
 #[derive(Debug, Clone, Copy, Default)]

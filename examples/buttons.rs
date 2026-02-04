@@ -7,7 +7,10 @@ async fn main() -> Result<()> {
     }
     let mut app = App::new()?;
     if std::path::Path::new("examples/button.tcss").exists() {
-        app.watch_stylesheet("examples/button.tcss", std::time::Duration::from_millis(500))?;
+        app.watch_stylesheet(
+            "examples/button.tcss",
+            std::time::Duration::from_millis(500),
+        )?;
     }
 
     let buttons = Horizontal::new()

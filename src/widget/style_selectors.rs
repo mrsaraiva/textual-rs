@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use rich_rs::{MetaValue, Segments};
 
-use crate::style::{BorderEdge, BorderType, Margin, Style, parse_color_like};
+use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
 
 use super::Widget;
 
@@ -309,6 +309,21 @@ pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segme
                     None => rich_style,
                 });
             }
+            if let Some(mut s) = seg.style {
+                if let Some(tint) = style.background_tint {
+                    if let Some(bg) = s.bgcolor {
+                        s.bgcolor = Some(crate::style::blend_colors(bg, tint.color, tint.percent));
+                    } else {
+                        s.bgcolor = Some(tint.color);
+                    }
+                }
+                if let Some(tint) = style.tint {
+                    if let Some(bg) = s.bgcolor {
+                        s.bgcolor = Some(crate::style::blend_colors(bg, tint.color, tint.percent));
+                    }
+                }
+                seg.style = Some(s);
+            }
             seg
         })
         .collect()
@@ -588,6 +603,16 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.underline(val);
                 }
             }
+            "tint" => {
+                if let Some(tint) = parse_tint(value) {
+                    style.tint = Some(tint);
+                }
+            }
+            "background-tint" => {
+                if let Some(tint) = parse_tint(value) {
+                    style.background_tint = Some(tint);
+                }
+            }
             "text-style" => {
                 for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
                     let token = token.trim();
@@ -599,6 +624,8 @@ fn parse_style_body(body: &str) -> Style {
                         "dim" => style = style.dim(true),
                         "italic" => style = style.italic(true),
                         "underline" => style = style.underline(true),
+                        "reverse" => style = style.reverse(true),
+                        "$button-focus-text-style" => style = style.reverse(true),
                         _ => {}
                     }
                 }
@@ -718,4 +745,22 @@ fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, Border
         }
     }
     None
+}
+
+fn parse_tint(value: &str) -> Option<Tint> {
+    // Format: "<color> <percent>%" (percent is optional, defaults to 0).
+    let mut color: Option<crate::style::Color> = None;
+    let mut percent: Option<u8> = None;
+    for token in value.split_whitespace().filter(|t| !t.is_empty()) {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                percent = Some(v);
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
+        }
+    }
+    Some(Tint::new(color?, percent.unwrap_or(0)))
 }

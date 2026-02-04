@@ -4,11 +4,12 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
 use super::{
+    LayoutConstraints, Widget, WidgetId, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, fixed_height_from_constraints,
-        constraints_from_style, margin_from_style, merge_constraints, pad_lines_to_width,
+        apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
+        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
-    style_selectors, LayoutConstraints, Widget, WidgetId, WidgetStyles,
+    style_selectors,
 };
 use crate::style::Margin;
 
@@ -158,9 +159,10 @@ impl Widget for Row {
             let mut line: Vec<Segment> = Vec::new();
             for (idx, lines) in normalized_lines.iter().enumerate() {
                 let child_width = widths.get(idx).copied().unwrap_or(1).max(1);
-                let child_line = lines.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(child_width))]
-                });
+                let child_line = lines
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(child_width))]);
                 let adjusted = Segment::adjust_line_length(&child_line, child_width, None, true);
                 line.extend(adjusted);
             }
@@ -289,9 +291,10 @@ impl Widget for Row {
             let mut line: Vec<Segment> = Vec::new();
             for (idx, lines) in normalized_lines.iter().enumerate() {
                 let child_width = widths.get(idx).copied().unwrap_or(1).max(1);
-                let child_line = lines.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(child_width))]
-                });
+                let child_line = lines
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(child_width))]);
                 let adjusted = Segment::adjust_line_length(&child_line, child_width, None, true);
                 line.extend(adjusted);
             }
@@ -372,7 +375,6 @@ pub enum DockKind {
     Right,
     Fill,
 }
-
 
 pub struct DockItem {
     kind: DockKind,
@@ -455,9 +457,7 @@ impl Widget for Dock {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let mut remaining_width = options.size.0.max(1);
-        let mut remaining_height = self
-            .fixed_height
-            .unwrap_or_else(|| options.size.1.max(1));
+        let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
 
         let mut top_lines: Vec<Vec<Segment>> = Vec::new();
         let mut bottom_lines: Vec<Vec<Segment>> = Vec::new();
@@ -494,7 +494,8 @@ impl Widget for Dock {
                     let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, remaining_width);
                     top_lines.extend(lines);
                     remaining_height = remaining_height.saturating_sub(height);
@@ -525,7 +526,8 @@ impl Widget for Dock {
                     let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, remaining_width);
                     bottom_lines.extend(lines);
                     remaining_height = remaining_height.saturating_sub(height);
@@ -620,18 +622,20 @@ impl Widget for Dock {
             let mut line: Vec<Segment> = Vec::new();
 
             for (col_width, column) in &left_columns {
-                let col_line = column.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(*col_width))]
-                });
+                let col_line = column
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(*col_width))]);
                 let adjusted = Segment::adjust_line_length(&col_line, *col_width, None, true);
                 line.extend(adjusted);
             }
 
             let remaining_mid_width = remaining_width;
             if let Some(lines) = &fill_lines {
-                let fill_line = lines.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(remaining_mid_width))]
-                });
+                let fill_line = lines
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(remaining_mid_width))]);
                 let adjusted =
                     Segment::adjust_line_length(&fill_line, remaining_mid_width, None, true);
                 line.extend(adjusted);
@@ -640,9 +644,10 @@ impl Widget for Dock {
             }
 
             for (col_width, column) in &right_columns {
-                let col_line = column.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(*col_width))]
-                });
+                let col_line = column
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(*col_width))]);
                 let adjusted = Segment::adjust_line_length(&col_line, *col_width, None, true);
                 line.extend(adjusted);
             }
@@ -681,9 +686,7 @@ impl Widget for Dock {
         debug: &DebugLayout,
     ) -> Segments {
         let mut remaining_width = options.size.0.max(1);
-        let mut remaining_height = self
-            .fixed_height
-            .unwrap_or_else(|| options.size.1.max(1));
+        let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
 
         let mut top_lines: Vec<Vec<Segment>> = Vec::new();
         let mut bottom_lines: Vec<Vec<Segment>> = Vec::new();
@@ -720,7 +723,8 @@ impl Widget for Dock {
                     let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, remaining_width);
                     let debug_height = (height + 2).max(3);
                     let label = if debug.show_sizes {
@@ -764,7 +768,8 @@ impl Widget for Dock {
                     let segments = item.child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, remaining_width);
                     let debug_height = (height + 2).max(3);
                     let label = if debug.show_sizes {
@@ -911,18 +916,20 @@ impl Widget for Dock {
             let mut line: Vec<Segment> = Vec::new();
 
             for (col_width, column) in &left_columns {
-                let col_line = column.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(*col_width))]
-                });
+                let col_line = column
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(*col_width))]);
                 let adjusted = Segment::adjust_line_length(&col_line, *col_width, None, true);
                 line.extend(adjusted);
             }
 
             let remaining_mid_width = remaining_width;
             if let Some(lines) = &fill_lines {
-                let fill_line = lines.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(remaining_mid_width))]
-                });
+                let fill_line = lines
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(remaining_mid_width))]);
                 let adjusted =
                     Segment::adjust_line_length(&fill_line, remaining_mid_width, None, true);
                 line.extend(adjusted);
@@ -931,9 +938,10 @@ impl Widget for Dock {
             }
 
             for (col_width, column) in &right_columns {
-                let col_line = column.get(row).cloned().unwrap_or_else(|| {
-                    vec![Segment::new(" ".repeat(*col_width))]
-                });
+                let col_line = column
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| vec![Segment::new(" ".repeat(*col_width))]);
                 let adjusted = Segment::adjust_line_length(&col_line, *col_width, None, true);
                 line.extend(adjusted);
             }
@@ -1018,7 +1026,6 @@ impl Renderable for Dock {
         Widget::render(self, console, options)
     }
 }
-
 
 pub struct Grid {
     id: WidgetId,
@@ -1146,10 +1153,14 @@ impl Widget for Grid {
                     cell_width.saturating_sub(margin.left + margin.right).max(1),
                 );
                 let render_height = clamp_with_constraints(
-                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
+                    cell_height
+                        .saturating_sub(margin.top + margin.bottom)
+                        .max(1),
                     constraints.min_height,
                     constraints.max_height,
-                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
+                    cell_height
+                        .saturating_sub(margin.top + margin.bottom)
+                        .max(1),
                 );
                 let mut child_options = options.clone();
                 child_options.size = (render_width, render_height);
@@ -1159,7 +1170,8 @@ impl Widget for Grid {
                     let segments = child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, render_width);
                     lines = apply_margin(lines, cell_width, margin);
                     lines
@@ -1179,9 +1191,10 @@ impl Widget for Grid {
                 for c in 0..self.cols {
                     let cell_width = col_widths[c].max(1);
                     let lines = &cell_lines[r][c];
-                    let cell_line = lines.get(row).cloned().unwrap_or_else(|| {
-                        vec![Segment::new(" ".repeat(cell_width))]
-                    });
+                    let cell_line = lines
+                        .get(row)
+                        .cloned()
+                        .unwrap_or_else(|| vec![Segment::new(" ".repeat(cell_width))]);
                     let adjusted = Segment::adjust_line_length(&cell_line, cell_width, None, true);
                     line.extend(adjusted);
                     if c + 1 < self.cols && self.col_gaps > 0 {
@@ -1269,10 +1282,14 @@ impl Widget for Grid {
                     cell_width.saturating_sub(margin.left + margin.right).max(1),
                 );
                 let render_height = clamp_with_constraints(
-                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
+                    cell_height
+                        .saturating_sub(margin.top + margin.bottom)
+                        .max(1),
                     constraints.min_height,
                     constraints.max_height,
-                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
+                    cell_height
+                        .saturating_sub(margin.top + margin.bottom)
+                        .max(1),
                 );
                 let mut child_options = options.clone();
                 child_options.size = (render_width, render_height);
@@ -1282,7 +1299,8 @@ impl Widget for Grid {
                     let segments = child.render_styled(console, &child_options);
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+                    lines =
+                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
                     lines = pad_lines_to_width(lines, render_width);
                     lines = apply_margin(lines, cell_width, margin);
                     let label = if debug.show_sizes {
@@ -1314,9 +1332,10 @@ impl Widget for Grid {
                 for c in 0..self.cols {
                     let cell_width = col_widths[c].max(1);
                     let lines = &cell_lines[r][c];
-                    let cell_line = lines.get(row).cloned().unwrap_or_else(|| {
-                        vec![Segment::new(" ".repeat(cell_width))]
-                    });
+                    let cell_line = lines
+                        .get(row)
+                        .cloned()
+                        .unwrap_or_else(|| vec![Segment::new(" ".repeat(cell_width))]);
                     let adjusted = Segment::adjust_line_length(&cell_line, cell_width, None, true);
                     line.extend(adjusted);
                     if c + 1 < self.cols && self.col_gaps > 0 {

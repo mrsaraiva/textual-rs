@@ -4,8 +4,8 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 
-use super::helpers::{clamp_with_constraints, pad_lines_to_width};
 use super::helpers::adjust_line_length_no_bg;
+use super::helpers::{clamp_with_constraints, pad_lines_to_width};
 use super::{Container, Row, RowAlign, Widget, WidgetId, WidgetStyles};
 
 pub struct Horizontal {
@@ -229,8 +229,7 @@ impl Widget for VerticalScroll {
         lines = pad_lines_to_width(lines, width);
 
         let content_height = lines.len().max(viewport_height);
-        self.content_height
-            .store(content_height, Ordering::Relaxed);
+        self.content_height.store(content_height, Ordering::Relaxed);
 
         let max_offset = content_height.saturating_sub(viewport_height);
         let offset = self.offset_y.min(max_offset);

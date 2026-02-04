@@ -1,5 +1,5 @@
-use textual::event::{Action, ActionMap, KeyBind};
 use crossterm::event::{KeyCode, KeyModifiers};
+use textual::event::{Action, ActionMap, KeyBind};
 
 #[test]
 fn action_map_binds_and_resolves() {

@@ -1,14 +1,13 @@
-use crate::driver::{Size, TerminalDriver};
-use crate::render::FrameBuffer;
 use crate::debug::DebugLayout;
+use crate::driver::{Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
+use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::widget::{set_style_context, StyleSheet, Widget};
+use crate::widget::{StyleSheet, Widget, WidgetId, set_style_context};
 use crate::{Error, Result};
-use crossterm::event::{
-    self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers,
-};
-use rich_rs::{Console, ConsoleOptions, Renderable};
+use crossterm::event::MouseEventKind;
+use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -25,6 +24,7 @@ pub struct App {
     stylesheet: StyleSheet,
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
+    hovered: Option<WidgetId>,
 }
 
 struct StylesheetWatcher {
@@ -54,6 +54,7 @@ impl App {
             stylesheet: StyleSheet::default(),
             stylesheet_watch: None,
             running: true,
+            hovered: None,
         })
     }
 
@@ -92,11 +93,7 @@ impl App {
         Ok(())
     }
 
-    pub fn watch_stylesheet(
-        &mut self,
-        path: impl Into<PathBuf>,
-        interval: Duration,
-    ) -> Result<()> {
+    pub fn watch_stylesheet(&mut self, path: impl Into<PathBuf>, interval: Duration) -> Result<()> {
         let path = path.into();
         let css = fs::read_to_string(&path)?;
         self.stylesheet = StyleSheet::parse(&css);
@@ -127,12 +124,8 @@ impl App {
     pub fn render(&mut self, renderable: &dyn Renderable) -> Result<()> {
         self.refresh_size()?;
         let base_style = self.theme.base.to_rich();
-        let next = FrameBuffer::from_renderable(
-            &self.console,
-            &self.options,
-            renderable,
-            base_style,
-        );
+        let next =
+            FrameBuffer::from_renderable(&self.console, &self.options, renderable, base_style);
         let diff = next.diff_to_segments(&self.frame);
         self.console.print_segments(&diff)?;
         self.frame = next;
@@ -243,6 +236,11 @@ impl App {
                             dispatch_event(root, Event::Key(key));
                         }
                     }
+                    CrosstermEvent::Mouse(mouse) => {
+                        if matches!(mouse.kind, MouseEventKind::Moved) {
+                            self.update_hover_from_frame(mouse.column, mouse.row, root);
+                        }
+                    }
                     CrosstermEvent::Resize(_, _) => {
                         self.refresh_size()?;
                         let size = self.driver.size();
@@ -266,6 +264,30 @@ impl App {
         root.on_unmount();
         self.finish()?;
         Ok(())
+    }
+
+    fn update_hover_from_frame(&mut self, x: u16, y: u16, root: &mut dyn Widget) {
+        let x = x as usize;
+        let y = y as usize;
+        if x >= self.frame.width || y >= self.frame.height {
+            return;
+        }
+
+        let cell = self.frame.get(x, y);
+        let hovered = cell
+            .meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .and_then(|map| map.get("textual:widget_id"))
+            .and_then(|value| match value {
+                MetaValue::Int(n) if *n >= 0 => Some(WidgetId::from_u64(*n as u64)),
+                _ => None,
+            });
+
+        if hovered != self.hovered {
+            self.hovered = hovered;
+            crate::widget::set_hover_by_id(root, self.hovered);
+        }
     }
 
     fn refresh_size(&mut self) -> Result<()> {

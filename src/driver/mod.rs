@@ -1,4 +1,5 @@
 use crate::Result;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::{cursor, execute, terminal};
 use std::io::stdout;
 
@@ -31,7 +32,12 @@ impl TerminalDriver {
             return Ok(());
         }
         terminal::enable_raw_mode()?;
-        execute!(stdout(), terminal::EnterAlternateScreen, cursor::Hide)?;
+        execute!(
+            stdout(),
+            terminal::EnterAlternateScreen,
+            cursor::Hide,
+            EnableMouseCapture
+        )?;
         self.started = true;
         Ok(())
     }
@@ -40,7 +46,12 @@ impl TerminalDriver {
         if !self.started {
             return Ok(());
         }
-        execute!(stdout(), cursor::Show, terminal::LeaveAlternateScreen)?;
+        execute!(
+            stdout(),
+            DisableMouseCapture,
+            cursor::Show,
+            terminal::LeaveAlternateScreen
+        )?;
         terminal::disable_raw_mode()?;
         self.started = false;
         Ok(())

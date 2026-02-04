@@ -78,9 +78,7 @@ fn selector_with_multiple_classes_matches() {
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
 
-    let label = Node::new(Label::new("hi"))
-        .class("primary")
-        .class("big");
+    let label = Node::new(Label::new("hi")).class("primary").class("big");
     let renderable = WidgetRenderable::new(&label);
     let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
 

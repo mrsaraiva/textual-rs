@@ -111,6 +111,13 @@ impl FrameBuffer {
             for x in 0..self.width {
                 let cell = self.get(x, y);
                 if let Some(meta) = &cell.meta {
+                    // Keep snapshots stable: widget ownership metadata is useful at runtime for
+                    // hover hit-testing, but very noisy in debug dumps.
+                    if let Some(map) = meta.meta.as_ref() {
+                        if map.len() == 1 && map.contains_key("textual:widget_id") {
+                            continue;
+                        }
+                    }
                     out.push_str(&format!("({x},{y}): {:?}\n", meta));
                 }
             }
@@ -297,7 +304,9 @@ impl FrameBuffer {
                     out.push(Segment::control(rich_rs::ControlType::CarriageReturn));
                     cursor_x = 0;
                     if x > 0 {
-                        out.push(Segment::control(rich_rs::ControlType::CursorForward(x as u16)));
+                        out.push(Segment::control(rich_rs::ControlType::CursorForward(
+                            x as u16,
+                        )));
                         cursor_x = x;
                     }
                 }

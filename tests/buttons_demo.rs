@@ -1,6 +1,6 @@
 use rich_rs::Console;
 use textual::prelude::*;
-use textual::widget::{set_style_context, StyleSheet, WidgetRenderable};
+use textual::widget::{StyleSheet, WidgetRenderable, set_style_context};
 
 #[test]
 fn buttons_demo_renders_labels() {

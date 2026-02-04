@@ -1,7 +1,7 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[test]
 fn checkbox_toggles() {
