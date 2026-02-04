@@ -298,8 +298,10 @@ pub(crate) fn apply_border_edges(
     let outer_bg = parent_style.and_then(|s| s.bg).or(inner_bg).or(fallback_bg);
 
     let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, false, false);
-    lines = Segment::set_shape(&lines, inner_width.max(1), None, None, false);
-    lines = pad_lines_to_width(lines, inner_width.max(1));
+    // Ensure the widget interior is fully painted with the widget style (at least background).
+    // `split_and_crop_lines` may trim trailing whitespace, which would otherwise expose the
+    // parent background and make the widget look "hollow".
+    lines = Segment::set_shape(&lines, inner_width.max(1), None, style.to_rich(), false);
 
     let has_left = border_left.is_set();
     let has_right = border_right.is_set();
