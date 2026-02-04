@@ -287,7 +287,10 @@ pub(crate) fn apply_border_edges(
     // Inner (widget) and outer (parent) backgrounds used for border blending.
     let fallback_bg = parse_color_like("$background");
     let inner_bg = style.bg.or(fallback_bg);
-    let outer_bg = parent_style.and_then(|s| s.bg).or(fallback_bg).or(inner_bg);
+    // If the parent doesn't specify a background, prefer the widget background as the
+    // "outer" background so block / tall borders don't create high-contrast bands.
+    // (Textual effectively blends with a base background even when parents don't set one.)
+    let outer_bg = parent_style.and_then(|s| s.bg).or(inner_bg).or(fallback_bg);
 
     let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, false, false);
     lines = Segment::set_shape(&lines, inner_width.max(1), None, None, false);
