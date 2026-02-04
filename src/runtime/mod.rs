@@ -237,11 +237,21 @@ impl App {
                         }
                     }
                     CrosstermEvent::Mouse(mouse) => {
-                        if matches!(mouse.kind, MouseEventKind::Moved) {
-                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                self.render_widget(root)?;
-                                last_render = Instant::now();
+                        match mouse.kind {
+                            MouseEventKind::Moved => {
+                                if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                    self.render_widget(root)?;
+                                    last_render = Instant::now();
+                                }
                             }
+                            MouseEventKind::Down(_) => {
+                                if let Some(target) =
+                                    self.hovered.or_else(|| self.widget_at(mouse.column, mouse.row))
+                                {
+                                    dispatch_event(root, Event::MouseDown(target));
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
@@ -294,6 +304,23 @@ impl App {
         }
 
         false
+    }
+
+    fn widget_at(&self, x: u16, y: u16) -> Option<WidgetId> {
+        let x = x as usize;
+        let y = y as usize;
+        if x >= self.frame.width || y >= self.frame.height {
+            return None;
+        }
+        let cell = self.frame.get(x, y);
+        cell.meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .and_then(|map| map.get("textual:widget_id"))
+            .and_then(|value| match value {
+                MetaValue::Int(n) if *n >= 0 => Some(WidgetId::from_u64(*n as u64)),
+                _ => None,
+            })
     }
 
     fn refresh_size(&mut self) -> Result<()> {

@@ -205,18 +205,33 @@ impl Widget for Button {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.focused || self.disabled {
+        if self.disabled {
+            return;
+        }
+        if let Event::MouseDown(target) = event {
+            if *target == self.id {
+                self.pressed = !self.pressed;
+                if let Some(handler) = &self.on_press {
+                    handler(self);
+                }
+                ctx.set_handled();
+            }
             return;
         }
         if let Event::Action(Action::Toggle) = event {
-            self.pressed = !self.pressed;
-            if let Some(handler) = &self.on_press {
-                handler(self);
+            if self.focused {
+                self.pressed = !self.pressed;
+                if let Some(handler) = &self.on_press {
+                    handler(self);
+                }
+                ctx.set_handled();
             }
-            ctx.set_handled();
             return;
         }
         if let Event::Key(key) = event {
+            if !self.focused {
+                return;
+            }
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.pressed = !self.pressed;

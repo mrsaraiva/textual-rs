@@ -94,7 +94,8 @@ pub trait Widget: Send + Sync {
             .saturating_add(line_pad.saturating_mul(2))
             .max(1);
         let segments = if line_pad > 0 {
-            helpers::apply_line_pad(segments, content_width, inner_width, line_pad)
+            let padded = helpers::apply_line_pad(segments, content_width, inner_width, line_pad);
+            tag_widget_meta(self.id(), padded)
         } else {
             segments
         };

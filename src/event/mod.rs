@@ -1,3 +1,4 @@
+use crate::widget::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 
@@ -5,6 +6,7 @@ use std::collections::HashMap;
 pub enum Event {
     Key(KeyEvent),
     Action(Action),
+    MouseDown(WidgetId),
     Tick(u64),
     Resize(u16, u16),
 }

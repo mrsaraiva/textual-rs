@@ -1052,6 +1052,9 @@ impl Widget for AppRoot {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::MouseDown(target) = event {
+            let _ = self.focus(*target);
+        }
         if let Event::Action(action) = event {
             match action {
                 Action::FocusNext => {
