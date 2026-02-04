@@ -139,15 +139,97 @@ impl Widget for Button {
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let padding_h = 1usize;
+        let padding_v = 0usize;
+        let border = !self.flat;
+
+        let inner_width = width
+            .saturating_sub(padding_h * 2 + if border { 2 } else { 0 })
+            .max(1);
+        let inner_height = height
+            .saturating_sub(padding_v * 2 + if border { 2 } else { 0 })
+            .max(1);
+
         let marker = if self.focused { "> " } else { "  " };
         let state = if self.pressed { "[x]" } else { "[ ]" };
-        let text = Text::plain(format!("{marker}{state} {}", self.label));
-        text.render(console, options)
+        let content = format!("{marker}{state} {}", self.label);
+        let line = rich_rs::set_cell_size(&content, inner_width);
+        let mut lines = vec![vec![Segment::new(line)]];
+        lines = Segment::set_shape(&lines, inner_width, Some(inner_height), None, false);
+
+        if border {
+            let b = rich_rs::r#box::SQUARE;
+            let mut out_lines: Vec<Vec<Segment>> = Vec::new();
+            let inner_total = inner_width + padding_h * 2;
+
+            let top = format!(
+                "{}{}{}",
+                b.top_left,
+                std::iter::repeat(b.top).take(inner_total).collect::<String>(),
+                b.top_right
+            );
+            out_lines.push(vec![Segment::new(top)]);
+
+            for line in lines.into_iter() {
+                let mut row = Vec::new();
+                row.push(Segment::new(b.mid_left.to_string()));
+                if padding_h > 0 {
+                    row.push(Segment::new(" ".repeat(padding_h)));
+                }
+                let adjusted = Segment::adjust_line_length(&line, inner_width, None, true);
+                row.extend(adjusted);
+                if padding_h > 0 {
+                    row.push(Segment::new(" ".repeat(padding_h)));
+                }
+                row.push(Segment::new(b.mid_right.to_string()));
+                out_lines.push(row);
+            }
+
+            let bottom = format!(
+                "{}{}{}",
+                b.bottom_left,
+                std::iter::repeat(b.bottom).take(inner_total).collect::<String>(),
+                b.bottom_right
+            );
+            out_lines.push(vec![Segment::new(bottom)]);
+
+            let out_lines = Segment::set_shape(&out_lines, width, Some(height), None, false);
+            let line_count = out_lines.len();
+            let mut out = Segments::new();
+            for (idx, line) in out_lines.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            out
+        } else {
+            let mut content_lines: Vec<Vec<Segment>> = Vec::new();
+            for _ in 0..padding_v {
+                content_lines.push(vec![Segment::new(" ".repeat(inner_width))]);
+            }
+            content_lines.extend(lines);
+            for _ in 0..padding_v {
+                content_lines.push(vec![Segment::new(" ".repeat(inner_width))]);
+            }
+            let mut out = Segments::new();
+            let line_count = content_lines.len();
+            for (idx, line) in content_lines.into_iter().enumerate() {
+                let adjusted = Segment::adjust_line_length(&line, inner_width, None, true);
+                out.extend(adjusted);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            out
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(3))
     }
 
     fn style_classes(&self) -> &[String] {
