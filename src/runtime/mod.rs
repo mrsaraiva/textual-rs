@@ -1,4 +1,4 @@
-use crate::debug::DebugLayout;
+use crate::debug::{DebugLayout, debug_input};
 use crate::driver::{Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
 use crate::render::FrameBuffer;
@@ -185,6 +185,9 @@ impl App {
             if event::poll(timeout)? {
                 match event::read()? {
                     CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
+                        if matches!(key.code, KeyCode::Enter | KeyCode::Char(' ')) {
+                            debug_input(&format!("[input] key {:?}", key.code));
+                        }
                         if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
                             break;
                         }
@@ -245,9 +248,19 @@ impl App {
                                 }
                             }
                             MouseEventKind::Down(_) => {
+                                debug_input(&format!(
+                                    "[input] mouse down x={} y={} hovered={:?}",
+                                    mouse.column,
+                                    mouse.row,
+                                    self.hovered.map(|id| id.as_u64())
+                                ));
                                 if let Some(target) =
                                     self.hovered.or_else(|| self.widget_at(mouse.column, mouse.row))
                                 {
+                                    debug_input(&format!(
+                                        "[input] mouse target id={}",
+                                        target.as_u64()
+                                    ));
                                     dispatch_event(root, Event::MouseDown(target));
                                 }
                             }

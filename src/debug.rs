@@ -1,4 +1,7 @@
 use rich_rs::{Color, Style};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct DebugLayout {
@@ -32,5 +35,16 @@ impl DebugLayout {
 impl Default for DebugLayout {
     fn default() -> Self {
         Self::disabled()
+    }
+}
+
+pub(crate) fn debug_input(line: &str) {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    let path = PATH.get_or_init(|| std::env::var("TEXTUAL_DEBUG_INPUT_FILE").ok());
+    let Some(path) = path.as_ref() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
     }
 }

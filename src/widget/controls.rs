@@ -2,6 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use super::style_selectors;
+use crate::debug::debug_input;
 use crate::event::{Action, Event, EventCtx};
 
 use super::{
@@ -214,6 +215,11 @@ impl Widget for Button {
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
+                debug_input(&format!(
+                    "[button] mouse id={} label=\"{}\"",
+                    self.id.as_u64(),
+                    self.label
+                ));
                 ctx.set_handled();
             }
             return;
@@ -224,6 +230,11 @@ impl Widget for Button {
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
+                debug_input(&format!(
+                    "[button] toggle id={} label=\"{}\"",
+                    self.id.as_u64(),
+                    self.label
+                ));
                 ctx.set_handled();
             }
             return;
@@ -238,6 +249,11 @@ impl Widget for Button {
                     if let Some(handler) = &self.on_press {
                         handler(self);
                     }
+                    debug_input(&format!(
+                        "[button] key id={} label=\"{}\"",
+                        self.id.as_u64(),
+                        self.label
+                    ));
                     ctx.set_handled();
                 }
                 _ => {}
