@@ -99,7 +99,7 @@ pub trait Widget: Send + Sync {
             segments
         };
 
-        let styled = style_selectors::apply_style_to_segments(segments, resolved);
+        let styled = style_selectors::apply_style_to_segments(self.id(), segments, resolved);
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,

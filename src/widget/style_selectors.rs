@@ -4,7 +4,7 @@ use rich_rs::{MetaValue, Segments};
 
 use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
 
-use super::Widget;
+use super::{Widget, WidgetId};
 
 thread_local! {
     static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
@@ -280,7 +280,11 @@ pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl F
     })
 }
 
-pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segments {
+pub(crate) fn apply_style_to_segments(
+    widget_id: WidgetId,
+    segments: Segments,
+    style: Style,
+) -> Segments {
     if style.is_empty() {
         return segments;
     }
@@ -291,6 +295,18 @@ pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segme
             if seg.control.is_some() {
                 return seg;
             }
+
+            // Only apply this widget's resolved style to segments that originate from this widget.
+            // Child widgets render their own styles already (including inherited properties), and
+            // parent widgets should not overwrite them during this pass.
+            if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
+                if let Some(MetaValue::Int(value)) = meta.get(super::META_WIDGET_ID) {
+                    if *value != widget_id.as_u64() as i64 {
+                        return seg;
+                    }
+                }
+            }
+
             let mut rich_style = rich_style;
             if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
                 if let Some(MetaValue::Bool(true)) = meta.get("textual:no_style") {
@@ -305,7 +321,7 @@ pub(crate) fn apply_style_to_segments(segments: Segments, style: Style) -> Segme
             }
             if let Some(rich_style) = rich_style {
                 seg.style = Some(match seg.style {
-                    Some(existing) => existing.combine(&rich_style),
+                    Some(existing) => rich_style.combine(&existing),
                     None => rich_style,
                 });
             }
