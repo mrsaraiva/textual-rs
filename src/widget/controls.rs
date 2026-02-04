@@ -8,12 +8,26 @@ use super::{
     Widget, WidgetId, WidgetStyles,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonVariant {
+    Default,
+    Primary,
+    Success,
+    Warning,
+    Error,
+}
+
 #[derive(Debug, Clone)]
 pub struct Button {
     id: WidgetId,
     label: String,
     focused: bool,
     pressed: bool,
+    variant: ButtonVariant,
+    disabled: bool,
+    flat: bool,
+    classes: Vec<String>,
+    focused_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -24,12 +38,71 @@ impl Button {
             label: label.into(),
             focused: false,
             pressed: false,
+            variant: ButtonVariant::Default,
+            disabled: false,
+            flat: false,
+            classes: Vec::new(),
+            focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
+        .rebuild_classes()
+    }
+
+    pub fn primary(label: impl Into<String>) -> Self {
+        Self::new(label).variant(ButtonVariant::Primary)
+    }
+
+    pub fn success(label: impl Into<String>) -> Self {
+        Self::new(label).variant(ButtonVariant::Success)
+    }
+
+    pub fn warning(label: impl Into<String>) -> Self {
+        Self::new(label).variant(ButtonVariant::Warning)
+    }
+
+    pub fn error(label: impl Into<String>) -> Self {
+        Self::new(label).variant(ButtonVariant::Error)
     }
 
     pub fn pressed(&self) -> bool {
         self.pressed
+    }
+
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self.rebuild_classes()
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self.rebuild_classes()
+    }
+
+    pub fn flat(mut self, flat: bool) -> Self {
+        self.flat = flat;
+        self.rebuild_classes()
+    }
+
+    fn rebuild_classes(mut self) -> Self {
+        let mut classes = vec!["button".to_string()];
+        match self.variant {
+            ButtonVariant::Primary => classes.push("primary".to_string()),
+            ButtonVariant::Success => classes.push("success".to_string()),
+            ButtonVariant::Warning => classes.push("warning".to_string()),
+            ButtonVariant::Error => classes.push("error".to_string()),
+            ButtonVariant::Default => {}
+        }
+        if self.disabled {
+            classes.push("disabled".to_string());
+        }
+        if self.flat {
+            classes.push("flat".to_string());
+        }
+        let mut focused_classes = classes.clone();
+        focused_classes.push("focused".to_string());
+        self.classes = classes;
+        self.focused_classes = focused_classes;
+        self
     }
 }
 
@@ -39,7 +112,7 @@ impl Widget for Button {
     }
 
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
@@ -47,7 +120,7 @@ impl Widget for Button {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.focused {
+        if !self.focused || self.disabled {
             return;
         }
         if let Event::Action(Action::Toggle) = event {
@@ -79,9 +152,11 @@ impl Widget for Button {
 
     fn style_classes(&self) -> &[String] {
         if self.focused {
-            focused_classes()
-        } else {
+            &self.focused_classes
+        } else if self.classes.is_empty() {
             empty_classes()
+        } else {
+            &self.classes
         }
     }
 

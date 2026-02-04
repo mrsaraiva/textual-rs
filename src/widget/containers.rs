@@ -9,11 +9,12 @@ use crate::style::Style;
 
 use super::{
     helpers::{
-        apply_debug_box, clamp_with_constraints, collect_focus_ids, crop_line_horizontal,
-        dispatch_event_to_focus, fixed_height_from_constraints, merge_constraints, pad_lines_to_width,
+        apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
+        constraints_from_style, crop_line_horizontal, dispatch_event_to_focus,
+        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
         set_focus_by_id,
     },
-    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    style_selectors, LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 pub struct Container {
@@ -55,14 +56,22 @@ impl Widget for Container {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let constraints = child.layout_constraints();
-            let render_width =
-                clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let style_constraints = constraints_from_style(&resolved);
+            let constraints = merge_constraints(style_constraints, child.layout_constraints());
+            let render_width = clamp_with_constraints(
+                width.saturating_sub(margin.left + margin.right).max(1),
+                constraints.min_width,
+                constraints.max_width,
+                width.saturating_sub(margin.left + margin.right).max(1),
+            );
             let render_height = clamp_with_constraints(
-                height_limit,
+                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit,
+                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
             );
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
@@ -81,7 +90,8 @@ impl Widget for Container {
             );
             child_lines =
                 Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
-            child_lines = pad_lines_to_width(child_lines, width);
+            child_lines = pad_lines_to_width(child_lines, render_width);
+            child_lines = apply_margin(child_lines, width, margin);
             let child_height = child_lines.len();
             let child_region =
                 rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);

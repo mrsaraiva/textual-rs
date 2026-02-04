@@ -2,6 +2,8 @@ use rich_rs::{Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
 
+use crate::style::{Margin, Style};
+
 use super::{LayoutConstraints, Widget, WidgetId};
 
 pub(crate) fn merge_constraints(
@@ -213,5 +215,46 @@ pub(crate) fn apply_debug_box(
     bottom.push(b.bottom_right);
     out.push(vec![Segment::styled(bottom, style)]);
 
+    out
+}
+
+pub(crate) fn margin_from_style(style: &crate::style::Style) -> Margin {
+    style.margin.unwrap_or_default()
+}
+
+pub(crate) fn constraints_from_style(style: &Style) -> LayoutConstraints {
+    LayoutConstraints {
+        min_width: style.min_width,
+        max_width: style.max_width,
+        min_height: style.min_height,
+        max_height: style.max_height,
+    }
+}
+
+pub(crate) fn apply_margin(
+    lines: Vec<Vec<Segment>>,
+    width: usize,
+    margin: Margin,
+) -> Vec<Vec<Segment>> {
+    let mut out: Vec<Vec<Segment>> = Vec::new();
+    let pad_line = vec![Segment::new(" ".repeat(width))];
+    for _ in 0..margin.top {
+        out.push(pad_line.clone());
+    }
+    for line in lines {
+        let mut row: Vec<Segment> = Vec::new();
+        if margin.left > 0 {
+            row.push(Segment::new(" ".repeat(margin.left)));
+        }
+        row.extend(line);
+        if margin.right > 0 {
+            row.push(Segment::new(" ".repeat(margin.right)));
+        }
+        let adjusted = Segment::adjust_line_length(&row, width, None, true);
+        out.push(adjusted);
+    }
+    for _ in 0..margin.bottom {
+        out.push(pad_line.clone());
+    }
     out
 }

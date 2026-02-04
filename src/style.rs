@@ -9,6 +9,11 @@ pub struct Style {
     pub italic: Option<bool>,
     pub underline: Option<bool>,
     pub border: Option<bool>,
+    pub margin: Option<Margin>,
+    pub min_width: Option<usize>,
+    pub max_width: Option<usize>,
+    pub min_height: Option<usize>,
+    pub max_height: Option<usize>,
 }
 
 impl Style {
@@ -51,6 +56,45 @@ impl Style {
         self
     }
 
+    pub fn margin(mut self, margin: Margin) -> Self {
+        self.margin = Some(margin);
+        self
+    }
+
+    pub fn width(mut self, value: usize) -> Self {
+        let value = value.max(1);
+        self.min_width = Some(value);
+        self.max_width = Some(value);
+        self
+    }
+
+    pub fn height(mut self, value: usize) -> Self {
+        let value = value.max(1);
+        self.min_height = Some(value);
+        self.max_height = Some(value);
+        self
+    }
+
+    pub fn min_width(mut self, value: usize) -> Self {
+        self.min_width = Some(value.max(1));
+        self
+    }
+
+    pub fn max_width(mut self, value: usize) -> Self {
+        self.max_width = Some(value.max(1));
+        self
+    }
+
+    pub fn min_height(mut self, value: usize) -> Self {
+        self.min_height = Some(value.max(1));
+        self
+    }
+
+    pub fn max_height(mut self, value: usize) -> Self {
+        self.max_height = Some(value.max(1));
+        self
+    }
+
     pub fn combine(&self, other: &Style) -> Style {
         Style {
             fg: other.fg.or(self.fg),
@@ -60,6 +104,11 @@ impl Style {
             italic: other.italic.or(self.italic),
             underline: other.underline.or(self.underline),
             border: other.border.or(self.border),
+            margin: other.margin.or(self.margin),
+            min_width: other.min_width.or(self.min_width),
+            max_width: other.max_width.or(self.max_width),
+            min_height: other.min_height.or(self.min_height),
+            max_height: other.max_height.or(self.max_height),
         }
     }
 
@@ -72,6 +121,11 @@ impl Style {
             italic: self.italic.or(parent.italic),
             underline: self.underline.or(parent.underline),
             border: self.border.or(parent.border),
+            margin: self.margin,
+            min_width: self.min_width,
+            max_width: self.max_width,
+            min_height: self.min_height,
+            max_height: self.max_height,
         }
     }
 
@@ -109,6 +163,48 @@ impl Style {
             && self.italic.is_none()
             && self.underline.is_none()
             && self.border.is_none()
+            && self.margin.is_none()
+            && self.min_width.is_none()
+            && self.max_width.is_none()
+            && self.min_height.is_none()
+            && self.max_height.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Margin {
+    pub top: usize,
+    pub right: usize,
+    pub bottom: usize,
+    pub left: usize,
+}
+
+impl Margin {
+    pub fn all(value: usize) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
+
+    pub fn vertical_horizontal(vertical: usize, horizontal: usize) -> Self {
+        Self {
+            top: vertical,
+            bottom: vertical,
+            left: horizontal,
+            right: horizontal,
+        }
+    }
+
+    pub fn new(top: usize, right: usize, bottom: usize, left: usize) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 }
 

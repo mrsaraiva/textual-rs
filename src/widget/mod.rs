@@ -8,6 +8,7 @@ use crate::style::{Color, Style};
 
 mod controls;
 mod containers;
+mod aliases;
 mod helpers;
 mod layout;
 mod style_selectors;
@@ -19,6 +20,7 @@ pub use controls::{
 pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
+pub use aliases::{Horizontal, Static, VerticalScroll};
 pub use helpers::WidgetRenderable;
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use style_selectors::{set_style_context, StyleContextGuard, StyleRule, StyleSelector, StyleSheet};

@@ -4,9 +4,13 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
 use super::{
-    helpers::{apply_debug_box, clamp_with_constraints, fixed_height_from_constraints, pad_lines_to_width},
-    Widget, WidgetId, WidgetStyles,
+    helpers::{
+        apply_debug_box, apply_margin, clamp_with_constraints, fixed_height_from_constraints,
+        constraints_from_style, margin_from_style, merge_constraints, pad_lines_to_width,
+    },
+    style_selectors, LayoutConstraints, Widget, WidgetId, WidgetStyles,
 };
+use crate::style::Margin;
 
 pub struct Row {
     id: WidgetId,
@@ -67,19 +71,23 @@ impl Widget for Row {
         let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
 
         for (idx, child) in self.children.iter().enumerate() {
+            let meta = style_selectors::selector_meta_generic(child.as_ref());
+            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
             let child_width = widths[idx].max(1);
-            let constraints = child.layout_constraints();
+            let style_constraints = constraints_from_style(&resolved);
+            let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width = clamp_with_constraints(
-                child_width,
+                child_width.saturating_sub(margin.left + margin.right).max(1),
                 constraints.min_width,
                 constraints.max_width,
-                child_width,
+                child_width.saturating_sub(margin.left + margin.right).max(1),
             );
             let render_height = clamp_with_constraints(
-                height_limit,
+                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
                 constraints.min_height,
                 constraints.max_height,
-                height_limit,
+                height_limit.saturating_sub(margin.top + margin.bottom).max(1),
             );
             let mut child_options = options.clone();
             child_options.size = (render_width, render_height);
@@ -97,7 +105,8 @@ impl Widget for Row {
                 height_limit,
             );
             lines = Segment::set_shape(&lines, render_width, Some(target_height), None, false);
-            lines = pad_lines_to_width(lines, child_width);
+            lines = pad_lines_to_width(lines, render_width);
+            lines = apply_margin(lines, child_width, margin);
             child_lines.push(lines);
         }
 
@@ -1106,21 +1115,28 @@ impl Widget for Grid {
                 let idx = r * self.cols + c;
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
-                let constraints = self.cells[idx]
-                    .as_ref()
-                    .map(|child| child.layout_constraints())
-                    .unwrap_or_default();
+                let (margin, constraints) = if let Some(child) = &self.cells[idx] {
+                    let meta = style_selectors::selector_meta_generic(child.as_ref());
+                    let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+                    let style_constraints = constraints_from_style(&resolved);
+                    (
+                        margin_from_style(&resolved),
+                        merge_constraints(style_constraints, child.layout_constraints()),
+                    )
+                } else {
+                    (Margin::default(), LayoutConstraints::default())
+                };
                 let render_width = clamp_with_constraints(
-                    cell_width,
+                    cell_width.saturating_sub(margin.left + margin.right).max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width,
+                    cell_width.saturating_sub(margin.left + margin.right).max(1),
                 );
                 let render_height = clamp_with_constraints(
-                    cell_height,
+                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
                     constraints.min_height,
                     constraints.max_height,
-                    cell_height,
+                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
                 );
                 let mut child_options = options.clone();
                 child_options.size = (render_width, render_height);
@@ -1131,7 +1147,8 @@ impl Widget for Grid {
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
-                    lines = pad_lines_to_width(lines, cell_width);
+                    lines = pad_lines_to_width(lines, render_width);
+                    lines = apply_margin(lines, cell_width, margin);
                     lines
                 } else {
                     Segment::set_shape(&[], cell_width, Some(cell_height), None, false)
@@ -1221,21 +1238,28 @@ impl Widget for Grid {
                 let idx = r * self.cols + c;
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
-                let constraints = self.cells[idx]
-                    .as_ref()
-                    .map(|child| child.layout_constraints())
-                    .unwrap_or_default();
+                let (margin, constraints) = if let Some(child) = &self.cells[idx] {
+                    let meta = style_selectors::selector_meta_generic(child.as_ref());
+                    let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+                    let style_constraints = constraints_from_style(&resolved);
+                    (
+                        margin_from_style(&resolved),
+                        merge_constraints(style_constraints, child.layout_constraints()),
+                    )
+                } else {
+                    (Margin::default(), LayoutConstraints::default())
+                };
                 let render_width = clamp_with_constraints(
-                    cell_width,
+                    cell_width.saturating_sub(margin.left + margin.right).max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width,
+                    cell_width.saturating_sub(margin.left + margin.right).max(1),
                 );
                 let render_height = clamp_with_constraints(
-                    cell_height,
+                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
                     constraints.min_height,
                     constraints.max_height,
-                    cell_height,
+                    cell_height.saturating_sub(margin.top + margin.bottom).max(1),
                 );
                 let mut child_options = options.clone();
                 child_options.size = (render_width, render_height);
@@ -1246,7 +1270,8 @@ impl Widget for Grid {
                     let mut lines =
                         Segment::split_and_crop_lines(segments, render_width, None, true, false);
                     lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
-                    lines = pad_lines_to_width(lines, cell_width);
+                    lines = pad_lines_to_width(lines, render_width);
+                    lines = apply_margin(lines, cell_width, margin);
                     let label = if debug.show_sizes {
                         Some(format!("{cell_width}x{cell_height}"))
                     } else {

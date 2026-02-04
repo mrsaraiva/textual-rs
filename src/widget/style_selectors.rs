@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use rich_rs::Segments;
 
-use crate::style::{Color, Style};
+use crate::style::{Color, Margin, Style};
 
 use super::Widget;
 
@@ -437,6 +437,41 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.bg(color);
                 }
             }
+            "width" => {
+                if let Ok(value) = value.parse() {
+                    style = style.width(value);
+                }
+            }
+            "height" => {
+                if let Ok(value) = value.parse() {
+                    style = style.height(value);
+                }
+            }
+            "min-width" => {
+                if let Ok(value) = value.parse() {
+                    style = style.min_width(value);
+                }
+            }
+            "max-width" => {
+                if let Ok(value) = value.parse() {
+                    style = style.max_width(value);
+                }
+            }
+            "min-height" => {
+                if let Ok(value) = value.parse() {
+                    style = style.min_height(value);
+                }
+            }
+            "max-height" => {
+                if let Ok(value) = value.parse() {
+                    style = style.max_height(value);
+                }
+            }
+            "margin" => {
+                if let Some(margin) = parse_margin(value) {
+                    style = style.margin(margin);
+                }
+            }
             "bold" => {
                 if let Some(val) = parse_bool(value) {
                     style = style.bold(val);
@@ -457,6 +492,21 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.underline(val);
                 }
             }
+            "text-style" => {
+                for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+                    let token = token.trim();
+                    if token.is_empty() {
+                        continue;
+                    }
+                    match token {
+                        "bold" => style = style.bold(true),
+                        "dim" => style = style.dim(true),
+                        "italic" => style = style.italic(true),
+                        "underline" => style = style.underline(true),
+                        _ => {}
+                    }
+                }
+            }
             "border" => {
                 if let Some(val) = parse_bool(value) {
                     style = style.border(val);
@@ -472,6 +522,21 @@ fn parse_bool(value: &str) -> Option<bool> {
     match value.trim().to_lowercase().as_str() {
         "true" | "1" | "yes" | "on" => Some(true),
         "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_margin(value: &str) -> Option<Margin> {
+    let parts: Vec<&str> = value
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .collect();
+    let nums: Vec<usize> = parts.iter().filter_map(|part| part.parse().ok()).collect();
+    match nums.len() {
+        1 => Some(Margin::all(nums[0])),
+        2 => Some(Margin::vertical_horizontal(nums[0], nums[1])),
+        3 => Some(Margin::new(nums[0], nums[1], nums[2], nums[1])),
+        4 => Some(Margin::new(nums[0], nums[1], nums[2], nums[3])),
         _ => None,
     }
 }

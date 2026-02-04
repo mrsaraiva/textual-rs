@@ -1,0 +1,19 @@
+Button {
+    margin: 1 2;
+}
+
+Horizontal > VerticalScroll {
+    width: 24;
+}
+
+.header {
+    margin: 1 0 0 2;
+    text-style: bold;
+}
+
+.button.primary { fg: color(15); bg: color(27); }
+.button.success { fg: color(15); bg: color(34); }
+.button.warning { fg: color(16); bg: color(220); }
+.button.error { fg: color(15); bg: color(196); }
+.button.disabled { dim: true; }
+.button.flat { border: false; }
