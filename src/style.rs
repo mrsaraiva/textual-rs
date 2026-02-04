@@ -40,12 +40,16 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         // Defaults from `textual/design.py` for dark mode.
         m.insert("background", Color::parse("#121212").unwrap());
         m.insert("surface", Color::parse("#1e1e1e").unwrap());
-        // Approximated default panel for textual-dark (Textual computes panel from surface + primary).
-        let panel = blend(
-            m.get("surface").copied().unwrap(),
-            m.get("primary").copied().unwrap(),
-            0.10,
-        );
+        // Approximated default panel for textual-dark (Textual computes panel from surface + primary,
+        // then adds a subtle boost for dark themes).
+        let panel = {
+            let surface = m.get("surface").copied().unwrap();
+            let primary = m.get("primary").copied().unwrap();
+            let background = m.get("background").copied().unwrap();
+            let base = blend(surface, primary, 0.10);
+            let boost = contrast_text(background);
+            blend(base, boost, 0.04)
+        };
         m.insert("panel", panel);
         // Minimal convenience aliases.
         m.insert("text", Color::parse("#e0e0e0").unwrap());
@@ -73,9 +77,23 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         let step = 0.15 / 2.0;
         let delta = step * (n as f32);
         return Some(match kind {
-            ShadeKind::Lighten => lighten(color, delta),
-            ShadeKind::Darken => darken(color, delta),
+            ShadeKind::Lighten => lighten_lab(color, delta),
+            ShadeKind::Darken => darken_lab(color, delta),
         });
+    }
+
+    // Derived text colors (Textual uses "auto" + alpha). We approximate by blending
+    // between the background and the contrast text color with the given alpha.
+    if matches!(name, "text" | "text-muted" | "text-disabled") {
+        let background = base.get("background").copied()?;
+        let contrast = contrast_text(background);
+        let alpha = match name {
+            "text" => 0.87,
+            "text-muted" => 0.60,
+            "text-disabled" => 0.38,
+            _ => 0.87,
+        };
+        return Some(blend(background, contrast, alpha));
     }
 
     None
@@ -130,12 +148,112 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
     from_rgb(mix(ar, br), mix(ag, bg), mix(ab, bb))
 }
 
-fn lighten(color: Color, amount: f32) -> Color {
-    blend(color, from_rgb(255, 255, 255), amount)
+fn lighten_lab(color: Color, amount: f32) -> Color {
+    darken_lab(color, -amount)
 }
 
-fn darken(color: Color, amount: f32) -> Color {
-    blend(color, from_rgb(0, 0, 0), amount)
+fn darken_lab(color: Color, amount: f32) -> Color {
+    let (l, a, b) = rgb_to_lab(color);
+    let mut l = l - amount * 100.0;
+    if l < 0.0 {
+        l = 0.0;
+    } else if l > 100.0 {
+        l = 100.0;
+    }
+    lab_to_rgb(l, a, b)
+}
+
+fn contrast_text(color: Color) -> Color {
+    let (r, g, b) = to_rgb(color);
+    let r = r as f32 / 255.0;
+    let g = g as f32 / 255.0;
+    let b = b as f32 / 255.0;
+    let brightness = (299.0 * r + 587.0 * g + 114.0 * b) / 1000.0;
+    if brightness < 0.5 {
+        from_rgb(255, 255, 255)
+    } else {
+        from_rgb(0, 0, 0)
+    }
+}
+
+fn rgb_to_lab(color: Color) -> (f32, f32, f32) {
+    let (r, g, b) = to_rgb(color);
+    let r = srgb_to_linear(r as f32 / 255.0);
+    let g = srgb_to_linear(g as f32 / 255.0);
+    let b = srgb_to_linear(b as f32 / 255.0);
+
+    let x = r * 0.4124 + g * 0.3576 + b * 0.1805;
+    let y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+    let z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+
+    let (xr, yr, zr) = (x / 0.95047, y / 1.0, z / 1.08883);
+    let fx = lab_f(xr);
+    let fy = lab_f(yr);
+    let fz = lab_f(zr);
+
+    let l = 116.0 * fy - 16.0;
+    let a = 500.0 * (fx - fy);
+    let b = 200.0 * (fy - fz);
+    (l, a, b)
+}
+
+fn lab_to_rgb(l: f32, a: f32, b: f32) -> Color {
+    let fy = (l + 16.0) / 116.0;
+    let fx = fy + a / 500.0;
+    let fz = fy - b / 200.0;
+
+    let xr = lab_f_inv(fx);
+    let yr = lab_f_inv(fy);
+    let zr = lab_f_inv(fz);
+
+    let x = xr * 0.95047;
+    let y = yr * 1.0;
+    let z = zr * 1.08883;
+
+    let r = x * 3.2406 + y * -1.5372 + z * -0.4986;
+    let g = x * -0.9689 + y * 1.8758 + z * 0.0415;
+    let b = x * 0.0557 + y * -0.2040 + z * 1.0570;
+
+    let r = linear_to_srgb(r);
+    let g = linear_to_srgb(g);
+    let b = linear_to_srgb(b);
+
+    let clamp = |v: f32| -> u8 { (v * 255.0).round().clamp(0.0, 255.0) as u8 };
+    from_rgb(clamp(r), clamp(g), clamp(b))
+}
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+fn lab_f(t: f32) -> f32 {
+    let delta: f32 = 6.0 / 29.0;
+    if t > delta.powi(3) {
+        t.powf(1.0 / 3.0)
+    } else {
+        t / (3.0 * delta.powi(2)) + 4.0 / 29.0
+    }
+}
+
+fn lab_f_inv(t: f32) -> f32 {
+    let delta: f32 = 6.0 / 29.0;
+    if t > delta {
+        t.powi(3)
+    } else {
+        3.0 * delta.powi(2) * (t - 4.0 / 29.0)
+    }
 }
 
 pub(crate) fn blend_colors(a: Color, b: Color, percent: u8) -> Color {
