@@ -128,15 +128,15 @@ async fn main() -> Result<()> {
                         "item two".to_string(),
                         "item three".to_string(),
                     ]))
-                    .max_height(4),
+                    .min_height(3)
+                    .max_height(3),
                 )
                 .with_child(Spacer::new(1))
                 .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
         )
         .title("Controls")
         .padding(1),
-    )
-    .max_height(10);
+    );
 
     let root = AppRoot::new()
         .with_child(Label::new("textual-rs demo (widget tree + layout)"))

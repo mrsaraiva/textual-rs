@@ -6,7 +6,7 @@ use rich_rs::markdown::Markdown as RichMarkdown;
 
 use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
-use crate::style::Style;
+use crate::style::{Color, Style};
 use crossterm::event::KeyCode;
 
 thread_local! {
@@ -71,12 +71,20 @@ pub trait Widget: Send + Sync {
     }
     fn set_focus(&mut self, _focused: bool) {}
     fn layout_height(&self) -> Option<usize> {
-        None
+        fixed_height_from_constraints(self.layout_constraints())
     }
     fn layout_constraints(&self) -> LayoutConstraints {
-        LayoutConstraints::default()
+        self.styles()
+            .map(|styles| styles.layout)
+            .unwrap_or_default()
     }
     fn style(&self) -> Option<Style> {
+        self.styles().map(|styles| styles.style)
+    }
+    fn styles(&self) -> Option<&WidgetStyles> {
+        None
+    }
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         None
     }
     fn style_type(&self) -> &'static str {
@@ -101,6 +109,41 @@ pub trait Widget: Send + Sync {
         debug: &DebugLayout,
     ) -> Segments {
         self.render_styled_dyn_obj(console, options, Some(debug))
+    }
+    fn set_width(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.width(value);
+        }
+    }
+
+    fn set_height(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.height(value);
+        }
+    }
+
+    fn set_min_width(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.min_width(value);
+        }
+    }
+
+    fn set_max_width(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.max_width(value);
+        }
+    }
+
+    fn set_min_height(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.min_height(value);
+        }
+    }
+
+    fn set_max_height(&mut self, value: usize) {
+        if let Some(styles) = self.styles_mut() {
+            *styles = styles.max_height(value);
+        }
     }
 }
 
@@ -135,6 +178,159 @@ impl LayoutConstraints {
     pub fn max_height(mut self, value: usize) -> Self {
         self.max_height = Some(value.max(1));
         self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WidgetStyles {
+    pub style: Style,
+    pub layout: LayoutConstraints,
+}
+
+impl WidgetStyles {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn fg(mut self, color: Color) -> Self {
+        self.style = self.style.fg(color);
+        self
+    }
+
+    pub fn bg(mut self, color: Color) -> Self {
+        self.style = self.style.bg(color);
+        self
+    }
+
+    pub fn bold(mut self, value: bool) -> Self {
+        self.style = self.style.bold(value);
+        self
+    }
+
+    pub fn dim(mut self, value: bool) -> Self {
+        self.style = self.style.dim(value);
+        self
+    }
+
+    pub fn italic(mut self, value: bool) -> Self {
+        self.style = self.style.italic(value);
+        self
+    }
+
+    pub fn underline(mut self, value: bool) -> Self {
+        self.style = self.style.underline(value);
+        self
+    }
+
+    pub fn border(mut self, value: bool) -> Self {
+        self.style = self.style.border(value);
+        self
+    }
+
+    pub fn set_fg(&mut self, color: Color) {
+        self.style = self.style.fg(color);
+    }
+
+    pub fn set_bg(&mut self, color: Color) {
+        self.style = self.style.bg(color);
+    }
+
+    pub fn set_bold(&mut self, value: bool) {
+        self.style = self.style.bold(value);
+    }
+
+    pub fn set_dim(&mut self, value: bool) {
+        self.style = self.style.dim(value);
+    }
+
+    pub fn set_italic(&mut self, value: bool) {
+        self.style = self.style.italic(value);
+    }
+
+    pub fn set_underline(&mut self, value: bool) {
+        self.style = self.style.underline(value);
+    }
+
+    pub fn set_border(&mut self, value: bool) {
+        self.style = self.style.border(value);
+    }
+
+    pub fn width(mut self, value: usize) -> Self {
+        let value = value.max(1);
+        self.layout.min_width = Some(value);
+        self.layout.max_width = Some(value);
+        self
+    }
+
+    pub fn height(mut self, value: usize) -> Self {
+        let value = value.max(1);
+        self.layout.min_height = Some(value);
+        self.layout.max_height = Some(value);
+        self
+    }
+
+    pub fn min_width(mut self, value: usize) -> Self {
+        self.layout.min_width = Some(value.max(1));
+        self
+    }
+
+    pub fn max_width(mut self, value: usize) -> Self {
+        self.layout.max_width = Some(value.max(1));
+        self
+    }
+
+    pub fn min_height(mut self, value: usize) -> Self {
+        self.layout.min_height = Some(value.max(1));
+        self
+    }
+
+    pub fn max_height(mut self, value: usize) -> Self {
+        self.layout.max_height = Some(value.max(1));
+        self
+    }
+
+    pub fn set_width(&mut self, value: usize) {
+        let value = value.max(1);
+        self.layout.min_width = Some(value);
+        self.layout.max_width = Some(value);
+    }
+
+    pub fn set_height(&mut self, value: usize) {
+        let value = value.max(1);
+        self.layout.min_height = Some(value);
+        self.layout.max_height = Some(value);
+    }
+
+    pub fn set_min_width(&mut self, value: usize) {
+        self.layout.min_width = Some(value.max(1));
+    }
+
+    pub fn set_max_width(&mut self, value: usize) {
+        self.layout.max_width = Some(value.max(1));
+    }
+
+    pub fn set_min_height(&mut self, value: usize) {
+        self.layout.min_height = Some(value.max(1));
+    }
+
+    pub fn set_max_height(&mut self, value: usize) {
+        self.layout.max_height = Some(value.max(1));
+    }
+}
+
+fn merge_constraints(primary: LayoutConstraints, fallback: LayoutConstraints) -> LayoutConstraints {
+    LayoutConstraints {
+        min_width: primary.min_width.or(fallback.min_width),
+        max_width: primary.max_width.or(fallback.max_width),
+        min_height: primary.min_height.or(fallback.min_height),
+        max_height: primary.max_height.or(fallback.max_height),
+    }
+}
+
+fn fixed_height_from_constraints(constraints: LayoutConstraints) -> Option<usize> {
+    match (constraints.min_height, constraints.max_height) {
+        (Some(min), Some(max)) if min == max => Some(min),
+        _ => None,
     }
 }
 
@@ -551,6 +747,7 @@ pub struct WidgetRenderable<'a> {
 pub struct Container {
     id: WidgetId,
     children: Vec<Box<dyn Widget>>,
+    styles: WidgetStyles,
 }
 
 impl Container {
@@ -558,6 +755,7 @@ impl Container {
         Self {
             id: WidgetId::new(),
             children: Vec::new(),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -775,6 +973,9 @@ impl Widget for Container {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         let mut total = 0usize;
         for child in &self.children {
             match child.layout_height() {
@@ -783,6 +984,14 @@ impl Widget for Container {
             }
         }
         Some(total.max(1))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -978,6 +1187,7 @@ pub struct Constrained {
     id: WidgetId,
     child: Box<dyn Widget>,
     constraints: LayoutConstraints,
+    styles: WidgetStyles,
 }
 
 impl Constrained {
@@ -986,6 +1196,7 @@ impl Constrained {
             id: WidgetId::new(),
             child: Box::new(child),
             constraints: LayoutConstraints::default(),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -1061,7 +1272,8 @@ impl Widget for Constrained {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let (Some(min), Some(max)) = (self.constraints.min_height, self.constraints.max_height) {
+        let constraints = self.layout_constraints();
+        if let (Some(min), Some(max)) = (constraints.min_height, constraints.max_height) {
             if min == max {
                 return Some(min);
             }
@@ -1070,7 +1282,15 @@ impl Widget for Constrained {
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        self.constraints
+        merge_constraints(self.styles.layout, self.constraints)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -1087,20 +1307,22 @@ impl Renderable for Constrained {
 pub struct Styled {
     id: WidgetId,
     child: Box<dyn Widget>,
-    style: Style,
+    styles: WidgetStyles,
 }
 
 impl Styled {
     pub fn new(child: impl Widget + 'static, style: Style) -> Self {
+        let mut styles = WidgetStyles::default();
+        styles.style = style;
         Self {
             id: WidgetId::new(),
             child: Box::new(child),
-            style,
+            styles,
         }
     }
 
     pub fn style(mut self, style: Style) -> Self {
-        self.style = style;
+        self.styles.style = style;
         self
     }
 }
@@ -1156,15 +1378,26 @@ impl Widget for Styled {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.child.layout_height()
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        self.child.layout_constraints()
+        merge_constraints(self.styles.layout, self.child.layout_constraints())
     }
 
     fn style(&self) -> Option<Style> {
-        Some(self.style)
+        Some(self.styles.style)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn style_type(&self) -> &'static str {
@@ -1187,6 +1420,7 @@ pub struct Node {
     child: Box<dyn Widget>,
     style_id: Option<String>,
     classes: Vec<String>,
+    styles: WidgetStyles,
 }
 
 impl Node {
@@ -1196,6 +1430,7 @@ impl Node {
             child: Box::new(child),
             style_id: None,
             classes: Vec::new(),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -1268,15 +1503,26 @@ impl Widget for Node {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.child.layout_height()
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        self.child.layout_constraints()
+        merge_constraints(self.styles.layout, self.child.layout_constraints())
     }
 
     fn style(&self) -> Option<Style> {
-        self.child.style()
+        Some(self.styles.style)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn style_type(&self) -> &'static str {
@@ -1306,6 +1552,7 @@ impl Renderable for Node {
 pub struct Label {
     id: WidgetId,
     text: String,
+    styles: WidgetStyles,
 }
 
 impl Label {
@@ -1313,6 +1560,7 @@ impl Label {
         Self {
             id: WidgetId::new(),
             text: text.into(),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -1336,7 +1584,15 @@ impl Widget for Label {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(1)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -1350,6 +1606,7 @@ pub struct Row {
     id: WidgetId,
     children: Vec<Box<dyn Widget>>,
     align: RowAlign,
+    styles: WidgetStyles,
 }
 
 impl Row {
@@ -1358,6 +1615,7 @@ impl Row {
             id: WidgetId::new(),
             children: Vec::new(),
             align: RowAlign::Top,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -1490,6 +1748,14 @@ impl Widget for Row {
             }
         }
         out
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn render_with_debug(
@@ -1689,6 +1955,7 @@ pub struct Dock {
     id: WidgetId,
     items: Vec<DockItem>,
     fixed_height: Option<usize>,
+    styles: WidgetStyles,
 }
 
 impl Dock {
@@ -1697,6 +1964,7 @@ impl Dock {
             id: WidgetId::new(),
             items: Vec::new(),
             fixed_height: None,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -1967,6 +2235,14 @@ impl Widget for Dock {
             }
         }
         out
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn render_with_debug(
@@ -2301,6 +2577,9 @@ impl Widget for Dock {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.fixed_height
     }
 }
@@ -2317,6 +2596,7 @@ pub struct Button {
     label: String,
     focused: bool,
     pressed: bool,
+    styles: WidgetStyles,
 }
 
 impl Button {
@@ -2326,6 +2606,7 @@ impl Button {
             label: label.into(),
             focused: false,
             pressed: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -2375,7 +2656,7 @@ impl Widget for Button {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(1)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
     }
 
     fn style_classes(&self) -> &[String] {
@@ -2384,6 +2665,14 @@ impl Widget for Button {
         } else {
             empty_classes()
         }
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -2400,6 +2689,7 @@ pub struct ListView {
     selected: usize,
     offset: usize,
     focused: bool,
+    styles: WidgetStyles,
 }
 
 impl ListView {
@@ -2410,6 +2700,7 @@ impl ListView {
             selected: 0,
             offset: 0,
             focused: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -2556,6 +2847,14 @@ impl Widget for ListView {
             empty_classes()
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for ListView {
@@ -2572,6 +2871,7 @@ pub struct DataTable {
     selected: usize,
     offset: usize,
     focused: bool,
+    styles: WidgetStyles,
 }
 
 impl DataTable {
@@ -2583,6 +2883,7 @@ impl DataTable {
             selected: 0,
             offset: 0,
             focused: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -2762,6 +3063,14 @@ impl Widget for DataTable {
             empty_classes()
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for DataTable {
@@ -2808,6 +3117,7 @@ pub struct Tree {
     selected: usize,
     offset: usize,
     focused: bool,
+    styles: WidgetStyles,
 }
 
 impl Tree {
@@ -2818,6 +3128,7 @@ impl Tree {
             selected: 0,
             offset: 0,
             focused: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3019,6 +3330,14 @@ impl Widget for Tree {
             empty_classes()
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for Tree {
@@ -3097,6 +3416,7 @@ pub struct Tabs {
     tabs: Vec<Tab>,
     active: usize,
     focused: bool,
+    styles: WidgetStyles,
 }
 
 pub struct Tab {
@@ -3111,6 +3431,7 @@ impl Tabs {
             tabs: Vec::new(),
             active: 0,
             focused: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3307,6 +3628,9 @@ impl Widget for Tabs {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         let child_height = self
             .tabs
             .get(self.active)
@@ -3321,6 +3645,14 @@ impl Widget for Tabs {
             empty_classes()
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for Tabs {
@@ -3333,6 +3665,7 @@ impl Renderable for Tabs {
 pub struct Markdown {
     id: WidgetId,
     markup: String,
+    styles: WidgetStyles,
 }
 
 impl Markdown {
@@ -3340,6 +3673,7 @@ impl Markdown {
         Self {
             id: WidgetId::new(),
             markup: markup.into(),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3356,6 +3690,14 @@ impl Widget for Markdown {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         RichMarkdown::new(self.markup.clone()).render(console, options)
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for Markdown {
@@ -3370,6 +3712,7 @@ pub struct Checkbox {
     label: String,
     checked: bool,
     focused: bool,
+    styles: WidgetStyles,
 }
 
 impl Checkbox {
@@ -3379,6 +3722,7 @@ impl Checkbox {
             label: label.into(),
             checked: false,
             focused: false,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3394,6 +3738,7 @@ impl Checkbox {
 pub struct Spacer {
     id: WidgetId,
     height: usize,
+    styles: WidgetStyles,
 }
 
 impl Spacer {
@@ -3401,6 +3746,7 @@ impl Spacer {
         Self {
             id: WidgetId::new(),
             height: height.max(1),
+            styles: WidgetStyles::default(),
         }
     }
 }
@@ -3424,7 +3770,15 @@ impl Widget for Spacer {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.height)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.height))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -3475,7 +3829,7 @@ impl Widget for Checkbox {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(1)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
     }
 
     fn style_classes(&self) -> &[String] {
@@ -3484,6 +3838,14 @@ impl Widget for Checkbox {
         } else {
             empty_classes()
         }
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -3500,6 +3862,7 @@ pub struct Input {
     cursor: usize,
     focused: bool,
     placeholder: Option<String>,
+    styles: WidgetStyles,
 }
 
 impl Input {
@@ -3510,6 +3873,7 @@ impl Input {
             cursor: 0,
             focused: false,
             placeholder: None,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3602,7 +3966,7 @@ impl Widget for Input {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(1)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
     }
 
     fn style_classes(&self) -> &[String] {
@@ -3611,6 +3975,14 @@ impl Widget for Input {
         } else {
             empty_classes()
         }
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -3624,6 +3996,7 @@ pub struct AppRoot {
     id: WidgetId,
     children: Vec<Box<dyn Widget>>,
     focused: Option<WidgetId>,
+    styles: WidgetStyles,
 }
 
 impl AppRoot {
@@ -3632,6 +4005,7 @@ impl AppRoot {
             id: WidgetId::new(),
             children: Vec::new(),
             focused: None,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -3965,6 +4339,14 @@ impl Widget for AppRoot {
             f(child.as_mut());
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for AppRoot {
@@ -3978,6 +4360,7 @@ pub struct Frame {
     child: Box<dyn Widget>,
     padding: usize,
     border: bool,
+    styles: WidgetStyles,
 }
 
 impl Frame {
@@ -3987,6 +4370,7 @@ impl Frame {
             child: Box::new(child),
             padding: 1,
             border: true,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -4007,6 +4391,7 @@ pub struct Panel {
     title: Option<String>,
     padding: usize,
     border: bool,
+    styles: WidgetStyles,
 }
 
 impl Panel {
@@ -4017,6 +4402,7 @@ impl Panel {
             title: None,
             padding: 0,
             border: true,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -4140,10 +4526,21 @@ impl Widget for Panel {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.child.layout_height().map(|child| {
             let border = if self.border { 2 } else { 0 };
             child + self.padding * 2 + border
         })
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -4304,9 +4701,20 @@ impl Widget for Frame {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.child
             .layout_height()
             .map(|h| h + self.padding * 2 + if self.border { 2 } else { 0 })
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 
     fn focusable(&self) -> bool {
@@ -4340,6 +4748,7 @@ pub struct ScrollView {
     scroll_step_x: usize,
     content_width: AtomicUsize,
     viewport_width: AtomicUsize,
+    styles: WidgetStyles,
 }
 
 impl ScrollView {
@@ -4356,6 +4765,7 @@ impl ScrollView {
             scroll_step_x: 2,
             content_width: AtomicUsize::new(0),
             viewport_width: AtomicUsize::new(0),
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -4511,6 +4921,14 @@ impl Widget for ScrollView {
         out
     }
 
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
     fn render_with_debug(
         &self,
         console: &Console,
@@ -4622,6 +5040,9 @@ impl Widget for ScrollView {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
         self.height
     }
 }
@@ -4641,6 +5062,7 @@ pub struct Grid {
     col_gaps: usize,
     row_sizes: Option<Vec<usize>>,
     col_sizes: Option<Vec<usize>>,
+    styles: WidgetStyles,
 }
 
 impl Grid {
@@ -4656,6 +5078,7 @@ impl Grid {
             col_gaps: 0,
             row_sizes: None,
             col_sizes: None,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -4999,6 +5422,14 @@ impl Widget for Grid {
             }
         }
     }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
 }
 
 impl Renderable for Grid {
@@ -5012,6 +5443,7 @@ pub struct Overlay {
     base: Box<dyn Widget>,
     modal: Box<dyn Widget>,
     visible: bool,
+    styles: WidgetStyles,
 }
 
 impl Overlay {
@@ -5021,6 +5453,7 @@ impl Overlay {
             base: Box::new(base),
             modal: Box::new(modal),
             visible: true,
+            styles: WidgetStyles::default(),
         }
     }
 
@@ -5104,6 +5537,14 @@ impl Widget for Overlay {
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
         f(self.modal.as_mut());
         f(self.base.as_mut());
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 

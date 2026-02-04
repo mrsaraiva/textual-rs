@@ -12,6 +12,7 @@ pub mod widget;
 pub use error::{Error, Result};
 pub use runtime::App;
 pub use style::{Color, Style, Theme};
+pub use widget::WidgetStyles;
 
 pub mod prelude {
     pub use crate::runtime::App;
@@ -22,7 +23,7 @@ pub mod prelude {
         AppRoot, Button, Checkbox, Constrained, Container, DataTable, Dock, Frame, Grid, Input,
         Label, LayoutConstraints, ListView, Markdown, Node, Overlay, Panel, Row, RowAlign,
         ScrollView, Spacer, StyleSelector, StyleSheet, Styled, Tabs, Tree, TreeNode, Widget,
-        WidgetId, WidgetRenderable,
+        WidgetId, WidgetRenderable, WidgetStyles,
     };
     pub use crate::{Error, Result};
 }
