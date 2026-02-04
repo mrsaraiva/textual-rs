@@ -109,7 +109,7 @@ pub trait Widget: Send + Sync {
             full_width,
             full_height,
         );
-        segments
+        tag_widget_meta(self.id(), segments)
     }
     fn render_with_debug(
         &self,
