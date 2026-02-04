@@ -33,7 +33,7 @@ impl Widget for StatusLine {
     }
 }
 
-fn build_buttons_widget() -> ScrollView {
+fn build_buttons_widget() -> AppRoot {
     let status = Arc::new(Mutex::new(String::from("")));
     let status_clone = status.clone();
 
@@ -100,10 +100,10 @@ fn build_buttons_widget() -> ScrollView {
                 .with_child(Button::error("Error!").disabled(true).flat(true)),
         );
 
-    let root = AppRoot::new()
-        .with_child(buttons)
-        .with_child(StatusLine::new(status_clone));
-    ScrollView::new(root).scroll_step(2)
+    let scroll = ScrollView::new(buttons).scroll_step(2);
+    AppRoot::new()
+        .with_child(scroll)
+        .with_child(StatusLine::new(status_clone))
 }
 
 #[tokio::main]
