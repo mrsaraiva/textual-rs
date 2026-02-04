@@ -2,7 +2,7 @@ use rich_rs::{Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
 
-use crate::style::{BorderEdge, Margin, Style};
+use crate::style::{BorderEdge, Margin, Style, parse_color_like};
 
 use super::{LayoutConstraints, Widget, WidgetId};
 
@@ -204,7 +204,11 @@ pub(crate) fn apply_debug_box(
     let label_width = rich_rs::cell_len(&label_text);
     let fill_width = (width - 2).saturating_sub(label_width);
     top.push_str(&label_text);
-    top.push_str(&std::iter::repeat(b.top).take(fill_width).collect::<String>());
+    top.push_str(
+        &std::iter::repeat(b.top)
+            .take(fill_width)
+            .collect::<String>(),
+    );
     top.push(b.top_right);
     out.push(vec![Segment::styled(top, style)]);
 
@@ -222,7 +226,11 @@ pub(crate) fn apply_debug_box(
 
     let mut bottom = String::new();
     bottom.push(b.bottom_left);
-    bottom.push_str(&std::iter::repeat(b.bottom).take(width - 2).collect::<String>());
+    bottom.push_str(
+        &std::iter::repeat(b.bottom)
+            .take(width - 2)
+            .collect::<String>(),
+    );
     bottom.push(b.bottom_right);
     out.push(vec![Segment::styled(bottom, style)]);
 
@@ -243,26 +251,10 @@ pub(crate) fn constraints_from_style(style: &Style) -> LayoutConstraints {
 }
 
 pub(crate) fn border_spacing_from_style(style: &Style) -> (usize, usize, usize, usize) {
-    let top = if matches!(style.border_top, BorderEdge::Color(_)) {
-        1
-    } else {
-        0
-    };
-    let right = if matches!(style.border_right, BorderEdge::Color(_)) {
-        1
-    } else {
-        0
-    };
-    let bottom = if matches!(style.border_bottom, BorderEdge::Color(_)) {
-        1
-    } else {
-        0
-    };
-    let left = if matches!(style.border_left, BorderEdge::Color(_)) {
-        1
-    } else {
-        0
-    };
+    let top = if style.border_top.is_set() { 1 } else { 0 };
+    let right = if style.border_right.is_set() { 1 } else { 0 };
+    let bottom = if style.border_bottom.is_set() { 1 } else { 0 };
+    let left = if style.border_left.is_set() { 1 } else { 0 };
     (top, bottom, left, right)
 }
 
@@ -274,64 +266,96 @@ pub(crate) fn border_vertical_padding(style: &Style) -> usize {
 pub(crate) fn apply_border_edges(
     segments: Segments,
     inner_width: usize,
-    border_top: BorderEdge,
-    border_right: BorderEdge,
-    border_bottom: BorderEdge,
-    border_left: BorderEdge,
+    style: Style,
+    parent_style: Option<Style>,
     full_width: usize,
     full_height: usize,
 ) -> Segments {
-    let top = match border_top {
-        BorderEdge::Color(color) => Some(color),
-        _ => None,
-    };
-    let right = match border_right {
-        BorderEdge::Color(color) => Some(color),
-        _ => None,
-    };
-    let bottom = match border_bottom {
-        BorderEdge::Color(color) => Some(color),
-        _ => None,
-    };
-    let left = match border_left {
-        BorderEdge::Color(color) => Some(color),
-        _ => None,
-    };
-    if top.is_none() && right.is_none() && bottom.is_none() && left.is_none() {
+    let border_top = style.border_top;
+    let border_right = style.border_right;
+    let border_bottom = style.border_bottom;
+    let border_left = style.border_left;
+
+    if !border_top.is_set()
+        && !border_right.is_set()
+        && !border_bottom.is_set()
+        && !border_left.is_set()
+    {
         return segments;
     }
 
-    let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, true, false);
-    lines = Segment::set_shape(&lines, inner_width.max(1), None, None, false);
+    // Inner (widget) and outer (parent) backgrounds used for border blending.
+    let fallback_bg = parse_color_like("$background");
+    let inner_bg = style.bg.or(fallback_bg);
+    let outer_bg = parent_style.and_then(|s| s.bg).or(fallback_bg).or(inner_bg);
 
-    // Add left/right edges (inside the final full width).
+    let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, false, false);
+    lines = Segment::set_shape(&lines, inner_width.max(1), None, None, false);
+    lines = pad_lines_to_width(lines, inner_width.max(1));
+
+    let has_left = border_left.is_set();
+    let has_right = border_right.is_set();
+
+    // Wrap content lines with left/right borders (if any).
     let mut edged: Vec<Vec<Segment>> = Vec::with_capacity(lines.len());
     for line in lines {
         let mut row: Vec<Segment> = Vec::new();
-        if let Some(left_color) = left {
-            let style = rich_rs::Style::new().with_bgcolor(left_color);
-            row.push(Segment::styled(" ".to_string(), style));
+        if has_left {
+            row.push(border_side_segment(
+                border_left,
+                inner_bg,
+                outer_bg,
+                Side::Left,
+            ));
         }
-        row.extend(adjust_line_length_no_bg(&line, inner_width.max(1)));
-        if let Some(right_color) = right {
-            let style = rich_rs::Style::new().with_bgcolor(right_color);
-            row.push(Segment::styled(" ".to_string(), style));
+        row.extend(line);
+        if has_right {
+            row.push(border_side_segment(
+                border_right,
+                inner_bg,
+                outer_bg,
+                Side::Right,
+            ));
         }
         let row = adjust_line_length_no_bg(&row, full_width.max(1));
         edged.push(row);
     }
 
-    if let Some(top_color) = top {
-        let style = rich_rs::Style::new().with_bgcolor(top_color);
-        edged.insert(0, vec![Segment::styled(" ".repeat(full_width.max(1)), style)]);
+    // Add top/bottom borders (if any).
+    if border_top.is_set() {
+        edged.insert(
+            0,
+            border_horizontal_row(
+                border_top,
+                inner_bg,
+                outer_bg,
+                full_width.max(1),
+                has_left,
+                has_right,
+                true,
+            ),
+        );
     }
-    if let Some(bottom_color) = bottom {
-        let style = rich_rs::Style::new().with_bgcolor(bottom_color);
-        edged.push(vec![Segment::styled(" ".repeat(full_width.max(1)), style)]);
+    if border_bottom.is_set() {
+        edged.push(border_horizontal_row(
+            border_bottom,
+            inner_bg,
+            outer_bg,
+            full_width.max(1),
+            has_left,
+            has_right,
+            false,
+        ));
     }
 
     // Clamp/pad to requested height.
-    edged = Segment::set_shape(&edged, full_width.max(1), Some(full_height.max(1)), None, false);
+    edged = Segment::set_shape(
+        &edged,
+        full_width.max(1),
+        Some(full_height.max(1)),
+        None,
+        false,
+    );
 
     let line_count = edged.len();
     let mut out = Segments::new();
@@ -344,6 +368,134 @@ pub(crate) fn apply_border_edges(
     out
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Side {
+    Left,
+    Right,
+}
+
+fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
+    match edge_type {
+        "solid" => (
+            [['┌', '─', '┐'], ['│', ' ', '│'], ['└', '─', '┘']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "block" => (
+            [['▄', '▄', '▄'], ['█', ' ', '█'], ['▀', '▀', '▀']],
+            [[1, 1, 1], [0, 0, 0], [1, 1, 1]],
+        ),
+        "tall" => (
+            [['▊', '▔', '▎'], ['▊', ' ', '▎'], ['▊', '▁', '▎']],
+            [[2, 0, 1], [2, 0, 1], [2, 0, 1]],
+        ),
+        _ => (
+            [[' ', ' ', ' '], [' ', ' ', ' '], [' ', ' ', ' ']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+    }
+}
+
+fn resolve_border_char_style(
+    location: u8,
+    inner: rich_rs::Style,
+    outer: rich_rs::Style,
+) -> rich_rs::Style {
+    match location {
+        0 => inner,
+        1 => outer,
+        2 => {
+            // Cross-combination (Textual): outer background + inner foreground, with reverse.
+            let mut s = rich_rs::Style::new();
+            s.color = inner.color;
+            s.bgcolor = outer.bgcolor;
+            s.reverse = Some(true);
+            s
+        }
+        3 => {
+            // Cross-combination (Textual): inner background + outer foreground, with reverse.
+            let mut s = rich_rs::Style::new();
+            s.color = outer.color;
+            s.bgcolor = inner.bgcolor;
+            s.reverse = Some(true);
+            s
+        }
+        _ => inner,
+    }
+}
+
+fn border_inner_outer_styles(
+    edge: BorderEdge,
+    inner_bg: Option<crate::style::Color>,
+    outer_bg: Option<crate::style::Color>,
+) -> (rich_rs::Style, rich_rs::Style) {
+    let border_color = edge
+        .color()
+        .unwrap_or_else(|| parse_color_like("$foreground").unwrap());
+    let border_style = rich_rs::Style::new().with_color(border_color);
+    let inner = rich_rs::Style::new()
+        .with_bgcolor(inner_bg.unwrap_or_else(|| parse_color_like("$background").unwrap()))
+        .combine(&border_style);
+    let outer = rich_rs::Style::new()
+        .with_bgcolor(outer_bg.unwrap_or_else(|| parse_color_like("$background").unwrap()))
+        .combine(&border_style);
+    (inner, outer)
+}
+
+fn border_horizontal_row(
+    edge: BorderEdge,
+    inner_bg: Option<crate::style::Color>,
+    outer_bg: Option<crate::style::Color>,
+    width: usize,
+    has_left: bool,
+    has_right: bool,
+    top: bool,
+) -> Vec<Segment> {
+    let edge_type = edge.edge_type();
+    let (chars, locations) = border_chars(edge_type);
+    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg);
+    let row_idx = if top { 0 } else { 2 };
+    let row_chars = chars[row_idx];
+    let row_locs = locations[row_idx];
+
+    let left_w = if has_left { 1 } else { 0 };
+    let right_w = if has_right { 1 } else { 0 };
+    let mid_w = width.saturating_sub(left_w + right_w).max(0);
+
+    let mut out: Vec<Segment> = Vec::new();
+    if has_left {
+        let s = resolve_border_char_style(row_locs[0], inner, outer);
+        out.push(Segment::styled(row_chars[0].to_string(), s));
+    }
+    {
+        let s = resolve_border_char_style(row_locs[1], inner, outer);
+        out.push(Segment::styled(row_chars[1].to_string().repeat(mid_w), s));
+    }
+    if has_right {
+        let s = resolve_border_char_style(row_locs[2], inner, outer);
+        out.push(Segment::styled(row_chars[2].to_string(), s));
+    }
+    adjust_line_length_no_bg(&out, width)
+}
+
+fn border_side_segment(
+    edge: BorderEdge,
+    inner_bg: Option<crate::style::Color>,
+    outer_bg: Option<crate::style::Color>,
+    side: Side,
+) -> Segment {
+    let edge_type = edge.edge_type();
+    let (chars, locations) = border_chars(edge_type);
+    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg);
+    let col = match side {
+        Side::Left => 0,
+        Side::Right => 2,
+    };
+    let ch = chars[1][col];
+    let loc = locations[1][col];
+    let s = resolve_border_char_style(loc, inner, outer);
+    Segment::styled(ch.to_string(), s)
+}
+
 pub(crate) fn apply_line_pad(
     segments: Segments,
     content_width: usize,
@@ -353,7 +505,8 @@ pub(crate) fn apply_line_pad(
     if line_pad == 0 || full_width == content_width {
         return segments;
     }
-    let mut lines = Segment::split_and_crop_lines(segments, content_width.max(1), None, true, false);
+    let mut lines =
+        Segment::split_and_crop_lines(segments, content_width.max(1), None, true, false);
     // Ensure consistent shaping before we pad.
     lines = Segment::set_shape(&lines, content_width.max(1), None, None, false);
 

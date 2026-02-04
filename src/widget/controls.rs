@@ -1,12 +1,12 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
-use crate::event::{Action, Event, EventCtx};
 use super::style_selectors;
+use crate::event::{Action, Event, EventCtx};
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
     Widget, WidgetId, WidgetStyles,
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,19 +85,36 @@ impl Button {
     }
 
     fn rebuild_classes(mut self) -> Self {
+        // Mirror Textual's class naming conventions where practical, but keep our legacy
+        // class names around so existing demos keep working.
         let mut classes = vec!["button".to_string()];
+        if self.flat {
+            classes.push("flat".to_string());
+            classes.push("-style-flat".to_string());
+        } else {
+            classes.push("-style-default".to_string());
+        }
         match self.variant {
-            ButtonVariant::Primary => classes.push("primary".to_string()),
-            ButtonVariant::Success => classes.push("success".to_string()),
-            ButtonVariant::Warning => classes.push("warning".to_string()),
-            ButtonVariant::Error => classes.push("error".to_string()),
+            ButtonVariant::Primary => {
+                classes.push("primary".to_string());
+                classes.push("-primary".to_string());
+            }
+            ButtonVariant::Success => {
+                classes.push("success".to_string());
+                classes.push("-success".to_string());
+            }
+            ButtonVariant::Warning => {
+                classes.push("warning".to_string());
+                classes.push("-warning".to_string());
+            }
+            ButtonVariant::Error => {
+                classes.push("error".to_string());
+                classes.push("-error".to_string());
+            }
             ButtonVariant::Default => {}
         }
         if self.disabled {
             classes.push("disabled".to_string());
-        }
-        if self.flat {
-            classes.push("flat".to_string());
         }
         let mut focused_classes = classes.clone();
         focused_classes.push("focused".to_string());
@@ -118,6 +135,18 @@ impl Widget for Button {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
+    }
+
+    fn is_active(&self) -> bool {
+        self.pressed
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -188,7 +217,6 @@ impl Widget for Button {
     }
 }
 
-
 impl Renderable for Button {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
@@ -254,6 +282,10 @@ impl Widget for ListView {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -439,6 +471,10 @@ impl Widget for DataTable {
         self.focused = focused;
     }
 
+    fn has_focus(&self) -> bool {
+        self.focused
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if !self.focused {
             return;
@@ -531,7 +567,10 @@ impl Widget for DataTable {
         }
 
         // Distribute remaining space (if any) to the first columns so the table fills the width.
-        let natural_total: usize = natural_widths.iter().sum::<usize>().saturating_add(sep_width);
+        let natural_total: usize = natural_widths
+            .iter()
+            .sum::<usize>()
+            .saturating_add(sep_width);
         let mut column_widths = natural_widths;
         if natural_total < width {
             let mut remaining = width - natural_total;
@@ -733,6 +772,10 @@ impl Widget for Tree {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1043,6 +1086,10 @@ impl Widget for Tabs {
         }
     }
 
+    fn has_focus(&self) -> bool {
+        self.focused
+    }
+
     fn on_mount(&mut self) {
         for tab in &mut self.tabs {
             tab.child.on_mount();
@@ -1236,6 +1283,10 @@ impl Widget for Checkbox {
         self.focused = focused;
     }
 
+    fn has_focus(&self) -> bool {
+        self.focused
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if !self.focused {
             return;
@@ -1392,6 +1443,10 @@ impl Widget for Input {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {

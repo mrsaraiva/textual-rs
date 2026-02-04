@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use rich_rs::{MetaValue, Segments};
 
-use crate::style::{parse_color_like, BorderEdge, Margin, Style};
+use crate::style::{BorderEdge, BorderType, Margin, Style, parse_color_like};
 
 use super::Widget;
 
@@ -12,12 +12,20 @@ thread_local! {
     static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct StyleSelector {
     type_name: Option<String>,
     id: Option<String>,
     classes: Vec<String>,
+    pseudos: Vec<PseudoClass>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PseudoClass {
+    Disabled,
+    Focus,
+    Hover,
+    Active,
 }
 
 impl StyleSelector {
@@ -26,6 +34,7 @@ impl StyleSelector {
             type_name: Some(type_name.into()),
             id: None,
             classes: Vec::new(),
+            pseudos: Vec::new(),
         }
     }
 
@@ -36,6 +45,11 @@ impl StyleSelector {
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
         self.classes.push(class.into());
+        self
+    }
+
+    pub fn pseudo(mut self, pseudo: PseudoClass) -> Self {
+        self.pseudos.push(pseudo);
         self
     }
 
@@ -59,6 +73,19 @@ impl StyleSelector {
                 return false;
             }
         }
+        if !self.pseudos.is_empty() {
+            for pseudo in &self.pseudos {
+                let ok = match pseudo {
+                    PseudoClass::Disabled => meta.states.disabled,
+                    PseudoClass::Focus => meta.states.focused,
+                    PseudoClass::Hover => meta.states.hovered,
+                    PseudoClass::Active => meta.states.active,
+                };
+                if !ok {
+                    return false;
+                }
+            }
+        }
         true
     }
 
@@ -68,6 +95,7 @@ impl StyleSelector {
             score += 1;
         }
         score = score.saturating_add(self.classes.len().saturating_mul(10) as u8);
+        score = score.saturating_add(self.pseudos.len().saturating_mul(10) as u8);
         if self.id.is_some() {
             score = score.saturating_add(100);
         }
@@ -192,6 +220,15 @@ pub(crate) struct SelectorMeta {
     type_name: String,
     id: Option<String>,
     classes: Vec<String>,
+    states: SelectorStates,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SelectorStates {
+    disabled: bool,
+    focused: bool,
+    hovered: bool,
+    active: bool,
 }
 
 pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
@@ -199,12 +236,26 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
         type_name: widget.style_type().to_string(),
         id: widget.style_id().map(|value| value.to_string()),
         classes: widget.style_classes().to_vec(),
+        states: SelectorStates {
+            disabled: widget.is_disabled(),
+            focused: widget.has_focus(),
+            hovered: widget.is_hovered(),
+            active: widget.is_active(),
+        },
     }
+}
+
+pub(crate) fn current_parent_style() -> Option<Style> {
+    STYLE_STACK.with(|stack| stack.borrow().last().copied())
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
     let sheet_style = STYLE_CONTEXT
-        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for(widget, meta)))
+        .with(|ctx| {
+            ctx.borrow()
+                .as_ref()
+                .map(|sheet| sheet.style_for(widget, meta))
+        })
         .unwrap_or_default();
     let mut style = sheet_style;
     if let Some(inline) = widget.style() {
@@ -335,11 +386,32 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
         return None;
     }
 
+    // Split off pseudo-classes (`Button:disabled`, `.foo:focus`, etc).
+    let mut pseudo_parts = selector.split(':');
+    let base_selector = pseudo_parts.next().unwrap_or("").trim();
+    let pseudos: Vec<PseudoClass> = pseudo_parts
+        .filter_map(|part| {
+            let name = part.trim();
+            if name.is_empty() {
+                return None;
+            }
+            // Ignore any `:pseudo(...)` forms for now.
+            let name = name.split('(').next().unwrap_or(name).trim().to_lowercase();
+            match name.as_str() {
+                "disabled" => Some(PseudoClass::Disabled),
+                "focus" | "focused" => Some(PseudoClass::Focus),
+                "hover" => Some(PseudoClass::Hover),
+                "active" => Some(PseudoClass::Active),
+                _ => None,
+            }
+        })
+        .collect();
+
     let mut type_name: Option<String> = None;
     let mut id: Option<String> = None;
     let mut classes: Vec<String> = Vec::new();
 
-    let mut chars = selector.chars().peekable();
+    let mut chars = base_selector.chars().peekable();
     let mut current = String::new();
     let mut mode: Option<char> = None;
 
@@ -380,6 +452,9 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
     }
     for class in classes {
         selector = selector.class(class);
+    }
+    for pseudo in pseudos {
+        selector = selector.pseudo(pseudo);
     }
     Some(selector)
 }
@@ -595,32 +670,52 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
     if value.eq_ignore_ascii_case("none") {
         return Some(BorderEdge::None);
     }
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    for part in parts.iter().rev() {
-        if let Some(color) = parse_color_like(part) {
-            return Some(BorderEdge::Color(color));
+    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
+    let first = tokens.next()?;
+    let (border_type, rest_tokens): (BorderType, Vec<&str>) = match first.to_lowercase().as_str() {
+        "tall" => (BorderType::Tall, tokens.collect()),
+        "block" => (BorderType::Block, tokens.collect()),
+        "solid" => (BorderType::Solid, tokens.collect()),
+        // If the first token isn't a border type, treat it as a color token and default
+        // to `solid`.
+        _ => (
+            BorderType::Solid,
+            std::iter::once(first).chain(tokens).collect(),
+        ),
+    };
+    for token in rest_tokens.iter().rev() {
+        if let Some(color) = parse_color_like(token) {
+            return Some(BorderEdge::Edge { border_type, color });
         }
     }
-    parse_color_like(value).map(BorderEdge::Color)
+    None
 }
 
 fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("none") {
-        return Some((BorderEdge::None, BorderEdge::None, BorderEdge::None, BorderEdge::None));
+        return Some((
+            BorderEdge::None,
+            BorderEdge::None,
+            BorderEdge::None,
+            BorderEdge::None,
+        ));
     }
     let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
     let kind = tokens.next()?.to_lowercase();
-    if kind == "block" || kind == "solid" || kind == "tall" {
-        // Take the remaining tokens and pick the last resolvable color.
-        let rest: Vec<&str> = tokens.collect();
-        for token in rest.iter().rev() {
-            if let Some(color) = parse_color_like(token) {
-                let edge = BorderEdge::Color(color);
-                return Some((edge, edge, edge, edge));
-            }
+    let border_type = match kind.as_str() {
+        "block" => BorderType::Block,
+        "solid" => BorderType::Solid,
+        "tall" => BorderType::Tall,
+        _ => return None,
+    };
+    // Take the remaining tokens and pick the last resolvable color.
+    let rest: Vec<&str> = tokens.collect();
+    for token in rest.iter().rev() {
+        if let Some(color) = parse_color_like(token) {
+            let edge = BorderEdge::Edge { border_type, color };
+            return Some((edge, edge, edge, edge));
         }
-        return None;
     }
     None
 }

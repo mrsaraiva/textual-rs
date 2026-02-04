@@ -131,15 +131,60 @@ fn darken(color: Color, amount: f32) -> Color {
     blend(color, from_rgb(0, 0, 0), amount)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorderType {
+    Solid,
+    Block,
+    Tall,
+}
+
+impl BorderType {
+    pub fn as_edge_type(self) -> &'static str {
+        match self {
+            BorderType::Solid => "solid",
+            BorderType::Block => "block",
+            BorderType::Tall => "tall",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderEdge {
     /// Not specified by any rule / inline style.
-    #[default]
     Unset,
     /// Explicitly clear the edge.
     None,
-    /// Render a 1-row edge using this background color.
-    Color(Color),
+    /// Render a 1-cell edge using a border type and a color (as foreground), like Textual.
+    Edge {
+        border_type: BorderType,
+        color: Color,
+    },
+}
+
+impl Default for BorderEdge {
+    fn default() -> Self {
+        BorderEdge::Unset
+    }
+}
+
+impl BorderEdge {
+    pub fn is_set(&self) -> bool {
+        matches!(self, BorderEdge::Edge { .. })
+    }
+
+    pub fn edge_type(&self) -> &'static str {
+        match self {
+            BorderEdge::Edge { border_type, .. } => border_type.as_edge_type(),
+            BorderEdge::None | BorderEdge::Unset => "",
+        }
+    }
+
+    pub fn color(&self) -> Option<Color> {
+        match self {
+            BorderEdge::Edge { color, .. } => Some(*color),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -216,22 +261,34 @@ impl Style {
     }
 
     pub fn border_top(mut self, color: Color) -> Self {
-        self.border_top = BorderEdge::Color(color);
+        self.border_top = BorderEdge::Edge {
+            border_type: BorderType::Solid,
+            color,
+        };
         self
     }
 
     pub fn border_right(mut self, color: Color) -> Self {
-        self.border_right = BorderEdge::Color(color);
+        self.border_right = BorderEdge::Edge {
+            border_type: BorderType::Solid,
+            color,
+        };
         self
     }
 
     pub fn border_bottom(mut self, color: Color) -> Self {
-        self.border_bottom = BorderEdge::Color(color);
+        self.border_bottom = BorderEdge::Edge {
+            border_type: BorderType::Solid,
+            color,
+        };
         self
     }
 
     pub fn border_left(mut self, color: Color) -> Self {
-        self.border_left = BorderEdge::Color(color);
+        self.border_left = BorderEdge::Edge {
+            border_type: BorderType::Solid,
+            color,
+        };
         self
     }
 
@@ -421,7 +478,7 @@ impl Margin {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Theme {
     pub base: Style,
 }
@@ -434,5 +491,18 @@ impl Theme {
     pub fn base(mut self, style: Style) -> Self {
         self.base = style;
         self
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        let mut base = Style::new();
+        if let Some(bg) = parse_color_like("$background") {
+            base = base.bg(bg);
+        }
+        if let Some(fg) = parse_color_like("$foreground") {
+            base = base.fg(fg);
+        }
+        Self { base }
     }
 }

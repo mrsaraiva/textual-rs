@@ -6,27 +6,29 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::style::{Color, Style};
 
-mod controls;
-mod containers;
 mod aliases;
+mod containers;
+mod controls;
 mod defaults;
 mod helpers;
 mod layout;
 mod style_selectors;
 mod text;
 
-pub use controls::{
-    Button, Checkbox, DataTable, Input, ListView, Spacer, Tab, Tabs, Tree, TreeNode,
-};
+pub use aliases::{Horizontal, Static, VerticalScroll};
 pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
-pub use aliases::{Horizontal, Static, VerticalScroll};
+pub use controls::{
+    Button, Checkbox, DataTable, Input, ListView, Spacer, Tab, Tabs, Tree, TreeNode,
+};
+pub use defaults::default_widget_stylesheet;
 pub use helpers::WidgetRenderable;
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
-pub use style_selectors::{set_style_context, StyleContextGuard, StyleRule, StyleSelector, StyleSheet};
+pub use style_selectors::{
+    StyleContextGuard, StyleRule, StyleSelector, StyleSheet, set_style_context,
+};
 pub use text::{Label, Markdown};
-pub use defaults::default_widget_stylesheet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct WidgetId(u64);
@@ -49,6 +51,7 @@ pub trait Widget: Send + Sync {
     ) -> Segments {
         let meta = style_selectors::selector_meta_generic(self);
         let resolved = style_selectors::resolve_style(self, &meta);
+        let parent_style = style_selectors::current_parent_style();
         let line_pad = resolved.line_pad.unwrap_or(0);
         let full_width = options.size.0.max(1);
         let full_height = options.size.1.max(1);
@@ -75,7 +78,9 @@ pub trait Widget: Send + Sync {
             None => self.render(console, &content_options),
         });
 
-        let inner_width = content_width.saturating_add(line_pad.saturating_mul(2)).max(1);
+        let inner_width = content_width
+            .saturating_add(line_pad.saturating_mul(2))
+            .max(1);
         let segments = if line_pad > 0 {
             helpers::apply_line_pad(segments, content_width, inner_width, line_pad)
         } else {
@@ -86,10 +91,8 @@ pub trait Widget: Send + Sync {
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,
-            resolved.border_top,
-            resolved.border_right,
-            resolved.border_bottom,
-            resolved.border_left,
+            resolved,
+            parent_style,
             full_width,
             full_height,
         );
@@ -114,6 +117,22 @@ pub trait Widget: Send + Sync {
         false
     }
     fn set_focus(&mut self, _focused: bool) {}
+    /// Whether the widget is disabled (used for `:disabled` selector matching).
+    fn is_disabled(&self) -> bool {
+        false
+    }
+    /// Whether the widget currently has focus (used for `:focus` selector matching).
+    fn has_focus(&self) -> bool {
+        false
+    }
+    /// Whether the widget is hovered (mouse support not yet implemented).
+    fn is_hovered(&self) -> bool {
+        false
+    }
+    /// Whether the widget is active (e.g. pressed/dragging).
+    fn is_active(&self) -> bool {
+        false
+    }
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).
