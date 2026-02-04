@@ -723,6 +723,13 @@ impl AppRoot {
         for child in &mut self.children {
             collect_focus_ids(child.as_mut(), &mut ids);
         }
+        if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
+            eprintln!(
+                "[focus] chain (len={}): {:?}",
+                ids.len(),
+                ids.iter().map(|id| id.as_u64()).collect::<Vec<_>>()
+            );
+        }
         if ids.is_empty() {
             self.focused = None;
             return;
@@ -736,6 +743,13 @@ impl AppRoot {
         } else {
             ids[0]
         };
+        if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
+            eprintln!(
+                "[focus] current={:?} -> next={:?}",
+                self.focused.map(|id| id.as_u64()),
+                next.as_u64()
+            );
+        }
         for child in &mut self.children {
             set_focus_by_id(child.as_mut(), Some(next));
         }
