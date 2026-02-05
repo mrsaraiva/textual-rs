@@ -52,6 +52,9 @@ pub struct Input {
     validation_result: ValidationResult,
     on_change: Option<Arc<dyn Fn(&mut Input) + Send + Sync>>,
     mouse_down: bool,
+    cursor_visible: bool,
+    cursor_blink_next: u64,
+    last_tick: u64,
     user_classes: Vec<String>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
@@ -59,6 +62,8 @@ pub struct Input {
 }
 
 impl Input {
+    const CURSOR_BLINK_TICKS: u64 = 5; // tick_rate is 100ms => 500ms blink
+
     pub fn new() -> Self {
         let mut out = Self {
             id: WidgetId::new(),
@@ -72,6 +77,9 @@ impl Input {
             validation_result: ValidationResult::success(),
             on_change: None,
             mouse_down: false,
+            cursor_visible: false,
+            cursor_blink_next: Self::CURSOR_BLINK_TICKS.saturating_sub(1),
+            last_tick: 0,
             user_classes: Vec::new(),
             classes: Vec::new(),
             focused_classes: Vec::new(),
@@ -254,7 +262,13 @@ impl Widget for Input {
         self.focused = focused;
         if !focused {
             self.mouse_down = false;
+            self.cursor_visible = false;
+            return;
         }
+        self.cursor_visible = true;
+        self.cursor_blink_next = self
+            .last_tick
+            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
     }
 
     fn has_focus(&self) -> bool {
@@ -289,12 +303,24 @@ impl Widget for Input {
                 }
                 self.selection = Selection::cursor(self.cursor);
                 self.mouse_down = true;
+                self.cursor_visible = true;
+                self.cursor_blink_next = self
+                    .last_tick
+                    .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                 ctx.request_repaint();
                 ctx.set_handled();
             }
             Event::MouseUp(_) => {
                 if self.mouse_down {
                     self.mouse_down = false;
+                    ctx.request_repaint();
+                }
+            }
+            Event::Tick(tick) => {
+                self.last_tick = *tick;
+                if self.focused && *tick >= self.cursor_blink_next {
+                    self.cursor_visible = !self.cursor_visible;
+                    self.cursor_blink_next = tick.saturating_add(Self::CURSOR_BLINK_TICKS);
                     ctx.request_repaint();
                 }
             }
@@ -306,6 +332,10 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
+                        self.cursor_visible = true;
+                        self.cursor_blink_next = self
+                            .last_tick
+                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                         ctx.request_repaint();
                     }
                     ctx.set_handled();
@@ -323,6 +353,10 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
+                        self.cursor_visible = true;
+                        self.cursor_blink_next = self
+                            .last_tick
+                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -338,6 +372,10 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
+                        self.cursor_visible = true;
+                        self.cursor_blink_next = self
+                            .last_tick
+                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -350,6 +388,10 @@ impl Widget for Input {
                             .map(|(i, _)| i)
                             .unwrap_or(0);
                         self.selection = Selection::cursor(self.cursor);
+                        self.cursor_visible = true;
+                        self.cursor_blink_next = self
+                            .last_tick
+                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -362,6 +404,10 @@ impl Widget for Input {
                             .map(|(i, _)| self.cursor + i)
                             .unwrap_or(self.text.len());
                         self.selection = Selection::cursor(self.cursor);
+                        self.cursor_visible = true;
+                        self.cursor_blink_next = self
+                            .last_tick
+                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -369,12 +415,20 @@ impl Widget for Input {
                 KeyCode::Home => {
                     self.cursor = 0;
                     self.selection = Selection::cursor(self.cursor);
+                    self.cursor_visible = true;
+                    self.cursor_blink_next = self
+                        .last_tick
+                        .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
                 KeyCode::End => {
                     self.cursor = self.text.len();
                     self.selection = Selection::cursor(self.cursor);
+                    self.cursor_visible = true;
+                    self.cursor_blink_next = self
+                        .last_tick
+                        .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
@@ -419,7 +473,7 @@ impl Widget for Input {
         if self.text.is_empty() {
             let placeholder = self.placeholder.clone().unwrap_or_default();
             let line = rich_rs::set_cell_size(&placeholder, width);
-            if self.focused {
+            if self.focused && self.cursor_visible {
                 // Match Python Textual: when empty and focused, render a cursor in the first cell
                 // (even over placeholder text).
                 let mut chars = line.chars();
@@ -467,7 +521,7 @@ impl Widget for Input {
                 break;
             }
 
-            let is_cursor = self.focused && byte_idx == self.cursor;
+            let is_cursor = self.focused && self.cursor_visible && byte_idx == self.cursor;
             let in_sel = byte_idx >= sel_lo && byte_idx < sel_hi;
             let style = if is_cursor {
                 Some(cursor_style)
@@ -492,7 +546,7 @@ impl Widget for Input {
 
         flush(&mut out, &mut pending_style, &mut pending_text);
 
-        if self.focused && self.cursor == self.text.len() && cells_used < width {
+        if self.focused && self.cursor_visible && self.cursor == self.text.len() && cells_used < width {
             out.push(rich_rs::Segment::styled(" ".to_string(), cursor_style));
             cells_used += 1;
         }
