@@ -1,7 +1,10 @@
 use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
 use crate::debug::{DebugLayout, debug_input, debug_message, debug_render};
-use crate::driver::{DriverOptions, PointerShape, Size, TerminalDriver};
-use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
+use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, Size, TerminalDriver};
+use crate::event::{
+    Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseScrollEvent, MouseUpEvent,
+};
+use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
@@ -152,6 +155,9 @@ impl App {
         options.enable_mouse = true;
         // Enable xterm focus change reporting so widgets can react to window focus.
         options.enable_focus_change = true;
+        // Default to Auto so supported terminals can enable richer key reporting,
+        // while still allowing TEXTUAL_KEYBOARD_PROTOCOL overrides.
+        options.keyboard_protocol = KeyboardProtocol::Auto;
         let driver = TerminalDriver::new(options)?;
         let console = Console::new();
         let mut options = console.options().clone();
@@ -474,7 +480,8 @@ impl App {
                         }
                         // Dispatch the raw key first so focused widgets (e.g. Input) can consume
                         // it before the global ActionMap translates it to an Action.
-                        let key_outcome = dispatch_event(root, Event::Key(key));
+                        let key = KeyEventData::from_crossterm(key);
+                        let key_outcome = dispatch_event(root, Event::Key(key.clone()));
                         debug_input(&format!(
                             "[input] key dispatch handled={} repaint={} messages={}",
                             key_outcome.handled,
@@ -587,14 +594,58 @@ impl App {
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
                                 dirty = true;
                             }
-                            let (delta_x, delta_y) = mouse_scroll_deltas(mouse.kind, mouse.modifiers);
+                            let (delta_x, delta_y) =
+                                mouse_scroll_deltas(mouse.kind, mouse.modifiers);
                             let target = self.widget_at(mouse.column, mouse.row);
+                            let (local_x, local_y) = target
+                                .map(|id| {
+                                    self.hit_test.content_local_coords(
+                                        root,
+                                        id,
+                                        mouse.column,
+                                        mouse.row,
+                                    )
+                                })
+                                .unwrap_or((0, 0));
                             debug_input(&format!(
                                 "[input] mouse scroll route target={:?} dx={} dy={}",
                                 target.map(|id| id.as_u64()),
                                 delta_x,
                                 delta_y
                             ));
+                            let diag_outcome = if let Some(target) = target {
+                                dispatch_event_to_target(
+                                    root,
+                                    target,
+                                    &Event::MouseScroll(MouseScrollEvent {
+                                        target: Some(target),
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x: local_x,
+                                        y: local_y,
+                                        delta_x,
+                                        delta_y,
+                                        modifiers: mouse.modifiers,
+                                    }),
+                                )
+                            } else {
+                                dispatch_event(
+                                    root,
+                                    Event::MouseScroll(MouseScrollEvent {
+                                        target: None,
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x: local_x,
+                                        y: local_y,
+                                        delta_x,
+                                        delta_y,
+                                        modifiers: mouse.modifiers,
+                                    }),
+                                )
+                            };
+                            dirty |= diag_outcome.should_repaint();
+                            let msg_outcome = dispatch_message_queue(root, diag_outcome.messages);
+                            dirty |= msg_outcome.should_repaint();
                             let outcome = if let Some(target) = target {
                                 dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
                             } else {
@@ -1141,7 +1192,11 @@ fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
     out
 }
 
-fn dispatch_event_to_target(root: &mut dyn Widget, target: WidgetId, event: &Event) -> DispatchOutcome {
+fn dispatch_event_to_target(
+    root: &mut dyn Widget,
+    target: WidgetId,
+    event: &Event,
+) -> DispatchOutcome {
     let mut ctx = EventCtx::default();
     root.on_event_capture(event, &mut ctx);
     if !ctx.handled() {
@@ -1472,7 +1527,10 @@ mod message_tests {
     #[test]
     fn messages_bubble_to_ancestor_handlers() {
         let mut root = Parent::new(Child::new());
-        let key = crossterm::event::KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
+        let key = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::empty(),
+        ));
         let outcome = dispatch_event(&mut root, Event::Key(key));
         assert_eq!(outcome.messages.len(), 1);
 

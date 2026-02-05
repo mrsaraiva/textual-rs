@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
-use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
+
+use crate::keys::KeyEventData;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 use unicode_width::UnicodeWidthChar;
@@ -127,7 +128,7 @@ pub struct TextArea {
     focused_classes: Vec<String>,
     styles: WidgetStyles,
     on_change: Option<Arc<dyn Fn(&mut TextArea) + Send + Sync>>,
-    on_key: Option<Arc<dyn Fn(&mut TextArea, KeyEvent, &mut EventCtx) + Send + Sync>>,
+    on_key: Option<Arc<dyn Fn(&mut TextArea, KeyEventData, &mut EventCtx) + Send + Sync>>,
 }
 
 impl TextArea {
@@ -307,7 +308,7 @@ impl TextArea {
 
     pub fn on_key(
         mut self,
-        handler: impl Fn(&mut TextArea, KeyEvent, &mut EventCtx) + Send + Sync + 'static,
+        handler: impl Fn(&mut TextArea, KeyEventData, &mut EventCtx) + Send + Sync + 'static,
     ) -> Self {
         self.on_key = Some(Arc::new(handler));
         self
@@ -870,7 +871,7 @@ impl Widget for TextArea {
             }
             Event::Key(key) if self.focused => {
                 if let Some(handler) = self.on_key.clone() {
-                    handler(self, *key, ctx);
+                    handler(self, key.clone(), ctx);
                     if ctx.handled() {
                         return;
                     }

@@ -14,7 +14,8 @@ fn checkbox_toggles() {
     let mut checkbox = Checkbox::new("remember me");
     checkbox.set_focus(true);
 
-    let key = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty());
+    let key =
+        KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
     checkbox.on_event(&Event::Key(key), &mut EventCtx::default());
 
     let buf = FrameBuffer::from_renderable(&console, &options, &checkbox, None);

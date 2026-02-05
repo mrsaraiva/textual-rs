@@ -8,6 +8,18 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-05
+- **Phase 9.5: Input diagnostics + key model parity**
+  - Added canonical key model (`src/keys/mod.rs`): `KeyEventData` wraps crossterm's `KeyEvent` via `Deref` and adds normalized key name, character, printability. Normalization follows Python Textual conventions (alphabetical modifier ordering, shift consumption rules, and non-shift modifier chords not printable).
+  - Added key normalization helpers: `key_to_identifier()` (Python-identifier form), `format_key_display()` (human-friendly with Unicode arrows/caret notation), and lazy alias resolution (`tab`↔`ctrl+i`, `enter`↔`ctrl+m`, `escape`↔`ctrl+[`).
+  - Added Kitty keyboard protocol support to `richtui-crossterm` driver: tri-state `KeyboardProtocol` enum (Off/Auto/On), terminal auto-detection heuristic (kitty, WezTerm, foot, ghostty), and `TEXTUAL_KEYBOARD_PROTOCOL` env var override for Auto mode.
+  - Migrated `Event::Key` from `crossterm::event::KeyEvent` to `KeyEventData`. All widget code continues working via `Deref` (key.code, key.modifiers unchanged). `KeyBind::from_event` updated to accept `&KeyEventData`.
+  - Added `examples/keys.rs` diagnostic harness: real-time display of key, mouse, focus, resize, and scroll events with both canonical and raw crossterm data. Similar to Python Textual's `textual keys` command.
+  - Added 74 integration tests (`tests/key_diagnostics.rs`) covering round-trip normalization, alias correctness, display formatting, identifier conversion, Deref compatibility, edge cases (media/modifier/lock keys, control chars, key repeat/release), ActionMap integration, and comprehensive symbol roundtrip.
+  - Documented terminal compatibility limits (tmux, screen, macOS Terminal, PuTTY, SSH) and Kitty protocol behavior in module docs.
+  - New prelude exports: `KeyEventData`, `key_to_identifier`, `format_key_display`.
+  - **Breaking:** `TextArea::on_key` callback now takes `KeyEventData` (uses `.clone()` instead of `Copy`).
+  - Runtime now defaults shared driver keyboard protocol to `Auto`, so `TEXTUAL_KEYBOARD_PROTOCOL` env overrides and terminal capability detection are effective by default.
+
 - Improved scroll interaction fundamentals:
   - Added deterministic scroll action routing (focused target first, then hovered target, then global fallback) to reduce split-view ambiguity.
   - Added `Shift + mouse wheel` remapping for horizontal scrolling in scrollable containers, while keeping native horizontal-wheel support.

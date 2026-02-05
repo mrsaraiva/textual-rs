@@ -283,13 +283,13 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 
 | Status | Step | Notes |
 |--------|------|-------|
-| Todo | Define canonical key model in `textual-rs` | Introduce normalized key payload (Textual-like concepts: `key`, `character`, `name`, `is_printable`, `aliases`, modifiers, repeat kind) without breaking raw event access |
-| Todo | Add key normalization + alias helpers | Add a `keys` helper module (long-form normalization, aliases like `tab`/`ctrl+i`, display aliases for diagnostics/footer-like UI) |
-| Todo | Runtime conversion path | Convert `crossterm` key events into canonical model in runtime, while preserving existing action-map behavior |
-| Todo | Shared driver protocol uplift | Extend shared driver (`richtui-crossterm`) with opt-in richer keyboard protocol setup/teardown (Kitty protocol style) so modifier coverage improves on supporting terminals |
-| Todo | Build `examples/keys.rs` harness | Show both raw and normalized events, key kind/repeat/modifiers, mouse events (including modifier + scroll deltas), and focus/app-focus transitions |
-| Todo | Add key diagnostics tests | Unit tests for normalization/aliases/display + runtime tests for routing/repeat behavior + protocol on/off wiring tests where applicable |
-| Todo | Document compatibility limits | Record known terminal/tmux/OS limitations and expected behavior in docs/roadmap notes so failures are diagnosable, not "mystery regressions" |
+| Done | Define canonical key model in `textual-rs` | `KeyEventData` wraps crossterm `KeyEvent` via `Deref`; adds `key`, `character`, `is_printable` fields |
+| Done | Add key normalization + alias helpers | `src/keys/mod.rs`: `normalize_key_code`, `key_to_identifier`, `format_key_display`, lazy `aliases()`, symbol table, name replacements |
+| Done | Runtime conversion path | `Event::Key` now holds `KeyEventData`; runtime converts at crossterm boundary; `KeyBind::from_event` updated; all widgets unchanged via `Deref` |
+| Done | Shared driver protocol uplift | Tri-state `KeyboardProtocol` (Off/Auto/On) in `richtui-crossterm`; Kitty mode 1 (DISAMBIGUATE_ESCAPE_CODES); terminal heuristic detection; `TEXTUAL_KEYBOARD_PROTOCOL` env var |
+| Done | Build `examples/keys.rs` harness | `KeyLog` widget: key/mouse/focus/resize/scroll events with canonical + raw data; rolling 100-entry log; run via `cargo run --example keys` |
+| Done | Add key diagnostics tests | 48 unit tests + 2 doc-tests + 74 integration tests (`tests/key_diagnostics.rs`): normalization, aliases, display, identifiers, Deref, edge cases, ActionMap |
+| Done | Document compatibility limits | Module-level docs in `src/keys/mod.rs`: normalization rules, alias table, Kitty protocol modes, terminal compatibility matrix (tmux, screen, macOS Terminal, PuTTY, SSH) |
 
 ### Acceptance criteria
 

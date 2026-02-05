@@ -1,7 +1,8 @@
 use crate::debug::debug_message;
+use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
 use crate::widgets::WidgetId;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyModifiers};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,12 +25,26 @@ pub struct MouseUpEvent {
     pub y: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseScrollEvent {
+    pub target: Option<WidgetId>,
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates (origin at widget content top-left of `target`, if any).
+    pub x: u16,
+    pub y: u16,
+    pub delta_x: i32,
+    pub delta_y: i32,
+    pub modifiers: KeyModifiers,
+}
+
 #[derive(Debug, Clone)]
 pub enum Event {
-    Key(KeyEvent),
+    Key(KeyEventData),
     Action(Action),
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
+    MouseScroll(MouseScrollEvent),
     AppFocus(bool),
     Tick(u64),
     Resize(u16, u16),
@@ -61,7 +76,7 @@ impl KeyBind {
         Self { code, modifiers }
     }
 
-    pub fn from_event(key: &KeyEvent) -> Self {
+    pub fn from_event(key: &KeyEventData) -> Self {
         Self {
             code: key.code,
             modifiers: key.modifiers,

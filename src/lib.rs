@@ -6,6 +6,7 @@ pub mod demo_snapshot;
 pub mod driver;
 mod error;
 pub mod event;
+pub mod keys;
 pub mod message;
 pub mod render;
 pub mod runtime;
@@ -14,6 +15,7 @@ pub mod validation;
 pub mod widgets;
 
 pub use error::{Error, Result};
+pub use keys::KeyEventData;
 pub use runtime::App;
 pub use style::{Color, Style, Theme};
 pub use widgets::WidgetStyles;
@@ -22,6 +24,7 @@ pub mod prelude {
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
     pub use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
+    pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::{Message, MessageEvent};
     pub use crate::runtime::App;
     pub use crate::style::{Color, Style, Theme};

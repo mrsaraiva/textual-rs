@@ -14,7 +14,8 @@ fn input_accepts_typing() {
     let mut input = Input::new().with_placeholder("name");
     input.set_focus(true);
 
-    let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty());
+    let key =
+        KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty()));
     input.on_event(&Event::Key(key), &mut EventCtx::default());
 
     let buf = FrameBuffer::from_renderable(&console, &options, &input, None);
