@@ -5,7 +5,11 @@ use crate::validation::ValidationResult;
 pub enum Message {
     InputChanged { value: String, validation: ValidationResult },
     InputSubmitted { value: String },
+    ButtonPressed { description: String },
     CheckboxChanged { checked: bool },
+    DataTableCursorMoved { row: usize, column: usize },
+    DataTableHeaderSelected { column: usize },
+    DataTableCellActivated { row: usize, column: usize },
 }
 
 #[derive(Debug, Clone)]

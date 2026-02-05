@@ -2,6 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 use crate::style::{Color, parse_color_like};
 
 use super::{
@@ -255,6 +256,8 @@ impl Widget for DataTable {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         let visible_rows = self.visible_rows();
         let mut selection_changed = false;
+        let mut cursor_changed = false;
+        let mut header_clicked: Option<usize> = None;
 
         // Handle mouse events regardless of focus state.
         match event {
@@ -262,7 +265,10 @@ impl Widget for DataTable {
                 let widths = self.column_widths();
                 let clicked_col = self.column_at_x(mouse.x as usize, widths);
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
-                    self.cursor_column = clicked_col;
+                    if self.cursor_column != clicked_col {
+                        self.cursor_column = clicked_col;
+                        cursor_changed = true;
+                    }
                 }
 
                 if mouse.y > 0 {
@@ -275,9 +281,22 @@ impl Widget for DataTable {
                             selection_changed = true;
                         }
                     }
+                } else {
+                    header_clicked = Some(clicked_col);
                 }
                 if selection_changed {
                     self.ensure_visible(visible_rows);
+                }
+                if let Some(col) = header_clicked {
+                    ctx.post_message(self.id, Message::DataTableHeaderSelected { column: col });
+                } else if selection_changed || cursor_changed {
+                    ctx.post_message(
+                        self.id,
+                        Message::DataTableCursorMoved {
+                            row: self.selected,
+                            column: self.cursor_column,
+                        },
+                    );
                 }
                 ctx.set_handled();
                 return;
@@ -312,6 +331,7 @@ impl Widget for DataTable {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
                     if self.cursor_column > 0 {
                         self.cursor_column -= 1;
+                        cursor_changed = true;
                     }
                     handled = true;
                 }
@@ -320,6 +340,7 @@ impl Widget for DataTable {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
                     if self.cursor_column + 1 < self.headers.len() {
                         self.cursor_column += 1;
+                        cursor_changed = true;
                     }
                     handled = true;
                 }
@@ -367,6 +388,7 @@ impl Widget for DataTable {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
                         if self.cursor_column > 0 {
                             self.cursor_column -= 1;
+                            cursor_changed = true;
                         }
                         handled = true;
                     }
@@ -375,6 +397,7 @@ impl Widget for DataTable {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
                         if self.cursor_column + 1 < self.headers.len() {
                             self.cursor_column += 1;
+                            cursor_changed = true;
                         }
                         handled = true;
                     }
@@ -399,12 +422,34 @@ impl Widget for DataTable {
                         handled = true;
                     }
                 }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if !self.rows.is_empty() && !self.headers.is_empty() {
+                        ctx.post_message(
+                            self.id,
+                            Message::DataTableCellActivated {
+                                row: self.selected,
+                                column: self.cursor_column,
+                            },
+                        );
+                        handled = true;
+                    }
+                }
                 _ => {}
             },
             _ => {}
         }
         if selection_changed {
             self.ensure_visible(visible_rows);
+        }
+        if (selection_changed || cursor_changed) && !self.rows.is_empty() && !self.headers.is_empty()
+        {
+            ctx.post_message(
+                self.id,
+                Message::DataTableCursorMoved {
+                    row: self.selected,
+                    column: self.cursor_column,
+                },
+            );
         }
         if handled {
             ctx.set_handled();

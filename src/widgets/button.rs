@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::debug::debug_input;
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
@@ -248,6 +249,12 @@ impl Widget for Button {
                     ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
                     if mouse.target == Some(self.id) {
+                        ctx.post_message(
+                            self.id,
+                            Message::ButtonPressed {
+                                description: self.describe(),
+                            },
+                        );
                         if let Some(handler) = &self.on_press {
                             handler(self);
                         }
@@ -257,6 +264,12 @@ impl Widget for Button {
             }
             Event::Action(Action::Toggle) if self.focused => {
                 self.pressed = PressedState::KeyboardPending;
+                ctx.post_message(
+                    self.id,
+                    Message::ButtonPressed {
+                        description: self.describe(),
+                    },
+                );
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
@@ -270,6 +283,12 @@ impl Widget for Button {
             Event::Key(key) if self.focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.pressed = PressedState::KeyboardPending;
+                    ctx.post_message(
+                        self.id,
+                        Message::ButtonPressed {
+                            description: self.describe(),
+                        },
+                    );
                     if let Some(handler) = &self.on_press {
                         handler(self);
                     }

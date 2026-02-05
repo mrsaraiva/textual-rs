@@ -5,6 +5,72 @@ use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
 use textual::style::{Color, parse_color_like};
 
+struct ButtonsDemo {
+    id: WidgetId,
+    status: Arc<Mutex<String>>,
+    child: Box<dyn Widget>,
+}
+
+impl ButtonsDemo {
+    fn new(status: Arc<Mutex<String>>, child: impl Widget + 'static) -> Self {
+        Self {
+            id: WidgetId::new(),
+            status,
+            child: Box::new(child),
+        }
+    }
+}
+
+impl Widget for ButtonsDemo {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
+        self.child.render_styled(console, options)
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ButtonPressed { description } = &message.message {
+            *self.status.lock().unwrap_or_else(|e| e.into_inner()) = description.clone();
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
+    }
+}
+
 struct StatusLine {
     id: WidgetId,
     text: Arc<Mutex<String>>,
@@ -37,42 +103,18 @@ impl Widget for StatusLine {
 fn build_buttons_widget() -> AppRoot {
     let status = Arc::new(Mutex::new(String::from("")));
     let status_clone = status.clone();
+    let status_for_demo = status.clone();
 
-    let buttons = Horizontal::new()
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
-                .with_child(Button::new("Default").on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::primary("Primary!").on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::success("Success!").on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::warning("Warning!").on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::error("Error!").on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                })),
-        )
+	    let buttons = Horizontal::new()
+	        .with_child(
+	            VerticalScroll::new()
+	                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
+	                .with_child(Button::new("Default"))
+	                .with_child(Button::primary("Primary!"))
+	                .with_child(Button::success("Success!"))
+	                .with_child(Button::warning("Warning!"))
+	                .with_child(Button::error("Error!")),
+	        )
         .with_child(
             VerticalScroll::new()
                 .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
@@ -82,40 +124,15 @@ fn build_buttons_widget() -> AppRoot {
                 .with_child(Button::warning("Warning!").disabled(true))
                 .with_child(Button::error("Error!").disabled(true)),
         )
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
-                .with_child(Button::new("Default").flat(true).on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::primary("Primary!").flat(true).on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::success("Success!").flat(true).on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::warning("Warning!").flat(true).on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                }))
-                .with_child(Button::error("Error!").flat(true).on_press({
-                    let status = status.clone();
-                    move |button| {
-                        *status.lock().unwrap() = button.describe();
-                    }
-                })),
-        )
+	        .with_child(
+	            VerticalScroll::new()
+	                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
+	                .with_child(Button::new("Default").flat(true))
+	                .with_child(Button::primary("Primary!").flat(true))
+	                .with_child(Button::success("Success!").flat(true))
+	                .with_child(Button::warning("Warning!").flat(true))
+	                .with_child(Button::error("Error!").flat(true)),
+	        )
         .with_child(
             VerticalScroll::new()
                 .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
@@ -141,7 +158,7 @@ fn build_buttons_widget() -> AppRoot {
     let layout = Dock::new()
         .push_fill(scroll)
         .push_bottom(Some(3), status);
-    AppRoot::new().with_child(layout)
+    AppRoot::new().with_child(ButtonsDemo::new(status_for_demo, layout))
 }
 
 #[tokio::main]
