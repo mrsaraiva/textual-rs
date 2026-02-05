@@ -5,32 +5,37 @@ It is intentionally separate from `rich-rs` (which targets Python Rich parity).
 
 The goal here is a framework capable of powering real applications, eventually enabling a practical port of Textual apps to Rust.
 
+> **Note:** Phases 0–5 and 7 were largely completed during an intensive push to get the
+> Textual button demo (`examples/buttons.rs`) working end-to-end. Implementing that single
+> demo drove progress across the entire stack — driver, layout, styling, events, and widgets
+> — because every layer had to actually work together. The roadmap below reflects that reality.
+
 ---
 
 ## Phase 0: Project scaffolding
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Create crate layout | `textual` crate + optional `textual-macros` later |
+| Done | Create crate layout | `textual` crate with `src/` modules and `examples/` |
 | Todo | Add CI (fmt, clippy, tests) | Keep toolchain stable |
-| Todo | Add snapshot testing harness | Screen/frame snapshots are the core correctness tool |
-| Todo | Add minimal example app | “hello widget tree” |
-| Done | Async runtime decision | **Tokio** (aligns with Python Textual’s asyncio-first model) |
+| Done | Add snapshot testing harness | SVG demo snapshot harness + shared helper (`tests/snapshots.rs`) |
+| Done | Add minimal example app | Multiple examples: `buttons`, `hello`, stylesheet hot-reload, etc. |
+| Done | Async runtime decision | **Tokio** (aligns with Python Textual's asyncio-first model) |
 
 ---
 
-## Phase 0.5: Rich-rs integration contract (recommended)
+## Phase 0.5: Rich-rs integration contract
 
-**Goal:** codify how `textual-rs` uses `rich-rs` so we don’t accidentally bypass the rendering pipeline or lose metadata.
+**Goal:** codify how `textual-rs` uses `rich-rs` so we don't accidentally bypass the rendering pipeline or lose metadata.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Choose render boundary | Prefer reusing `rich-rs` `ScreenBuffer` + diffing initially (or build a thin adapter); avoid duplicating proven logic |
-| Todo | Define handler metadata schema | Use `StyleMeta.meta` with `MetaValue` for structured handler payloads (not ad-hoc strings) |
-| Todo | Preserve metadata through rendering | Ensure wrapping/clipping/diffing never drops `StyleMeta.meta` needed for hit-testing and event routing |
+| Done | Choose render boundary | `rich-rs` Console renders segments; `FrameBuffer` diffs; `Console::print_segments` writes output |
+| Done | Define handler metadata schema | `MetaValue::Int` keyed as `textual:widget_id` for hit-testing and event routing |
+| Done | Preserve metadata through rendering | Metadata survives clipping/diffing; verified by `tests/render_metadata.rs` |
 | Todo | Hyperlink id policy | For OSC8: rely on `rich-rs` per-Console URL→id registry when `link_id` is omitted |
-| Todo | Deterministic ids (open) | If needed for persistence/snapshots, add a **Textual-level** deterministic (hash-based) id scheme; don’t overload OSC8 ids |
-| Todo | Integration golden tests | Frame snapshots that assert metadata + hyperlink correctness under diffing |
+| Todo | Deterministic ids (open) | Widget IDs are random (`WidgetId::new()`); consider hash-based IDs if needed for persistence/snapshots |
+| Todo | Integration golden tests | Metadata-specific golden tests (current snapshots cover rendering but not metadata assertions) |
 
 ---
 
@@ -40,28 +45,30 @@ The goal here is a framework capable of powering real applications, eventually e
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Terminal driver (crossterm) | raw mode, alt-screen, cursor, input |
-| Todo | Screen buffer type | grid of cells (char + style) |
-| Todo | Frame diff algorithm | minimal repaint with cursor controls |
-| Todo | Deterministic renderer | “same tree ⇒ same frame” |
-| Todo | Golden tests (TTY capture) | avoid regressions; verify scrollback correctness |
+| Done | Terminal driver (crossterm) | Raw mode, alt-screen, mouse capture, cursor hiding, Kitty pointer-shape protocol (OSC 22) |
+| Done | Screen buffer type | `FrameBuffer` — grid of cells with char + style + metadata |
+| Done | Frame diff algorithm | `diff_to_segments` produces minimal repaint with cursor-move controls |
+| Done | Deterministic renderer | Same tree produces same frame; verified by snapshot tests |
+| Done | Synchronized output | DECSET 2026 bracketing + line-wrap disable to prevent resize tearing |
+| Partial | Golden tests | SVG snapshots exist; no raw TTY capture tests yet |
 
-Deliverable: an app that can render a full-screen view and update it on a timer without flicker/garbling.
+Deliverable: ~~an app that can render a full-screen view and update it on a timer without flicker/garbling.~~ **Done.**
 
 ---
 
 ## Phase 2: Widget tree + lifecycle
 
-**Goal:** establish the core “UI tree” model.
+**Goal:** establish the core "UI tree" model.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Widget base trait | render + layout + event hooks |
-| Todo | Mount/unmount lifecycle | compose, query children, ids |
-| Todo | Invalidation model | mark dirty, re-layout, re-render |
-| Todo | Composition helpers | containers, simple stacking |
+| Done | Widget base trait | `Widget` trait: render, layout, event, style, focus, hover, active hooks |
+| Done | Mount/unmount lifecycle | `on_mount`/`on_unmount`, `visit_children_mut` for tree traversal |
+| Done | Composition helpers | Vertical, Horizontal, Dock, Frame, Constrained, ScrollView, VerticalScroll, Grid |
+| Done | Per-widget styles API | `WidgetStyles` for inline overrides; `style_classes()` for CSS class resolution |
+| Todo | Invalidation model | Currently full re-render each tick; no dirty marking or selective re-layout yet |
 
-Deliverable: compose a view with multiple widgets and update state to trigger re-render.
+Deliverable: ~~compose a view with multiple widgets and update state to trigger re-render.~~ **Done.**
 
 ---
 
@@ -71,13 +78,14 @@ Deliverable: compose a view with multiple widgets and update state to trigger re
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Event types | key, mouse, paste, resize |
-| In progress | Event routing | bubbling/capture (as needed) |
-| In progress | Focus system | focusable widgets, tab order |
-| In progress | Key bindings | map keys → actions/commands |
-| In progress | Resize handling | recompute layout + rerender |
+| Done | Event types | Key, MouseDown, MouseUp, Tick, Resize, Action |
+| Done | Event routing | Capture phase (`on_event_capture`) + bubble phase (`on_event`) |
+| Done | Focus system | Tab/Shift-Tab traversal, `focusable()`, focus-on-click, focus chain logging |
+| Done | Key bindings | `ActionMap` with default bindings (arrows, hjkl, space/enter, tab, page up/down) |
+| Done | Resize handling | `on_resize` propagated to tree; framebuffer reset + sync output to prevent tearing |
+| Done | Mouse hover + pointer | Hit-testing via framebuffer metadata; hover state propagation; Kitty pointer shape feedback |
 
-Deliverable: focusable button-like widget + key bindings + mouse click.
+Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 
 ---
 
@@ -85,17 +93,15 @@ Deliverable: focusable button-like widget + key bindings + mouse click.
 
 **Goal:** reliable sizing/positioning for complex UIs.
 
-Textual’s layout is powerful; start with an MVP that can evolve.
-
 | Status | Task | Notes |
 |--------|------|-------|
-| In progress | Box model | padding, border, margin (subset) |
-| In progress | Layout primitives | vertical/horizontal, dock, grid-ish |
-| Done | Clipping + regions | render-only visible area + scroll regions (MVP) |
-| Done | Scroll containers | vertical scrolling first |
-| Done | Layout constraints | min/max sizing hints |
+| Done | Box model | Padding, border (all edges, shorthand, `tall`/`block`/`none`), margin, line-pad |
+| Done | Layout primitives | Vertical, Horizontal, Dock, Grid, Row with fixed-width support |
+| Done | Clipping + regions | Render-only visible area + scroll regions |
+| Done | Scroll containers | Vertical + horizontal scrolling (`ScrollView`, `VerticalScroll`) |
+| Done | Layout constraints | min/max width/height, `width: auto`, `height: auto` |
 
-Deliverable: sidebar + main view + footer layout with scrolling content.
+Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **Done.**
 
 ---
 
@@ -105,30 +111,34 @@ Deliverable: sidebar + main view + footer layout with scrolling content.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Done | Typed style props | color, bg, bold, border, etc. |
-| Done | Inline style API | `Style` + `Styled` wrapper |
-| Done | Selector model | by id/class/type (subset) |
-| Done | Style inheritance | basic parent → child propagation |
-| Done | Stylesheet parser | minimal `StyleSheet::parse` |
-| Done | Selector combinators | grouping + descendant/child |
-| Done | Stylesheet hot reload | file watch + reload |
-| Todo | Cascading + computed styles | resolve inheritance and overrides |
-| Todo | Style invalidation | update styles without rebuilding tree |
+| Done | Typed style props | Color, bg, bold, dim, italic, underline, border, margin, tint, background-tint, text-style |
+| Done | Inline style API | `Style` struct + per-widget `WidgetStyles` overrides |
+| Done | Selector model | By type, class, pseudo-class (`:hover`, `:focus`, `:active`, `:disabled`) |
+| Done | Style inheritance | Parent → child propagation for inheritable properties |
+| Done | Stylesheet parser | `StyleSheet::parse` with property/value parsing and theme token resolution |
+| Done | Selector combinators | Descendant, direct child (`>`), grouping (`,`) |
+| Done | Specificity + cascade | Specificity scoring; rules cascade in declaration order |
+| Done | Stylesheet hot reload | File watch with configurable interval |
+| Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
+| Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
+| Todo | Computed styles | No full "resolve inherited + cascaded → computed" pipeline yet |
+| Todo | Style invalidation | Full re-render each tick; no selective style updates |
 
-Deliverable: style a UI via a stylesheet-like source (format TBD) and hot-reload it (optional).
+Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**
 
 ---
 
 ## Phase 6: Async + animations + timers
 
-**Goal:** “reactive UI” feel: background tasks, spinners, animations, transitions.
+**Goal:** "reactive UI" feel: background tasks, spinners, animations, transitions.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | Message bus | widget messages to app |
-| Todo | Timers | repeating + one-shot |
-| Todo | Animation ticks | frame scheduling + invalidation |
-| Todo | Async tasks | implement on Tokio (`spawn`, `select!`, timers) |
+| Partial | Tick system | 100ms tick loop with `on_tick` propagated through widget tree; used for button active-effect timer |
+| Todo | Message bus | Widget-to-app messages; currently using direct `on_press` callbacks |
+| Todo | One-shot timers | No timer API beyond the tick counter |
+| Todo | Animation framework | No easing, transitions, or frame-scheduled animations |
+| Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
 
 Deliverable: progress/spinner + animated UI element without blocking input.
 
@@ -140,14 +150,17 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Done | Label / Static | text rendering + wrapping |
-| Done | Button | focus + click + states |
-| Done | Input | text entry, cursor, selection |
-| Done | ListView / DataTable | virtualization later |
-| In progress | Modal / overlay | stacking and focus trap |
-| Done | Tree | expand/collapse + selection |
-| Done | Tabs | header + active pane |
-| Done | Markdown | render via rich-rs |
+| Done | Label / Static | Text rendering + wrapping |
+| Done | Button | Focus, click, hover, active (pressed effect), disabled, variants (Primary/Success/Warning/Error), flat style, `on_press` callback |
+| Done | Input | Text entry, cursor movement, backspace/delete, placeholder |
+| Done | Checkbox | Toggle state, keyboard activation |
+| Done | ListView | Selection, keyboard navigation, scroll-into-view |
+| Done | DataTable | Headers, rows, column sizing, selection |
+| Done | Tree | Expand/collapse, selection, keyboard navigation |
+| Done | Tabs | Header bar, active pane switching |
+| Done | Markdown | Render via rich-rs |
+| Done | Modal / overlay | Overlay stacking |
+| Done | Spacer | Fixed-height spacing |
 
 ---
 
@@ -157,15 +170,36 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Todo | API mapping notes | document conceptual mapping |
-| Todo | “Textual-like” naming | where it helps portability |
-| Todo | Adapter utilities | shortcuts for common patterns |
+| Partial | Textual-like naming | CSS class conventions (`-style-default`, `-primary`, etc.) and property names mirror Textual where practical |
+| Todo | API mapping notes | Document conceptual mapping between Python Textual and textual-rs |
+| Todo | Adapter utilities | Shortcuts for common Textual app patterns |
 
 ---
 
-## Definition of Done (v0.1)
+## Phase 9: Debug + developer experience
 
-- A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
-- Widget tree with invalidation, focus, input events, and a small widget set.
-- Layout + styling MVP sufficient to build a multi-pane interactive app.
-- Snapshot/golden tests that prevent regressions.
+**Goal:** make it easy to understand what's happening inside the framework.
+
+| Status | Task | Notes |
+|--------|------|-------|
+| Done | File-based debug tracing | `TEXTUAL_DEBUG_INPUT_FILE`, `TEXTUAL_DEBUG_LAYOUT_FILE`, `TEXTUAL_DEBUG_STYLE_FILE`, `TEXTUAL_DEBUG_RENDER_FILE` |
+| Done | Layout debug overlay | `DebugLayout` mode renders widget bounds and sizes |
+| Done | Widget module organization | Split from monolithic `mod.rs` into containers/layout/helpers/selectors/controls/text |
+| Todo | DevTools panel | In-app inspector (like Textual's DevTools) |
+
+---
+
+## Definition of Done (v0.1) — Achieved
+
+- [x] A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
+- [x] Widget tree with focus, input events, and a small widget set.
+- [x] Layout + styling MVP sufficient to build a multi-pane interactive app.
+- [x] Snapshot tests that prevent regressions.
+
+## Next priorities (v0.2)
+
+- Dirty invalidation — avoid full re-render every tick.
+- Message bus — decouple widget events from direct callbacks.
+- One-shot timers + animation framework.
+- CI pipeline (fmt, clippy, tests).
+- Expand test coverage beyond snapshot smoke tests.
