@@ -419,7 +419,19 @@ impl Widget for Input {
         if self.text.is_empty() {
             let placeholder = self.placeholder.clone().unwrap_or_default();
             let line = rich_rs::set_cell_size(&placeholder, width);
-            out.push(rich_rs::Segment::styled(line, placeholder_style));
+            if self.focused {
+                // Match Python Textual: when empty and focused, render a cursor in the first cell
+                // (even over placeholder text).
+                let mut chars = line.chars();
+                let first = chars.next().unwrap_or(' ');
+                let rest: String = chars.collect();
+                out.push(rich_rs::Segment::styled(first.to_string(), cursor_style));
+                if !rest.is_empty() {
+                    out.push(rich_rs::Segment::styled(rest, placeholder_style));
+                }
+            } else {
+                out.push(rich_rs::Segment::styled(line, placeholder_style));
+            }
             return out;
         }
 
@@ -493,7 +505,10 @@ impl Widget for Input {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        let meta = crate::css::selector_meta_generic(self);
+        let base_style = crate::css::resolve_style(self, &meta);
+        let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
     }
 
     fn style_classes(&self) -> &[String] {
