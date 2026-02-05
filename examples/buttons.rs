@@ -37,10 +37,15 @@ fn build_buttons_widget() -> AppRoot {
     let status = Arc::new(Mutex::new(String::from("")));
     let status_clone = status.clone();
 
+    let headers = Horizontal::new()
+        .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
+        .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
+        .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
+        .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"));
+
     let buttons = Horizontal::new()
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
                 .with_child(Button::new("Default").on_press({
                     let status = status.clone();
                     move |button| {
@@ -74,7 +79,6 @@ fn build_buttons_widget() -> AppRoot {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
                 .with_child(Button::new("Default").disabled(true))
                 .with_child(Button::primary("Primary!").disabled(true))
                 .with_child(Button::success("Success!").disabled(true))
@@ -83,7 +87,6 @@ fn build_buttons_widget() -> AppRoot {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
                 .with_child(Button::new("Default").flat(true))
                 .with_child(Button::primary("Primary!").flat(true))
                 .with_child(Button::success("Success!").flat(true))
@@ -92,7 +95,6 @@ fn build_buttons_widget() -> AppRoot {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
                 .with_child(Button::new("Default").disabled(true).flat(true))
                 .with_child(Button::primary("Primary!").disabled(true).flat(true))
                 .with_child(Button::success("Success!").disabled(true).flat(true))
@@ -102,8 +104,9 @@ fn build_buttons_widget() -> AppRoot {
 
     let scroll = ScrollView::new(buttons).scroll_step(2);
     AppRoot::new()
-        .with_child(scroll)
+        .with_child(headers)
         .with_child(StatusLine::new(status_clone))
+        .with_child(scroll)
 }
 
 #[tokio::main]
