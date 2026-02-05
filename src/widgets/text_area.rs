@@ -106,6 +106,25 @@ impl TextArea {
         self
     }
 
+    pub fn selection(&self) -> Selection {
+        self.selection
+    }
+
+    pub fn set_selection(&mut self, selection: Selection) {
+        let start = self.clamp_cursor_pos(selection.start);
+        let end = self.clamp_cursor_pos(selection.end);
+        self.selection = Selection { start, end };
+        self.cursor = end;
+        self.preferred_col_cells = Some(self.cursor_cell_x());
+        self.adjust_scroll_to_cursor();
+        self.reset_blink();
+    }
+
+    pub fn with_selection(mut self, selection: Selection) -> Self {
+        self.set_selection(selection);
+        self
+    }
+
     pub fn text(&self) -> String {
         self.lines.join("\n")
     }
@@ -140,6 +159,17 @@ impl TextArea {
         self.cursor.col = self.cursor.col.min(line_len);
         self.cursor.col = prev_char_boundary(&self.lines[self.cursor.row], self.cursor.col);
         self.selection = Selection::cursor(self.cursor);
+    }
+
+    fn clamp_cursor_pos(&self, cursor: Cursor) -> Cursor {
+        if self.lines.is_empty() {
+            return Cursor::default();
+        }
+        let row = cursor.row.min(self.lines.len().saturating_sub(1));
+        let line = self.lines.get(row).map(String::as_str).unwrap_or("");
+        let mut col = cursor.col.min(line.len());
+        col = prev_char_boundary(line, col);
+        Cursor { row, col }
     }
 
     fn line_number_gutter_width(&self) -> usize {
@@ -612,6 +642,9 @@ impl Widget for TextArea {
             }
 
             let line = &self.lines[row];
+            let eol_in_sel = !self.selection.is_empty()
+                && cursor_le(sel_a, Cursor { row, col: line.len() })
+                && cursor_lt(Cursor { row, col: line.len() }, sel_b);
             let start_cell = self.scroll_col;
             let mut cell_x = 0usize;
             let mut pending_style: Option<rich_rs::Style> = None;
@@ -689,7 +722,9 @@ impl Widget for TextArea {
 
             if cell_x < text_w {
                 let pad = " ".repeat(text_w - cell_x);
-                if let Some(style) = line_default_style {
+                if eol_in_sel {
+                    out.push(Segment::styled(pad, selection_style));
+                } else if let Some(style) = line_default_style {
                     out.push(Segment::styled(pad, style));
                 } else {
                     out.push(Segment::new(pad));

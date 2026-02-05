@@ -28,7 +28,7 @@ pub use list_view::ListView;
 pub use pretty::Pretty;
 pub use spacer::Spacer;
 pub use tabs::{Tab, Tabs};
-pub use text_area::TextArea;
+pub use text_area::{Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea};
 pub use tree::{Tree, TreeNode};
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::border_spacing_from_style;
