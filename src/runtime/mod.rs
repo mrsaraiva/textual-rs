@@ -1,4 +1,4 @@
-use crate::debug::{DebugLayout, debug_input};
+use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
 use crate::render::FrameBuffer;
@@ -9,8 +9,12 @@ use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+const SYNC_START: &str = "\x1b[?2026h";
+const SYNC_END: &str = "\x1b[?2026l";
 
 pub struct App {
     driver: TerminalDriver,
@@ -25,6 +29,11 @@ pub struct App {
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
     hovered: Option<WidgetId>,
+    last_render_at: Instant,
+    resized_since_last_render: bool,
+    last_resize_at: Option<Instant>,
+    resize_burst: u64,
+    sync_output: bool,
 }
 
 struct StylesheetWatcher {
@@ -42,6 +51,10 @@ impl App {
         let size = driver.size();
         apply_size(&mut options, size);
         let frame = FrameBuffer::new(size.width as usize, size.height as usize, None);
+        let sync_output = std::env::var("TEXTUAL_SYNC_OUTPUT")
+            .ok()
+            .map(|s| s != "0" && s.to_lowercase() != "false")
+            .unwrap_or(true);
         Ok(Self {
             driver,
             console,
@@ -55,6 +68,11 @@ impl App {
             stylesheet_watch: None,
             running: true,
             hovered: None,
+            last_render_at: Instant::now(),
+            resized_since_last_render: false,
+            last_resize_at: None,
+            resize_burst: 0,
+            sync_output,
         })
     }
 
@@ -114,6 +132,7 @@ impl App {
     pub fn start(&mut self) -> Result<()> {
         self.driver.start()?;
         self.refresh_size()?;
+        debug_render(&format!("[app] sync_output={}", self.sync_output));
         Ok(())
     }
 
@@ -126,8 +145,38 @@ impl App {
         let base_style = self.theme.base.to_rich();
         let next =
             FrameBuffer::from_renderable(&self.console, &self.options, renderable, base_style);
+        let now = Instant::now();
+        let dt_ms = now.duration_since(self.last_render_at).as_millis();
+        self.last_render_at = now;
         let diff = next.diff_to_segments(&self.frame);
-        self.console.print_segments(&diff)?;
+        let mut controls = 0usize;
+        let mut text_segments = 0usize;
+        let mut text_bytes = 0usize;
+        for seg in diff.iter() {
+            if seg.control.is_some() {
+                controls += 1;
+            } else {
+                if !seg.text.is_empty() {
+                    text_segments += 1;
+                    text_bytes += seg.text.len();
+                }
+            }
+        }
+        debug_render(&format!(
+            "[render] dt={}ms resized={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
+            dt_ms,
+            self.resized_since_last_render,
+            next.width,
+            next.height,
+            self.frame.width,
+            self.frame.height,
+            diff.len(),
+            controls,
+            text_segments,
+            text_bytes
+        ));
+        self.resized_since_last_render = false;
+        self.print_segments(&diff)?;
         self.frame = next;
         Ok(())
     }
@@ -146,8 +195,38 @@ impl App {
         let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
         let base_style = self.theme.base.to_rich();
         let next = FrameBuffer::from_lines(&lines, width, height, base_style);
+        let now = Instant::now();
+        let dt_ms = now.duration_since(self.last_render_at).as_millis();
+        self.last_render_at = now;
         let diff = next.diff_to_segments(&self.frame);
-        self.console.print_segments(&diff)?;
+        let mut controls = 0usize;
+        let mut text_segments = 0usize;
+        let mut text_bytes = 0usize;
+        for seg in diff.iter() {
+            if seg.control.is_some() {
+                controls += 1;
+            } else {
+                if !seg.text.is_empty() {
+                    text_segments += 1;
+                    text_bytes += seg.text.len();
+                }
+            }
+        }
+        debug_render(&format!(
+            "[render_widget] dt={}ms resized={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
+            dt_ms,
+            self.resized_since_last_render,
+            next.width,
+            next.height,
+            self.frame.width,
+            self.frame.height,
+            diff.len(),
+            controls,
+            text_segments,
+            text_bytes
+        ));
+        self.resized_since_last_render = false;
+        self.print_segments(&diff)?;
         self.frame = next;
         Ok(())
     }
@@ -268,6 +347,8 @@ impl App {
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
+                        let size = self.driver.size();
+                        debug_render(&format!("[event] Resize({}x{})", size.width, size.height));
                         self.refresh_size()?;
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
@@ -289,6 +370,24 @@ impl App {
 
         root.on_unmount();
         self.finish()?;
+        Ok(())
+    }
+
+    fn print_segments(&mut self, diff: &rich_rs::Segments) -> Result<()> {
+        if self.sync_output {
+            let mut out = std::io::stdout();
+            // Terminals that don't support synchronized output should ignore this.
+            out.write_all(SYNC_START.as_bytes())?;
+            out.flush()?;
+        }
+
+        self.console.print_segments(diff)?;
+
+        if self.sync_output {
+            let mut out = std::io::stdout();
+            out.write_all(SYNC_END.as_bytes())?;
+            out.flush()?;
+        }
         Ok(())
     }
 
@@ -340,7 +439,24 @@ impl App {
         let size = self.driver.refresh_size()?;
         apply_size(&mut self.options, size);
         if self.frame.width != size.width as usize || self.frame.height != size.height as usize {
+            let now = Instant::now();
+            let dt_ms = self
+                .last_resize_at
+                .map(|t| now.duration_since(t).as_millis())
+                .unwrap_or(0);
+            self.last_resize_at = Some(now);
+            self.resize_burst = self.resize_burst.saturating_add(1);
+            debug_render(&format!(
+                "[app] resize: burst={} dt={}ms frame {}x{} -> {}x{} (reset framebuffer to blanks; no explicit clear)",
+                self.resize_burst,
+                dt_ms,
+                self.frame.width,
+                self.frame.height,
+                size.width,
+                size.height
+            ));
             self.frame = FrameBuffer::new(size.width as usize, size.height as usize, None);
+            self.resized_since_last_render = true;
         }
         Ok(())
     }

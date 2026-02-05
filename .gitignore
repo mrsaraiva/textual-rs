@@ -1,5 +1,6 @@
 /target/
 .DS_Store
+._Cargo.lock
+._*
 docs/devel/
-
 .screenshot_cache/
