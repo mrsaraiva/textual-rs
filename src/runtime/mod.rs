@@ -149,6 +149,8 @@ impl App {
         let mut options = DriverOptions::default();
         // Preserve textual-rs behavior: mouse capture enabled by default.
         options.enable_mouse = true;
+        // Enable xterm focus change reporting so widgets can react to window focus.
+        options.enable_focus_change = true;
         let driver = TerminalDriver::new(options)?;
         let console = Console::new();
         let mut options = console.options().clone();
@@ -548,11 +550,13 @@ impl App {
                     }
                     CrosstermEvent::FocusLost => {
                         self.app_active = false;
+                        debug_input("[event] FocusLost");
                         let _ = dispatch_event(root, Event::AppFocus(false));
                         dirty = true;
                     }
                     CrosstermEvent::FocusGained => {
                         self.app_active = true;
+                        debug_input("[event] FocusGained");
                         let _ = dispatch_event(root, Event::AppFocus(true));
                         dirty = true;
                     }
