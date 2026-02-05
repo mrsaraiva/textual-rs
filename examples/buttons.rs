@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use rich_rs::{Segment, Segments};
 use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
+use textual::style::Color;
 
 struct StatusLine {
     id: WidgetId,
@@ -26,7 +27,7 @@ impl Widget for StatusLine {
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
-        let line = rich_rs::set_cell_size(&text, width);
+        let line = rich_rs::set_cell_size(&format!("Events: {text}"), width);
         let mut out = Segments::new();
         out.push(Segment::new(line));
         out
@@ -102,11 +103,21 @@ fn build_buttons_widget() -> AppRoot {
                 .with_child(Button::error("Error!").disabled(true).flat(true)),
         );
 
+    let status = Styled::new(
+        StatusLine::new(status_clone),
+        Style::new()
+            .line_pad(1)
+            .border_top(Color::parse("#44cc44").unwrap())
+            .border_right(Color::parse("#44cc44").unwrap())
+            .border_bottom(Color::parse("#44cc44").unwrap())
+            .border_left(Color::parse("#44cc44").unwrap()),
+    );
     let scroll = ScrollView::new(buttons).scroll_step(2);
-    AppRoot::new()
-        .with_child(headers)
-        .with_child(StatusLine::new(status_clone))
-        .with_child(scroll)
+    let layout = Dock::new()
+        .push_top(Some(1), headers)
+        .push_fill(scroll)
+        .push_bottom(Some(3), status);
+    AppRoot::new().with_child(layout)
 }
 
 #[tokio::main]
