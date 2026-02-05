@@ -306,6 +306,13 @@ impl App {
         self.start()?;
         root.on_mount();
 
+        // Auto-focus the first focusable widget.
+        let mut ids = Vec::new();
+        crate::widget::collect_focus_ids(root, &mut ids);
+        if let Some(first) = ids.first().copied() {
+            crate::widget::set_focus_by_id(root, Some(first));
+        }
+
         let mut tick: u64 = 0;
         let tick_rate = Duration::from_millis(100);
         let mut last_render = Instant::now();
@@ -344,7 +351,7 @@ impl App {
                                     "[input] mouse target id={}",
                                     target.as_u64()
                                 ));
-                                dispatch_event(root, Event::MouseDown(target));
+                                dispatch_event(root, Event::MouseDown(target, mouse.column, mouse.row));
                                 // Provide immediate feedback for `:active` styles.
                                 self.render_widget(root)?;
                                 last_render = Instant::now();
@@ -352,7 +359,7 @@ impl App {
                         }
                         MouseEventKind::Up(_) => {
                             let target = self.widget_at(mouse.column, mouse.row);
-                            dispatch_event(root, Event::MouseUp(target));
+                            dispatch_event(root, Event::MouseUp(target, mouse.column, mouse.row));
                             // Provide immediate feedback for `:active` styles.
                             self.render_widget(root)?;
                             last_render = Instant::now();
@@ -416,6 +423,16 @@ impl App {
             crate::widget::set_hover_by_id(root, self.hovered);
             let shape = pointer_shape_for_hover(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
+            if let Some(id) = self.hovered {
+                call_on_mouse_move(root, id, x as u16, y as u16);
+            }
+            return true;
+        }
+
+        // Even if the hovered widget hasn't changed, forward updated coordinates
+        // so widgets can track intra-widget mouse position (e.g. hover row).
+        if let Some(id) = self.hovered {
+            call_on_mouse_move(root, id, x as u16, y as u16);
             return true;
         }
 
@@ -506,6 +523,22 @@ impl App {
             watch.last_modified = Some(modified);
         }
     }
+}
+
+fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) {
+    fn visit(w: &mut dyn Widget, id: WidgetId, x: u16, y: u16, found: &mut bool) {
+        if *found {
+            return;
+        }
+        if w.id() == id {
+            w.on_mouse_move(x, y);
+            *found = true;
+            return;
+        }
+        w.visit_children_mut(&mut |child| visit(child, id, x, y, found));
+    }
+    let mut found = false;
+    visit(root, target, x, y, &mut found);
 }
 
 fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> PointerShape {
@@ -664,7 +697,7 @@ fn default_action_map() -> ActionMap {
 
 fn dispatch_event(root: &mut dyn Widget, event: Event) {
     let mut ctx = EventCtx::default();
-    let always_bubble = matches!(&event, Event::MouseUp(_));
+    let always_bubble = matches!(&event, Event::MouseUp(..));
     root.on_event_capture(&event, &mut ctx);
     if always_bubble || !ctx.handled() {
         root.on_event(&event, &mut ctx);

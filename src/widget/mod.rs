@@ -20,11 +20,11 @@ pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
 pub use controls::{
-    Button, Checkbox, DataTable, Input, ListView, Spacer, Tab, Tabs, Tree, TreeNode,
+    Button, Checkbox, CursorType, DataTable, Input, ListView, Spacer, Tab, Tabs, Tree, TreeNode,
 };
 pub use defaults::default_widget_stylesheet;
 pub use helpers::WidgetRenderable;
-pub(crate) use helpers::set_hover_by_id;
+pub(crate) use helpers::{collect_focus_ids, set_focus_by_id, set_hover_by_id};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use style_selectors::{
     StyleContextGuard, StyleRule, StyleSelector, StyleSheet, set_style_context,
@@ -125,6 +125,7 @@ pub trait Widget: Send + Sync {
     fn on_resize(&mut self, _width: u16, _height: u16) {}
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) {}
     fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
     fn focusable(&self) -> bool {
         false

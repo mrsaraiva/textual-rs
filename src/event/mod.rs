@@ -6,8 +6,8 @@ use std::collections::HashMap;
 pub enum Event {
     Key(KeyEvent),
     Action(Action),
-    MouseDown(WidgetId),
-    MouseUp(Option<WidgetId>),
+    MouseDown(WidgetId, u16, u16),
+    MouseUp(Option<WidgetId>, u16, u16),
     Tick(u64),
     Resize(u16, u16),
 }

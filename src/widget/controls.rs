@@ -4,6 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use super::style_selectors;
 use crate::debug::debug_input;
 use crate::event::{Action, Event, EventCtx};
+use crate::style::parse_color_like;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
@@ -233,7 +234,7 @@ impl Widget for Button {
             return;
         }
         match event {
-            Event::MouseDown(target) if *target == self.id => {
+            Event::MouseDown(target, _, _) if *target == self.id => {
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
@@ -242,7 +243,7 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            Event::MouseUp(target) => {
+            Event::MouseUp(target, _, _) => {
                 if self.pressed == PressedState::Mouse {
                     self.pressed = PressedState::None;
                     // Activate only on click (mouse released while still over the button).
@@ -531,6 +532,14 @@ impl Renderable for ListView {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorType {
+    Cell,
+    Row,
+    Column,
+    None,
+}
+
 #[derive(Debug, Clone)]
 pub struct DataTable {
     id: WidgetId,
@@ -538,7 +547,11 @@ pub struct DataTable {
     rows: Vec<Vec<String>>,
     selected: usize,
     offset: usize,
+    cursor_column: usize,
+    cursor_type: CursorType,
     focused: bool,
+    hovered: bool,
+    hover_coordinate: Option<(usize, usize)>,
     styles: WidgetStyles,
 }
 
@@ -550,8 +563,42 @@ impl DataTable {
             rows,
             selected: 0,
             offset: 0,
+            cursor_column: 0,
+            cursor_type: CursorType::Cell,
             focused: false,
+            hovered: false,
+            hover_coordinate: None,
             styles: WidgetStyles::default(),
+        }
+    }
+
+    /// Create an empty table (columns and rows added later).
+    pub fn empty() -> Self {
+        Self {
+            id: WidgetId::new(),
+            headers: Vec::new(),
+            rows: Vec::new(),
+            selected: 0,
+            offset: 0,
+            cursor_column: 0,
+            cursor_type: CursorType::Cell,
+            focused: false,
+            hovered: false,
+            hover_coordinate: None,
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn add_columns(&mut self, columns: &[&str]) {
+        for col in columns {
+            self.headers.push((*col).to_string());
+        }
+    }
+
+    pub fn add_rows(&mut self, rows: &[&[&str]]) {
+        for row in rows {
+            self.rows
+                .push(row.iter().map(|s| (*s).to_string()).collect());
         }
     }
 
@@ -566,6 +613,41 @@ impl DataTable {
             return;
         }
         self.selected = index.min(self.rows.len() - 1);
+    }
+
+    pub fn cursor_type(mut self, ct: CursorType) -> Self {
+        self.cursor_type = ct;
+        self
+    }
+
+    /// Compute column widths (used by render and click-to-column).
+    fn column_widths(&self) -> Vec<usize> {
+        let mut widths: Vec<usize> = self
+            .headers
+            .iter()
+            .map(|h| rich_rs::cell_len(h).max(3))
+            .collect();
+        for row in &self.rows {
+            for (idx, value) in row.iter().enumerate() {
+                if let Some(w) = widths.get_mut(idx) {
+                    *w = (*w).max(rich_rs::cell_len(value).max(1));
+                }
+            }
+        }
+        widths
+    }
+
+    /// Map an x coordinate to a column index, given column widths with 2-space gap.
+    fn column_at_x(&self, x: usize, column_widths: &[usize]) -> usize {
+        let mut pos = 0;
+        for (i, &w) in column_widths.iter().enumerate() {
+            let end = pos + w;
+            if x < end {
+                return i;
+            }
+            pos = end + 2; // 2-space gap between columns
+        }
+        column_widths.len().saturating_sub(1)
     }
 
     fn ensure_visible(&mut self, height: usize) {
@@ -590,6 +672,10 @@ impl Widget for DataTable {
         true
     }
 
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
     }
@@ -598,64 +684,157 @@ impl Widget for DataTable {
         self.focused
     }
 
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.hover_coordinate = None;
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) {
+        let widths = self.column_widths();
+        let col_idx = self.column_at_x(x as usize, &widths);
+        if y == 0 {
+            // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
+            self.hover_coordinate = Some((usize::MAX, col_idx));
+        } else {
+            let row_idx = (y as usize - 1) + self.offset;
+            if row_idx < self.rows.len() {
+                self.hover_coordinate = Some((row_idx, col_idx));
+            } else {
+                self.hover_coordinate = None;
+            }
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        // Handle mouse events regardless of focus state.
+        match event {
+            Event::MouseDown(target, x, y) if *target == self.id => {
+                let row_y = (*y as usize).saturating_sub(1);
+                let clicked = row_y + self.offset;
+                if clicked < self.rows.len() {
+                    self.selected = clicked;
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                        let widths = self.column_widths();
+                        self.cursor_column = self.column_at_x(*x as usize, &widths);
+                    }
+                }
+                ctx.set_handled();
+                return;
+            }
+            _ => {}
+        }
+
         if !self.focused {
             return;
         }
         let mut handled = false;
         match event {
             Event::Action(Action::ScrollUp) => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollDown) => {
-                if self.selected + 1 < self.rows.len() {
-                    self.selected += 1;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageUp) => {
-                if self.selected > 0 {
-                    let step = 5.min(self.selected);
-                    self.selected -= step;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageDown) => {
-                if self.selected + 1 < self.rows.len() {
-                    let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
-                    self.selected += step;
-                }
-                handled = true;
-            }
-            Event::Key(key) => match key.code {
-                KeyCode::Up => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected > 0 {
                         self.selected -= 1;
                     }
                     handled = true;
                 }
-                KeyCode::Down => {
+            }
+            Event::Action(Action::ScrollDown) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected + 1 < self.rows.len() {
                         self.selected += 1;
                     }
                     handled = true;
                 }
-                KeyCode::PageUp => {
+            }
+            Event::Action(Action::ScrollLeft) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                    if self.cursor_column > 0 {
+                        self.cursor_column -= 1;
+                    }
+                    handled = true;
+                }
+            }
+            Event::Action(Action::ScrollRight) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                    if self.cursor_column + 1 < self.headers.len() {
+                        self.cursor_column += 1;
+                    }
+                    handled = true;
+                }
+            }
+            Event::Action(Action::ScrollPageUp) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected > 0 {
                         let step = 5.min(self.selected);
                         self.selected -= step;
                     }
                     handled = true;
                 }
-                KeyCode::PageDown => {
+            }
+            Event::Action(Action::ScrollPageDown) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected + 1 < self.rows.len() {
                         let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
                         self.selected += step;
                     }
                     handled = true;
+                }
+            }
+            Event::Key(key) => match key.code {
+                KeyCode::Up => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
+                        handled = true;
+                    }
+                }
+                KeyCode::Down => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
+                        if self.selected + 1 < self.rows.len() {
+                            self.selected += 1;
+                        }
+                        handled = true;
+                    }
+                }
+                KeyCode::Left => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                        if self.cursor_column > 0 {
+                            self.cursor_column -= 1;
+                        }
+                        handled = true;
+                    }
+                }
+                KeyCode::Right => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                        if self.cursor_column + 1 < self.headers.len() {
+                            self.cursor_column += 1;
+                        }
+                        handled = true;
+                    }
+                }
+                KeyCode::PageUp => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
+                        if self.selected > 0 {
+                            let step = 5.min(self.selected);
+                            self.selected -= step;
+                        }
+                        handled = true;
+                    }
+                }
+                KeyCode::PageDown => {
+                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
+                        if self.selected + 1 < self.rows.len() {
+                            let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
+                            self.selected += step;
+                        }
+                        handled = true;
+                    }
                 }
                 _ => {}
             },
@@ -666,92 +845,185 @@ impl Widget for DataTable {
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         let mut view = self.clone();
         view.ensure_visible(height.saturating_sub(1));
 
-        let col_count = self.headers.len().max(1);
-        let sep_width = 3usize.saturating_mul(col_count.saturating_sub(1));
+        let column_widths = self.column_widths();
+        let cursor_type = self.cursor_type;
+        let show_cursor = self.focused && cursor_type != CursorType::None;
 
-        // Natural widths based on headers + row values.
-        let mut natural_widths: Vec<usize> = self
-            .headers
-            .iter()
-            .map(|h| rich_rs::cell_len(h).max(3))
-            .collect();
-        for row in &self.rows {
-            for (idx, value) in row.iter().enumerate() {
-                if let Some(w) = natural_widths.get_mut(idx) {
-                    *w = (*w).max(rich_rs::cell_len(value).max(1));
+        // Cursor and hover coordinates.
+        let cursor_coord = (view.selected, self.cursor_column);
+        let hover_coord = self.hover_coordinate;
+
+        // Resolve theme colors.
+        let header_bg = parse_color_like("$panel");
+        let row_bg = parse_color_like("$surface");
+        let cursor_bg = parse_color_like("$primary");
+        let hover_bg = parse_color_like("$block-hover-background");
+        let header_hover_bg = parse_color_like("$header-hover-background");
+
+        let mut header_style = rich_rs::Style::new().with_bold(true);
+        if let Some(bg) = header_bg {
+            header_style = header_style.with_bgcolor(bg);
+        }
+        let mut normal_style = rich_rs::Style::new();
+        if let Some(bg) = row_bg {
+            normal_style = normal_style.with_bgcolor(bg);
+        }
+        let mut selected_style = rich_rs::Style::new().with_bold(true);
+        if let Some(bg) = cursor_bg {
+            selected_style = selected_style.with_bgcolor(bg);
+        }
+        let mut hover_style = rich_rs::Style::new();
+        if let Some(bg) = hover_bg {
+            hover_style = hover_style.with_bgcolor(bg);
+        }
+        let mut header_hover_style = rich_rs::Style::new().with_bold(true);
+        if let Some(bg) = header_hover_bg {
+            header_hover_style = header_hover_style.with_bgcolor(bg);
+        }
+
+        let mut out = Segments::new();
+
+        // Helper: join column values with 2-space padding, pad to full width.
+        let format_row_uniform =
+            |values: &[String], widths: &[usize], total_width: usize| -> String {
+                let parts: Vec<String> = values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, val)| {
+                        let col_w = *widths.get(i).unwrap_or(&3);
+                        rich_rs::set_cell_size(val, col_w)
+                    })
+                    .collect();
+                let joined = parts.join("  ");
+                rich_rs::set_cell_size(&joined, total_width)
+            };
+
+        // Mirrors Textual's _should_highlight: does `target` match `cursor` given the type?
+        let should_highlight =
+            |cursor: (usize, usize), target: (usize, usize), ct: CursorType| -> bool {
+                match ct {
+                    CursorType::Cell => cursor == target,
+                    CursorType::Row => cursor.0 == target.0,
+                    CursorType::Column => cursor.1 == target.1,
+                    CursorType::None => false,
                 }
-            }
-        }
+            };
 
-        // Distribute remaining space (if any) to the first columns so the table fills the width.
-        let natural_total: usize = natural_widths
-            .iter()
-            .sum::<usize>()
-            .saturating_add(sep_width);
-        let mut column_widths = natural_widths;
-        if natural_total < width {
-            let mut remaining = width - natural_total;
-            let mut idx = 0usize;
-            while remaining > 0 && idx < column_widths.len() {
-                column_widths[idx] += remaining;
-                remaining = 0;
-                idx += 1;
-            }
-        }
+        // Header line.
+        // Headers use usize::MAX as their row sentinel (mirroring Textual's row=-1).
+        // Per-cell rendering is needed when cursor or hover could highlight individual
+        // header cells (Column cursor always, Cell/Column hover when on the header row).
+        let header_needs_per_cell = (show_cursor
+            && matches!(cursor_type, CursorType::Column))
+            || (hover_coord.is_some() && cursor_type != CursorType::None);
 
-        let header = self
-            .headers
-            .iter()
-            .enumerate()
-            .map(|(idx, col)| {
-                let col_width = *column_widths.get(idx).unwrap_or(&3);
-                rich_rs::set_cell_size(col, col_width)
-            })
-            .collect::<Vec<_>>()
-            .join(" | ");
-
-        let header_line = rich_rs::set_cell_size(&header, width);
-        let mut lines = vec![header_line];
-        if col_count >= 2 {
-            let left = (*column_widths.get(0).unwrap_or(&3)).min(width);
-            lines.push(format!(
-                "{}+{}",
-                "-".repeat(left),
-                "-".repeat(width.saturating_sub(left + 1))
-            ));
+        if header_needs_per_cell {
+            emit_row_per_cell(
+                &self.headers,
+                &column_widths,
+                width,
+                |col_idx| {
+                    let target = (usize::MAX, col_idx);
+                    if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
+                        return selected_style.with_bold(true);
+                    }
+                    if let Some(hc) = hover_coord {
+                        if should_highlight(hc, target, cursor_type) {
+                            return header_hover_style;
+                        }
+                    }
+                    header_style
+                },
+                header_style,
+                &mut out,
+            );
         } else {
-            lines.push("-".repeat(width));
+            let header_text = format_row_uniform(&self.headers, &column_widths, width);
+            out.push(Segment::styled(header_text, header_style));
         }
+        out.push(Segment::line());
+        let mut lines_used = 1usize;
 
+        // Data rows.
         for (idx, row) in view.rows.iter().enumerate() {
             if idx < view.offset {
                 continue;
             }
-            if lines.len() >= height {
+            if lines_used >= height {
                 break;
             }
-            let mut parts = Vec::new();
-            for (col_idx, value) in row.iter().enumerate() {
-                let col_width = *column_widths.get(col_idx).unwrap_or(&3);
-                let value = if col_idx == 0 && self.focused && idx == view.selected {
-                    format!("> {value}")
-                } else {
-                    value.to_string()
+
+            // Check if any cell in this row needs per-cell styling.
+            let row_has_cursor = show_cursor
+                && match cursor_type {
+                    CursorType::Row => idx == cursor_coord.0,
+                    CursorType::Cell => idx == cursor_coord.0,
+                    CursorType::Column => true, // every row has the highlighted column
+                    CursorType::None => false,
                 };
-                parts.push(rich_rs::set_cell_size(&value, col_width));
+            let row_has_hover = hover_coord.is_some()
+                && match cursor_type {
+                    CursorType::Row => hover_coord.map(|h| h.0) == Some(idx),
+                    CursorType::Cell => hover_coord.map(|h| h.0) == Some(idx),
+                    CursorType::Column => true,
+                    CursorType::None => false,
+                };
+
+            let needs_per_cell = (row_has_cursor
+                && matches!(cursor_type, CursorType::Cell | CursorType::Column))
+                || (row_has_hover
+                    && matches!(cursor_type, CursorType::Cell | CursorType::Column));
+
+            if needs_per_cell {
+                emit_row_per_cell(
+                    row,
+                    &column_widths,
+                    width,
+                    |col_idx| {
+                        let target = (idx, col_idx);
+                        if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
+                            return selected_style;
+                        }
+                        if let Some(hc) = hover_coord {
+                            if should_highlight(hc, target, cursor_type) {
+                                return hover_style;
+                            }
+                        }
+                        normal_style
+                    },
+                    normal_style,
+                    &mut out,
+                );
+            } else {
+                // Uniform style for the whole row.
+                let style = if show_cursor
+                    && should_highlight(cursor_coord, (idx, 0), cursor_type)
+                {
+                    selected_style
+                } else if let Some(hc) = hover_coord {
+                    if should_highlight(hc, (idx, 0), cursor_type) {
+                        hover_style
+                    } else {
+                        normal_style
+                    }
+                } else {
+                    normal_style
+                };
+                let row_text = format_row_uniform(row, &column_widths, width);
+                out.push(Segment::styled(row_text, style));
             }
-            let line = parts.join(" | ");
-            lines.push(rich_rs::set_cell_size(&line, width));
+
+            out.push(Segment::line());
+            lines_used += 1;
         }
 
-        let text = Text::plain(lines.join("\n"));
-        text.render(console, options)
+        out
     }
 
     fn style_classes(&self) -> &[String] {
@@ -774,6 +1046,32 @@ impl Widget for DataTable {
 impl Renderable for DataTable {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+/// Emit a row where each cell can have a different style determined by `style_for_col`.
+fn emit_row_per_cell(
+    values: &[String],
+    column_widths: &[usize],
+    total_width: usize,
+    style_for_col: impl Fn(usize) -> rich_rs::Style,
+    gap_style: rich_rs::Style,
+    out: &mut Segments,
+) {
+    let mut used = 0usize;
+    for (i, val) in values.iter().enumerate() {
+        if i > 0 {
+            out.push(Segment::styled("  ", gap_style));
+            used += 2;
+        }
+        let col_w = *column_widths.get(i).unwrap_or(&3);
+        let cell_text = rich_rs::set_cell_size(val, col_w);
+        out.push(Segment::styled(cell_text, style_for_col(i)));
+        used += col_w;
+    }
+    // Pad remainder to full width.
+    if used < total_width {
+        out.push(Segment::styled(" ".repeat(total_width - used), gap_style));
     }
 }
 

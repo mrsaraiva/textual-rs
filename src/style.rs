@@ -51,6 +51,18 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
             blend(base, boost, 0.04)
         };
         m.insert("panel", panel);
+        // Textual's `$block-hover-background`: boost.with_alpha(0.1), where boost is
+        // contrast_text(background).with_alpha(0.04).  Since we lack true alpha, we
+        // approximate by blending the contrast text onto the background at 10%.
+        let block_hover_bg = {
+            let background = m.get("background").copied().unwrap();
+            let ct = contrast_text(background);
+            blend(background, ct, 0.10)
+        };
+        m.insert("block-hover-background", block_hover_bg);
+        // Textual's datatable--header-hover: `$accent 30%` — accent blended onto panel bg.
+        let header_hover_bg = blend(panel, m.get("accent").copied().unwrap(), 0.30);
+        m.insert("header-hover-background", header_hover_bg);
         // Minimal convenience aliases.
         m.insert("text", Color::parse("#e0e0e0").unwrap());
         m.insert("button-foreground", Color::parse("#e0e0e0").unwrap());
