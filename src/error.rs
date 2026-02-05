@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("terminal driver error: {0}")]
     Terminal(#[from] std::io::Error),
+    #[error("text area language error: {0}")]
+    TextAreaLanguage(String),
     #[error("app runtime stopped")]
     RuntimeStopped,
 }

@@ -1,17 +1,66 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
+use crossterm::event::KeyEvent;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use tree_sitter::{Parser, Query, QueryCursor};
 use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
-use crate::style::{Color, parse_color_like};
+use crate::style::{Color, Style, parse_color_like};
+use crate::{Error, Result};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
+
+#[derive(Debug, Clone)]
+pub struct TextAreaTheme {
+    pub name: String,
+    pub cursor_style: Style,
+    pub cursor_line_style: Style,
+    pub selection_style: Style,
+    pub gutter_style: Style,
+    pub gutter_active_style: Style,
+    pub syntax_styles: HashMap<String, Style>,
+}
+
+impl TextAreaTheme {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            cursor_style: Style::default(),
+            cursor_line_style: Style::default(),
+            selection_style: Style::default(),
+            gutter_style: Style::default(),
+            gutter_active_style: Style::default(),
+            syntax_styles: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LanguageDef {
+    language: tree_sitter::Language,
+    highlight_query: Query,
+}
+
+#[derive(Debug, Clone)]
+struct SyntaxSpan {
+    start: usize,
+    end: usize,
+    style: Style,
+}
+
+#[derive(Debug, Default, Clone)]
+struct SyntaxCache {
+    revision: u64,
+    line_offsets: Vec<usize>,
+    spans: Vec<SyntaxSpan>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Cursor {
@@ -52,14 +101,48 @@ pub struct TextArea {
     app_active: bool,
     cursor_visible: bool,
     cursor_blink_next_at: Option<Instant>,
+    cursor_blink_enabled: bool,
+    doc_revision: u64,
+    syntax_cache: std::sync::Mutex<SyntaxCache>,
+    languages: HashMap<String, LanguageDef>,
+    themes: HashMap<String, TextAreaTheme>,
+    theme: Option<String>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
     on_change: Option<Arc<dyn Fn(&mut TextArea) + Send + Sync>>,
+    on_key: Option<Arc<dyn Fn(&mut TextArea, KeyEvent, &mut EventCtx) + Send + Sync>>,
 }
 
 impl TextArea {
     const CURSOR_BLINK_PERIOD: Duration = Duration::from_millis(500);
+    const PYTHON_HIGHLIGHTS: &str = r#"
+(comment) @comment
+(string) @string
+((identifier) @constant (#match? @constant "^_*[A-Z][A-Z\\d_]+$"))
+[
+  "def"
+  "class"
+  "return"
+  "if"
+  "else"
+  "elif"
+  "for"
+  "while"
+  "try"
+  "except"
+  "finally"
+  "import"
+  "from"
+  "as"
+  "pass"
+  "break"
+  "continue"
+  "with"
+  "yield"
+  "lambda"
+] @keyword
+"#;
 
     fn next_blink_deadline() -> Instant {
         let now = Instant::now();
@@ -84,11 +167,19 @@ impl TextArea {
             app_active: true,
             cursor_visible: false,
             cursor_blink_next_at: None,
+            cursor_blink_enabled: true,
+            doc_revision: 0,
+            syntax_cache: std::sync::Mutex::new(SyntaxCache::default()),
+            languages: HashMap::new(),
+            themes: HashMap::new(),
+            theme: None,
             classes: Vec::new(),
             focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
             on_change: None,
+            on_key: None,
         };
+        out.register_builtin_languages();
         out.rebuild_classes();
         out.clamp_cursor();
         out
@@ -103,6 +194,75 @@ impl TextArea {
 
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
         self.language = Some(language.into());
+        self
+    }
+
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    pub fn set_language(&mut self, language: impl Into<String>) {
+        self.language = Some(language.into());
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = 0;
+        }
+    }
+
+    pub fn cursor_blink(&self) -> bool {
+        self.cursor_blink_enabled
+    }
+
+    pub fn set_cursor_blink(&mut self, enabled: bool) {
+        self.cursor_blink_enabled = enabled;
+        if self.focused && self.app_active {
+            self.reset_blink();
+        } else {
+            self.cursor_visible = false;
+            self.cursor_blink_next_at = None;
+        }
+    }
+
+    pub fn with_cursor_blink(mut self, enabled: bool) -> Self {
+        self.set_cursor_blink(enabled);
+        self
+    }
+
+    pub fn register_language(
+        &mut self,
+        name: impl Into<String>,
+        language: tree_sitter::Language,
+        highlight_query: &str,
+    ) -> Result<()> {
+        let name = name.into();
+        let query = Query::new(&language, highlight_query)
+            .map_err(|e| Error::TextAreaLanguage(e.to_string()))?;
+        self.languages.insert(
+            name,
+            LanguageDef {
+                language,
+                highlight_query: query,
+            },
+        );
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = 0;
+        }
+        Ok(())
+    }
+
+    pub fn register_theme(&mut self, theme: TextAreaTheme) {
+        self.themes.insert(theme.name.clone(), theme);
+    }
+
+    pub fn theme(&self) -> Option<&str> {
+        self.theme.as_deref()
+    }
+
+    pub fn set_theme(&mut self, name: impl Into<String>) {
+        self.theme = Some(name.into());
+    }
+
+    pub fn with_theme(mut self, name: impl Into<String>) -> Self {
+        self.set_theme(name);
         self
     }
 
@@ -125,6 +285,41 @@ impl TextArea {
         self
     }
 
+    pub fn on_key(
+        mut self,
+        handler: impl Fn(&mut TextArea, KeyEvent, &mut EventCtx) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_key = Some(Arc::new(handler));
+        self
+    }
+
+    pub fn insert(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.insert_str(text);
+        self.notify_changed();
+        self.preferred_col_cells = Some(self.cursor_cell_x());
+        self.adjust_scroll_to_cursor();
+        self.reset_blink();
+    }
+
+    pub fn move_cursor_relative(&mut self, columns: isize, rows: isize) {
+        if self.lines.is_empty() {
+            return;
+        }
+        let row = (self.cursor.row as isize + rows)
+            .clamp(0, self.lines.len().saturating_sub(1) as isize) as usize;
+        let cur_cells = self.cursor_cell_x() as isize;
+        let target_cells = (cur_cells + columns).max(0) as usize;
+        let col = self.cursor_from_cell_x(row, target_cells);
+        self.cursor = Cursor { row, col };
+        self.selection = Selection::cursor(self.cursor);
+        self.preferred_col_cells = Some(self.cursor_cell_x());
+        self.adjust_scroll_to_cursor();
+        self.reset_blink();
+    }
+
     pub fn text(&self) -> String {
         self.lines.join("\n")
     }
@@ -137,6 +332,119 @@ impl TextArea {
     fn notify_changed(&mut self) {
         if let Some(handler) = self.on_change.clone() {
             handler(self);
+        }
+    }
+
+    fn register_builtin_languages(&mut self) {
+        // Best effort: if query compilation fails, keep working without syntax highlighting.
+        let _ = self.register_language(
+            "python",
+            tree_sitter_python::LANGUAGE.into(),
+            Self::PYTHON_HIGHLIGHTS,
+        );
+    }
+
+    fn active_theme(&self) -> Option<&TextAreaTheme> {
+        let name = self.theme.as_deref()?;
+        self.themes.get(name)
+    }
+
+    fn default_syntax_styles() -> &'static HashMap<String, Style> {
+        use std::sync::OnceLock;
+        static STYLES: OnceLock<HashMap<String, Style>> = OnceLock::new();
+        STYLES.get_or_init(|| {
+            let mut m = HashMap::new();
+            let red = parse_color_like("red").unwrap_or(Color::rgb(255, 0, 0));
+            let magenta = parse_color_like("magenta").unwrap_or(Color::rgb(255, 0, 255));
+            let cyan = parse_color_like("cyan").unwrap_or(Color::rgb(0, 255, 255));
+            let yellow = parse_color_like("yellow").unwrap_or(Color::rgb(255, 255, 0));
+            let green = parse_color_like("#4EBF71").unwrap_or(Color::rgb(78, 191, 113));
+            let blue = parse_color_like("$primary").unwrap_or(Color::rgb(1, 120, 212));
+            m.insert("string".to_string(), Style::default().fg(red));
+            m.insert("comment".to_string(), Style::default().fg(magenta));
+            m.insert("keyword".to_string(), Style::default().fg(blue).bold(true));
+            m.insert("number".to_string(), Style::default().fg(cyan));
+            m.insert("type".to_string(), Style::default().fg(green));
+            m.insert("function".to_string(), Style::default().fg(yellow));
+            m.insert("operator".to_string(), Style::default().fg(yellow));
+            m.insert("attribute".to_string(), Style::default().fg(yellow));
+            m.insert("constant".to_string(), Style::default().fg(cyan).bold(true));
+            m
+        })
+    }
+
+    fn rebuild_line_offsets(&self) -> Vec<usize> {
+        let mut offsets = Vec::with_capacity(self.lines.len().max(1));
+        let mut cur = 0usize;
+        for (i, line) in self.lines.iter().enumerate() {
+            offsets.push(cur);
+            cur = cur.saturating_add(line.len());
+            // Join adds '\n' between lines, but not after the last one.
+            if i + 1 < self.lines.len() {
+                cur = cur.saturating_add(1);
+            }
+        }
+        offsets
+    }
+
+    fn lookup_syntax_style<'a>(
+        capture: &str,
+        map: &'a HashMap<String, Style>,
+    ) -> Option<&'a Style> {
+        if let Some(style) = map.get(capture) {
+            return Some(style);
+        }
+        // Capture names often use dotted sub-categories (e.g. `type.builtin`).
+        let prefix = capture.split('.').next().unwrap_or(capture);
+        map.get(prefix)
+    }
+
+    fn recompute_syntax_cache(&self, cache: &mut SyntaxCache) {
+        cache.revision = self.doc_revision;
+        cache.spans.clear();
+        cache.line_offsets = self.rebuild_line_offsets();
+
+        let Some(lang) = self.language.as_deref() else {
+            return;
+        };
+        let Some(def) = self.languages.get(lang) else {
+            return;
+        };
+
+        let theme_styles = self
+            .active_theme()
+            .map(|t| &t.syntax_styles)
+            .filter(|m| !m.is_empty());
+        let style_map: &HashMap<String, Style> = theme_styles.unwrap_or(Self::default_syntax_styles());
+
+        let text = self.text();
+        let mut parser = Parser::new();
+        if parser.set_language(&def.language).is_err() {
+            return;
+        }
+        let Some(tree) = parser.parse(&text, None) else {
+            return;
+        };
+        let root = tree.root_node();
+        let mut cursor = QueryCursor::new();
+        let capture_names = def.highlight_query.capture_names();
+
+        for m in cursor.matches(&def.highlight_query, root, text.as_bytes()) {
+            for cap in m.captures {
+                let name = capture_names.get(cap.index as usize).copied().unwrap_or("");
+                let Some(style) = Self::lookup_syntax_style(name, style_map) else {
+                    continue;
+                };
+                let range = cap.node.byte_range();
+                if range.start >= range.end {
+                    continue;
+                }
+                cache.spans.push(SyntaxSpan {
+                    start: range.start,
+                    end: range.end,
+                    style: style.clone(),
+                });
+            }
         }
     }
 
@@ -218,7 +526,11 @@ impl TextArea {
             return;
         }
         self.cursor_visible = true;
-        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+        if self.cursor_blink_enabled {
+            self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+        } else {
+            self.cursor_blink_next_at = None;
+        }
     }
 
     fn delete_selection_if_any(&mut self) -> bool {
@@ -239,6 +551,7 @@ impl TextArea {
             self.cursor = a;
         }
         self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
         true
     }
 
@@ -256,6 +569,7 @@ impl TextArea {
         self.cursor.col += text.len();
         self.cursor.col = prev_char_boundary(line, self.cursor.col);
         self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
     }
 
     fn insert_newline(&mut self) {
@@ -271,6 +585,7 @@ impl TextArea {
         self.cursor.row += 1;
         self.cursor.col = 0;
         self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
     }
 
     fn backspace(&mut self) {
@@ -284,6 +599,7 @@ impl TextArea {
             line.drain(prev..self.cursor.col);
             self.cursor.col = prev;
             self.selection = Selection::cursor(self.cursor);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
         } else if self.cursor.row > 0 {
             let row = self.cursor.row;
             let prev_row = row - 1;
@@ -293,6 +609,7 @@ impl TextArea {
             self.cursor.row = prev_row;
             self.cursor.col = prev_len;
             self.selection = Selection::cursor(self.cursor);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
         }
     }
 
@@ -306,9 +623,11 @@ impl TextArea {
         if col < line_len {
             let next = next_char_boundary(&self.lines[row], col);
             self.lines[row].drain(col..next);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
         } else if row + 1 < self.lines.len() {
             let next_line = self.lines.remove(row + 1);
             self.lines[row].push_str(&next_line);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
         }
         self.selection = Selection::cursor(self.cursor);
     }
@@ -473,94 +792,102 @@ impl Widget for TextArea {
                     ctx.request_repaint();
                 }
             }
-            Event::Key(key) if self.focused => match key.code {
-                KeyCode::Char(ch) => {
-                    if ch != '\t' {
-                        self.insert_str(&ch.to_string());
+            Event::Key(key) if self.focused => {
+                if let Some(handler) = self.on_key.clone() {
+                    handler(self, *key, ctx);
+                    if ctx.handled() {
+                        return;
+                    }
+                }
+                match key.code {
+                    KeyCode::Char(ch) => {
+                        if ch != '\t' {
+                            self.insert_str(&ch.to_string());
+                            self.notify_changed();
+                            self.preferred_col_cells = Some(self.cursor_cell_x());
+                            self.adjust_scroll_to_cursor();
+                            self.reset_blink();
+                            ctx.request_repaint();
+                        }
+                        ctx.set_handled();
+                    }
+                    KeyCode::Enter => {
+                        self.insert_newline();
+                        self.notify_changed();
+                        self.preferred_col_cells = Some(0);
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Backspace => {
+                        self.backspace();
                         self.notify_changed();
                         self.preferred_col_cells = Some(self.cursor_cell_x());
                         self.adjust_scroll_to_cursor();
                         self.reset_blink();
                         ctx.request_repaint();
+                        ctx.set_handled();
                     }
-                    ctx.set_handled();
+                    KeyCode::Delete => {
+                        self.delete();
+                        self.notify_changed();
+                        self.preferred_col_cells = Some(self.cursor_cell_x());
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Left => {
+                        self.move_left();
+                        self.preferred_col_cells = Some(self.cursor_cell_x());
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Right => {
+                        self.move_right();
+                        self.preferred_col_cells = Some(self.cursor_cell_x());
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Up => {
+                        self.move_up();
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Down => {
+                        self.move_down();
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::Home => {
+                        self.move_cursor_to(self.cursor.row, 0);
+                        self.preferred_col_cells = Some(0);
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    KeyCode::End => {
+                        let end = self.lines[self.cursor.row].len();
+                        self.move_cursor_to(self.cursor.row, end);
+                        self.preferred_col_cells = Some(self.cursor_cell_x());
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    _ => {}
                 }
-                KeyCode::Enter => {
-                    self.insert_newline();
-                    self.notify_changed();
-                    self.preferred_col_cells = Some(0);
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Backspace => {
-                    self.backspace();
-                    self.notify_changed();
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Delete => {
-                    self.delete();
-                    self.notify_changed();
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Left => {
-                    self.move_left();
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Right => {
-                    self.move_right();
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Up => {
-                    self.move_up();
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Down => {
-                    self.move_down();
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::Home => {
-                    self.move_cursor_to(self.cursor.row, 0);
-                    self.preferred_col_cells = Some(0);
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                KeyCode::End => {
-                    let end = self.lines[self.cursor.row].len();
-                    self.move_cursor_to(self.cursor.row, end);
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
-                    self.adjust_scroll_to_cursor();
-                    self.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                _ => {}
-            },
+            }
             _ => {}
         }
     }
@@ -586,29 +913,43 @@ impl Widget for TextArea {
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
         let base_bg = base_style.bg.unwrap_or(fallback_bg);
 
-        let resolve_component_rich = |class: &str| -> rich_rs::Style {
+        let theme = self.active_theme();
+        let resolve_component_style = |class: &str| -> Style {
+            if let Some(theme) = theme {
+                let override_style = match class {
+                    "text-area--cursor" => theme.cursor_style,
+                    "text-area--cursor-line" => theme.cursor_line_style,
+                    "text-area--selection" => theme.selection_style,
+                    "text-area--gutter" => theme.gutter_style,
+                    "text-area--gutter-active" => theme.gutter_active_style,
+                    _ => Style::default(),
+                };
+                if !override_style.is_empty() {
+                    return override_style;
+                }
+            }
             let meta = crate::css::selector_meta_component(self.style_type(), &[class]);
-            let style = crate::css::resolve_style_for_meta(&meta);
-            let mut rich = style.to_rich_without_colors().unwrap_or_else(rich_rs::Style::new);
-            let mut under_bg = base_bg;
-
-            if let Some(bg) = style.bg {
-                let flat = bg.flatten_over(under_bg);
-                under_bg = flat;
-                rich = rich.with_bgcolor(flat.to_simple_opaque());
-            }
-            if let Some(fg) = style.fg {
-                let flat = fg.flatten_over(under_bg);
-                rich = rich.with_color(flat.to_simple_opaque());
-            }
-            rich
+            crate::css::resolve_style_for_meta(&meta)
         };
 
-        let cursor_style = resolve_component_rich("text-area--cursor");
-        let selection_style = resolve_component_rich("text-area--selection");
-        let gutter_style = resolve_component_rich("text-area--gutter");
-        let gutter_active_style = resolve_component_rich("text-area--gutter-active");
-        let cursor_line_style = resolve_component_rich("text-area--cursor-line");
+        let cursor_style = resolve_component_style("text-area--cursor");
+        let selection_style = resolve_component_style("text-area--selection");
+        let gutter_style = resolve_component_style("text-area--gutter");
+        let gutter_active_style = resolve_component_style("text-area--gutter-active");
+        let cursor_line_style = resolve_component_style("text-area--cursor-line");
+
+        let cursor_rich = compose_rich(&cursor_style, base_bg);
+        let selection_rich = compose_rich(&selection_style, base_bg);
+        let gutter_rich = compose_rich(&gutter_style, base_bg);
+        let gutter_active_rich = compose_rich(&gutter_active_style, base_bg);
+
+        let syntax_cache = {
+            let mut guard = self.syntax_cache.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.revision != self.doc_revision {
+                self.recompute_syntax_cache(&mut guard);
+            }
+            guard.clone()
+        };
 
         let (sel_a, sel_b) = normalized_selection(self.selection);
 
@@ -616,7 +957,7 @@ impl Widget for TextArea {
         for y in 0..height {
             let row = self.scroll_row + y;
             let is_cursor_line = self.focused && self.app_active && row == self.cursor.row;
-            let line_default_style = if is_cursor_line {
+            let line_bg_style = if is_cursor_line {
                 Some(cursor_line_style)
             } else {
                 None
@@ -626,11 +967,14 @@ impl Widget for TextArea {
                 let digits = gutter_w.saturating_sub(1).max(1);
                 let gutter_text = format!("{line_no:>digits$} ");
                 let style = if self.focused && row == self.cursor.row {
-                    gutter_active_style
+                    gutter_active_rich
                 } else {
-                    gutter_style
+                    gutter_rich
                 };
-                out.push(Segment::styled(rich_rs::set_cell_size(&gutter_text, gutter_w), style));
+                out.push(Segment::styled(
+                    rich_rs::set_cell_size(&gutter_text, gutter_w),
+                    style,
+                ));
             }
 
             if row >= self.lines.len() {
@@ -645,6 +989,7 @@ impl Widget for TextArea {
             let eol_in_sel = !self.selection.is_empty()
                 && cursor_le(sel_a, Cursor { row, col: line.len() })
                 && cursor_lt(Cursor { row, col: line.len() }, sel_b);
+            let line_abs_offset = syntax_cache.line_offsets.get(row).copied().unwrap_or(0);
             let start_cell = self.scroll_col;
             let mut cell_x = 0usize;
             let mut pending_style: Option<rich_rs::Style> = None;
@@ -683,11 +1028,28 @@ impl Widget for TextArea {
                     && cursor_le(sel_a, Cursor { row, col: byte_idx })
                     && cursor_lt(Cursor { row, col: byte_idx }, sel_b);
                 let style = if is_cursor {
-                    Some(cursor_style)
+                    Some(cursor_rich)
                 } else if in_sel {
-                    Some(selection_style)
+                    Some(selection_rich)
                 } else {
-                    line_default_style
+                    let abs = line_abs_offset.saturating_add(byte_idx);
+                    let mut syntax: Option<Style> = None;
+                    for span in &syntax_cache.spans {
+                        if abs >= span.start && abs < span.end {
+                            syntax = Some(span.style);
+                        }
+                    }
+                    let mut merged = syntax.unwrap_or_default();
+                    if let Some(bg) = line_bg_style {
+                        if merged.bg.is_none() {
+                            merged.bg = bg.bg;
+                        }
+                    }
+                    if merged.is_empty() {
+                        None
+                    } else {
+                        Some(compose_rich(&merged, base_bg))
+                    }
                 };
 
                 let style_changed = match (&pending_style, &style) {
@@ -715,7 +1077,7 @@ impl Widget for TextArea {
             if self.focused && self.cursor_visible && row == self.cursor.row {
                 let end_cell = cell_len_prefix(line, line.len());
                 if self.cursor.col == line.len() && end_cell >= start_cell && cell_x < text_w {
-                    out.push(Segment::styled(" ".to_string(), cursor_style));
+                    out.push(Segment::styled(" ".to_string(), cursor_rich));
                     cell_x += 1;
                 }
             }
@@ -723,9 +1085,13 @@ impl Widget for TextArea {
             if cell_x < text_w {
                 let pad = " ".repeat(text_w - cell_x);
                 if eol_in_sel {
-                    out.push(Segment::styled(pad, selection_style));
-                } else if let Some(style) = line_default_style {
-                    out.push(Segment::styled(pad, style));
+                    out.push(Segment::styled(pad, selection_rich));
+                } else if let Some(bg) = line_bg_style {
+                    if bg.is_empty() {
+                        out.push(Segment::new(pad));
+                    } else {
+                        out.push(Segment::styled(pad, compose_rich(&bg, base_bg)));
+                    }
                 } else {
                     out.push(Segment::new(pad));
                 }
@@ -760,6 +1126,21 @@ impl Widget for TextArea {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+}
+
+fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
+    let mut rich = style.to_rich_without_colors().unwrap_or_else(rich_rs::Style::new);
+    let mut under_bg = base_bg;
+    if let Some(bg) = style.bg {
+        let flat = bg.flatten_over(under_bg);
+        under_bg = flat;
+        rich = rich.with_bgcolor(flat.to_simple_opaque());
+    }
+    if let Some(fg) = style.fg {
+        let flat = fg.flatten_over(under_bg);
+        rich = rich.with_color(flat.to_simple_opaque());
+    }
+    rich
 }
 
 fn split_lines(text: String) -> Vec<String> {

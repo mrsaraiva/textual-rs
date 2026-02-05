@@ -14,6 +14,9 @@ richtui-crossterm = { path = "../richtui/crates/richtui-crossterm" }
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }
 thiserror = "2.0"
 unicode-width = "0.2"
+tree-sitter = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-java = "0.23"
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }
