@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use rich_rs::{Console, ConsoleOptions, Segments, Text};
 use textual::prelude::*;
 
 /// Mirrors Python Textual's `docs/examples/widgets/input_validation.py`.
@@ -89,53 +88,4 @@ impl Validator for Palindrome {
 
 fn is_palindrome(value: &str) -> bool {
     value.chars().eq(value.chars().rev())
-}
-
-struct Pretty {
-    id: WidgetId,
-    values: Arc<Mutex<Vec<String>>>,
-    styles: WidgetStyles,
-}
-
-impl Pretty {
-    fn new(values: Arc<Mutex<Vec<String>>>) -> Self {
-        Self {
-            id: WidgetId::new(),
-            values,
-            styles: WidgetStyles::default(),
-        }
-    }
-}
-
-impl Widget for Pretty {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Pretty"
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let values = self.values.lock().unwrap_or_else(|e| e.into_inner());
-        let rendered = if values.is_empty() {
-            "[]".to_string()
-        } else {
-            format!("{values:#?}")
-        };
-        rich_rs::Renderable::render(
-            &Text::plain(rich_rs::set_cell_size(&rendered, width)),
-            console,
-            options,
-        )
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
-    }
 }

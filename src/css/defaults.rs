@@ -19,6 +19,8 @@ Input {
 }
 
 Input:focus { border: tall $border; background-tint: $foreground 5%; }
+Input.-invalid { border: tall $error; }
+Input.-invalid:focus { border: tall $error; }
 Input:disabled { dim: true; }
 Input > .input--cursor { bg: $input-cursor-background; fg: $input-cursor-foreground; }
 Input > .input--selection { bg: $input-selection-background; }
