@@ -1,6 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
@@ -53,8 +54,7 @@ pub struct Input {
     on_change: Option<Arc<dyn Fn(&mut Input) + Send + Sync>>,
     mouse_down: bool,
     cursor_visible: bool,
-    cursor_blink_next: u64,
-    last_tick: u64,
+    cursor_blink_next_at: Option<Instant>,
     user_classes: Vec<String>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
@@ -62,7 +62,13 @@ pub struct Input {
 }
 
 impl Input {
-    const CURSOR_BLINK_TICKS: u64 = 5; // tick_rate is 100ms => 500ms blink
+    // Python Textual uses `set_interval(0.5, ...)` for cursor blink.
+    const CURSOR_BLINK_PERIOD: Duration = Duration::from_millis(500);
+
+    fn next_blink_deadline() -> Instant {
+        let now = Instant::now();
+        now.checked_add(Self::CURSOR_BLINK_PERIOD).unwrap_or(now)
+    }
 
     pub fn new() -> Self {
         let mut out = Self {
@@ -78,8 +84,7 @@ impl Input {
             on_change: None,
             mouse_down: false,
             cursor_visible: false,
-            cursor_blink_next: Self::CURSOR_BLINK_TICKS.saturating_sub(1),
-            last_tick: 0,
+            cursor_blink_next_at: None,
             user_classes: Vec::new(),
             classes: Vec::new(),
             focused_classes: Vec::new(),
@@ -263,12 +268,11 @@ impl Widget for Input {
         if !focused {
             self.mouse_down = false;
             self.cursor_visible = false;
+            self.cursor_blink_next_at = None;
             return;
         }
         self.cursor_visible = true;
-        self.cursor_blink_next = self
-            .last_tick
-            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
     }
 
     fn has_focus(&self) -> bool {
@@ -304,9 +308,7 @@ impl Widget for Input {
                 self.selection = Selection::cursor(self.cursor);
                 self.mouse_down = true;
                 self.cursor_visible = true;
-                self.cursor_blink_next = self
-                    .last_tick
-                    .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -317,10 +319,18 @@ impl Widget for Input {
                 }
             }
             Event::Tick(tick) => {
-                self.last_tick = *tick;
-                if self.focused && *tick >= self.cursor_blink_next {
+                let _ = tick;
+                if !self.focused {
+                    return;
+                }
+                let Some(next_at) = self.cursor_blink_next_at else {
+                    return;
+                };
+                let now = Instant::now();
+                if now >= next_at {
                     self.cursor_visible = !self.cursor_visible;
-                    self.cursor_blink_next = tick.saturating_add(Self::CURSOR_BLINK_TICKS);
+                    self.cursor_blink_next_at =
+                        now.checked_add(Self::CURSOR_BLINK_PERIOD).or(Some(now));
                     ctx.request_repaint();
                 }
             }
@@ -333,9 +343,7 @@ impl Widget for Input {
                         self.revalidate();
                         self.notify_changed();
                         self.cursor_visible = true;
-                        self.cursor_blink_next = self
-                            .last_tick
-                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                         ctx.request_repaint();
                     }
                     ctx.set_handled();
@@ -354,9 +362,7 @@ impl Widget for Input {
                         self.revalidate();
                         self.notify_changed();
                         self.cursor_visible = true;
-                        self.cursor_blink_next = self
-                            .last_tick
-                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -373,9 +379,7 @@ impl Widget for Input {
                         self.revalidate();
                         self.notify_changed();
                         self.cursor_visible = true;
-                        self.cursor_blink_next = self
-                            .last_tick
-                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -389,9 +393,7 @@ impl Widget for Input {
                             .unwrap_or(0);
                         self.selection = Selection::cursor(self.cursor);
                         self.cursor_visible = true;
-                        self.cursor_blink_next = self
-                            .last_tick
-                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -405,9 +407,7 @@ impl Widget for Input {
                             .unwrap_or(self.text.len());
                         self.selection = Selection::cursor(self.cursor);
                         self.cursor_visible = true;
-                        self.cursor_blink_next = self
-                            .last_tick
-                            .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -416,9 +416,7 @@ impl Widget for Input {
                     self.cursor = 0;
                     self.selection = Selection::cursor(self.cursor);
                     self.cursor_visible = true;
-                    self.cursor_blink_next = self
-                        .last_tick
-                        .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                    self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
@@ -426,9 +424,7 @@ impl Widget for Input {
                     self.cursor = self.text.len();
                     self.selection = Selection::cursor(self.cursor);
                     self.cursor_visible = true;
-                    self.cursor_blink_next = self
-                        .last_tick
-                        .saturating_add(Self::CURSOR_BLINK_TICKS.saturating_sub(1));
+                    self.cursor_blink_next_at = Some(Self::next_blink_deadline());
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
