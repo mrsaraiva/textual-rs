@@ -1060,8 +1060,8 @@ impl Widget for AppRoot {
             }
             return;
         }
-        if let Event::MouseDown(target, _, _) = event {
-            let _ = self.focus(*target);
+        if let Event::MouseDown(mouse) = event {
+            let _ = self.focus(mouse.target);
         }
         if let Event::Action(action) = event {
             match action {

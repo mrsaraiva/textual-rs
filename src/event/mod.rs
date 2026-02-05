@@ -2,12 +2,32 @@ use crate::widget::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseDownEvent {
+    pub target: WidgetId,
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates (origin at widget content top-left).
+    pub x: u16,
+    pub y: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseUpEvent {
+    pub target: Option<WidgetId>,
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates (origin at widget content top-left of `target`, if any).
+    pub x: u16,
+    pub y: u16,
+}
+
 #[derive(Debug, Clone)]
 pub enum Event {
     Key(KeyEvent),
     Action(Action),
-    MouseDown(WidgetId, u16, u16),
-    MouseUp(Option<WidgetId>, u16, u16),
+    MouseDown(MouseDownEvent),
+    MouseUp(MouseUpEvent),
     Tick(u64),
     Resize(u16, u16),
 }

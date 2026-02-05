@@ -1,4 +1,111 @@
-pub use rich_rs::SimpleColor as Color;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Color {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub fn with_alpha(self, alpha: f32) -> Self {
+        let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+        Self { a, ..self }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        if value.is_empty() {
+            return None;
+        }
+
+        // rgba(r,g,b,a)
+        if let Some(args) = value
+            .strip_prefix("rgba(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let parts: Vec<&str> = args.split(',').map(|p| p.trim()).collect();
+            if parts.len() == 4 {
+                let r: u8 = parts[0].parse().ok()?;
+                let g: u8 = parts[1].parse().ok()?;
+                let b: u8 = parts[2].parse().ok()?;
+                let a_f: f32 = parts[3].parse().ok()?;
+                return Some(Color::rgba(
+                    r,
+                    g,
+                    b,
+                    (a_f.clamp(0.0, 1.0) * 255.0).round() as u8,
+                ));
+            }
+        }
+
+        // Try rich-rs parsing (named colors, #RRGGBB, etc.).
+        if let Some(color) = rich_rs::SimpleColor::parse(value) {
+            return Some(color_from_simple(color));
+        }
+
+        // Hex with alpha: #RRGGBBAA
+        if let Some(hex) = value.strip_prefix('#') {
+            if hex.len() == 8 {
+                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+                let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+                return Some(Self::rgba(r, g, b, a));
+            }
+        }
+
+        None
+    }
+
+    pub fn to_simple_opaque(self) -> rich_rs::SimpleColor {
+        rich_rs::SimpleColor::Rgb {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+        }
+    }
+
+    pub fn flatten_over(self, under: Color) -> Color {
+        if self.a == 255 {
+            return Color::rgb(self.r, self.g, self.b);
+        }
+        if self.a == 0 {
+            return Color::rgb(under.r, under.g, under.b);
+        }
+        let oa = self.a as u32;
+        let inv = 255u32 - oa;
+        let mix =
+            |o: u8, u: u8| -> u8 { (((o as u32) * oa + (u as u32) * inv) / 255u32).min(255) as u8 };
+        Color::rgb(
+            mix(self.r, under.r),
+            mix(self.g, under.g),
+            mix(self.b, under.b),
+        )
+    }
+}
+
+pub(crate) fn color_from_simple(color: rich_rs::SimpleColor) -> Color {
+    match color {
+        rich_rs::SimpleColor::Rgb { r, g, b } => Color::rgb(r, g, b),
+        other => {
+            // Convert indexed colors via their palette hex.
+            let hex = other.get_hex();
+            if let Some(rich_rs::SimpleColor::Rgb { r, g, b }) = rich_rs::SimpleColor::parse(&hex) {
+                Color::rgb(r, g, b)
+            } else {
+                Color::rgb(255, 255, 255)
+            }
+        }
+    }
+}
 
 pub fn parse_color_like(value: &str) -> Option<Color> {
     // Fast path: try rich-rs simple color parsing.
@@ -51,18 +158,13 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
             blend(base, boost, 0.04)
         };
         m.insert("panel", panel);
-        // Textual's `$block-hover-background`: boost.with_alpha(0.1), where boost is
-        // contrast_text(background).with_alpha(0.04).  Since we lack true alpha, we
-        // approximate by blending the contrast text onto the background at 10%.
-        let block_hover_bg = {
-            let background = m.get("background").copied().unwrap();
-            let ct = contrast_text(background);
-            blend(background, ct, 0.10)
-        };
-        m.insert("block-hover-background", block_hover_bg);
-        // Textual's datatable--header-hover: `$accent 30%` — accent blended onto panel bg.
-        let header_hover_bg = blend(panel, m.get("accent").copied().unwrap(), 0.30);
-        m.insert("header-hover-background", header_hover_bg);
+        // Textual's `$block-hover-background`: contrast text at 10% alpha, composed at render time.
+        let background = m.get("background").copied().unwrap();
+        let ct = contrast_text(background);
+        m.insert("block-hover-background", ct.with_alpha(0.10));
+        // Textual's datatable--header-hover: `$accent 30%` (alpha), composed at render time.
+        let accent = m.get("accent").copied().unwrap();
+        m.insert("header-hover-background", accent.with_alpha(0.30));
         // Minimal convenience aliases.
         m.insert("text", Color::parse("#e0e0e0").unwrap());
         m.insert("button-foreground", Color::parse("#e0e0e0").unwrap());
@@ -95,7 +197,7 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
     }
 
     // Derived text colors (Textual uses "auto" + alpha). We approximate by blending
-    // between the background and the contrast text color with the given alpha.
+    // between the background and the contrast text color with alpha at render time.
     if matches!(name, "text" | "text-muted" | "text-disabled") {
         let background = base.get("background").copied()?;
         let contrast = contrast_text(background);
@@ -105,7 +207,7 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
             "text-disabled" => 0.38,
             _ => 0.87,
         };
-        return Some(blend(background, contrast, alpha));
+        return Some(contrast.with_alpha(alpha));
     }
 
     None
@@ -131,33 +233,24 @@ fn parse_shade(name: &str) -> Option<(&str, ShadeKind, u8)> {
 }
 
 fn to_rgb(color: Color) -> (u8, u8, u8) {
-    match color {
-        Color::Rgb { r, g, b } => (r, g, b),
-        other => {
-            // Convert indexed colors via their palette hex.
-            let hex = other.get_hex();
-            match Color::parse(&hex) {
-                Some(Color::Rgb { r, g, b }) => (r, g, b),
-                _ => (255, 255, 255),
-            }
-        }
-    }
+    (color.r, color.g, color.b)
 }
 
 fn from_rgb(r: u8, g: u8, b: u8) -> Color {
-    Color::Rgb { r, g, b }
+    Color::rgb(r, g, b)
 }
 
 fn blend(a: Color, b: Color, t: f32) -> Color {
     let (ar, ag, ab) = to_rgb(a);
     let (br, bg, bb) = to_rgb(b);
+    let (aa, ba) = (a.a, b.a);
     let t = t.clamp(0.0, 1.0);
     let mix = |x: u8, y: u8| -> u8 {
         let xf = x as f32;
         let yf = y as f32;
         (xf + (yf - xf) * t).round().clamp(0.0, 255.0) as u8
     };
-    from_rgb(mix(ar, br), mix(ag, bg), mix(ab, bb))
+    Color::rgba(mix(ar, br), mix(ag, bg), mix(ab, bb), mix(aa, ba))
 }
 
 fn lighten_lab(color: Color, amount: f32) -> Color {
@@ -165,6 +258,7 @@ fn lighten_lab(color: Color, amount: f32) -> Color {
 }
 
 fn darken_lab(color: Color, amount: f32) -> Color {
+    let alpha = color.a;
     let (l, a, b) = rgb_to_lab(color);
     let mut l = l - amount * 100.0;
     if l < 0.0 {
@@ -172,7 +266,9 @@ fn darken_lab(color: Color, amount: f32) -> Color {
     } else if l > 100.0 {
         l = 100.0;
     }
-    lab_to_rgb(l, a, b)
+    let mut out = lab_to_rgb(l, a, b);
+    out.a = alpha;
+    out
 }
 
 fn contrast_text(color: Color) -> Color {
@@ -572,11 +668,34 @@ impl Style {
         }
         let mut style = rich_rs::Style::new();
         if let Some(fg) = self.fg {
-            style = style.with_color(fg);
+            style = style.with_color(fg.to_simple_opaque());
         }
         if let Some(bg) = self.bg {
-            style = style.with_bgcolor(bg);
+            style = style.with_bgcolor(bg.to_simple_opaque());
         }
+        if let Some(bold) = self.bold {
+            style = style.with_bold(bold);
+        }
+        if let Some(dim) = self.dim {
+            style = style.with_dim(dim);
+        }
+        if let Some(italic) = self.italic {
+            style = style.with_italic(italic);
+        }
+        if let Some(underline) = self.underline {
+            style = style.with_underline(underline);
+        }
+        if let Some(reverse) = self.reverse {
+            style.reverse = Some(reverse);
+        }
+        Some(style)
+    }
+
+    pub fn to_rich_without_colors(&self) -> Option<rich_rs::Style> {
+        if self.is_empty() {
+            return None;
+        }
+        let mut style = rich_rs::Style::new();
         if let Some(bold) = self.bold {
             style = style.with_bold(bold);
         }

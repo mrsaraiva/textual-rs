@@ -41,7 +41,7 @@ fn buttons_demo_default_button_has_background() {
     let expected = parse_color_like("$surface").expect("parse $surface");
     assert_eq!(
         style.bgcolor,
-        Some(expected),
+        Some(expected.to_simple_opaque()),
         "expected Default text cell to have bgcolor, got:\n{}",
         buf.debug_dump()
     );

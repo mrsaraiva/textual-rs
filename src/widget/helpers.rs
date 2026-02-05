@@ -290,18 +290,23 @@ pub(crate) fn apply_border_edges(
     }
 
     // Inner (widget) and outer (parent) backgrounds used for border blending.
-    let fallback_bg = parse_color_like("$background");
-    let inner_bg = style.bg.or(fallback_bg);
-    // If the parent doesn't specify a background, prefer the widget background as the
-    // "outer" background so block / tall borders don't create high-contrast bands.
-    // (Textual effectively blends with a base background even when parents don't set one.)
-    let outer_bg = parent_style.and_then(|s| s.bg).or(inner_bg).or(fallback_bg);
+    let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    let parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
+    let inner_bg = style
+        .bg
+        .map(|c| c.flatten_over(parent_bg))
+        .unwrap_or(parent_bg);
+    let outer_bg = parent_bg;
 
     let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, false, false);
     // Ensure the widget interior is fully painted with the widget style (at least background).
     // `split_and_crop_lines` may trim trailing whitespace, which would otherwise expose the
     // parent background and make the widget look "hollow".
-    lines = Segment::set_shape(&lines, inner_width.max(1), None, style.to_rich(), false);
+    let mut fill = rich_rs::Style::new().with_bgcolor(inner_bg.to_simple_opaque());
+    if let Some(fg) = style.fg {
+        fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
+    }
+    lines = Segment::set_shape(&lines, inner_width.max(1), None, Some(fill), false);
 
     let has_left = border_left.is_set();
     let has_right = border_right.is_set();
@@ -313,8 +318,8 @@ pub(crate) fn apply_border_edges(
         if has_left {
             row.push(border_side_segment(
                 border_left,
-                inner_bg,
-                outer_bg,
+                Some(inner_bg),
+                Some(outer_bg),
                 Side::Left,
             ));
         }
@@ -322,8 +327,8 @@ pub(crate) fn apply_border_edges(
         if has_right {
             row.push(border_side_segment(
                 border_right,
-                inner_bg,
-                outer_bg,
+                Some(inner_bg),
+                Some(outer_bg),
                 Side::Right,
             ));
         }
@@ -337,8 +342,8 @@ pub(crate) fn apply_border_edges(
             0,
             border_horizontal_row(
                 border_top,
-                inner_bg,
-                outer_bg,
+                Some(inner_bg),
+                Some(outer_bg),
                 full_width.max(1),
                 has_left,
                 has_right,
@@ -349,8 +354,8 @@ pub(crate) fn apply_border_edges(
     if border_bottom.is_set() {
         edged.push(border_horizontal_row(
             border_bottom,
-            inner_bg,
-            outer_bg,
+            Some(inner_bg),
+            Some(outer_bg),
             full_width.max(1),
             has_left,
             has_right,
@@ -441,12 +446,20 @@ fn border_inner_outer_styles(
     let border_color = edge
         .color()
         .unwrap_or_else(|| parse_color_like("$foreground").unwrap());
-    let border_style = rich_rs::Style::new().with_color(border_color);
+    let border_style = rich_rs::Style::new().with_color(border_color.to_simple_opaque());
     let inner = rich_rs::Style::new()
-        .with_bgcolor(inner_bg.unwrap_or_else(|| parse_color_like("$background").unwrap()))
+        .with_bgcolor(
+            inner_bg
+                .unwrap_or_else(|| parse_color_like("$background").unwrap())
+                .to_simple_opaque(),
+        )
         .combine(&border_style);
     let outer = rich_rs::Style::new()
-        .with_bgcolor(outer_bg.unwrap_or_else(|| parse_color_like("$background").unwrap()))
+        .with_bgcolor(
+            outer_bg
+                .unwrap_or_else(|| parse_color_like("$background").unwrap())
+                .to_simple_opaque(),
+        )
         .combine(&border_style);
     (inner, outer)
 }

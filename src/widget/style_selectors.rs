@@ -2,8 +2,8 @@ use std::cell::RefCell;
 
 use rich_rs::{MetaValue, Segments};
 
-use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
 use crate::debug::debug_style;
+use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
 
 use super::{Widget, WidgetId};
 
@@ -183,9 +183,7 @@ impl StyleSheet {
         for (_, _, style) in matches {
             out = out.combine(&style);
         }
-        if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok()
-            && meta.type_name == "VerticalScroll"
-        {
+        if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok() && meta.type_name == "VerticalScroll" {
             let stack = SELECTOR_STACK.with(|stack| {
                 stack
                     .borrow()
@@ -195,11 +193,7 @@ impl StyleSheet {
             });
             debug_style(&format!(
                 "[style] resolved widget={} stack={:?} width=({:?},{:?}) width_auto={:?}",
-                meta.type_name,
-                stack,
-                out.min_width,
-                out.max_width,
-                out.width_auto
+                meta.type_name, stack, out.min_width, out.max_width, out.width_auto
             ));
         }
         out
@@ -231,19 +225,18 @@ impl StyleSheet {
     }
 }
 
-pub struct StyleContextGuard;
+pub struct StyleContextGuard(Option<StyleSheet>);
 
 pub fn set_style_context(stylesheet: StyleSheet) -> StyleContextGuard {
-    STYLE_CONTEXT.with(|ctx| {
-        *ctx.borrow_mut() = Some(stylesheet);
-    });
-    StyleContextGuard
+    let prev = STYLE_CONTEXT.with(|ctx| ctx.borrow_mut().replace(stylesheet));
+    StyleContextGuard(prev)
 }
 
 impl Drop for StyleContextGuard {
     fn drop(&mut self) {
+        let prev = self.0.take();
         STYLE_CONTEXT.with(|ctx| {
-            *ctx.borrow_mut() = None;
+            *ctx.borrow_mut() = prev;
         });
     }
 }
@@ -317,11 +310,14 @@ pub(crate) fn apply_style_to_segments(
     widget_id: WidgetId,
     segments: Segments,
     style: Style,
+    parent_style: Option<Style>,
 ) -> Segments {
     if style.is_empty() {
         return segments;
     }
-    let rich_style = style.to_rich();
+    let rich_attrs = style.to_rich_without_colors();
+    let fallback_bg = crate::style::parse_color_like("$background");
+    let parent_bg = parent_style.and_then(|s| s.bg).or(fallback_bg);
     segments
         .into_iter()
         .map(|mut seg| {
@@ -340,35 +336,68 @@ pub(crate) fn apply_style_to_segments(
                 }
             }
 
-            let mut rich_style = rich_style;
+            let rich_attrs = rich_attrs;
             if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
                 if let Some(MetaValue::Bool(true)) = meta.get("textual:no_style") {
                     return seg;
                 }
                 if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
-                    if let Some(mut style) = rich_style {
-                        style.bgcolor = None;
-                        rich_style = Some(style);
-                    }
+                    // We'll clear bgcolor after composing below.
                 }
             }
-            if let Some(rich_style) = rich_style {
+            if let Some(rich_attrs) = rich_attrs {
                 seg.style = Some(match seg.style {
-                    Some(existing) => rich_style.combine(&existing),
-                    None => rich_style,
+                    Some(existing) => rich_attrs.combine(&existing),
+                    None => rich_attrs,
                 });
             }
             if let Some(mut s) = seg.style {
+                let mut no_bg = false;
+                if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
+                    if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
+                        no_bg = true;
+                    }
+                }
+
+                let mut under_bg = s
+                    .bgcolor
+                    .map(crate::style::color_from_simple)
+                    .or(parent_bg)
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+
+                if !no_bg {
+                    if let Some(bg) = style.bg {
+                        let flat = bg.flatten_over(under_bg);
+                        under_bg = flat;
+                        s.bgcolor = Some(flat.to_simple_opaque());
+                    }
+                } else {
+                    s.bgcolor = None;
+                }
+
+                if let Some(fg) = style.fg {
+                    let bg_for_text = s
+                        .bgcolor
+                        .map(crate::style::color_from_simple)
+                        .unwrap_or(under_bg);
+                    let flat = fg.flatten_over(bg_for_text);
+                    s.color = Some(flat.to_simple_opaque());
+                }
+
                 if let Some(tint) = style.background_tint {
                     if let Some(bg) = s.bgcolor {
-                        s.bgcolor = Some(crate::style::blend_colors(bg, tint.color, tint.percent));
-                    } else {
-                        s.bgcolor = Some(tint.color);
+                        let bg = crate::style::color_from_simple(bg);
+                        let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                        let flat = blended.flatten_over(under_bg);
+                        under_bg = flat;
+                        s.bgcolor = Some(flat.to_simple_opaque());
                     }
                 }
                 if let Some(tint) = style.tint {
                     if let Some(bg) = s.bgcolor {
-                        s.bgcolor = Some(crate::style::blend_colors(bg, tint.color, tint.percent));
+                        let bg = crate::style::color_from_simple(bg);
+                        let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                        s.bgcolor = Some(blended.to_simple_opaque());
                     }
                 }
                 seg.style = Some(s);

@@ -1,13 +1,14 @@
 use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{PointerShape, Size, TerminalDriver};
-use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
+use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::widget::{StyleSheet, Widget, WidgetId, set_style_context};
+use crate::widget::{StyleSheet, Widget, WidgetId, border_spacing_from_style, set_style_context};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -15,11 +16,109 @@ use std::time::{Duration, Instant};
 const SYNC_START: &str = "\x1b[?2026h";
 const SYNC_END: &str = "\x1b[?2026l";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Rect {
+    x0: u16,
+    y0: u16,
+    x1: u16,
+    y1: u16,
+}
+
+#[derive(Debug, Default, Clone)]
+struct HitTestMap {
+    bounds: HashMap<WidgetId, Rect>,
+}
+
+impl HitTestMap {
+    fn from_frame(frame: &FrameBuffer) -> Self {
+        let mut out = HitTestMap::default();
+        for y in 0..frame.height {
+            for x in 0..frame.width {
+                let cell = frame.get(x, y);
+                let Some(meta) = cell.meta.as_ref() else {
+                    continue;
+                };
+                let Some(map) = meta.meta.as_ref() else {
+                    continue;
+                };
+                let Some(MetaValue::Int(id)) = map.get("textual:widget_id") else {
+                    continue;
+                };
+                if *id < 0 {
+                    continue;
+                }
+                let wid = WidgetId::from_u64(*id as u64);
+                let xu = x as u16;
+                let yu = y as u16;
+                out.bounds
+                    .entry(wid)
+                    .and_modify(|r| {
+                        r.x0 = r.x0.min(xu);
+                        r.y0 = r.y0.min(yu);
+                        r.x1 = r.x1.max(xu);
+                        r.y1 = r.y1.max(yu);
+                    })
+                    .or_insert(Rect {
+                        x0: xu,
+                        y0: yu,
+                        x1: xu,
+                        y1: yu,
+                    });
+            }
+        }
+        out
+    }
+
+    fn rect(&self, id: WidgetId) -> Option<Rect> {
+        self.bounds.get(&id).copied()
+    }
+
+    fn content_local_coords(
+        &self,
+        root: &mut dyn Widget,
+        target: WidgetId,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> (u16, u16) {
+        let Some(rect) = self.rect(target) else {
+            return (0, 0);
+        };
+
+        let mut insets: Option<(u16, u16)> = None;
+        fn visit(w: &mut dyn Widget, id: WidgetId, out: &mut Option<(u16, u16)>) {
+            if out.is_some() {
+                return;
+            }
+            if w.id() == id {
+                let meta = crate::widget::selector_meta_generic(w);
+                let resolved = crate::widget::resolve_style(w, &meta);
+                let line_pad = resolved.line_pad.unwrap_or(0);
+                let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
+                let inset_x = left.saturating_add(line_pad) as u16;
+                let inset_y = top as u16;
+                *out = Some((inset_x, inset_y));
+                return;
+            }
+            w.visit_children_mut(&mut |child| visit(child, id, out));
+        }
+        visit(root, target, &mut insets);
+        let (inset_x, inset_y) = insets.unwrap_or((0, 0));
+
+        let origin_x = rect.x0.saturating_add(inset_x);
+        let origin_y = rect.y0.saturating_add(inset_y);
+        (
+            screen_x.saturating_sub(origin_x),
+            screen_y.saturating_sub(origin_y),
+        )
+    }
+}
+
 pub struct App {
     driver: TerminalDriver,
     console: Console,
     options: ConsoleOptions,
     frame: FrameBuffer,
+    hit_test: HitTestMap,
     debug_layout: DebugLayout,
     action_map: ActionMap,
     theme: Theme,
@@ -60,6 +159,7 @@ impl App {
             console,
             options,
             frame,
+            hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
             theme: Theme::default(),
@@ -188,7 +288,7 @@ impl App {
         Ok(())
     }
 
-    pub fn render_widget(&mut self, widget: &dyn Widget) -> Result<()> {
+    pub fn render_widget(&mut self, widget: &mut dyn Widget) -> Result<()> {
         self.refresh_size()?;
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
@@ -234,8 +334,31 @@ impl App {
         ));
         self.resized_since_last_render = false;
         self.print_segments(&diff)?;
+        self.hit_test = HitTestMap::from_frame(&next);
+        self.apply_layout_info(widget);
         self.frame = next;
         Ok(())
+    }
+
+    fn apply_layout_info(&self, root: &mut dyn Widget) {
+        fn visit(w: &mut dyn Widget, hit_test: &HitTestMap) {
+            if let Some(rect) = hit_test.rect(w.id()) {
+                let meta = crate::widget::selector_meta_generic(w);
+                let resolved = crate::widget::resolve_style(w, &meta);
+                let line_pad = resolved.line_pad.unwrap_or(0);
+                let (top, bottom, left, right) = border_spacing_from_style(&resolved);
+                let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
+                let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
+                let content_w = full_w
+                    .saturating_sub(left + right)
+                    .saturating_sub(line_pad.saturating_mul(2))
+                    .max(1) as u16;
+                let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
+                w.on_layout(content_w, content_h);
+            }
+            w.visit_children_mut(&mut |child| visit(child, hit_test));
+        }
+        visit(root, &self.hit_test);
     }
 
     pub fn stop(&mut self) {
@@ -315,11 +438,15 @@ impl App {
 
         let mut tick: u64 = 0;
         let tick_rate = Duration::from_millis(100);
+        self.render_widget(root)?;
         let mut last_render = Instant::now();
 
         loop {
             let timeout = tick_rate.saturating_sub(last_render.elapsed());
             if event::poll(timeout)? {
+                let mut sheet = self.default_stylesheet.clone();
+                sheet.extend(&self.stylesheet);
+                let _guard = set_style_context(sheet);
                 match event::read()? {
                     CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
                         if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
@@ -347,11 +474,26 @@ impl App {
                                 self.hovered.map(|id| id.as_u64())
                             ));
                             if let Some(target) = self.widget_at(mouse.column, mouse.row) {
+                                let (x, y) = self.hit_test.content_local_coords(
+                                    root,
+                                    target,
+                                    mouse.column,
+                                    mouse.row,
+                                );
                                 debug_input(&format!(
                                     "[input] mouse target id={}",
                                     target.as_u64()
                                 ));
-                                dispatch_event(root, Event::MouseDown(target, mouse.column, mouse.row));
+                                dispatch_event(
+                                    root,
+                                    Event::MouseDown(MouseDownEvent {
+                                        target,
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x,
+                                        y,
+                                    }),
+                                );
                                 // Provide immediate feedback for `:active` styles.
                                 self.render_widget(root)?;
                                 last_render = Instant::now();
@@ -359,7 +501,26 @@ impl App {
                         }
                         MouseEventKind::Up(_) => {
                             let target = self.widget_at(mouse.column, mouse.row);
-                            dispatch_event(root, Event::MouseUp(target, mouse.column, mouse.row));
+                            let (x, y) = target
+                                .map(|id| {
+                                    self.hit_test.content_local_coords(
+                                        root,
+                                        id,
+                                        mouse.column,
+                                        mouse.row,
+                                    )
+                                })
+                                .unwrap_or((0, 0));
+                            dispatch_event(
+                                root,
+                                Event::MouseUp(MouseUpEvent {
+                                    target,
+                                    screen_x: mouse.column,
+                                    screen_y: mouse.row,
+                                    x,
+                                    y,
+                                }),
+                            );
                             // Provide immediate feedback for `:active` styles.
                             self.render_widget(root)?;
                             last_render = Instant::now();
@@ -379,6 +540,9 @@ impl App {
             }
 
             if last_render.elapsed() >= tick_rate {
+                let mut sheet = self.default_stylesheet.clone();
+                sheet.extend(&self.stylesheet);
+                let _guard = set_style_context(sheet);
                 self.poll_stylesheet();
                 root.on_tick(tick);
                 dispatch_event(root, Event::Tick(tick));
@@ -418,25 +582,24 @@ impl App {
                 _ => None,
             });
 
-        if hovered != self.hovered {
+        let hovered_changed = hovered != self.hovered;
+        if hovered_changed {
             self.hovered = hovered;
             crate::widget::set_hover_by_id(root, self.hovered);
             let shape = pointer_shape_for_hover(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
-            if let Some(id) = self.hovered {
-                call_on_mouse_move(root, id, x as u16, y as u16);
-            }
-            return true;
         }
 
-        // Even if the hovered widget hasn't changed, forward updated coordinates
-        // so widgets can track intra-widget mouse position (e.g. hover row).
+        // Forward updated coordinates so widgets can track intra-widget mouse position.
+        let mut moved_changed = false;
         if let Some(id) = self.hovered {
-            call_on_mouse_move(root, id, x as u16, y as u16);
-            return true;
+            let (lx, ly) = self
+                .hit_test
+                .content_local_coords(root, id, x as u16, y as u16);
+            moved_changed = call_on_mouse_move(root, id, lx, ly);
         }
 
-        false
+        hovered_changed || moved_changed
     }
 
     fn set_pointer_shape(&mut self, shape: PointerShape) -> Result<()> {
@@ -525,20 +688,21 @@ impl App {
     }
 }
 
-fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) {
-    fn visit(w: &mut dyn Widget, id: WidgetId, x: u16, y: u16, found: &mut bool) {
-        if *found {
+fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) -> bool {
+    fn visit(w: &mut dyn Widget, id: WidgetId, x: u16, y: u16, out: &mut Option<bool>) {
+        if out.is_some() {
             return;
         }
         if w.id() == id {
-            w.on_mouse_move(x, y);
-            *found = true;
+            *out = Some(w.on_mouse_move(x, y));
             return;
         }
-        w.visit_children_mut(&mut |child| visit(child, id, x, y, found));
+        w.visit_children_mut(&mut |child| visit(child, id, x, y, out));
     }
-    let mut found = false;
-    visit(root, target, x, y, &mut found);
+
+    let mut out: Option<bool> = None;
+    visit(root, target, x, y, &mut out);
+    out.unwrap_or(false)
 }
 
 fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> PointerShape {
@@ -623,6 +787,45 @@ mod tests {
         .unwrap();
         let out = console.get_captured_bytes();
         assert_eq!(out, b"PAYLOAD");
+    }
+
+    #[test]
+    fn hit_test_translates_screen_to_widget_local_coords() {
+        use crate::widget::{
+            AppRoot, DataTable, Panel, WidgetRenderable, default_widget_stylesheet,
+        };
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (20, 6);
+        options.max_width = 20;
+        options.max_height = 6;
+
+        let table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        let table_id = table.id();
+        let panel = Panel::new(table);
+        let mut root = AppRoot::new().with_child(panel);
+
+        let sheet = default_widget_stylesheet();
+        let _guard = set_style_context(sheet);
+        let renderable = WidgetRenderable::new(&root);
+        let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+
+        let hit_test = HitTestMap::from_frame(&buf);
+        let rect = hit_test.rect(table_id).expect("table bounds missing");
+        assert!(
+            rect.x0 > 0 || rect.y0 > 0,
+            "table should not start at origin"
+        );
+
+        let (lx, ly) = hit_test.content_local_coords(&mut root, table_id, rect.x0, rect.y0);
+        assert_eq!((lx, ly), (0, 0));
     }
 }
 

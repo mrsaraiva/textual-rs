@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use super::style_selectors;
 use crate::debug::debug_input;
 use crate::event::{Action, Event, EventCtx};
-use crate::style::parse_color_like;
+use crate::style::{Color, parse_color_like};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
@@ -234,7 +234,7 @@ impl Widget for Button {
             return;
         }
         match event {
-            Event::MouseDown(target, _, _) if *target == self.id => {
+            Event::MouseDown(mouse) if mouse.target == self.id => {
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
@@ -243,11 +243,11 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            Event::MouseUp(target, _, _) => {
+            Event::MouseUp(mouse) => {
                 if self.pressed == PressedState::Mouse {
                     self.pressed = PressedState::None;
                     // Activate only on click (mouse released while still over the button).
-                    if *target == Some(self.id) {
+                    if mouse.target == Some(self.id) {
                         if let Some(handler) = &self.on_press {
                             handler(self);
                         }
@@ -545,10 +545,13 @@ pub struct DataTable {
     id: WidgetId,
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
+    column_widths: Vec<usize>,
     selected: usize,
     offset: usize,
     cursor_column: usize,
     cursor_type: CursorType,
+    content_width: u16,
+    content_height: u16,
     focused: bool,
     hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
@@ -557,49 +560,56 @@ pub struct DataTable {
 
 impl DataTable {
     pub fn new(headers: Vec<String>, rows: Vec<Vec<String>>) -> Self {
-        Self {
+        let mut out = Self {
             id: WidgetId::new(),
             headers,
             rows,
+            column_widths: Vec::new(),
             selected: 0,
             offset: 0,
             cursor_column: 0,
             cursor_type: CursorType::Cell,
+            content_width: 0,
+            content_height: 0,
             focused: false,
             hovered: false,
             hover_coordinate: None,
             styles: WidgetStyles::default(),
-        }
+        };
+        out.recompute_column_widths();
+        out
     }
 
     /// Create an empty table (columns and rows added later).
     pub fn empty() -> Self {
-        Self {
-            id: WidgetId::new(),
-            headers: Vec::new(),
-            rows: Vec::new(),
-            selected: 0,
-            offset: 0,
-            cursor_column: 0,
-            cursor_type: CursorType::Cell,
-            focused: false,
-            hovered: false,
-            hover_coordinate: None,
-            styles: WidgetStyles::default(),
-        }
+        Self::default()
     }
 
-    pub fn add_columns(&mut self, columns: &[&str]) {
+    pub fn add_columns<I, S>(&mut self, columns: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: ToString,
+    {
         for col in columns {
-            self.headers.push((*col).to_string());
+            self.headers.push(col.to_string());
         }
+        self.recompute_column_widths();
     }
 
-    pub fn add_rows(&mut self, rows: &[&[&str]]) {
+    pub fn add_rows<I, R, S>(&mut self, rows: I)
+    where
+        I: IntoIterator<Item = R>,
+        R: AsRef<[S]>,
+        S: ToString,
+    {
         for row in rows {
             self.rows
-                .push(row.iter().map(|s| (*s).to_string()).collect());
+                .push(row.as_ref().iter().map(|s| s.to_string()).collect());
         }
+        if self.selected >= self.rows.len() {
+            self.selected = self.rows.len().saturating_sub(1);
+        }
+        self.recompute_column_widths();
     }
 
     pub fn selected(&self) -> usize {
@@ -620,8 +630,7 @@ impl DataTable {
         self
     }
 
-    /// Compute column widths (used by render and click-to-column).
-    fn column_widths(&self) -> Vec<usize> {
+    fn recompute_column_widths(&mut self) {
         let mut widths: Vec<usize> = self
             .headers
             .iter()
@@ -634,7 +643,12 @@ impl DataTable {
                 }
             }
         }
-        widths
+        self.column_widths = widths;
+    }
+
+    /// Return cached column widths (recomputed on mutation).
+    fn column_widths(&self) -> &[usize] {
+        &self.column_widths
     }
 
     /// Map an x coordinate to a column index, given column widths with 2-space gap.
@@ -660,6 +674,46 @@ impl DataTable {
         } else if self.selected >= self.offset + height {
             self.offset = self.selected + 1 - height;
         }
+    }
+
+    fn visible_rows(&self) -> usize {
+        self.content_height.saturating_sub(1) as usize
+    }
+
+    fn effective_offset(&self, visible_rows: usize) -> usize {
+        if self.rows.is_empty() || visible_rows == 0 {
+            return 0;
+        }
+        let mut offset = self.offset.min(self.rows.len().saturating_sub(1));
+        if self.selected < offset {
+            offset = self.selected;
+        } else if self.selected >= offset + visible_rows {
+            offset = self.selected + 1 - visible_rows;
+        }
+        offset
+    }
+}
+
+impl Default for DataTable {
+    fn default() -> Self {
+        let mut out = Self {
+            id: WidgetId::new(),
+            headers: Vec::new(),
+            rows: Vec::new(),
+            column_widths: Vec::new(),
+            selected: 0,
+            offset: 0,
+            cursor_column: 0,
+            cursor_type: CursorType::Cell,
+            content_width: 0,
+            content_height: 0,
+            focused: false,
+            hovered: false,
+            hover_coordinate: None,
+            styles: WidgetStyles::default(),
+        };
+        out.recompute_column_widths();
+        out
     }
 }
 
@@ -695,34 +749,58 @@ impl Widget for DataTable {
         }
     }
 
-    fn on_mouse_move(&mut self, x: u16, y: u16) {
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.content_width = width;
+        self.content_height = height;
+        self.ensure_visible(self.visible_rows());
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let widths = self.column_widths();
-        let col_idx = self.column_at_x(x as usize, &widths);
-        if y == 0 {
+        let col_idx = self.column_at_x(x as usize, widths);
+        let next = if y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
-            self.hover_coordinate = Some((usize::MAX, col_idx));
+            Some((usize::MAX, col_idx))
         } else {
-            let row_idx = (y as usize - 1) + self.offset;
+            let offset = self.effective_offset(self.visible_rows());
+            let row_idx = (y as usize - 1) + offset;
             if row_idx < self.rows.len() {
-                self.hover_coordinate = Some((row_idx, col_idx));
+                Some((row_idx, col_idx))
             } else {
-                self.hover_coordinate = None;
+                None
             }
-        }
+        };
+        let changed = next != self.hover_coordinate;
+        self.hover_coordinate = next;
+        changed
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let visible_rows = self.visible_rows();
+        let mut selection_changed = false;
+
         // Handle mouse events regardless of focus state.
         match event {
-            Event::MouseDown(target, x, y) if *target == self.id => {
-                let row_y = (*y as usize).saturating_sub(1);
-                let clicked = row_y + self.offset;
-                if clicked < self.rows.len() {
-                    self.selected = clicked;
-                    if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
-                        let widths = self.column_widths();
-                        self.cursor_column = self.column_at_x(*x as usize, &widths);
+            Event::MouseDown(mouse) if mouse.target == self.id => {
+                let widths = self.column_widths();
+                let clicked_col = self.column_at_x(mouse.x as usize, widths);
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                    self.cursor_column = clicked_col;
+                }
+
+                if mouse.y > 0 {
+                    let offset = self.effective_offset(visible_rows);
+                    let row_y = (mouse.y as usize) - 1;
+                    let clicked_row = row_y + offset;
+                    if clicked_row < self.rows.len() {
+                        if self.selected != clicked_row {
+                            self.selected = clicked_row;
+                            selection_changed = true;
+                        }
                     }
+                }
+                if selection_changed {
+                    self.ensure_visible(visible_rows);
                 }
                 ctx.set_handled();
                 return;
@@ -739,6 +817,7 @@ impl Widget for DataTable {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected > 0 {
                         self.selected -= 1;
+                        selection_changed = true;
                     }
                     handled = true;
                 }
@@ -747,6 +826,7 @@ impl Widget for DataTable {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected + 1 < self.rows.len() {
                         self.selected += 1;
+                        selection_changed = true;
                     }
                     handled = true;
                 }
@@ -772,6 +852,7 @@ impl Widget for DataTable {
                     if self.selected > 0 {
                         let step = 5.min(self.selected);
                         self.selected -= step;
+                        selection_changed = true;
                     }
                     handled = true;
                 }
@@ -781,6 +862,7 @@ impl Widget for DataTable {
                     if self.selected + 1 < self.rows.len() {
                         let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
                         self.selected += step;
+                        selection_changed = true;
                     }
                     handled = true;
                 }
@@ -790,6 +872,7 @@ impl Widget for DataTable {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                         if self.selected > 0 {
                             self.selected -= 1;
+                            selection_changed = true;
                         }
                         handled = true;
                     }
@@ -798,6 +881,7 @@ impl Widget for DataTable {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                         if self.selected + 1 < self.rows.len() {
                             self.selected += 1;
+                            selection_changed = true;
                         }
                         handled = true;
                     }
@@ -823,6 +907,7 @@ impl Widget for DataTable {
                         if self.selected > 0 {
                             let step = 5.min(self.selected);
                             self.selected -= step;
+                            selection_changed = true;
                         }
                         handled = true;
                     }
@@ -832,6 +917,7 @@ impl Widget for DataTable {
                         if self.selected + 1 < self.rows.len() {
                             let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
                             self.selected += step;
+                            selection_changed = true;
                         }
                         handled = true;
                     }
@@ -839,6 +925,9 @@ impl Widget for DataTable {
                 _ => {}
             },
             _ => {}
+        }
+        if selection_changed {
+            self.ensure_visible(visible_rows);
         }
         if handled {
             ctx.set_handled();
@@ -848,15 +937,15 @@ impl Widget for DataTable {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let mut view = self.clone();
-        view.ensure_visible(height.saturating_sub(1));
+        let visible_rows = height.saturating_sub(1);
+        let offset = self.effective_offset(visible_rows);
 
         let column_widths = self.column_widths();
         let cursor_type = self.cursor_type;
         let show_cursor = self.focused && cursor_type != CursorType::None;
 
         // Cursor and hover coordinates.
-        let cursor_coord = (view.selected, self.cursor_column);
+        let cursor_coord = (self.selected, self.cursor_column);
         let hover_coord = self.hover_coordinate;
 
         // Resolve theme colors.
@@ -866,25 +955,27 @@ impl Widget for DataTable {
         let hover_bg = parse_color_like("$block-hover-background");
         let header_hover_bg = parse_color_like("$header-hover-background");
 
-        let mut header_style = rich_rs::Style::new().with_bold(true);
-        if let Some(bg) = header_bg {
-            header_style = header_style.with_bgcolor(bg);
-        }
-        let mut normal_style = rich_rs::Style::new();
-        if let Some(bg) = row_bg {
-            normal_style = normal_style.with_bgcolor(bg);
-        }
+        let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
+        let header_base = header_bg.unwrap_or(fallback_bg);
+        let row_base = row_bg.unwrap_or(fallback_bg);
+        let hover_bg = hover_bg.map(|c| c.flatten_over(row_base));
+        let header_hover_bg = header_hover_bg.map(|c| c.flatten_over(header_base));
+
+        let header_style = rich_rs::Style::new()
+            .with_bold(true)
+            .with_bgcolor(header_base.to_simple_opaque());
+        let normal_style = rich_rs::Style::new().with_bgcolor(row_base.to_simple_opaque());
         let mut selected_style = rich_rs::Style::new().with_bold(true);
         if let Some(bg) = cursor_bg {
-            selected_style = selected_style.with_bgcolor(bg);
+            selected_style = selected_style.with_bgcolor(bg.to_simple_opaque());
         }
         let mut hover_style = rich_rs::Style::new();
         if let Some(bg) = hover_bg {
-            hover_style = hover_style.with_bgcolor(bg);
+            hover_style = hover_style.with_bgcolor(bg.to_simple_opaque());
         }
         let mut header_hover_style = rich_rs::Style::new().with_bold(true);
         if let Some(bg) = header_hover_bg {
-            header_hover_style = header_hover_style.with_bgcolor(bg);
+            header_hover_style = header_hover_style.with_bgcolor(bg.to_simple_opaque());
         }
 
         let mut out = Segments::new();
@@ -919,14 +1010,13 @@ impl Widget for DataTable {
         // Headers use usize::MAX as their row sentinel (mirroring Textual's row=-1).
         // Per-cell rendering is needed when cursor or hover could highlight individual
         // header cells (Column cursor always, Cell/Column hover when on the header row).
-        let header_needs_per_cell = (show_cursor
-            && matches!(cursor_type, CursorType::Column))
+        let header_needs_per_cell = (show_cursor && matches!(cursor_type, CursorType::Column))
             || (hover_coord.is_some() && cursor_type != CursorType::None);
 
         if header_needs_per_cell {
             emit_row_per_cell(
                 &self.headers,
-                &column_widths,
+                column_widths,
                 width,
                 |col_idx| {
                     let target = (usize::MAX, col_idx);
@@ -944,15 +1034,15 @@ impl Widget for DataTable {
                 &mut out,
             );
         } else {
-            let header_text = format_row_uniform(&self.headers, &column_widths, width);
+            let header_text = format_row_uniform(&self.headers, column_widths, width);
             out.push(Segment::styled(header_text, header_style));
         }
         out.push(Segment::line());
         let mut lines_used = 1usize;
 
         // Data rows.
-        for (idx, row) in view.rows.iter().enumerate() {
-            if idx < view.offset {
+        for (idx, row) in self.rows.iter().enumerate() {
+            if idx < offset {
                 continue;
             }
             if lines_used >= height {
@@ -977,13 +1067,12 @@ impl Widget for DataTable {
 
             let needs_per_cell = (row_has_cursor
                 && matches!(cursor_type, CursorType::Cell | CursorType::Column))
-                || (row_has_hover
-                    && matches!(cursor_type, CursorType::Cell | CursorType::Column));
+                || (row_has_hover && matches!(cursor_type, CursorType::Cell | CursorType::Column));
 
             if needs_per_cell {
                 emit_row_per_cell(
                     row,
-                    &column_widths,
+                    column_widths,
                     width,
                     |col_idx| {
                         let target = (idx, col_idx);
@@ -1002,8 +1091,7 @@ impl Widget for DataTable {
                 );
             } else {
                 // Uniform style for the whole row.
-                let style = if show_cursor
-                    && should_highlight(cursor_coord, (idx, 0), cursor_type)
+                let style = if show_cursor && should_highlight(cursor_coord, (idx, 0), cursor_type)
                 {
                     selected_style
                 } else if let Some(hc) = hover_coord {
@@ -1015,7 +1103,7 @@ impl Widget for DataTable {
                 } else {
                     normal_style
                 };
-                let row_text = format_row_uniform(row, &column_widths, width);
+                let row_text = format_row_uniform(row, column_widths, width);
                 out.push(Segment::styled(row_text, style));
             }
 
@@ -1046,6 +1134,79 @@ impl Widget for DataTable {
 impl Renderable for DataTable {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod data_table_tests {
+    use super::*;
+    use crate::event::MouseDownEvent;
+
+    #[test]
+    fn header_click_does_not_change_selected_row() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        table.selected = 1;
+        let id = table.id();
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(table.selected, 1);
+        assert_eq!(table.cursor_column, 0);
+    }
+
+    #[test]
+    fn mouse_move_sets_hover_coordinate_for_header_and_cells() {
+        let mut table = DataTable::new(
+            vec!["ABC".into(), "D".into()],
+            vec![
+                vec!["row0".into(), "x".into()],
+                vec!["row1".into(), "y".into()],
+            ],
+        );
+        table.set_hovered(true);
+
+        table.on_mouse_move(0, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+
+        table.on_mouse_move(4, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
+
+        table.on_mouse_move(0, 1);
+        assert_eq!(table.hover_coordinate, Some((0, 0)));
+
+        table.on_mouse_move(4, 2);
+        assert_eq!(table.hover_coordinate, Some((1, 1)));
+    }
+
+    #[test]
+    fn clearing_hover_resets_hover_coordinate() {
+        let mut table = DataTable::new(
+            vec!["A".into()],
+            vec![vec!["row0".into()], vec!["row1".into()]],
+        );
+        table.set_hovered(true);
+        table.on_mouse_move(0, 1);
+        assert_eq!(table.hover_coordinate, Some((0, 0)));
+
+        table.set_hovered(false);
+        assert_eq!(table.hover_coordinate, None);
     }
 }
 
