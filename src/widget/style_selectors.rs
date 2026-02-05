@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use rich_rs::{MetaValue, Segments};
 
 use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
+use crate::debug::debug_style;
 
 use super::{Widget, WidgetId};
 
@@ -162,12 +163,44 @@ impl StyleSheet {
         for (idx, rule) in self.rules.iter().enumerate() {
             if let Some(score) = rule_specificity(rule, meta) {
                 matches.push((score, idx, rule.style));
+                if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok()
+                    && meta.type_name == "VerticalScroll"
+                {
+                    debug_style(&format!(
+                        "[style] match widget={} selector=\"{}\" score={} width=({:?},{:?}) width_auto={:?}",
+                        meta.type_name,
+                        selector_chain_string(&rule.selector_chain),
+                        score,
+                        rule.style.min_width,
+                        rule.style.max_width,
+                        rule.style.width_auto
+                    ));
+                }
             }
         }
         matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         let mut out = Style::new();
         for (_, _, style) in matches {
             out = out.combine(&style);
+        }
+        if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok()
+            && meta.type_name == "VerticalScroll"
+        {
+            let stack = SELECTOR_STACK.with(|stack| {
+                stack
+                    .borrow()
+                    .iter()
+                    .map(|m| m.type_name.clone())
+                    .collect::<Vec<_>>()
+            });
+            debug_style(&format!(
+                "[style] resolved widget={} stack={:?} width=({:?},{:?}) width_auto={:?}",
+                meta.type_name,
+                stack,
+                out.min_width,
+                out.max_width,
+                out.width_auto
+            ));
         }
         out
     }
@@ -409,6 +442,40 @@ fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
         }
     }
     groups
+}
+
+fn selector_chain_string(chain: &SelectorChain) -> String {
+    let mut out = String::new();
+    for (idx, part) in chain.parts.iter().enumerate() {
+        if idx > 0 {
+            let comb = chain.combinators[idx - 1];
+            match comb {
+                Combinator::Child => out.push_str(" > "),
+                Combinator::Descendant => out.push(' '),
+            }
+        }
+        if let Some(name) = &part.type_name {
+            out.push_str(name);
+        }
+        for class in &part.classes {
+            out.push('.');
+            out.push_str(class);
+        }
+        if let Some(id) = &part.id {
+            out.push('#');
+            out.push_str(id);
+        }
+        for pseudo in &part.pseudos {
+            out.push(':');
+            match pseudo {
+                PseudoClass::Disabled => out.push_str("disabled"),
+                PseudoClass::Focus => out.push_str("focus"),
+                PseudoClass::Hover => out.push_str("hover"),
+                PseudoClass::Active => out.push_str("active"),
+            }
+        }
+    }
+    out
 }
 
 fn parse_selector(selector: &str) -> Option<StyleSelector> {

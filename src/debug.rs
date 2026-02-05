@@ -59,3 +59,14 @@ pub(crate) fn debug_layout(line: &str) {
         let _ = writeln!(file, "{line}");
     }
 }
+
+pub(crate) fn debug_style(line: &str) {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    let path = PATH.get_or_init(|| std::env::var("TEXTUAL_DEBUG_STYLE_FILE").ok());
+    let Some(path) = path.as_ref() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
