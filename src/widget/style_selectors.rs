@@ -391,7 +391,9 @@ fn rule_specificity(rule: &StyleRule, meta: &SelectorMeta) -> Option<u8> {
     }
 
     let stack_snapshot = SELECTOR_STACK.with(|stack| stack.borrow().clone());
-    let mut idx = stack_snapshot.len() as isize - 2;
+    // Selector stack contains ancestors only (the current widget meta is not pushed until after
+    // style resolution). For child combinators we need to start matching from the immediate parent.
+    let mut idx = stack_snapshot.len() as isize - 1;
     if idx < 0 {
         return None;
     }

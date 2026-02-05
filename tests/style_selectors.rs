@@ -36,7 +36,8 @@ fn child_selectors_match_direct_children_only() {
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
 
-    let row = Node::new(Row::new().with_child(Label::new("hi"))).class("panel");
+    // Direct child case: the `.panel` node is the immediate parent of the `Label`.
+    let row = Node::new(Label::new("hi")).class("panel");
     let renderable = WidgetRenderable::new(&row);
     let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
 
