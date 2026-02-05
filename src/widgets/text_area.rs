@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
+use crossterm::event::KeyModifiers;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 use unicode_width::UnicodeWidthChar;
@@ -96,6 +97,7 @@ pub struct TextArea {
     scroll_col: usize, // cell offset
     layout_w: u16,
     layout_h: u16,
+    layout_initialized: bool,
     preferred_col_cells: Option<usize>,
     mouse_down: bool,
     app_active: bool,
@@ -162,6 +164,7 @@ impl TextArea {
             scroll_col: 0,
             layout_w: 1,
             layout_h: 1,
+            layout_initialized: false,
             preferred_col_cells: None,
             mouse_down: false,
             app_active: true,
@@ -499,6 +502,40 @@ impl TextArea {
         byte_index_from_cell_x(line, cell_x)
     }
 
+    fn cursor_left_pos(&self, from: Cursor) -> Cursor {
+        if self.lines.is_empty() {
+            return from;
+        }
+        let row = from.row.min(self.lines.len().saturating_sub(1));
+        if from.col > 0 {
+            let line = &self.lines[row];
+            let col = prev_char_boundary(line, from.col);
+            Cursor { row, col }
+        } else if row > 0 {
+            let row = row - 1;
+            let col = self.lines[row].len();
+            Cursor { row, col }
+        } else {
+            Cursor { row, col: 0 }
+        }
+    }
+
+    fn cursor_right_pos(&self, from: Cursor) -> Cursor {
+        if self.lines.is_empty() {
+            return from;
+        }
+        let row = from.row.min(self.lines.len().saturating_sub(1));
+        let line_len = self.lines[row].len();
+        if from.col < line_len {
+            let next = next_char_boundary(&self.lines[row], from.col);
+            Cursor { row, col: next }
+        } else if row + 1 < self.lines.len() {
+            Cursor { row: row + 1, col: 0 }
+        } else {
+            Cursor { row, col: line_len }
+        }
+    }
+
     fn ensure_cursor_visible(&mut self, view_height: usize, view_width: usize) {
         self.scroll_row = self.scroll_row.min(self.cursor.row);
         if self.cursor.row >= self.scroll_row + view_height {
@@ -513,6 +550,13 @@ impl TextArea {
     }
 
     fn adjust_scroll_to_cursor(&mut self) {
+        if !self.layout_initialized {
+            return;
+        }
+        if !self.selection.is_empty() {
+            let (a, _b) = normalized_selection(self.selection);
+            self.scroll_row = self.scroll_row.min(a.row);
+        }
         let gutter_w = self.line_number_gutter_width();
         let view_w = (self.layout_w.max(1) as usize)
             .saturating_sub(gutter_w)
@@ -799,6 +843,70 @@ impl Widget for TextArea {
                         return;
                     }
                 }
+
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    let old = self.cursor;
+                    let mut next = old;
+                    let mut desired_vertical: Option<usize> = None;
+                    match key.code {
+                        KeyCode::Left => {
+                            next = self.cursor_left_pos(old);
+                        }
+                        KeyCode::Right => {
+                            next = self.cursor_right_pos(old);
+                        }
+                        KeyCode::Up => {
+                            if old.row > 0 {
+                                let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+                                let row = old.row - 1;
+                                let col = self.cursor_from_cell_x(row, desired);
+                                next = Cursor { row, col };
+                                desired_vertical = Some(desired);
+                            }
+                        }
+                        KeyCode::Down => {
+                            if old.row + 1 < self.lines.len() {
+                                let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+                                let row = old.row + 1;
+                                let col = self.cursor_from_cell_x(row, desired);
+                                next = Cursor { row, col };
+                                desired_vertical = Some(desired);
+                            }
+                        }
+                        KeyCode::Home => {
+                            next = Cursor { row: old.row, col: 0 };
+                            self.preferred_col_cells = Some(0);
+                        }
+                        KeyCode::End => {
+                            let end = self.lines.get(old.row).map(|s| s.len()).unwrap_or(0);
+                            next = Cursor { row: old.row, col: end };
+                        }
+                        _ => {}
+                    }
+
+                    if next != old {
+                        if self.selection.is_empty() {
+                            self.selection = Selection { start: old, end: next };
+                        } else {
+                            self.selection.end = next;
+                        }
+                        self.cursor = next;
+                        if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+                            if let Some(desired) = desired_vertical {
+                                self.preferred_col_cells = Some(desired);
+                            }
+                        } else if matches!(key.code, KeyCode::Home) {
+                            self.preferred_col_cells = Some(0);
+                        } else {
+                            self.preferred_col_cells = Some(self.cursor_cell_x());
+                        }
+                        self.adjust_scroll_to_cursor();
+                        self.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                        return;
+                    }
+                }
                 match key.code {
                     KeyCode::Char(ch) => {
                         if ch != '\t' {
@@ -899,6 +1007,7 @@ impl Widget for TextArea {
             self.layout_w = width;
             self.layout_h = height;
         }
+        self.layout_initialized = true;
         self.adjust_scroll_to_cursor();
     }
 
@@ -963,9 +1072,13 @@ impl Widget for TextArea {
                 None
             };
             if gutter_w > 0 {
-                let line_no = row.saturating_add(1);
-                let digits = gutter_w.saturating_sub(1).max(1);
-                let gutter_text = format!("{line_no:>digits$} ");
+                let gutter_text = if row < self.lines.len() {
+                    let line_no = row.saturating_add(1);
+                    let digits = gutter_w.saturating_sub(1).max(1);
+                    format!("{line_no:>digits$} ")
+                } else {
+                    " ".repeat(gutter_w)
+                };
                 let style = if self.focused && row == self.cursor.row {
                     gutter_active_rich
                 } else {
