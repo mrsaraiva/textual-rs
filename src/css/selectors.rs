@@ -5,7 +5,7 @@ use rich_rs::{MetaValue, Segments};
 use crate::debug::debug_style;
 use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
 
-use super::{Widget, WidgetId};
+use crate::widgets::{Widget, WidgetId};
 
 thread_local! {
     static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
@@ -329,7 +329,7 @@ pub(crate) fn apply_style_to_segments(
             // Child widgets render their own styles already (including inherited properties), and
             // parent widgets should not overwrite them during this pass.
             if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
-                if let Some(MetaValue::Int(value)) = meta.get(super::META_WIDGET_ID) {
+                if let Some(MetaValue::Int(value)) = meta.get("textual:widget_id") {
                     if *value != widget_id.as_u64() as i64 {
                         return seg;
                     }

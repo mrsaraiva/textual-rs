@@ -1,11 +1,12 @@
 use rich_rs::Console;
 use textual::prelude::*;
-use textual::widget::{StyleSheet, WidgetRenderable, set_style_context};
+use textual::css::{StyleSheet, set_style_context};
+use textual::widgets::WidgetRenderable;
 
 #[test]
 fn buttons_demo_renders_labels() {
     let css = std::fs::read_to_string("examples/button.tcss").expect("read button.tcss");
-    let mut stylesheet = textual::widget::default_widget_stylesheet();
+    let mut stylesheet = textual::css::default_widget_stylesheet();
     stylesheet.extend(&StyleSheet::parse(&css));
     let _guard = set_style_context(stylesheet);
 

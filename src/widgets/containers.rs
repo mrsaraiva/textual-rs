@@ -6,6 +6,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Action, Event, EventCtx};
+use crate::css;
 use crate::style::Style;
 
 use super::{
@@ -16,7 +17,6 @@ use super::{
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
         set_focus_by_id,
     },
-    style_selectors,
 };
 
 pub struct Container {
@@ -58,8 +58,8 @@ impl Widget for Container {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
@@ -286,8 +286,8 @@ impl Widget for Container {
         }
         let mut total = 0usize;
         for child in &self.children {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             match child.layout_height() {
                 Some(height) => {
@@ -843,8 +843,8 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for child in &self.children {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
@@ -931,8 +931,8 @@ impl Widget for AppRoot {
         let mut cursor_y: i32 = 0;
 
         for (idx, child) in self.children.iter().enumerate() {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
@@ -1109,8 +1109,8 @@ impl Widget for AppRoot {
         }
         let mut total = 0usize;
         for child in &self.children {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             match child.layout_height() {
                 Some(height) => {

@@ -4,7 +4,8 @@ use rich_rs::Console;
 
 use crate::prelude::Result;
 use crate::prelude::Widget;
-use crate::widget::{StyleSheet, WidgetRenderable, default_widget_stylesheet, set_style_context};
+use crate::css::{StyleSheet, default_widget_stylesheet, set_style_context};
+use crate::widgets::WidgetRenderable;
 
 #[derive(Debug, Clone)]
 pub struct SnapshotArgs {

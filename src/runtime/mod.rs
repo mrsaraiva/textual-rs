@@ -3,7 +3,8 @@ use crate::driver::{PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::widget::{StyleSheet, Widget, WidgetId, border_spacing_from_style, set_style_context};
+use crate::css::{StyleSheet, default_widget_stylesheet, set_style_context};
+use crate::widgets::{Widget, WidgetId, border_spacing_from_style};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
@@ -90,8 +91,8 @@ impl HitTestMap {
                 return;
             }
             if w.id() == id {
-                let meta = crate::widget::selector_meta_generic(w);
-                let resolved = crate::widget::resolve_style(w, &meta);
+                let meta = crate::css::selector_meta_generic(w);
+                let resolved = crate::css::resolve_style(w, &meta);
                 let line_pad = resolved.line_pad.unwrap_or(0);
                 let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
                 let inset_x = left.saturating_add(line_pad) as u16;
@@ -163,7 +164,7 @@ impl App {
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
             theme: Theme::default(),
-            default_stylesheet: crate::widget::default_widget_stylesheet(),
+            default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
             stylesheet_watch: None,
             running: true,
@@ -343,8 +344,8 @@ impl App {
     fn apply_layout_info(&self, root: &mut dyn Widget) {
         fn visit(w: &mut dyn Widget, hit_test: &HitTestMap) {
             if let Some(rect) = hit_test.rect(w.id()) {
-                let meta = crate::widget::selector_meta_generic(w);
-                let resolved = crate::widget::resolve_style(w, &meta);
+                let meta = crate::css::selector_meta_generic(w);
+                let resolved = crate::css::resolve_style(w, &meta);
                 let line_pad = resolved.line_pad.unwrap_or(0);
                 let (top, bottom, left, right) = border_spacing_from_style(&resolved);
                 let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
@@ -431,9 +432,9 @@ impl App {
 
         // Auto-focus the first focusable widget.
         let mut ids = Vec::new();
-        crate::widget::collect_focus_ids(root, &mut ids);
+        crate::widgets::collect_focus_ids(root, &mut ids);
         if let Some(first) = ids.first().copied() {
-            crate::widget::set_focus_by_id(root, Some(first));
+            crate::widgets::set_focus_by_id(root, Some(first));
         }
 
         let mut tick: u64 = 0;
@@ -585,7 +586,7 @@ impl App {
         let hovered_changed = hovered != self.hovered;
         if hovered_changed {
             self.hovered = hovered;
-            crate::widget::set_hover_by_id(root, self.hovered);
+            crate::widgets::set_hover_by_id(root, self.hovered);
             let shape = pointer_shape_for_hover(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
         }
@@ -791,9 +792,7 @@ mod tests {
 
     #[test]
     fn hit_test_translates_screen_to_widget_local_coords() {
-        use crate::widget::{
-            AppRoot, DataTable, Panel, WidgetRenderable, default_widget_stylesheet,
-        };
+        use crate::widgets::{AppRoot, DataTable, Panel, WidgetRenderable};
 
         let console = rich_rs::Console::new();
         let mut options = console.options().clone();
@@ -812,8 +811,8 @@ mod tests {
         let panel = Panel::new(table);
         let mut root = AppRoot::new().with_child(panel);
 
-        let sheet = default_widget_stylesheet();
-        let _guard = set_style_context(sheet);
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
         let renderable = WidgetRenderable::new(&root);
         let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
 

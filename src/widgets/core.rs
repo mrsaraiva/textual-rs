@@ -6,32 +6,7 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::style::{Color, Style};
 
-mod aliases;
-mod containers;
-mod controls;
-mod defaults;
-mod helpers;
-mod layout;
-mod style_selectors;
-mod text;
-
-pub use aliases::{Horizontal, Static, VerticalScroll};
-pub use containers::{
-    AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
-};
-pub use controls::{
-    Button, Checkbox, CursorType, DataTable, Input, ListView, Spacer, Tab, Tabs, Tree, TreeNode,
-};
-pub use defaults::default_widget_stylesheet;
-pub use helpers::WidgetRenderable;
-pub(crate) use helpers::border_spacing_from_style;
-pub(crate) use helpers::{collect_focus_ids, set_focus_by_id, set_hover_by_id};
-pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
-pub use style_selectors::{
-    StyleContextGuard, StyleRule, StyleSelector, StyleSheet, set_style_context,
-};
-pub(crate) use style_selectors::{resolve_style, selector_meta_generic};
-pub use text::{Label, Markdown};
+use super::helpers;
 
 const META_WIDGET_ID: &str = "textual:widget_id";
 
@@ -62,9 +37,9 @@ pub trait Widget: Send + Sync {
         options: &ConsoleOptions,
         debug: Option<&DebugLayout>,
     ) -> Segments {
-        let meta = style_selectors::selector_meta_generic(self);
-        let resolved = style_selectors::resolve_style(self, &meta);
-        let parent_style = style_selectors::current_parent_style();
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let parent_style = crate::css::current_parent_style();
         let line_pad = resolved.line_pad.unwrap_or(0);
         let full_width = options.size.0.max(1);
         let full_height = options.size.1.max(1);
@@ -86,7 +61,7 @@ pub trait Widget: Send + Sync {
         content_options.max_width = content_width;
         content_options.max_height = content_height;
 
-        let segments = style_selectors::with_style_stack(meta, resolved, || match debug {
+        let segments = crate::css::with_style_stack(meta, resolved, || match debug {
             Some(debug) => self.render_with_debug(console, &content_options, debug),
             None => self.render(console, &content_options),
         });
@@ -103,7 +78,7 @@ pub trait Widget: Send + Sync {
         };
 
         let styled =
-            style_selectors::apply_style_to_segments(self.id(), segments, resolved, parent_style);
+            crate::css::apply_style_to_segments(self.id(), segments, resolved, parent_style);
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,
@@ -456,3 +431,4 @@ impl WidgetStyles {
         self.layout.max_height = Some(value.max(1));
     }
 }
+

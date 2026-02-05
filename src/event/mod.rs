@@ -1,4 +1,4 @@
-use crate::widget::WidgetId;
+use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 

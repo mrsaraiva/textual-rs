@@ -1,6 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::debug::{DebugLayout, debug_layout};
+use crate::css;
 use crate::event::{Event, EventCtx};
 
 use super::{
@@ -9,7 +10,6 @@ use super::{
         apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
-    style_selectors,
 };
 use crate::style::Margin;
 
@@ -68,8 +68,8 @@ impl Widget for Row {
         let mut resolved_list: Vec<crate::style::Style> = Vec::with_capacity(count);
 
         for (idx, child) in self.children.iter().enumerate() {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
@@ -300,8 +300,8 @@ impl Widget for Row {
         let mut resolved_list: Vec<crate::style::Style> = Vec::with_capacity(count);
 
         for (idx, child) in self.children.iter().enumerate() {
-            let meta = style_selectors::selector_meta_generic(child.as_ref());
-            let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
@@ -1301,8 +1301,8 @@ impl Widget for Grid {
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
                 let (margin, constraints) = if let Some(child) = &self.cells[idx] {
-                    let meta = style_selectors::selector_meta_generic(child.as_ref());
-                    let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+                    let meta = css::selector_meta_generic(child.as_ref());
+                    let resolved = css::resolve_style(child.as_ref(), &meta);
                     let style_constraints = constraints_from_style(&resolved);
                     (
                         margin_from_style(&resolved),
@@ -1430,8 +1430,8 @@ impl Widget for Grid {
                 let cell_width = col_widths[c].max(1);
                 let cell_height = row_heights[r].max(1);
                 let (margin, constraints) = if let Some(child) = &self.cells[idx] {
-                    let meta = style_selectors::selector_meta_generic(child.as_ref());
-                    let resolved = style_selectors::resolve_style(child.as_ref(), &meta);
+                    let meta = css::selector_meta_generic(child.as_ref());
+                    let resolved = css::resolve_style(child.as_ref(), &meta);
                     let style_constraints = constraints_from_style(&resolved);
                     (
                         margin_from_style(&resolved),

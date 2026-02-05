@@ -2,7 +2,8 @@ use rich_rs::Console;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::style::parse_color_like;
-use textual::widget::{StyleSheet, WidgetRenderable, default_widget_stylesheet, set_style_context};
+use textual::css::{StyleSheet, default_widget_stylesheet, set_style_context};
+use textual::widgets::WidgetRenderable;
 
 #[test]
 fn buttons_demo_default_button_has_background() {
