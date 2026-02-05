@@ -909,6 +909,18 @@ impl Widget for TextArea {
                 }
                 match key.code {
                     KeyCode::Char(ch) => {
+                        // Some terminals encode Backspace as a control character rather than
+                        // `KeyCode::Backspace` (notably DEL `\u{7f}` and BS `\u{08}`).
+                        if ch == '\u{7f}' || ch == '\u{08}' {
+                            self.backspace();
+                            self.notify_changed();
+                            self.preferred_col_cells = Some(self.cursor_cell_x());
+                            self.adjust_scroll_to_cursor();
+                            self.reset_blink();
+                            ctx.request_repaint();
+                            ctx.set_handled();
+                            return;
+                        }
                         if ch != '\t' {
                             self.insert_str(&ch.to_string());
                             self.notify_changed();
