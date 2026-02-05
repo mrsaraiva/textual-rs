@@ -10,6 +10,7 @@ categories = ["command-line-interface"]
 [dependencies]
 rich-rs = { path = "../rich-rs" }
 crossterm = "0.28"
+richtui-crossterm = { path = "../richtui/crates/richtui-crossterm" }
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }
 thiserror = "2.0"
 unicode-width = "0.2"
