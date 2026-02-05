@@ -834,6 +834,10 @@ impl Widget for AppRoot {
         self.id
     }
 
+    fn set_focus_target(&mut self, target: Option<WidgetId>) {
+        self.focused = target;
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
@@ -1136,6 +1140,33 @@ impl Widget for AppRoot {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+}
+
+#[cfg(test)]
+mod focus_tests {
+    use super::*;
+    use crate::widgets::{Input, collect_focus_ids, set_focus_by_id};
+
+    #[test]
+    fn focus_next_advances_after_set_focus_by_id() {
+        let mut root = AppRoot::new().with_child(
+            Container::new()
+                .with_child(Input::new().with_placeholder("First"))
+                .with_child(Input::new().with_placeholder("Second")),
+        );
+
+        let mut ids = Vec::new();
+        collect_focus_ids(&mut root, &mut ids);
+        assert_eq!(ids.len(), 2);
+        let first = ids[0];
+        let second = ids[1];
+
+        set_focus_by_id(&mut root, Some(first));
+        assert_eq!(root.focused, Some(first));
+
+        root.focus_next();
+        assert_eq!(root.focused, Some(second));
     }
 }
 

@@ -116,6 +116,11 @@ pub trait Widget: Send + Sync {
         false
     }
     fn set_focus(&mut self, _focused: bool) {}
+    /// Optional hook for widgets that track the currently-focused child id.
+    ///
+    /// Most widgets can ignore this; it exists so focus traversal state (e.g. in `AppRoot`)
+    /// stays consistent when external helpers like `set_focus_by_id` are used.
+    fn set_focus_target(&mut self, _target: Option<WidgetId>) {}
     /// Whether the widget is disabled (used for `:disabled` selector matching).
     fn is_disabled(&self) -> bool {
         false
@@ -431,4 +436,3 @@ impl WidgetStyles {
         self.layout.max_height = Some(value.max(1));
     }
 }
-

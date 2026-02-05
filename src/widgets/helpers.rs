@@ -136,6 +136,7 @@ pub(crate) fn collect_focus_ids(widget: &mut dyn Widget, out: &mut Vec<WidgetId>
 }
 
 pub(crate) fn set_focus_by_id(widget: &mut dyn Widget, target: Option<WidgetId>) {
+    widget.set_focus_target(target);
     if widget.focusable() {
         widget.set_focus(target == Some(widget.id()));
     }
