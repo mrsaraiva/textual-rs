@@ -13,7 +13,7 @@ pub enum PointerShape {
 }
 
 impl PointerShape {
-    fn as_kitty_name(self) -> &'static str {
+    pub fn as_kitty_name(self) -> &'static str {
         match self {
             PointerShape::Default => "default",
             PointerShape::Pointer => "pointer",
@@ -113,6 +113,11 @@ impl TerminalDriver {
             return Ok(());
         }
         let seq = format!("\x1b]22;{}\x07", shape.as_kitty_name());
+        debug_render(&format!(
+            "[driver] pointer_shape={} seq={:?}",
+            shape.as_kitty_name(),
+            seq
+        ));
         // Avoid crossterm abstractions here; this is an OSC sequence.
         use std::io::Write;
         let mut out = stdout();

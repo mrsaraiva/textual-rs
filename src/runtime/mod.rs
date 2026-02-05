@@ -421,7 +421,13 @@ impl App {
             return Ok(());
         }
         self.pointer_shape = shape;
-        self.driver.set_pointer_shape(shape)?;
+        if self.driver.pointer_shapes_enabled() {
+            // Write via `Console` so it shares the same output writer as the render pipeline.
+            // This avoids interleaving issues that can cause OSC sequences to be dropped.
+            let seq = format!("\x1b]22;{}\x07", shape.as_kitty_name());
+            debug_render(&format!("[app] pointer_shape={}", shape.as_kitty_name()));
+            self.console.write_str(&seq)?;
+        }
         Ok(())
     }
 
@@ -502,7 +508,7 @@ fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> 
     };
 
     // Traverse the widget tree to locate the hovered widget.
-    let mut found: Option<(bool, bool, &'static str)> = None; // (focusable, disabled, type)
+    let mut found: Option<(bool, bool, &'static str)> = None; // (mouse_interactive, disabled, type)
     fn visit(
         w: &mut dyn Widget,
         id: WidgetId,
@@ -512,7 +518,7 @@ fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> 
             return;
         }
         if w.id() == id {
-            *out = Some((w.focusable(), w.is_disabled(), w.style_type()));
+            *out = Some((w.mouse_interactive(), w.is_disabled(), w.style_type()));
             return;
         }
         w.visit_children_mut(&mut |child| visit(child, id, out));
@@ -520,11 +526,11 @@ fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> 
 
     visit(root, id, &mut found);
 
-    let Some((focusable, disabled, ty)) = found else {
+    let Some((mouse_interactive, disabled, ty)) = found else {
         return PointerShape::Default;
     };
 
-    if !focusable {
+    if !mouse_interactive {
         return PointerShape::Default;
     }
 

@@ -184,6 +184,11 @@ impl Widget for Button {
         self.disabled
     }
 
+    fn mouse_interactive(&self) -> bool {
+        // Buttons should still get hover affordances even when disabled.
+        true
+    }
+
     fn has_focus(&self) -> bool {
         self.focused
     }

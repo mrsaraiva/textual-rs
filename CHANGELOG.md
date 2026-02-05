@@ -9,7 +9,7 @@ until the API stabilizes.
 
 ### 2026-02-04
 - Added a lightweight unit test to guard synchronized output bracketing behavior.
-- Implemented Kitty pointer-shape protocol (OSC 22) for hover cursor feedback, with best-effort terminal detection and `TEXTUAL_POINTER_SHAPES` override.
+- Implemented Kitty pointer-shape protocol (OSC 22) for hover cursor feedback, with best-effort terminal detection and `TEXTUAL_POINTER_SHAPES` override. OSC sequences are written through `Console` (shared with the render pipeline) to prevent interleaving on stdout. Added `mouse_interactive()` widget trait so non-focusable widgets like disabled buttons still show hover cursors.
 - Prevented resize tearing / corruption by:
   - Bracketing frame writes with synchronized output (DECSET 2026). Disable with `TEXTUAL_SYNC_OUTPUT=0`.
   - Disabling terminal line wrap while running in alt-screen mode (restored on exit).

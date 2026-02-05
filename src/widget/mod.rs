@@ -143,6 +143,13 @@ pub trait Widget: Send + Sync {
         false
     }
     fn set_hovered(&mut self, _hovered: bool) {}
+    /// Whether the widget should be treated as interactive for mouse hover / cursor feedback.
+    ///
+    /// This is intentionally distinct from `focusable()`: some widgets (e.g. disabled buttons)
+    /// are not focusable but should still provide hover affordances (like a "not-allowed" cursor).
+    fn mouse_interactive(&self) -> bool {
+        self.focusable()
+    }
     /// Whether the widget is active (e.g. pressed/dragging).
     fn is_active(&self) -> bool {
         false
