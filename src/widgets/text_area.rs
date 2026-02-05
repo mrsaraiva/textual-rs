@@ -49,6 +49,7 @@ pub struct TextArea {
     layout_h: u16,
     preferred_col_cells: Option<usize>,
     mouse_down: bool,
+    app_active: bool,
     cursor_visible: bool,
     cursor_blink_next_at: Option<Instant>,
     classes: Vec<String>,
@@ -80,6 +81,7 @@ impl TextArea {
             layout_h: 1,
             preferred_col_cells: None,
             mouse_down: false,
+            app_active: true,
             cursor_visible: false,
             cursor_blink_next_at: None,
             classes: Vec::new(),
@@ -182,7 +184,7 @@ impl TextArea {
     }
 
     fn reset_blink(&mut self) {
-        if !self.focused {
+        if !self.focused || !self.app_active {
             return;
         }
         self.cursor_visible = true;
@@ -394,8 +396,18 @@ impl Widget for TextArea {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
+            Event::AppFocus(active) => {
+                self.app_active = *active;
+                if !*active {
+                    self.cursor_visible = false;
+                    self.cursor_blink_next_at = None;
+                } else {
+                    self.reset_blink();
+                }
+                ctx.request_repaint();
+            }
             Event::Tick(_tick) => {
-                if !self.focused {
+                if !self.focused || !self.app_active {
                     return;
                 }
                 let Some(next_at) = self.cursor_blink_next_at else {
@@ -566,12 +578,19 @@ impl Widget for TextArea {
         let selection_style = resolve_component_rich("text-area--selection");
         let gutter_style = resolve_component_rich("text-area--gutter");
         let gutter_active_style = resolve_component_rich("text-area--gutter-active");
+        let cursor_line_style = resolve_component_rich("text-area--cursor-line");
 
         let (sel_a, sel_b) = normalized_selection(self.selection);
 
         let mut out = Segments::new();
         for y in 0..height {
             let row = self.scroll_row + y;
+            let is_cursor_line = self.focused && self.app_active && row == self.cursor.row;
+            let line_default_style = if is_cursor_line {
+                Some(cursor_line_style)
+            } else {
+                None
+            };
             if gutter_w > 0 {
                 let line_no = row.saturating_add(1);
                 let digits = gutter_w.saturating_sub(1).max(1);
@@ -635,7 +654,7 @@ impl Widget for TextArea {
                 } else if in_sel {
                     Some(selection_style)
                 } else {
-                    None
+                    line_default_style
                 };
 
                 let style_changed = match (&pending_style, &style) {
@@ -669,7 +688,12 @@ impl Widget for TextArea {
             }
 
             if cell_x < text_w {
-                out.push(Segment::new(" ".repeat(text_w - cell_x)));
+                let pad = " ".repeat(text_w - cell_x);
+                if let Some(style) = line_default_style {
+                    out.push(Segment::styled(pad, style));
+                } else {
+                    out.push(Segment::new(pad));
+                }
             }
 
             if y + 1 < height {

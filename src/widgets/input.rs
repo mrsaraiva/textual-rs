@@ -55,6 +55,7 @@ pub struct Input {
     mouse_down: bool,
     cursor_visible: bool,
     cursor_blink_next_at: Option<Instant>,
+    app_active: bool,
     user_classes: Vec<String>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
@@ -85,6 +86,7 @@ impl Input {
             mouse_down: false,
             cursor_visible: false,
             cursor_blink_next_at: None,
+            app_active: true,
             user_classes: Vec::new(),
             classes: Vec::new(),
             focused_classes: Vec::new(),
@@ -243,6 +245,14 @@ impl Input {
         }
     }
 
+    fn reset_blink(&mut self) {
+        if !self.focused || !self.app_active {
+            return;
+        }
+        self.cursor_visible = true;
+        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+    }
+
     fn rebuild_classes(&mut self) {
         // Textual-ish conventions: `Input` type name in selector; keep a stable "input" class.
         let mut classes = vec!["input".to_string()];
@@ -271,8 +281,7 @@ impl Widget for Input {
             self.cursor_blink_next_at = None;
             return;
         }
-        self.cursor_visible = true;
-        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+        self.reset_blink();
     }
 
     fn has_focus(&self) -> bool {
@@ -299,6 +308,16 @@ impl Widget for Input {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
+            Event::AppFocus(active) => {
+                self.app_active = *active;
+                if !*active {
+                    self.cursor_visible = false;
+                    self.cursor_blink_next_at = None;
+                } else {
+                    self.reset_blink();
+                }
+                ctx.request_repaint();
+            }
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 if self.text.is_empty() {
                     self.cursor = 0;
@@ -307,8 +326,7 @@ impl Widget for Input {
                 }
                 self.selection = Selection::cursor(self.cursor);
                 self.mouse_down = true;
-                self.cursor_visible = true;
-                self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                self.reset_blink();
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -320,7 +338,7 @@ impl Widget for Input {
             }
             Event::Tick(tick) => {
                 let _ = tick;
-                if !self.focused {
+                if !self.focused || !self.app_active {
                     return;
                 }
                 let Some(next_at) = self.cursor_blink_next_at else {
@@ -342,8 +360,7 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
-                        self.cursor_visible = true;
-                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                        self.reset_blink();
                         ctx.request_repaint();
                     }
                     ctx.set_handled();
@@ -361,8 +378,7 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
-                        self.cursor_visible = true;
-                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                        self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -378,8 +394,7 @@ impl Widget for Input {
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
                         self.notify_changed();
-                        self.cursor_visible = true;
-                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                        self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -392,8 +407,7 @@ impl Widget for Input {
                             .map(|(i, _)| i)
                             .unwrap_or(0);
                         self.selection = Selection::cursor(self.cursor);
-                        self.cursor_visible = true;
-                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                        self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -406,8 +420,7 @@ impl Widget for Input {
                             .map(|(i, _)| self.cursor + i)
                             .unwrap_or(self.text.len());
                         self.selection = Selection::cursor(self.cursor);
-                        self.cursor_visible = true;
-                        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                        self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -415,16 +428,14 @@ impl Widget for Input {
                 KeyCode::Home => {
                     self.cursor = 0;
                     self.selection = Selection::cursor(self.cursor);
-                    self.cursor_visible = true;
-                    self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                    self.reset_blink();
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
                 KeyCode::End => {
                     self.cursor = self.text.len();
                     self.selection = Selection::cursor(self.cursor);
-                    self.cursor_visible = true;
-                    self.cursor_blink_next_at = Some(Self::next_blink_deadline());
+                    self.reset_blink();
                     ctx.request_repaint();
                     ctx.set_handled();
                 }

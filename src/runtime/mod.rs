@@ -3,7 +3,7 @@ use crate::driver::{DriverOptions, PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::css::{StyleSheet, default_widget_stylesheet, set_style_context};
+use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
 use crate::widgets::{Widget, WidgetId, border_spacing_from_style};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
@@ -134,6 +134,7 @@ pub struct App {
     resize_burst: u64,
     sync_output: bool,
     pointer_shape: PointerShape,
+    app_active: bool,
 }
 
 struct StylesheetWatcher {
@@ -178,6 +179,7 @@ impl App {
             resize_burst: 0,
             sync_output,
             pointer_shape: PointerShape::Default,
+            app_active: true,
         })
     }
 
@@ -296,6 +298,7 @@ impl App {
         self.refresh_size()?;
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
+        let _active = set_app_active(self.app_active);
         let _guard = set_style_context(sheet);
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
@@ -452,6 +455,7 @@ impl App {
             if event::poll(timeout)? {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
+                let _active = set_app_active(self.app_active);
                 let _guard = set_style_context(sheet);
                 match event::read()? {
                     CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
@@ -542,6 +546,16 @@ impl App {
                         let _ = dispatch_event(root, Event::Resize(size.width, size.height));
                         dirty = true;
                     }
+                    CrosstermEvent::FocusLost => {
+                        self.app_active = false;
+                        let _ = dispatch_event(root, Event::AppFocus(false));
+                        dirty = true;
+                    }
+                    CrosstermEvent::FocusGained => {
+                        self.app_active = true;
+                        let _ = dispatch_event(root, Event::AppFocus(true));
+                        dirty = true;
+                    }
                     _ => {}
                 }
             }
@@ -555,6 +569,7 @@ impl App {
             if last_render.elapsed() >= tick_rate {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
+                let _active = set_app_active(self.app_active);
                 let _guard = set_style_context(sheet);
                 if self.poll_stylesheet() {
                     dirty = true;

@@ -28,6 +28,7 @@ pub enum Event {
     Action(Action),
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
+    AppFocus(bool),
     Tick(u64),
     Resize(u16, u16),
 }
