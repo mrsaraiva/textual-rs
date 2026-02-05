@@ -29,7 +29,7 @@ pub mod prelude {
         Dock, Frame,
         Grid, Horizontal, Input, InputType, Label, LayoutConstraints, ListView, Markdown, Node,
         Overlay,
-        Panel, Pretty, Row, RowAlign, ScrollView, Spacer, Static, Styled, Tabs,
+        Panel, Pretty, Row, RowAlign, ScrollView, Spacer, Static, Styled, Tabs, TextArea,
         Tree, TreeNode, VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     };
     pub use crate::{Error, Result};

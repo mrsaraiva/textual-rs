@@ -12,6 +12,7 @@ mod pretty;
 mod spacer;
 mod tabs;
 mod text;
+mod text_area;
 mod tree;
 
 pub use aliases::{Horizontal, Static, VerticalScroll};
@@ -27,6 +28,7 @@ pub use list_view::ListView;
 pub use pretty::Pretty;
 pub use spacer::Spacer;
 pub use tabs::{Tab, Tabs};
+pub use text_area::TextArea;
 pub use tree::{Tree, TreeNode};
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::border_spacing_from_style;
