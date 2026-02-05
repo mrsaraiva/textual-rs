@@ -1,5 +1,5 @@
 use crate::debug::{DebugLayout, debug_input, debug_render};
-use crate::driver::{PointerShape, Size, TerminalDriver};
+use crate::driver::{DriverOptions, PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
 use crate::render::FrameBuffer;
 use crate::style::Theme;
@@ -145,7 +145,10 @@ struct StylesheetWatcher {
 
 impl App {
     pub fn new() -> Result<Self> {
-        let driver = TerminalDriver::new()?;
+        let mut options = DriverOptions::default();
+        // Preserve textual-rs behavior: mouse capture enabled by default.
+        options.enable_mouse = true;
+        let driver = TerminalDriver::new(options)?;
         let console = Console::new();
         let mut options = console.options().clone();
         let size = driver.size();
@@ -237,7 +240,7 @@ impl App {
         debug_render(&format!("[app] sync_output={}", self.sync_output));
         debug_render(&format!(
             "[app] pointer_shapes_enabled={}",
-            self.driver.pointer_shapes_enabled()
+            self.driver.options().enable_pointer_shapes
         ));
         // Ensure we start in a known state.
         self.set_pointer_shape(PointerShape::Default)?;
@@ -245,7 +248,7 @@ impl App {
     }
 
     pub fn finish(&mut self) -> Result<()> {
-        self.driver.stop()
+        Ok(self.driver.stop()?)
     }
 
     pub fn render(&mut self, renderable: &dyn Renderable) -> Result<()> {
@@ -455,13 +458,16 @@ impl App {
                         if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
                             break;
                         }
-                        let bind = KeyBind::from_event(&key);
-                        if let Some(action) = self.action_map.lookup(&bind) {
-                            let outcome = dispatch_event(root, Event::Action(action));
-                            dirty |= outcome.should_repaint();
-                        } else {
-                            let outcome = dispatch_event(root, Event::Key(key));
-                            dirty |= outcome.should_repaint();
+                        // Dispatch the raw key first so focused widgets (e.g. Input) can consume
+                        // it before the global ActionMap translates it to an Action.
+                        let key_outcome = dispatch_event(root, Event::Key(key));
+                        dirty |= key_outcome.should_repaint();
+                        if !key_outcome.handled {
+                            let bind = KeyBind::from_event(&key);
+                            if let Some(action) = self.action_map.lookup(&bind) {
+                                let outcome = dispatch_event(root, Event::Action(action));
+                                dirty |= outcome.should_repaint();
+                            }
                         }
                     }
                     CrosstermEvent::Mouse(mouse) => match mouse.kind {
@@ -623,7 +629,7 @@ impl App {
             return Ok(());
         }
         self.pointer_shape = shape;
-        if self.driver.pointer_shapes_enabled() {
+        if self.driver.options().enable_pointer_shapes {
             // Write via `Console` so it shares the same output writer as the render pipeline.
             // This avoids interleaving issues that can cause OSC sequences to be dropped.
             let seq = format!("\x1b]22;{}\x07", shape.as_kitty_name());

@@ -558,22 +558,6 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 [[package]]
 name = "rich-rs"
 version = "1.0.2"
-dependencies = [
- "atty",
- "crossterm",
- "once_cell",
- "phf",
- "pulldown-cmark",
- "regex",
- "smallvec",
- "syntect",
- "thiserror",
- "unicode-width",
-]
-
-[[package]]
-name = "rich-rs"
-version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54fff0c1ee6ccb06fb5cdec1a47d28600db22070a9336dde1b4df0927234c86b"
 dependencies = [
@@ -593,7 +577,7 @@ dependencies = [
 name = "richtui-core"
 version = "0.0.0"
 dependencies = [
- "rich-rs 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rich-rs",
  "unicode-width",
 ]
 
@@ -602,7 +586,7 @@ name = "richtui-crossterm"
 version = "0.0.0"
 dependencies = [
  "crossterm",
- "rich-rs 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rich-rs",
  "richtui-core",
 ]
 
@@ -800,7 +784,7 @@ version = "0.0.1"
 dependencies = [
  "crossterm",
  "insta",
- "rich-rs 1.0.2",
+ "rich-rs",
  "richtui-crossterm",
  "thiserror",
  "tokio",

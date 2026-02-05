@@ -21,7 +21,7 @@ pub use containers::{
 };
 pub use core::{LayoutConstraints, Widget, WidgetId, WidgetStyles};
 pub use data_table::{CursorType, DataTable};
-pub use input::Input;
+pub use input::{Input, InputType};
 pub use list_view::ListView;
 pub use spacer::Spacer;
 pub use tabs::{Tab, Tabs};

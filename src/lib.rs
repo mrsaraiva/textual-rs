@@ -9,6 +9,7 @@ pub mod event;
 pub mod render;
 pub mod runtime;
 pub mod style;
+pub mod validation;
 pub mod widgets;
 
 pub use error::{Error, Result};
@@ -22,10 +23,12 @@ pub mod prelude {
     pub use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
     pub use crate::runtime::App;
     pub use crate::style::{Color, Style, Theme};
+    pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
     pub use crate::widgets::{
         AppRoot, Button, ButtonVariant, Checkbox, Constrained, Container, CursorType, DataTable,
         Dock, Frame,
-        Grid, Horizontal, Input, Label, LayoutConstraints, ListView, Markdown, Node, Overlay,
+        Grid, Horizontal, Input, InputType, Label, LayoutConstraints, ListView, Markdown, Node,
+        Overlay,
         Panel, Row, RowAlign, ScrollView, Spacer, Static, Styled, Tabs,
         Tree, TreeNode, VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     };

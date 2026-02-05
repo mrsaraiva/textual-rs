@@ -8,6 +8,22 @@ use super::StyleSheet;
 const DEFAULT_WIDGET_CSS: &str = r#"
 VerticalScroll { bg: $panel; }
 
+Input {
+    width: auto;
+    height: 3;
+    min-width: 16;
+    line-pad: 2;
+    bg: $surface;
+    fg: $foreground;
+    border: tall $border-blurred;
+}
+
+Input:focus { border: tall $border; background-tint: $foreground 5%; }
+Input:disabled { dim: true; }
+Input > .input--cursor { bg: $input-cursor-background; fg: $input-cursor-foreground; }
+Input > .input--selection { bg: $input-selection-background; }
+Input > .input--placeholder { fg: $text-disabled; }
+
 Button {
     width: auto;
     height: auto;

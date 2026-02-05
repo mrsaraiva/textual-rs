@@ -8,7 +8,7 @@ keywords = ["terminal", "tui", "textual", "ui", "widgets"]
 categories = ["command-line-interface"]
 
 [dependencies]
-rich-rs = { path = "../rich-rs" }
+rich-rs = "1.0.2"
 crossterm = "0.28"
 richtui-crossterm = { path = "../richtui/crates/richtui-crossterm" }
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }

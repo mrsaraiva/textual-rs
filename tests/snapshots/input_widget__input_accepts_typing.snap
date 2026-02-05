@@ -4,5 +4,5 @@ assertion_line: 21
 expression: buf.debug_dump()
 ---
 lines:
-0: "> a         "
+0: "a           "
 meta:

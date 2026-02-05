@@ -159,6 +159,10 @@ impl StyleSheet {
     }
 
     fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {
+        self.style_for_meta(meta)
+    }
+
+    fn style_for_meta(&self, meta: &SelectorMeta) -> Style {
         let mut matches: Vec<(u8, usize, Style)> = Vec::new();
         for (idx, rule) in self.rules.iter().enumerate() {
             if let Some(score) = rule_specificity(rule, meta) {
@@ -271,6 +275,15 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
     }
 }
 
+pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
+    SelectorMeta {
+        type_name: parent_type.to_string(),
+        id: None,
+        classes: classes.iter().map(|s| (*s).to_string()).collect(),
+        states: SelectorStates::default(),
+    }
+}
+
 pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().copied())
 }
@@ -287,6 +300,17 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
     if let Some(inline) = widget.style() {
         style = style.combine(&inline);
     }
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
+        style = style.inherit_from(&parent);
+    }
+    style
+}
+
+pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
+    let sheet_style = STYLE_CONTEXT
+        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for_meta(meta)))
+        .unwrap_or_default();
+    let mut style = sheet_style;
     if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
         style = style.inherit_from(&parent);
     }
@@ -367,21 +391,28 @@ pub(crate) fn apply_style_to_segments(
 
                 if !no_bg {
                     if let Some(bg) = style.bg {
-                        let flat = bg.flatten_over(under_bg);
-                        under_bg = flat;
-                        s.bgcolor = Some(flat.to_simple_opaque());
+                        // Preserve per-segment backgrounds (e.g. DataTable row/cell backgrounds,
+                        // Input selection/cursor) unless the segment has no background.
+                        if s.bgcolor.is_none() {
+                            let flat = bg.flatten_over(under_bg);
+                            under_bg = flat;
+                            s.bgcolor = Some(flat.to_simple_opaque());
+                        }
                     }
                 } else {
                     s.bgcolor = None;
                 }
 
                 if let Some(fg) = style.fg {
-                    let bg_for_text = s
-                        .bgcolor
-                        .map(crate::style::color_from_simple)
-                        .unwrap_or(under_bg);
-                    let flat = fg.flatten_over(bg_for_text);
-                    s.color = Some(flat.to_simple_opaque());
+                    // Preserve per-segment foregrounds unless unset.
+                    if s.color.is_none() {
+                        let bg_for_text = s
+                            .bgcolor
+                            .map(crate::style::color_from_simple)
+                            .unwrap_or(under_bg);
+                        let flat = fg.flatten_over(bg_for_text);
+                        s.color = Some(flat.to_simple_opaque());
+                    }
                 }
 
                 if let Some(tint) = style.background_tint {
@@ -824,12 +855,24 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
             std::iter::once(first).chain(tokens).collect(),
         ),
     };
-    for token in rest_tokens.iter().rev() {
-        if let Some(color) = parse_color_like(token) {
-            return Some(BorderEdge::Edge { border_type, color });
+    let mut color: Option<crate::style::Color> = None;
+    let mut alpha_percent: Option<u8> = None;
+    for token in rest_tokens {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                alpha_percent = Some(v.min(100));
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
         }
     }
-    None
+    let mut color = color?;
+    if let Some(p) = alpha_percent {
+        color = color.with_alpha(p as f32 / 100.0);
+    }
+    Some(BorderEdge::Edge { border_type, color })
 }
 
 fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
@@ -850,15 +893,25 @@ fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, Border
         "tall" => BorderType::Tall,
         _ => return None,
     };
-    // Take the remaining tokens and pick the last resolvable color.
-    let rest: Vec<&str> = tokens.collect();
-    for token in rest.iter().rev() {
-        if let Some(color) = parse_color_like(token) {
-            let edge = BorderEdge::Edge { border_type, color };
-            return Some((edge, edge, edge, edge));
+    let mut color: Option<crate::style::Color> = None;
+    let mut alpha_percent: Option<u8> = None;
+    for token in tokens {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                alpha_percent = Some(v.min(100));
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
         }
     }
-    None
+    let mut color = color?;
+    if let Some(p) = alpha_percent {
+        color = color.with_alpha(p as f32 / 100.0);
+    }
+    let edge = BorderEdge::Edge { border_type, color };
+    Some((edge, edge, edge, edge))
 }
 
 fn parse_tint(value: &str) -> Option<Tint> {
