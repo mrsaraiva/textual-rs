@@ -1052,6 +1052,14 @@ impl Widget for AppRoot {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if matches!(event, Event::MouseUp(_)) {
+            // Mouse release is a global state transition (e.g. clearing `:active`).
+            // Broadcast it to all children regardless of focus or handled state.
+            for child in &mut self.children {
+                child.on_event(event, ctx);
+            }
+            return;
+        }
         if let Event::MouseDown(target) = event {
             let _ = self.focus(*target);
         }

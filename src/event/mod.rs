@@ -7,7 +7,7 @@ pub enum Event {
     Key(KeyEvent),
     Action(Action),
     MouseDown(WidgetId),
-    MouseUp,
+    MouseUp(Option<WidgetId>),
     Tick(u64),
     Resize(u16, u16),
 }

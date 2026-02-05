@@ -325,37 +325,40 @@ impl App {
                             dispatch_event(root, Event::Key(key));
                         }
                     }
-                    CrosstermEvent::Mouse(mouse) => {
-                        match mouse.kind {
-                            MouseEventKind::Moved => {
-                                if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                    self.render_widget(root)?;
-                                    last_render = Instant::now();
-                                }
+                    CrosstermEvent::Mouse(mouse) => match mouse.kind {
+                        MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                self.render_widget(root)?;
+                                last_render = Instant::now();
                             }
-                            MouseEventKind::Down(_) => {
-                                debug_input(&format!(
-                                    "[input] mouse down x={} y={} hovered={:?}",
-                                    mouse.column,
-                                    mouse.row,
-                                    self.hovered.map(|id| id.as_u64())
-                                ));
-                                if let Some(target) =
-                                    self.hovered.or_else(|| self.widget_at(mouse.column, mouse.row))
-                                {
-                                    debug_input(&format!(
-                                        "[input] mouse target id={}",
-                                        target.as_u64()
-                                    ));
-                                    dispatch_event(root, Event::MouseDown(target));
-                                }
-                            }
-                            MouseEventKind::Up(_) => {
-                                dispatch_event(root, Event::MouseUp);
-                            }
-                            _ => {}
                         }
-                    }
+                        MouseEventKind::Down(_) => {
+                            debug_input(&format!(
+                                "[input] mouse down x={} y={} hovered={:?}",
+                                mouse.column,
+                                mouse.row,
+                                self.hovered.map(|id| id.as_u64())
+                            ));
+                            if let Some(target) = self.widget_at(mouse.column, mouse.row) {
+                                debug_input(&format!(
+                                    "[input] mouse target id={}",
+                                    target.as_u64()
+                                ));
+                                dispatch_event(root, Event::MouseDown(target));
+                                // Provide immediate feedback for `:active` styles.
+                                self.render_widget(root)?;
+                                last_render = Instant::now();
+                            }
+                        }
+                        MouseEventKind::Up(_) => {
+                            let target = self.widget_at(mouse.column, mouse.row);
+                            dispatch_event(root, Event::MouseUp(target));
+                            // Provide immediate feedback for `:active` styles.
+                            self.render_widget(root)?;
+                            last_render = Instant::now();
+                        }
+                        _ => {}
+                    },
                     CrosstermEvent::Resize(_, _) => {
                         let size = self.driver.size();
                         debug_render(&format!("[event] Resize({}x{})", size.width, size.height));
@@ -512,11 +515,7 @@ fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> 
 
     // Traverse the widget tree to locate the hovered widget.
     let mut found: Option<(bool, bool, &'static str)> = None; // (mouse_interactive, disabled, type)
-    fn visit(
-        w: &mut dyn Widget,
-        id: WidgetId,
-        out: &mut Option<(bool, bool, &'static str)>,
-    ) {
+    fn visit(w: &mut dyn Widget, id: WidgetId, out: &mut Option<(bool, bool, &'static str)>) {
         if out.is_some() {
             return;
         }
@@ -665,8 +664,9 @@ fn default_action_map() -> ActionMap {
 
 fn dispatch_event(root: &mut dyn Widget, event: Event) {
     let mut ctx = EventCtx::default();
+    let always_bubble = matches!(&event, Event::MouseUp(_));
     root.on_event_capture(&event, &mut ctx);
-    if !ctx.handled() {
+    if always_bubble || !ctx.handled() {
         root.on_event(&event, &mut ctx);
     }
 }

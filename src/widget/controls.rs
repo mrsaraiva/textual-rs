@@ -26,8 +26,7 @@ pub struct Button {
     label: String,
     focused: bool,
     hovered: bool,
-    pressed: bool,
-    pressed_until: Option<u64>,
+    pressed: PressedState,
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
@@ -37,6 +36,15 @@ pub struct Button {
     styles: WidgetStyles,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum PressedState {
+    #[default]
+    None,
+    Mouse,
+    KeyboardPending,
+    KeyboardUntil(u64),
+}
+
 impl std::fmt::Debug for Button {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Button")
@@ -44,7 +52,7 @@ impl std::fmt::Debug for Button {
             .field("label", &self.label)
             .field("focused", &self.focused)
             .field("hovered", &self.hovered)
-            .field("pressed", &self.pressed)
+            .field("pressed", &(self.pressed != PressedState::None))
             .field("variant", &self.variant)
             .field("disabled", &self.disabled)
             .field("flat", &self.flat)
@@ -60,8 +68,7 @@ impl Button {
             label: label.into(),
             focused: false,
             hovered: false,
-            pressed: false,
-            pressed_until: None,
+            pressed: PressedState::None,
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
@@ -90,7 +97,7 @@ impl Button {
     }
 
     pub fn pressed(&self) -> bool {
-        self.pressed
+        self.pressed != PressedState::None
     }
 
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
@@ -115,7 +122,12 @@ impl Button {
 
     pub fn describe(&self) -> String {
         let mut classes = self.classes.clone();
-        if self.pressed {
+        let is_active = match self.pressed {
+            PressedState::None => false,
+            PressedState::Mouse => self.hovered,
+            _ => true,
+        };
+        if is_active {
             classes.push("-active".to_string());
         }
         let class_str = classes.join(" ");
@@ -204,7 +216,11 @@ impl Widget for Button {
     }
 
     fn is_active(&self) -> bool {
-        self.pressed
+        match self.pressed {
+            PressedState::None => false,
+            PressedState::Mouse => self.hovered,
+            _ => true,
+        }
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -218,11 +234,7 @@ impl Widget for Button {
         }
         match event {
             Event::MouseDown(target) if *target == self.id => {
-                self.pressed = true;
-                self.pressed_until = None;
-                if let Some(handler) = &self.on_press {
-                    handler(self);
-                }
+                self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
                     self.id.as_u64(),
@@ -230,15 +242,20 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            Event::MouseUp => {
-                if self.pressed && self.pressed_until.is_none() {
-                    // Mouse-initiated press: clear immediately on release.
-                    self.pressed = false;
+            Event::MouseUp(target) => {
+                if self.pressed == PressedState::Mouse {
+                    self.pressed = PressedState::None;
+                    // Activate only on click (mouse released while still over the button).
+                    if *target == Some(self.id) {
+                        if let Some(handler) = &self.on_press {
+                            handler(self);
+                        }
+                        ctx.set_handled();
+                    }
                 }
             }
             Event::Action(Action::Toggle) if self.focused => {
-                self.pressed = true;
-                self.pressed_until = Some(0); // will be set on next tick
+                self.pressed = PressedState::KeyboardPending;
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
@@ -251,8 +268,7 @@ impl Widget for Button {
             }
             Event::Key(key) if self.focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.pressed = true;
-                    self.pressed_until = Some(0); // will be set on next tick
+                    self.pressed = PressedState::KeyboardPending;
                     if let Some(handler) = &self.on_press {
                         handler(self);
                     }
@@ -270,17 +286,14 @@ impl Widget for Button {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if self.pressed {
-            if let Some(expire) = self.pressed_until {
-                if expire == 0 {
-                    // First tick after keyboard press; set real expiry.
-                    self.pressed_until = Some(tick + 2);
-                } else if tick >= expire {
-                    self.pressed = false;
-                    self.pressed_until = None;
-                }
+        match self.pressed {
+            PressedState::KeyboardPending => {
+                self.pressed = PressedState::KeyboardUntil(tick + 2);
             }
-            // pressed_until == None means mouse-initiated; cleared by MouseUp, not timer.
+            PressedState::KeyboardUntil(expire) if tick >= expire => {
+                self.pressed = PressedState::None;
+            }
+            _ => {}
         }
     }
 
