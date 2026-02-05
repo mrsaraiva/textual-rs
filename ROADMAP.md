@@ -148,19 +148,100 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 
 **Goal:** enough built-in widgets to build real apps.
 
-| Status | Task | Notes |
-|--------|------|-------|
-| Done | Label / Static | Text rendering + wrapping |
-| Done | Button | Focus, click, hover, active (pressed effect), disabled, variants (Primary/Success/Warning/Error), flat style, `on_press` callback |
-| Done | Input | Text entry, cursor movement, backspace/delete, placeholder |
-| Done | Checkbox | Toggle state, keyboard activation |
-| Done | ListView | Selection, keyboard navigation, scroll-into-view |
-| Done | DataTable | Headers, rows, column sizing, selection |
-| Done | Tree | Expand/collapse, selection, keyboard navigation |
-| Done | Tabs | Header bar, active pane switching |
-| Done | Markdown | Render via rich-rs |
-| Done | Modal / overlay | Overlay stacking |
-| Done | Spacer | Fixed-height spacing |
+Historically we've marked widgets as "Done" once they existed and could support demos.
+Going forward we distinguish:
+
+- **Exists (MVP):** functional, typically ASCII-first, enough to run demos.
+- **First-class:** behaves and *feels* like Textual, and is implemented in a way that advances core framework fundamentals (v0.2 goals).
+
+### First-class definition
+
+A widget is considered **first-class** when it meets *all* of the following:
+
+- **Behavior parity:** correct focus/hover/active/disabled semantics, plus keyboard and mouse behavior that matches Textual where applicable (including click-cancel / capture semantics).
+- **Styling parity:** uses the CSS engine (type/class/pseudo selectors), has reasonable built-in default CSS, and supports theme tokens and pseudo-states (`:hover`, `:focus`, `:active`, `:disabled`).
+- **Layout parity:** respects the box model (margin/border/line-pad), provides sensible intrinsic sizing (`content_width()` / `layout_height()` where applicable), and uses `on_layout()` for state that depends on content-box size.
+- **No demo-only hacks:** no "do it in render()" state mutation tricks; behavior should be driven by events/layout and reusable outside the demo.
+- **Tested:** has behavior tests (not just snapshots) for its core interaction rules and invariants.
+
+### Widget status (MVP → first-class)
+
+| Widget | Exists (MVP) | First-class | Notes |
+|--------|--------------|-------------|-------|
+| Label / Static | Done | Partial | Rendering/wrapping exists; styling/default CSS parity still light |
+| Button | Done | Done | Press/cancel semantics, pseudo-states, default CSS, variants |
+| DataTable | Done | Done | Hit-testing, hover/selection semantics, cached widths, offset/state correctness |
+| Input | Done | Todo | Currently ASCII-first; needs mouse/cursor semantics + messages + styling parity |
+| Checkbox | Done | Todo | Needs mouse parity, pseudo-states, and default CSS parity |
+| ListView | Done | Todo | Needs mouse selection/hover + styling + scroll behavior parity |
+| Tabs | Done | Todo | Needs styling parity + focus/child lifecycle polish + messages |
+| Tree | Done | Todo | Needs mouse parity + styling + better scroll-into-view behavior |
+| Markdown | Done | Partial | Renders via rich-rs; widget semantics/styling parity TBD |
+| Modal / overlay | Done | Partial | Exists; needs focus-trap semantics + message-based dismissal |
+| Spacer | Done | Partial | Exists; styling semantics minimal by design |
+
+### Acceptance criteria (per widget)
+
+These criteria intentionally overlap with v0.2 goals (message bus, invalidation, timers/animations, broader tests).
+
+#### Input (first-class)
+
+- Emits messages instead of requiring direct callbacks:
+  - `InputChanged` (value changed), `InputSubmitted` (enter), and optionally `CursorMoved`.
+- Mouse behavior:
+  - Click positions cursor; drag selects (or at least lays groundwork for selection).
+  - Clicking outside cancels selection / deactivates appropriately.
+- Keyboard behavior:
+  - Standard editing keys; consistent handling of Home/End, word navigation (optional), delete/backspace.
+- Styling:
+  - `:focus`, `:disabled`, placeholder style (dim/fg token), and default CSS for borders/padding.
+- Tests:
+  - Cursor movement rules, edit operations, placeholder visibility, and message emission.
+
+#### Checkbox (first-class)
+
+- Toggle via mouse click and keyboard activation when focused.
+- Styling:
+  - `:focus`, `:hover`, `:active`, `:disabled`; default CSS that matches Textual feel.
+- Emits `CheckboxChanged { checked }` (message bus).
+- Tests:
+  - Toggle semantics (mouse + keyboard) and disabled behavior.
+
+#### ListView (first-class)
+
+- Mouse selection:
+  - Click selects; hover highlights; wheel scrolls; click-drag does not spuriously activate.
+- Keyboard navigation:
+  - Up/down/page navigation; selection is kept visible; focus styling.
+- Styling:
+  - Distinct selected/hover styles driven by pseudo-classes or classes; default CSS.
+- Emits `SelectionChanged` (message bus).
+- Tests:
+  - Ensure-visible logic, mouse hit-testing selection, and stable behavior with empty lists.
+
+#### Tabs (first-class)
+
+- Keyboard + mouse interaction:
+  - Arrow keys/hjkl to change; clicking a tab header activates it.
+- Focus semantics:
+  - Focus is correctly delegated to active child; switching tabs updates focus predictably.
+- Styling:
+  - Default CSS for tab bar + active tab; hover/active feedback.
+- Emits `TabActivated { index, title }` (message bus).
+- Tests:
+  - Focus delegation and activation semantics.
+
+#### Tree (first-class)
+
+- Mouse interaction:
+  - Click selects; click expand/collapse affordance toggles; hover highlights.
+- Keyboard interaction:
+  - Left/right to collapse/expand; ensure-visible keeps selection within view.
+- Styling:
+  - Default CSS for selected/hover/focus; indentation + affordance styling via segments.
+- Emits `NodeSelected` / `NodeToggled` (message bus).
+- Tests:
+  - Visible-index mapping correctness and toggle semantics.
 
 ---
 
@@ -184,7 +265,7 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 |--------|------|-------|
 | Done | File-based debug tracing | `TEXTUAL_DEBUG_INPUT_FILE`, `TEXTUAL_DEBUG_LAYOUT_FILE`, `TEXTUAL_DEBUG_STYLE_FILE`, `TEXTUAL_DEBUG_RENDER_FILE` |
 | Done | Layout debug overlay | `DebugLayout` mode renders widget bounds and sizes |
-| Done | Widget module organization | Split from monolithic `mod.rs` into containers/layout/helpers/selectors/controls/text |
+| Done | Widget/CSS module organization | Widgets live in `src/widgets/` (per-widget modules + core), CSS engine lives in `src/css/` |
 | Todo | DevTools panel | In-app inspector (like Textual's DevTools) |
 
 ---
@@ -198,6 +279,8 @@ Deliverable: progress/spinner + animated UI element without blocking input.
 
 ## Next priorities (v0.2)
 
+- Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
+  - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Dirty invalidation — avoid full re-render every tick.
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.
