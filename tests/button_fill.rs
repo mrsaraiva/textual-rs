@@ -1,7 +1,7 @@
 use rich_rs::Console;
+use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
-use textual::css::{default_widget_stylesheet, set_style_context};
 
 #[test]
 fn button_middle_row_is_painted_with_bg() {

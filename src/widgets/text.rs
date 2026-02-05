@@ -38,6 +38,10 @@ impl Widget for Label {
         text.render(console, options)
     }
 
+    fn content_width(&self) -> Option<usize> {
+        Some(rich_rs::cell_len(&self.text).max(1))
+    }
+
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
     }
@@ -85,6 +89,22 @@ impl Widget for Markdown {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         RichMarkdown::new(self.markup.clone()).render(console, options)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let intrinsic = self.markup.lines().count().max(1);
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let width = self
+            .markup
+            .lines()
+            .map(rich_rs::cell_len)
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        Some(width)
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

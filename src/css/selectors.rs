@@ -334,7 +334,11 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
 
 pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
     let sheet_style = STYLE_CONTEXT
-        .with(|ctx| ctx.borrow().as_ref().map(|sheet| sheet.style_for_meta(meta)))
+        .with(|ctx| {
+            ctx.borrow()
+                .as_ref()
+                .map(|sheet| sheet.style_for_meta(meta))
+        })
         .unwrap_or_default();
     let mut style = sheet_style;
     if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {

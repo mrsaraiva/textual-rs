@@ -7,7 +7,7 @@ use crate::style::{Color, parse_color_like};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, focused_classes},
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,7 +441,9 @@ impl Widget for DataTable {
         if selection_changed {
             self.ensure_visible(visible_rows);
         }
-        if (selection_changed || cursor_changed) && !self.rows.is_empty() && !self.headers.is_empty()
+        if (selection_changed || cursor_changed)
+            && !self.rows.is_empty()
+            && !self.headers.is_empty()
         {
             ctx.post_message(
                 self.id,
@@ -634,6 +636,19 @@ impl Widget for DataTable {
         }
 
         out
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let intrinsic = 1usize.saturating_add(self.rows.len().max(1));
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let columns = self.headers.len().max(1);
+        let widths = self.column_widths();
+        let cells_width = widths.iter().copied().sum::<usize>();
+        let gaps_width = columns.saturating_sub(1).saturating_mul(2);
+        Some(cells_width.saturating_add(gaps_width).max(1))
     }
 
     fn style_classes(&self) -> &[String] {

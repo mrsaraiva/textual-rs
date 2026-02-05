@@ -1,6 +1,6 @@
 use rich_rs::Console;
-use textual::prelude::*;
 use textual::css::{StyleSheet, set_style_context};
+use textual::prelude::*;
 use textual::widgets::WidgetRenderable;
 
 #[test]

@@ -105,4 +105,3 @@ impl Validator for Number {
         ValidationResult::success()
     }
 }
-

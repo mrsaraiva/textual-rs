@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use std::sync::Arc;
 
-use crate::debug::debug_input;
+use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
@@ -249,6 +249,11 @@ impl Widget for Button {
                     ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
                     if mouse.target == Some(self.id) {
+                        debug_message(&format!(
+                            "[button] emit mouse_up sender={} label=\"{}\"",
+                            self.id.as_u64(),
+                            self.label
+                        ));
                         ctx.post_message(
                             self.id,
                             Message::ButtonPressed {
@@ -259,11 +264,23 @@ impl Widget for Button {
                             handler(self);
                         }
                         ctx.set_handled();
+                    } else {
+                        debug_message(&format!(
+                            "[button] cancel mouse_up sender={} label=\"{}\" up_target={:?}",
+                            self.id.as_u64(),
+                            self.label,
+                            mouse.target.map(|id| id.as_u64())
+                        ));
                     }
                 }
             }
             Event::Action(Action::Toggle) if self.focused => {
                 self.pressed = PressedState::KeyboardPending;
+                debug_message(&format!(
+                    "[button] emit action_toggle sender={} label=\"{}\"",
+                    self.id.as_u64(),
+                    self.label
+                ));
                 ctx.post_message(
                     self.id,
                     Message::ButtonPressed {
@@ -283,6 +300,12 @@ impl Widget for Button {
             Event::Key(key) if self.focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.pressed = PressedState::KeyboardPending;
+                    debug_message(&format!(
+                        "[button] emit key sender={} label=\"{}\" code={:?}",
+                        self.id.as_u64(),
+                        self.label,
+                        key.code
+                    ));
                     ctx.post_message(
                         self.id,
                         Message::ButtonPressed {

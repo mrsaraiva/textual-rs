@@ -105,16 +105,16 @@ fn build_buttons_widget() -> AppRoot {
     let status_clone = status.clone();
     let status_for_demo = status.clone();
 
-	    let buttons = Horizontal::new()
-	        .with_child(
-	            VerticalScroll::new()
-	                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
-	                .with_child(Button::new("Default"))
-	                .with_child(Button::primary("Primary!"))
-	                .with_child(Button::success("Success!"))
-	                .with_child(Button::warning("Warning!"))
-	                .with_child(Button::error("Error!")),
-	        )
+    let buttons = Horizontal::new()
+        .with_child(
+            VerticalScroll::new()
+                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
+                .with_child(Button::new("Default"))
+                .with_child(Button::primary("Primary!"))
+                .with_child(Button::success("Success!"))
+                .with_child(Button::warning("Warning!"))
+                .with_child(Button::error("Error!")),
+        )
         .with_child(
             VerticalScroll::new()
                 .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
@@ -124,15 +124,15 @@ fn build_buttons_widget() -> AppRoot {
                 .with_child(Button::warning("Warning!").disabled(true))
                 .with_child(Button::error("Error!").disabled(true)),
         )
-	        .with_child(
-	            VerticalScroll::new()
-	                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
-	                .with_child(Button::new("Default").flat(true))
-	                .with_child(Button::primary("Primary!").flat(true))
-	                .with_child(Button::success("Success!").flat(true))
-	                .with_child(Button::warning("Warning!").flat(true))
-	                .with_child(Button::error("Error!").flat(true)),
-	        )
+        .with_child(
+            VerticalScroll::new()
+                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
+                .with_child(Button::new("Default").flat(true))
+                .with_child(Button::primary("Primary!").flat(true))
+                .with_child(Button::success("Success!").flat(true))
+                .with_child(Button::warning("Warning!").flat(true))
+                .with_child(Button::error("Error!").flat(true)),
+        )
         .with_child(
             VerticalScroll::new()
                 .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
@@ -155,9 +155,7 @@ fn build_buttons_widget() -> AppRoot {
             .border_left(Color::parse("#44cc44").unwrap()),
     );
     let scroll = ScrollView::new(buttons).scroll_step(2);
-    let layout = Dock::new()
-        .push_fill(scroll)
-        .push_bottom(Some(3), status);
+    let layout = Dock::new().push_fill(scroll).push_bottom(Some(3), status);
     AppRoot::new().with_child(ButtonsDemo::new(status_for_demo, layout))
 }
 

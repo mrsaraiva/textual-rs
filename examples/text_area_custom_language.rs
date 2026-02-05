@@ -8,7 +8,8 @@ const JAVA_CODE: &str = r#"class HelloWorld {
 }
 "#;
 
-const JAVA_HIGHLIGHTS: &str = include_str!("../../textual/docs/examples/widgets/java_highlights.scm");
+const JAVA_HIGHLIGHTS: &str =
+    include_str!("../../textual/docs/examples/widgets/java_highlights.scm");
 
 #[tokio::main]
 async fn main() -> Result<()> {

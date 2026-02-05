@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::{DebugLayout, debug_layout};
 use crate::css;
+use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Event, EventCtx};
 
 use super::{

@@ -1,10 +1,10 @@
-use crate::debug::{DebugLayout, debug_input, debug_render};
+use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
+use crate::debug::{DebugLayout, debug_input, debug_message, debug_render};
 use crate::driver::{DriverOptions, PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
 use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
 use crate::widgets::{Widget, WidgetId, border_spacing_from_style};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
@@ -461,23 +461,53 @@ impl App {
                 let _active = set_app_active(self.app_active);
                 let _guard = set_style_context(sheet);
                 match event::read()? {
-                    CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
+                    CrosstermEvent::Key(key) => {
+                        debug_input(&format!(
+                            "[input] key code={:?} mods={:?} kind={:?}",
+                            key.code, key.modifiers, key.kind
+                        ));
+                        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                            continue;
+                        }
                         if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
                             break;
                         }
                         // Dispatch the raw key first so focused widgets (e.g. Input) can consume
                         // it before the global ActionMap translates it to an Action.
                         let key_outcome = dispatch_event(root, Event::Key(key));
+                        debug_input(&format!(
+                            "[input] key dispatch handled={} repaint={} messages={}",
+                            key_outcome.handled,
+                            key_outcome.repaint_requested,
+                            key_outcome.messages.len()
+                        ));
                         dirty |= key_outcome.should_repaint();
                         let msg_outcome = dispatch_message_queue(root, key_outcome.messages);
                         dirty |= msg_outcome.should_repaint();
                         if !key_outcome.handled {
                             let bind = KeyBind::from_event(&key);
                             if let Some(action) = self.action_map.lookup(&bind) {
-                                let outcome = dispatch_event(root, Event::Action(action));
+                                debug_input(&format!(
+                                    "[input] action-map {:?} -> {:?}",
+                                    bind, action
+                                ));
+                                let outcome = if is_scroll_action(action) {
+                                    dispatch_scroll_action(root, action, self.hovered)
+                                } else {
+                                    dispatch_event(root, Event::Action(action))
+                                };
+                                debug_input(&format!(
+                                    "[input] action dispatch action={:?} handled={} repaint={} messages={}",
+                                    action,
+                                    outcome.handled,
+                                    outcome.repaint_requested,
+                                    outcome.messages.len()
+                                ));
                                 dirty |= outcome.should_repaint();
                                 let msg_outcome = dispatch_message_queue(root, outcome.messages);
                                 dirty |= msg_outcome.should_repaint();
+                            } else {
+                                debug_input(&format!("[input] action-map {:?} -> none", bind));
                             }
                         }
                     }
@@ -546,7 +576,40 @@ impl App {
                             let msg_outcome = dispatch_message_queue(root, outcome.messages);
                             dirty |= msg_outcome.should_repaint();
                         }
-                        _ => {}
+                        MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                        | MouseEventKind::ScrollLeft
+                        | MouseEventKind::ScrollRight => {
+                            debug_input(&format!(
+                                "[input] mouse scroll kind={:?} mods={:?} x={} y={}",
+                                mouse.kind, mouse.modifiers, mouse.column, mouse.row
+                            ));
+                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                dirty = true;
+                            }
+                            let (delta_x, delta_y) = mouse_scroll_deltas(mouse.kind, mouse.modifiers);
+                            let target = self.widget_at(mouse.column, mouse.row);
+                            debug_input(&format!(
+                                "[input] mouse scroll route target={:?} dx={} dy={}",
+                                target.map(|id| id.as_u64()),
+                                delta_x,
+                                delta_y
+                            ));
+                            let outcome = if let Some(target) = target {
+                                dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
+                            } else {
+                                dispatch_mouse_scroll(root, delta_x, delta_y)
+                            };
+                            debug_input(&format!(
+                                "[input] mouse scroll dispatch handled={} repaint={} messages={}",
+                                outcome.handled,
+                                outcome.repaint_requested,
+                                outcome.messages.len()
+                            ));
+                            dirty |= outcome.should_repaint();
+                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            dirty |= msg_outcome.should_repaint();
+                        }
                     },
                     CrosstermEvent::Resize(_, _) => {
                         let size = self.driver.size();
@@ -899,6 +962,30 @@ mod tests {
         let (lx, ly) = hit_test.content_local_coords(&mut root, table_id, rect.x0, rect.y0);
         assert_eq!((lx, ly), (0, 0));
     }
+
+    #[test]
+    fn shift_wheel_maps_vertical_to_horizontal() {
+        assert_eq!(
+            mouse_scroll_deltas(MouseEventKind::ScrollUp, KeyModifiers::SHIFT),
+            (-1, 0)
+        );
+        assert_eq!(
+            mouse_scroll_deltas(MouseEventKind::ScrollDown, KeyModifiers::SHIFT),
+            (1, 0)
+        );
+        assert_eq!(
+            mouse_scroll_deltas(MouseEventKind::ScrollLeft, KeyModifiers::SHIFT),
+            (-1, 0)
+        );
+        assert_eq!(
+            mouse_scroll_deltas(MouseEventKind::ScrollRight, KeyModifiers::SHIFT),
+            (1, 0)
+        );
+        assert_eq!(
+            mouse_scroll_deltas(MouseEventKind::ScrollDown, KeyModifiers::empty()),
+            (0, 1)
+        );
+    }
 }
 
 fn apply_size(options: &mut ConsoleOptions, size: Size) {
@@ -907,6 +994,24 @@ fn apply_size(options: &mut ConsoleOptions, size: Size) {
     options.size = (width, height);
     options.max_width = width;
     options.max_height = height;
+}
+
+fn mouse_scroll_deltas(kind: MouseEventKind, modifiers: KeyModifiers) -> (i32, i32) {
+    let (mut delta_x, mut delta_y) = match kind {
+        MouseEventKind::ScrollUp => (0, -1),
+        MouseEventKind::ScrollDown => (0, 1),
+        MouseEventKind::ScrollLeft => (-1, 0),
+        MouseEventKind::ScrollRight => (1, 0),
+        _ => (0, 0),
+    };
+
+    // Common TUI convention: Shift + vertical wheel scrolls horizontally.
+    if modifiers.contains(KeyModifiers::SHIFT) && delta_x == 0 && delta_y != 0 {
+        delta_x = delta_y;
+        delta_y = 0;
+    }
+
+    (delta_x, delta_y)
 }
 
 fn default_action_map() -> ActionMap {
@@ -984,17 +1089,201 @@ impl DispatchOutcome {
 }
 
 fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
+    let event_debug = format!("{event:?}");
     let mut ctx = EventCtx::default();
     let always_bubble = matches!(&event, Event::MouseUp(..));
     root.on_event_capture(&event, &mut ctx);
     if always_bubble || !ctx.handled() {
         root.on_event(&event, &mut ctx);
     }
+    let outcome = DispatchOutcome {
+        handled: ctx.handled(),
+        repaint_requested: ctx.repaint_requested(),
+        messages: ctx.take_messages(),
+    };
+    debug_message(&format!(
+        "[dispatch_event] event={event_debug} handled={} repaint={} messages={}",
+        outcome.handled,
+        outcome.repaint_requested,
+        outcome.messages.len()
+    ));
+    outcome
+}
+
+fn is_scroll_action(action: Action) -> bool {
+    matches!(
+        action,
+        Action::ScrollUp
+            | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollLeft
+            | Action::ScrollRight
+            | Action::ScrollPageLeft
+            | Action::ScrollPageRight
+    )
+}
+
+fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
+    fn visit(widget: &mut dyn Widget, out: &mut Option<WidgetId>) {
+        if out.is_some() {
+            return;
+        }
+        if widget.has_focus() {
+            *out = Some(widget.id());
+            return;
+        }
+        widget.visit_children_mut(&mut |child| visit(child, out));
+    }
+
+    let mut out = None;
+    visit(root, &mut out);
+    out
+}
+
+fn dispatch_event_to_target(root: &mut dyn Widget, target: WidgetId, event: &Event) -> DispatchOutcome {
+    let mut ctx = EventCtx::default();
+    root.on_event_capture(event, &mut ctx);
+    if !ctx.handled() {
+        let found = dispatch_event_bubble(root, target, event, &mut ctx);
+        if !found {
+            root.on_event(event, &mut ctx);
+        }
+    }
+    let handled = ctx.handled();
+    let repaint_requested = ctx.repaint_requested();
+    let messages = ctx.take_messages();
+    debug_message(&format!(
+        "[dispatch_event_to_target] target={} event={event:?} handled={} repaint={} messages={}",
+        target.as_u64(),
+        handled,
+        repaint_requested,
+        messages.len()
+    ));
+    DispatchOutcome {
+        handled,
+        repaint_requested,
+        messages,
+    }
+}
+
+fn dispatch_event_bubble(
+    widget: &mut dyn Widget,
+    target: WidgetId,
+    event: &Event,
+    ctx: &mut EventCtx,
+) -> bool {
+    if widget.id() == target {
+        widget.on_event(event, ctx);
+        return true;
+    }
+
+    let mut found_in_child = false;
+    widget.visit_children_mut(&mut |child| {
+        if found_in_child {
+            return;
+        }
+        found_in_child = dispatch_event_bubble(child, target, event, ctx);
+    });
+
+    if found_in_child && !ctx.handled() {
+        widget.on_event(event, ctx);
+    }
+
+    found_in_child
+}
+
+fn dispatch_scroll_action(
+    root: &mut dyn Widget,
+    action: Action,
+    hovered: Option<WidgetId>,
+) -> DispatchOutcome {
+    let event = Event::Action(action);
+    let focused = focused_widget_id(root);
+
+    if let Some(target) = focused {
+        let outcome = dispatch_event_to_target(root, target, &event);
+        if outcome.handled || outcome.repaint_requested || !outcome.messages.is_empty() {
+            return outcome;
+        }
+    }
+
+    if let Some(target) = hovered.filter(|id| Some(*id) != focused) {
+        let outcome = dispatch_event_to_target(root, target, &event);
+        if outcome.handled || outcome.repaint_requested || !outcome.messages.is_empty() {
+            return outcome;
+        }
+    }
+
+    dispatch_event(root, event)
+}
+
+fn dispatch_mouse_scroll(root: &mut dyn Widget, delta_x: i32, delta_y: i32) -> DispatchOutcome {
+    let mut ctx = EventCtx::default();
+    root.on_mouse_scroll(delta_x, delta_y, &mut ctx);
     DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
         messages: ctx.take_messages(),
     }
+}
+
+fn dispatch_mouse_scroll_to_target(
+    root: &mut dyn Widget,
+    target: WidgetId,
+    delta_x: i32,
+    delta_y: i32,
+) -> DispatchOutcome {
+    let mut ctx = EventCtx::default();
+    let found = dispatch_mouse_scroll_bubble(root, target, delta_x, delta_y, &mut ctx);
+    if !found {
+        root.on_mouse_scroll(delta_x, delta_y, &mut ctx);
+    }
+    let handled = ctx.handled();
+    let repaint_requested = ctx.repaint_requested();
+    let messages = ctx.take_messages();
+    debug_message(&format!(
+        "[dispatch_mouse_scroll] target={} found={} dx={} dy={} handled={} repaint={} messages={}",
+        target.as_u64(),
+        found,
+        delta_x,
+        delta_y,
+        handled,
+        repaint_requested,
+        messages.len()
+    ));
+    DispatchOutcome {
+        handled,
+        repaint_requested,
+        messages,
+    }
+}
+
+fn dispatch_mouse_scroll_bubble(
+    widget: &mut dyn Widget,
+    target: WidgetId,
+    delta_x: i32,
+    delta_y: i32,
+    ctx: &mut EventCtx,
+) -> bool {
+    if widget.id() == target {
+        widget.on_mouse_scroll(delta_x, delta_y, ctx);
+        return true;
+    }
+
+    let mut found_in_child = false;
+    widget.visit_children_mut(&mut |child| {
+        if found_in_child {
+            return;
+        }
+        found_in_child = dispatch_mouse_scroll_bubble(child, target, delta_x, delta_y, ctx);
+    });
+
+    if found_in_child && !ctx.handled() {
+        widget.on_mouse_scroll(delta_x, delta_y, ctx);
+    }
+
+    found_in_child
 }
 
 fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> DispatchOutcome {
@@ -1004,6 +1293,10 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
     let mut repaint_requested = false;
     let mut queue: VecDeque<MessageEvent> = initial.into();
     let mut emitted: Vec<MessageEvent> = Vec::new();
+    debug_message(&format!(
+        "[dispatch_message_queue] start initial={}",
+        queue.len()
+    ));
 
     // Prevent message storms from hanging the runtime.
     const LIMIT: usize = 1024;
@@ -1012,31 +1305,65 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
     while let Some(message) = queue.pop_front() {
         processed += 1;
         if processed > LIMIT {
+            debug_message("[dispatch_message_queue] limit reached, dropping remaining messages");
             break;
         }
 
+        debug_message(&format!(
+            "[dispatch_message_queue] pop idx={} sender={} payload={:?}",
+            processed,
+            message.sender.as_u64(),
+            message.message
+        ));
         let mut ctx = EventCtx::default();
         dispatch_message_tree(root, &message, &mut ctx);
         handled |= ctx.handled();
 
         repaint_requested |= ctx.repaint_requested();
         let next = ctx.take_messages();
+        debug_message(&format!(
+            "[dispatch_message_queue] delivered idx={} handled={} repaint={} emitted_now={}",
+            processed,
+            ctx.handled(),
+            ctx.repaint_requested(),
+            next.len()
+        ));
         if !next.is_empty() {
             queue.extend(next.clone());
             emitted.extend(next);
         }
     }
 
-    DispatchOutcome {
+    let outcome = DispatchOutcome {
         handled,
         repaint_requested,
         messages: emitted,
-    }
+    };
+    debug_message(&format!(
+        "[dispatch_message_queue] end handled={} repaint={} emitted_total={} processed={}",
+        outcome.handled,
+        outcome.repaint_requested,
+        outcome.messages.len(),
+        processed
+    ));
+    outcome
 }
 
 fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mut EventCtx) {
+    debug_message(&format!(
+        "[dispatch_message_tree] visit widget={}#{} sender={} payload={:?}",
+        root.style_type(),
+        root.id().as_u64(),
+        message.sender.as_u64(),
+        message.message
+    ));
     root.on_message(message, ctx);
     if ctx.handled() {
+        debug_message(&format!(
+            "[dispatch_message_tree] handled by {}#{}",
+            root.style_type(),
+            root.id().as_u64()
+        ));
         return;
     }
     root.visit_children_mut(&mut |child| {
@@ -1050,9 +1377,11 @@ fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mu
 #[cfg(test)]
 mod message_tests {
     use super::*;
-    use crate::message::Message;
     use crate::event::{MouseDownEvent, MouseUpEvent};
-    use crate::widgets::{AppRoot, Button};
+    use crate::message::Message;
+    use crate::widgets::{AppRoot, Button, ScrollView};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Child {
         id: WidgetId,
@@ -1060,7 +1389,9 @@ mod message_tests {
 
     impl Child {
         fn new() -> Self {
-            Self { id: WidgetId::new() }
+            Self {
+                id: WidgetId::new(),
+            }
         }
     }
 
@@ -1140,12 +1471,12 @@ mod message_tests {
 
     #[test]
     fn messages_bubble_to_ancestor_handlers() {
-            let mut root = Parent::new(Child::new());
-            let key = crossterm::event::KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
-            let outcome = dispatch_event(&mut root, Event::Key(key));
-            assert_eq!(outcome.messages.len(), 1);
+        let mut root = Parent::new(Child::new());
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
+        let outcome = dispatch_event(&mut root, Event::Key(key));
+        assert_eq!(outcome.messages.len(), 1);
 
-            let msg_outcome = dispatch_message_queue(&mut root, outcome.messages);
+        let msg_outcome = dispatch_message_queue(&mut root, outcome.messages);
         assert!(msg_outcome.handled);
         assert_eq!(root.seen, 1);
     }
@@ -1167,7 +1498,9 @@ mod message_tests {
     }
 
     impl Widget for Receiver {
-        fn id(&self) -> WidgetId { self.id }
+        fn id(&self) -> WidgetId {
+            self.id
+        }
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -1219,5 +1552,173 @@ mod message_tests {
         assert!(!up.messages.is_empty());
         let routed = dispatch_message_queue(&mut root, up.messages);
         assert!(routed.handled);
+    }
+
+    #[test]
+    fn button_pressed_message_survives_scrollview_forwarding() {
+        let button = Button::new("x");
+        let button_id = button.id();
+        let scroll = ScrollView::new(button);
+        let mut root = AppRoot::new().with_child(Receiver::new(scroll));
+
+        let down = dispatch_event(
+            &mut root,
+            Event::MouseDown(MouseDownEvent {
+                target: button_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+        );
+        let _ = dispatch_message_queue(&mut root, down.messages);
+
+        let up = dispatch_event(
+            &mut root,
+            Event::MouseUp(MouseUpEvent {
+                target: Some(button_id),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+        );
+        assert_eq!(up.messages.len(), 1);
+        let routed = dispatch_message_queue(&mut root, up.messages);
+        assert!(routed.handled);
+    }
+
+    struct ScrollReceiver {
+        id: WidgetId,
+        child: Box<dyn Widget>,
+        seen: usize,
+    }
+
+    impl ScrollReceiver {
+        fn new(child: impl Widget + 'static) -> Self {
+            Self {
+                id: WidgetId::new(),
+                child: Box::new(child),
+                seen: 0,
+            }
+        }
+    }
+
+    impl Widget for ScrollReceiver {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+        fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, ctx: &mut EventCtx) {
+            self.seen += 1;
+            ctx.set_handled();
+        }
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            f(self.child.as_mut());
+        }
+    }
+
+    #[test]
+    fn mouse_scroll_bubbles_to_ancestor_handlers() {
+        let button = Button::new("x");
+        let button_id = button.id();
+        let mut root = ScrollReceiver::new(button);
+
+        let outcome = dispatch_mouse_scroll_to_target(&mut root, button_id, 0, 1);
+        assert!(outcome.handled);
+        assert_eq!(root.seen, 1);
+    }
+
+    struct ScrollSink {
+        id: WidgetId,
+        focused: bool,
+        hits: Arc<AtomicUsize>,
+    }
+
+    impl ScrollSink {
+        fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
+            Self {
+                id: WidgetId::new(),
+                focused,
+                hits,
+            }
+        }
+    }
+
+    impl Widget for ScrollSink {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if matches!(event, Event::Action(Action::ScrollDown)) {
+                self.hits.fetch_add(1, Ordering::Relaxed);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    #[test]
+    fn scroll_actions_prefer_focused_target() {
+        let first_hits = Arc::new(AtomicUsize::new(0));
+        let second_hits = Arc::new(AtomicUsize::new(0));
+
+        let first = ScrollSink::new(false, first_hits.clone());
+        let second = ScrollSink::new(true, second_hits.clone());
+        let mut root = AppRoot::new().with_child(first).with_child(second);
+
+        let outcome = dispatch_scroll_action(&mut root, Action::ScrollDown, None);
+        assert!(outcome.handled);
+        assert_eq!(first_hits.load(Ordering::Relaxed), 0);
+        assert_eq!(second_hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn scroll_actions_fallback_to_hovered_when_unfocused() {
+        let first_hits = Arc::new(AtomicUsize::new(0));
+        let second_hits = Arc::new(AtomicUsize::new(0));
+
+        let first = ScrollSink::new(false, first_hits.clone());
+        let second = ScrollSink::new(false, second_hits.clone());
+        let second_id = second.id();
+        let mut root = AppRoot::new().with_child(first).with_child(second);
+
+        let outcome = dispatch_scroll_action(&mut root, Action::ScrollDown, Some(second_id));
+        assert!(outcome.handled);
+        assert_eq!(first_hits.load(Ordering::Relaxed), 0);
+        assert_eq!(second_hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn scroll_actions_fallback_to_global_when_no_target_handles() {
+        let first_hits = Arc::new(AtomicUsize::new(0));
+        let second_hits = Arc::new(AtomicUsize::new(0));
+
+        let first = ScrollSink::new(false, first_hits.clone());
+        let second = ScrollSink::new(false, second_hits.clone());
+        let mut root = AppRoot::new().with_child(first).with_child(second);
+
+        let outcome = dispatch_scroll_action(&mut root, Action::ScrollDown, None);
+        assert!(outcome.handled);
+        assert_eq!(first_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(second_hits.load(Ordering::Relaxed), 0);
     }
 }

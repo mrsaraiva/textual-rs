@@ -5,7 +5,7 @@ use crate::event::{Event, EventCtx};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, focused_classes, fixed_height_from_constraints},
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 pub struct Tabs {

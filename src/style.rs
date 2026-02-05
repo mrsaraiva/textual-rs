@@ -177,8 +177,14 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         m.insert("border-blurred", darken_lab(surface, 0.025));
 
         // Input tokens (Textual uses these for cursor and selection styling).
-        m.insert("input-cursor-background", m.get("foreground").copied().unwrap());
-        m.insert("input-cursor-foreground", m.get("background").copied().unwrap());
+        m.insert(
+            "input-cursor-background",
+            m.get("foreground").copied().unwrap(),
+        );
+        m.insert(
+            "input-cursor-foreground",
+            m.get("background").copied().unwrap(),
+        );
         let selection = lighten_lab(primary, 0.15 / 2.0).with_alpha(0.40);
         m.insert("input-selection-background", selection);
         m

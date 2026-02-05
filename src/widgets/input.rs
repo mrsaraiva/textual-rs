@@ -29,7 +29,10 @@ struct Selection {
 
 impl Selection {
     fn cursor(pos: usize) -> Self {
-        Self { start: pos, end: pos }
+        Self {
+            start: pos,
+            end: pos,
+        }
     }
 
     #[cfg(test)]
@@ -479,7 +482,9 @@ impl Widget for Input {
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
             let meta = crate::css::selector_meta_component(self.style_type(), &[class]);
             let style = crate::css::resolve_style_for_meta(&meta);
-            let mut rich = style.to_rich_without_colors().unwrap_or_else(rich_rs::Style::new);
+            let mut rich = style
+                .to_rich_without_colors()
+                .unwrap_or_else(rich_rs::Style::new);
             let mut under_bg = base_bg;
 
             if let Some(bg) = style.bg {
@@ -519,9 +524,15 @@ impl Widget for Input {
 
         let (sel_start, sel_end) = if self.focused && self.mouse_down {
             // Selection only exists while dragging for now.
-            (self.selection.start.min(self.text.len()), self.selection.end.min(self.text.len()))
+            (
+                self.selection.start.min(self.text.len()),
+                self.selection.end.min(self.text.len()),
+            )
         } else {
-            (self.cursor.min(self.text.len()), self.cursor.min(self.text.len()))
+            (
+                self.cursor.min(self.text.len()),
+                self.cursor.min(self.text.len()),
+            )
         };
         let (sel_lo, sel_hi) = if sel_start <= sel_end {
             (sel_start, sel_end)
@@ -540,7 +551,10 @@ impl Widget for Input {
                 return;
             }
             let style = pending_style.take().unwrap_or_else(rich_rs::Style::new);
-            out.push(rich_rs::Segment::styled(std::mem::take(pending_text), style));
+            out.push(rich_rs::Segment::styled(
+                std::mem::take(pending_text),
+                style,
+            ));
         };
 
         for (byte_idx, ch) in self.text.char_indices() {
@@ -574,7 +588,11 @@ impl Widget for Input {
 
         flush(&mut out, &mut pending_style, &mut pending_text);
 
-        if self.focused && self.cursor_visible && self.cursor == self.text.len() && cells_used < width {
+        if self.focused
+            && self.cursor_visible
+            && self.cursor == self.text.len()
+            && cells_used < width
+        {
             out.push(rich_rs::Segment::styled(" ".to_string(), cursor_style));
             cells_used += 1;
         }

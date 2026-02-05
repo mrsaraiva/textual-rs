@@ -88,7 +88,10 @@ pub struct Selection {
 
 impl Selection {
     pub fn cursor(pos: Cursor) -> Self {
-        Self { start: pos, end: pos }
+        Self {
+            start: pos,
+            end: pos,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -432,7 +435,8 @@ impl TextArea {
             .active_theme()
             .map(|t| &t.syntax_styles)
             .filter(|m| !m.is_empty());
-        let style_map: &HashMap<String, Style> = theme_styles.unwrap_or(Self::default_syntax_styles());
+        let style_map: &HashMap<String, Style> =
+            theme_styles.unwrap_or(Self::default_syntax_styles());
 
         let text = self.text();
         let mut parser = Parser::new();
@@ -507,7 +511,11 @@ impl TextArea {
     }
 
     fn cursor_cell_x(&self) -> usize {
-        let line = self.lines.get(self.cursor.row).map(String::as_str).unwrap_or("");
+        let line = self
+            .lines
+            .get(self.cursor.row)
+            .map(String::as_str)
+            .unwrap_or("");
         cell_len_prefix(line, self.cursor.col)
     }
 
@@ -544,7 +552,10 @@ impl TextArea {
             let next = next_char_boundary(&self.lines[row], from.col);
             Cursor { row, col: next }
         } else if row + 1 < self.lines.len() {
-            Cursor { row: row + 1, col: 0 }
+            Cursor {
+                row: row + 1,
+                col: 0,
+            }
         } else {
             Cursor { row, col: line_len }
         }
@@ -553,7 +564,10 @@ impl TextArea {
     fn ensure_cursor_visible(&mut self, view_height: usize, view_width: usize) {
         self.scroll_row = self.scroll_row.min(self.cursor.row);
         if self.cursor.row >= self.scroll_row + view_height {
-            self.scroll_row = self.cursor.row.saturating_sub(view_height.saturating_sub(1));
+            self.scroll_row = self
+                .cursor
+                .row
+                .saturating_sub(view_height.saturating_sub(1));
         }
 
         let cur_x = self.cursor_cell_x();
@@ -735,7 +749,9 @@ impl TextArea {
         if self.cursor.row == 0 {
             return;
         }
-        let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+        let desired = self
+            .preferred_col_cells
+            .unwrap_or_else(|| self.cursor_cell_x());
         self.cursor.row -= 1;
         let new_col = self.cursor_from_cell_x(self.cursor.row, desired);
         self.cursor.col = new_col;
@@ -746,7 +762,9 @@ impl TextArea {
         if self.cursor.row + 1 >= self.lines.len() {
             return;
         }
-        let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+        let desired = self
+            .preferred_col_cells
+            .unwrap_or_else(|| self.cursor_cell_x());
         self.cursor.row += 1;
         let new_col = self.cursor_from_cell_x(self.cursor.row, desired);
         self.cursor.col = new_col;
@@ -871,7 +889,9 @@ impl Widget for TextArea {
                         }
                         KeyCode::Up => {
                             if old.row > 0 {
-                                let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+                                let desired = self
+                                    .preferred_col_cells
+                                    .unwrap_or_else(|| self.cursor_cell_x());
                                 let row = old.row - 1;
                                 let col = self.cursor_from_cell_x(row, desired);
                                 next = Cursor { row, col };
@@ -880,7 +900,9 @@ impl Widget for TextArea {
                         }
                         KeyCode::Down => {
                             if old.row + 1 < self.lines.len() {
-                                let desired = self.preferred_col_cells.unwrap_or_else(|| self.cursor_cell_x());
+                                let desired = self
+                                    .preferred_col_cells
+                                    .unwrap_or_else(|| self.cursor_cell_x());
                                 let row = old.row + 1;
                                 let col = self.cursor_from_cell_x(row, desired);
                                 next = Cursor { row, col };
@@ -888,19 +910,28 @@ impl Widget for TextArea {
                             }
                         }
                         KeyCode::Home => {
-                            next = Cursor { row: old.row, col: 0 };
+                            next = Cursor {
+                                row: old.row,
+                                col: 0,
+                            };
                             self.preferred_col_cells = Some(0);
                         }
                         KeyCode::End => {
                             let end = self.lines.get(old.row).map(|s| s.len()).unwrap_or(0);
-                            next = Cursor { row: old.row, col: end };
+                            next = Cursor {
+                                row: old.row,
+                                col: end,
+                            };
                         }
                         _ => {}
                     }
 
                     if next != old {
                         if self.selection.is_empty() {
-                            self.selection = Selection { start: old, end: next };
+                            self.selection = Selection {
+                                start: old,
+                                end: next,
+                            };
                         } else {
                             self.selection.end = next;
                         }
@@ -1126,8 +1157,20 @@ impl Widget for TextArea {
 
             let line = &self.lines[row];
             let eol_in_sel = !self.selection.is_empty()
-                && cursor_le(sel_a, Cursor { row, col: line.len() })
-                && cursor_lt(Cursor { row, col: line.len() }, sel_b);
+                && cursor_le(
+                    sel_a,
+                    Cursor {
+                        row,
+                        col: line.len(),
+                    },
+                )
+                && cursor_lt(
+                    Cursor {
+                        row,
+                        col: line.len(),
+                    },
+                    sel_b,
+                );
             let line_abs_offset = syntax_cache.line_offsets.get(row).copied().unwrap_or(0);
             let start_cell = self.scroll_col;
             let mut cell_x = 0usize;
@@ -1268,7 +1311,9 @@ impl Widget for TextArea {
 }
 
 fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
-    let mut rich = style.to_rich_without_colors().unwrap_or_else(rich_rs::Style::new);
+    let mut rich = style
+        .to_rich_without_colors()
+        .unwrap_or_else(rich_rs::Style::new);
     let mut under_bg = base_bg;
     if let Some(bg) = style.bg {
         let flat = bg.flatten_over(under_bg);

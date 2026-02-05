@@ -1,9 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{
-    Widget, WidgetId, WidgetStyles,
-    helpers::fixed_height_from_constraints,
-};
+use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
 
 pub struct Spacer {
     id: WidgetId,

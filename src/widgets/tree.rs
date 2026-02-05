@@ -5,7 +5,7 @@ use crate::event::{Action, Event, EventCtx};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, focused_classes},
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 #[derive(Debug, Clone)]
@@ -112,6 +112,31 @@ impl Tree {
                 node.expanded = !node.expanded;
             }
         }
+    }
+
+    fn max_line_width(&self) -> usize {
+        fn visit(node: &TreeNode, depth: usize, max_width: &mut usize) {
+            let marker_width = 2usize;
+            let indent_width = depth.saturating_mul(2);
+            let twist_width = 2usize;
+            let label_width = rich_rs::cell_len(&node.label);
+            let width = marker_width
+                .saturating_add(indent_width)
+                .saturating_add(twist_width)
+                .saturating_add(label_width);
+            *max_width = (*max_width).max(width);
+            if node.expanded {
+                for child in &node.children {
+                    visit(child, depth + 1, max_width);
+                }
+            }
+        }
+
+        let mut max_width = 0usize;
+        for root in &self.roots {
+            visit(root, 0, &mut max_width);
+        }
+        max_width.max(1)
     }
 }
 
@@ -253,6 +278,15 @@ impl Widget for Tree {
         }
         let text = Text::plain(lines.join("\n"));
         text.render(console, options)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints())
+            .or(Some(self.visible_count().max(1)))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        Some(self.max_line_width())
     }
 
     fn style_classes(&self) -> &[String] {

@@ -1,5 +1,6 @@
-use crate::widgets::WidgetId;
+use crate::debug::debug_message;
 use crate::message::{Message, MessageEvent};
+use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 
@@ -116,7 +117,21 @@ impl EventCtx {
     }
 
     pub fn post_message(&mut self, sender: WidgetId, message: Message) {
+        debug_message(&format!(
+            "[post_message] sender={} payload={message:?}",
+            sender.as_u64()
+        ));
         self.messages.push(MessageEvent { sender, message });
+    }
+
+    pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
+        if other.handled {
+            self.handled = true;
+        }
+        if other.repaint_requested {
+            self.repaint_requested = true;
+        }
+        self.messages.append(&mut other.messages);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {

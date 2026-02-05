@@ -150,4 +150,3 @@ impl Widget for StatusLine {
         out
     }
 }
-

@@ -105,7 +105,11 @@ impl Widget for ValidationDemo {
         self.id
     }
 
-    fn render(&self, console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {
+    fn render(
+        &self,
+        console: &rich_rs::Console,
+        options: &rich_rs::ConsoleOptions,
+    ) -> rich_rs::Segments {
         self.child.render_styled(console, options)
     }
 

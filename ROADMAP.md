@@ -270,6 +270,53 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 
 ---
 
+## Phase 9.5: Input diagnostics + key model parity (`textual keys` harness)
+
+**Goal:** add a first-class key/input diagnostics app (similar in purpose to Python Textual's `textual keys`) while closing core input-model gaps in `textual-rs`.
+
+This work is intentionally treated as **fundamentals**, not a one-off demo:
+- It de-risks terminal/tmux/OS input differences early.
+- It creates a stable reference harness for future widget/debugging work.
+- It forces key semantics to be represented explicitly in the framework API.
+
+### Scope and sequence
+
+| Status | Step | Notes |
+|--------|------|-------|
+| Todo | Define canonical key model in `textual-rs` | Introduce normalized key payload (Textual-like concepts: `key`, `character`, `name`, `is_printable`, `aliases`, modifiers, repeat kind) without breaking raw event access |
+| Todo | Add key normalization + alias helpers | Add a `keys` helper module (long-form normalization, aliases like `tab`/`ctrl+i`, display aliases for diagnostics/footer-like UI) |
+| Todo | Runtime conversion path | Convert `crossterm` key events into canonical model in runtime, while preserving existing action-map behavior |
+| Todo | Shared driver protocol uplift | Extend shared driver (`richtui-crossterm`) with opt-in richer keyboard protocol setup/teardown (Kitty protocol style) so modifier coverage improves on supporting terminals |
+| Todo | Build `examples/keys.rs` harness | Show both raw and normalized events, key kind/repeat/modifiers, mouse events (including modifier + scroll deltas), and focus/app-focus transitions |
+| Todo | Add key diagnostics tests | Unit tests for normalization/aliases/display + runtime tests for routing/repeat behavior + protocol on/off wiring tests where applicable |
+| Todo | Document compatibility limits | Record known terminal/tmux/OS limitations and expected behavior in docs/roadmap notes so failures are diagnosable, not "mystery regressions" |
+
+### Acceptance criteria
+
+- A `keys` harness exists and is usable as a manual QA app for input support across environments.
+- Key presses expose both:
+  - **Raw view:** native `crossterm` code/modifiers/kind.
+  - **Canonical view:** normalized key identity + derived properties.
+- Alias behavior is deterministic (e.g. `tab` and `ctrl+i` relationship is represented).
+- Shift/ctrl/alt modifier handling is visible and test-covered.
+- Mouse diagnostics include button/position/modifiers/scroll deltas and reflect routing decisions.
+- Shared driver can be configured to enable/disable enhanced keyboard protocol; app behavior remains stable when unavailable.
+- No demo-only hacks: the harness consumes framework primitives that other widgets/apps can reuse.
+
+### Implementation notes (for cross-session continuity)
+
+- Keep this incremental and bisectable:
+  1. Canonical model + helpers.
+  2. Runtime wiring.
+  3. Harness UI.
+  4. Driver protocol uplift.
+  5. Tests + docs.
+- Prefer additive APIs first; delay breaking cleanup until harness proves behavior.
+- Use the harness as the source of truth during manual QA (inside/outside tmux, multiple terminals).
+- Keep debug channels aligned with harness output so logs and UI corroborate each other.
+
+---
+
 ## Definition of Done (v0.1) — Achieved
 
 - [x] A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
@@ -281,6 +328,8 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 
 - Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
+- Input diagnostics + key model parity (`textual keys` harness)
+  - Land canonical key semantics, normalization/aliases, and driver protocol improvements before deeper keyboard-heavy widget work.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.

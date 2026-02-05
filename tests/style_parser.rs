@@ -1,7 +1,7 @@
 use rich_rs::Console;
+use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
-use textual::css::set_style_context;
 
 #[test]
 fn stylesheet_parser_applies_rules() {
@@ -37,9 +37,9 @@ Label { fg: red; bold: true; }
 #[test]
 fn rgba_background_is_composited_over_base_background() {
     use rich_rs::Console;
+    use textual::css::set_style_context;
     use textual::render::FrameBuffer;
     use textual::style::parse_color_like;
-    use textual::css::set_style_context;
 
     let console = Console::new();
     let mut options = console.options().clone();

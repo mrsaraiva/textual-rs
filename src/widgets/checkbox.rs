@@ -6,7 +6,7 @@ use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, focused_classes, fixed_height_from_constraints},
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,12 @@ impl Widget for Checkbox {
         }
         if let Event::Action(Action::Toggle) = event {
             self.checked = !self.checked;
-            ctx.post_message(self.id, Message::CheckboxChanged { checked: self.checked });
+            ctx.post_message(
+                self.id,
+                Message::CheckboxChanged {
+                    checked: self.checked,
+                },
+            );
             ctx.set_handled();
             return;
         }
@@ -69,7 +74,12 @@ impl Widget for Checkbox {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.checked = !self.checked;
-                    ctx.post_message(self.id, Message::CheckboxChanged { checked: self.checked });
+                    ctx.post_message(
+                        self.id,
+                        Message::CheckboxChanged {
+                            checked: self.checked,
+                        },
+                    );
                     ctx.set_handled();
                 }
                 _ => {}

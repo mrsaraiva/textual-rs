@@ -5,7 +5,7 @@ use crate::event::{Action, Event, EventCtx};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, focused_classes},
+    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
 #[derive(Debug, Clone)]
@@ -168,6 +168,21 @@ impl Widget for ListView {
         }
         let text = Text::plain(lines.join("\n"));
         text.render(console, options)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.items.len().max(1)))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let width = self
+            .items
+            .iter()
+            .map(|item| rich_rs::cell_len(item).saturating_add(2))
+            .max()
+            .unwrap_or(2)
+            .max(1);
+        Some(width)
     }
 
     fn style_classes(&self) -> &[String] {

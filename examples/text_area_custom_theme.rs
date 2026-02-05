@@ -29,9 +29,11 @@ async fn main() -> Result<()> {
     let mut theme = TextAreaTheme::new("my_cool_theme");
     theme.cursor_style = Style::default().fg(white).bg(blue);
     theme.cursor_line_style = Style::default().bg(yellow);
-    theme.syntax_styles
+    theme
+        .syntax_styles
         .insert("string".to_string(), Style::default().fg(red));
-    theme.syntax_styles
+    theme
+        .syntax_styles
         .insert("comment".to_string(), Style::default().fg(magenta));
 
     text_area.register_theme(theme);

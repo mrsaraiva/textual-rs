@@ -108,6 +108,11 @@ pub trait Widget: Send + Sync {
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
+    /// Mouse wheel / touchpad scroll input.
+    ///
+    /// `delta_y > 0` scrolls down, `delta_y < 0` scrolls up.
+    /// `delta_x > 0` scrolls right, `delta_x < 0` scrolls left.
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {}
     /// Called after a render pass to inform the widget of its content-box size in cells.
     ///
     /// Coordinates for mouse events (`MouseDownEvent` / `MouseUpEvent` / `on_mouse_move`) are

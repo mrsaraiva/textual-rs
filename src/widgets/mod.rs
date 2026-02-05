@@ -15,7 +15,7 @@ mod text;
 mod text_area;
 mod tree;
 
-pub use aliases::{Horizontal, Static, VerticalScroll};
+pub use aliases::{Horizontal, HorizontalScroll, Static, VerticalScroll};
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use containers::{
@@ -23,17 +23,17 @@ pub use containers::{
 };
 pub use core::{LayoutConstraints, Widget, WidgetId, WidgetStyles};
 pub use data_table::{CursorType, DataTable};
+pub use helpers::WidgetRenderable;
+pub(crate) use helpers::border_spacing_from_style;
+pub(crate) use helpers::{collect_focus_ids, set_focus_by_id, set_hover_by_id};
 pub use input::{Input, InputType};
+pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use list_view::ListView;
 pub use pretty::Pretty;
 pub use spacer::Spacer;
 pub use tabs::{Tab, Tabs};
+pub use text::{Label, Markdown};
 pub use text_area::{
     Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea, TextAreaTheme,
 };
 pub use tree::{Tree, TreeNode};
-pub use helpers::WidgetRenderable;
-pub(crate) use helpers::border_spacing_from_style;
-pub(crate) use helpers::{collect_focus_ids, set_focus_by_id, set_hover_by_id};
-pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
-pub use text::{Label, Markdown};

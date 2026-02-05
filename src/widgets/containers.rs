@@ -4,9 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
-use crate::debug::{DebugLayout, debug_layout};
-use crate::event::{Action, Event, EventCtx};
 use crate::css;
+use crate::debug::{DebugLayout, debug_input, debug_layout};
+use crate::event::{Action, Event, EventCtx};
 use crate::style::Style;
 
 use super::{
@@ -299,6 +299,21 @@ impl Widget for Container {
             }
         }
         Some(total.max(1))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let mut widest = 0usize;
+        let mut any = false;
+        for child in &self.children {
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            if let Some(width) = child.content_width() {
+                widest = widest.max(width.saturating_add(margin.left + margin.right));
+                any = true;
+            }
+        }
+        if any { Some(widest.max(1)) } else { None }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1128,6 +1143,21 @@ impl Widget for AppRoot {
         Some(total.max(1))
     }
 
+    fn content_width(&self) -> Option<usize> {
+        let mut widest = 0usize;
+        let mut any = false;
+        for child in &self.children {
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            if let Some(width) = child.content_width() {
+                widest = widest.max(width.saturating_add(margin.left + margin.right));
+                any = true;
+            }
+        }
+        if any { Some(widest.max(1)) } else { None }
+    }
+
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
         for child in &mut self.children {
             f(child.as_mut());
@@ -1146,7 +1176,8 @@ impl Widget for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::widgets::{Input, collect_focus_ids, set_focus_by_id};
+    use crate::widgets::{Input, ListView, collect_focus_ids, set_focus_by_id};
+    use rich_rs::Console;
 
     #[test]
     fn focus_next_advances_after_set_focus_by_id() {
@@ -1167,6 +1198,76 @@ mod focus_tests {
 
         root.focus_next();
         assert_eq!(root.focused, Some(second));
+    }
+
+    #[test]
+    fn scroll_view_handles_mouse_scroll_without_focus() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (12, 3);
+        options.max_width = 12;
+        options.max_height = 3;
+
+        let list = ListView::new(vec![
+            "item 1".to_string(),
+            "item 2".to_string(),
+            "item 3".to_string(),
+            "item 4".to_string(),
+            "item 5".to_string(),
+        ]);
+        let mut scroll = ScrollView::new(list).height(3);
+        let _ = Widget::render(&scroll, &console, &options);
+
+        let mut ctx = EventCtx::default();
+        scroll.on_mouse_scroll(0, 1, &mut ctx);
+        assert!(ctx.handled());
+        assert_eq!(scroll.offset_y, 1);
+    }
+
+    #[test]
+    fn panel_forwards_action_to_scrollview_child() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (14, 6);
+        options.max_width = 14;
+        options.max_height = 6;
+
+        let list = ListView::new(vec![
+            "item 1".to_string(),
+            "item 2".to_string(),
+            "item 3".to_string(),
+            "item 4".to_string(),
+            "item 5".to_string(),
+        ]);
+        let mut panel = Panel::new(ScrollView::new(list).height(3)).padding(1);
+        let _ = Widget::render(&panel, &console, &options);
+
+        let mut ctx = EventCtx::default();
+        panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn panel_forwards_mouse_scroll_to_scrollview_child() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (14, 6);
+        options.max_width = 14;
+        options.max_height = 6;
+
+        let list = ListView::new(vec![
+            "item 1".to_string(),
+            "item 2".to_string(),
+            "item 3".to_string(),
+            "item 4".to_string(),
+            "item 5".to_string(),
+        ]);
+        let mut panel = Panel::new(ScrollView::new(list).height(3)).padding(1);
+        let _ = Widget::render(&panel, &console, &options);
+
+        let mut ctx = EventCtx::default();
+        panel.on_mouse_scroll(0, 1, &mut ctx);
+        assert!(ctx.handled());
     }
 }
 
@@ -1363,6 +1464,49 @@ impl Widget for Panel {
             let border = if self.border { 2 } else { 0 };
             child + self.padding * 2 + border
         })
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        self.child.content_width().map(|child| {
+            let border = if self.border { 2 } else { 0 };
+            child + self.padding * 2 + border
+        })
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.child.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.child.set_focus(focused);
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1710,12 +1854,20 @@ impl Widget for ScrollView {
         self.viewport_width.store(width, Ordering::Relaxed);
 
         let constraints = self.child.layout_constraints();
-        let target_height = self
-            .child
-            .layout_height()
-            .unwrap_or_else(|| viewport_height.saturating_add(self.offset_y).max(1));
-        let render_width =
-            clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+        let target_height = self.child.layout_height().unwrap_or_else(|| {
+            // For children without an intrinsic height, probe at least one extra viewport
+            // so scrolling can start from offset 0, without letting probe height
+            // grow with scroll offset.
+            viewport_height.saturating_add(viewport_height).max(1)
+        });
+        let target_width = self.child.content_width().unwrap_or(width).max(width);
+        let render_width = clamp_with_constraints(
+            target_width,
+            constraints.min_width,
+            constraints.max_width,
+            target_width,
+        )
+        .max(width);
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[scroll] id={} child render_width={} constraints=({:?},{:?})",
@@ -1741,7 +1893,7 @@ impl Widget for ScrollView {
         if let Some(height) = self.child.layout_height() {
             lines = Segment::set_shape(&lines, render_width, Some(height.max(1)), None, false);
         }
-        lines = pad_lines_to_width(lines, width);
+        lines = pad_lines_to_width(lines, render_width);
 
         let content_height = lines.len().max(viewport_height);
         self.content_height.store(content_height, Ordering::Relaxed);
@@ -1844,60 +1996,148 @@ impl Widget for ScrollView {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         let mut child_ctx = EventCtx::default();
         self.child.on_event(event, &mut child_ctx);
-        if child_ctx.handled() {
-            ctx.set_handled();
+        let child_handled = child_ctx.handled();
+        ctx.merge_from(child_ctx);
+        if child_handled {
             return;
         }
         if let Event::Action(action) = event {
             match action {
                 Action::ScrollUp => {
+                    let before = self.offset_y;
                     self.scroll_by(-(self.scroll_step as i32));
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollUp before_y={} after_y={} max_y={}",
+                        before,
+                        self.offset_y,
+                        self.max_offset()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollDown => {
+                    let before = self.offset_y;
                     self.scroll_by(self.scroll_step as i32);
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollDown before_y={} after_y={} max_y={}",
+                        before,
+                        self.offset_y,
+                        self.max_offset()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollPageUp => {
+                    let before = self.offset_y;
                     let page = self.height.unwrap_or(1).max(1);
                     self.scroll_by(-(page as i32));
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollPageUp page={} before_y={} after_y={} max_y={}",
+                        page,
+                        before,
+                        self.offset_y,
+                        self.max_offset()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollPageDown => {
+                    let before = self.offset_y;
                     let page = self.height.unwrap_or(1).max(1);
                     self.scroll_by(page as i32);
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollPageDown page={} before_y={} after_y={} max_y={}",
+                        page,
+                        before,
+                        self.offset_y,
+                        self.max_offset()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollLeft => {
+                    let before = self.offset_x;
                     self.scroll_by_x(-(self.scroll_step_x as i32));
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollLeft before_x={} after_x={} max_x={}",
+                        before,
+                        self.offset_x,
+                        self.max_offset_x()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollRight => {
+                    let before = self.offset_x;
                     self.scroll_by_x(self.scroll_step_x as i32);
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollRight before_x={} after_x={} max_x={}",
+                        before,
+                        self.offset_x,
+                        self.max_offset_x()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollPageLeft => {
+                    let before = self.offset_x;
                     let page = self.viewport_width.load(Ordering::Relaxed).max(1);
                     self.scroll_by_x(-(page as i32));
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollPageLeft page={} before_x={} after_x={} max_x={}",
+                        page,
+                        before,
+                        self.offset_x,
+                        self.max_offset_x()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 Action::ScrollPageRight => {
+                    let before = self.offset_x;
                     let page = self.viewport_width.load(Ordering::Relaxed).max(1);
                     self.scroll_by_x(page as i32);
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollPageRight page={} before_x={} after_x={} max_x={}",
+                        page,
+                        before,
+                        self.offset_x,
+                        self.max_offset_x()
+                    ));
                     ctx.set_handled();
                     return;
                 }
                 _ => {}
             }
         }
-        self.child.on_event(event, ctx);
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        let before_x = self.offset_x;
+        let before_y = self.offset_y;
+
+        if delta_y != 0 {
+            self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
+        }
+        if delta_x != 0 {
+            self.scroll_by_x(delta_x.saturating_mul(self.scroll_step_x as i32));
+        }
+        debug_input(&format!(
+            "[scrollview] mouse dx={} dy={} before=({}, {}) after=({}, {}) max=({}, {})",
+            delta_x,
+            delta_y,
+            before_x,
+            before_y,
+            self.offset_x,
+            self.offset_y,
+            self.max_offset_x(),
+            self.max_offset()
+        ));
+
+        if self.offset_x != before_x || self.offset_y != before_y {
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -2017,6 +2257,22 @@ impl Widget for Overlay {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
+        if self.visible {
+            match (self.base.layout_height(), self.modal.layout_height()) {
+                (Some(base), Some(modal)) => Some(base.max(modal)),
+                (Some(base), None) => Some(base),
+                (None, Some(modal)) => Some(modal),
+                (None, None) => None,
+            }
+        } else {
+            self.base.layout_height()
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use rich_rs::Console;
+use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
-use textual::css::set_style_context;
 
 #[test]
 fn descendant_selectors_match() {
