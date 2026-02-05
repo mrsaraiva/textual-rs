@@ -27,6 +27,7 @@ pub struct Button {
     focused: bool,
     hovered: bool,
     pressed: bool,
+    pressed_until: Option<u64>,
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
@@ -60,6 +61,7 @@ impl Button {
             focused: false,
             hovered: false,
             pressed: false,
+            pressed_until: None,
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
@@ -214,9 +216,10 @@ impl Widget for Button {
         if self.disabled {
             return;
         }
-        if let Event::MouseDown(target) = event {
-            if *target == self.id {
-                self.pressed = !self.pressed;
+        match event {
+            Event::MouseDown(target) if *target == self.id => {
+                self.pressed = true;
+                self.pressed_until = None;
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
@@ -227,11 +230,15 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            return;
-        }
-        if let Event::Action(Action::Toggle) = event {
-            if self.focused {
-                self.pressed = !self.pressed;
+            Event::MouseUp => {
+                if self.pressed && self.pressed_until.is_none() {
+                    // Mouse-initiated press: clear immediately on release.
+                    self.pressed = false;
+                }
+            }
+            Event::Action(Action::Toggle) if self.focused => {
+                self.pressed = true;
+                self.pressed_until = Some(0); // will be set on next tick
                 if let Some(handler) = &self.on_press {
                     handler(self);
                 }
@@ -242,15 +249,10 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            return;
-        }
-        if let Event::Key(key) = event {
-            if !self.focused {
-                return;
-            }
-            match key.code {
+            Event::Key(key) if self.focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.pressed = !self.pressed;
+                    self.pressed = true;
+                    self.pressed_until = Some(0); // will be set on next tick
                     if let Some(handler) = &self.on_press {
                         handler(self);
                     }
@@ -262,7 +264,23 @@ impl Widget for Button {
                     ctx.set_handled();
                 }
                 _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if self.pressed {
+            if let Some(expire) = self.pressed_until {
+                if expire == 0 {
+                    // First tick after keyboard press; set real expiry.
+                    self.pressed_until = Some(tick + 2);
+                } else if tick >= expire {
+                    self.pressed = false;
+                    self.pressed_until = None;
+                }
             }
+            // pressed_until == None means mouse-initiated; cleared by MouseUp, not timer.
         }
     }
 

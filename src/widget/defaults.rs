@@ -37,6 +37,12 @@ Button.-style-default.-success:hover { bg: $success-darken-2; border-top: tall $
 Button.-style-default.-warning:hover { bg: $warning-darken-2; border-top: tall $warning; }
 Button.-style-default.-error:hover { bg: $error-darken-1; border-top: tall $error; }
 
+Button.-style-default:active { border-top: tall $surface-darken-1; border-bottom: tall $surface-lighten-1; background-tint: $background 30%; }
+Button.-style-default.-primary:active { border-top: tall $primary-darken-3; border-bottom: tall $primary-lighten-3; background-tint: $background 30%; }
+Button.-style-default.-success:active { border-top: tall $success-darken-3; border-bottom: tall $success-lighten-2; background-tint: $background 30%; }
+Button.-style-default.-warning:active { border-top: tall $warning-darken-3; border-bottom: tall $warning-lighten-2; background-tint: $background 30%; }
+Button.-style-default.-error:active { border-top: tall $error-darken-3; border-bottom: tall $error-lighten-2; background-tint: $background 30%; }
+
 Button:disabled { dim: true; }
 
 Button.-style-flat { text-style: bold; fg: $foreground; bg: $surface; border: block $surface; }
@@ -52,6 +58,12 @@ Button.-style-flat.-primary:hover { fg: $text; bg: $primary; border: block $prim
 Button.-style-flat.-success:hover { fg: $text; bg: $success; border: block $success; }
 Button.-style-flat.-warning:hover { fg: $text; bg: $warning; border: block $warning; }
 Button.-style-flat.-error:hover { fg: $text; bg: $error; border: block $error; }
+
+Button.-style-flat:active { background-tint: $background 30%; }
+Button.-style-flat.-primary:active { background-tint: $background 30%; }
+Button.-style-flat.-success:active { background-tint: $background 30%; }
+Button.-style-flat.-warning:active { background-tint: $background 30%; }
+Button.-style-flat.-error:active { background-tint: $background 30%; }
 "#;
 
 pub fn default_widget_stylesheet() -> StyleSheet {

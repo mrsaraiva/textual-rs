@@ -350,6 +350,9 @@ impl App {
                                     dispatch_event(root, Event::MouseDown(target));
                                 }
                             }
+                            MouseEventKind::Up(_) => {
+                                dispatch_event(root, Event::MouseUp);
+                            }
                             _ => {}
                         }
                     }
