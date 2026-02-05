@@ -9,7 +9,6 @@ use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -374,20 +373,9 @@ impl App {
     }
 
     fn print_segments(&mut self, diff: &rich_rs::Segments) -> Result<()> {
-        if self.sync_output {
-            let mut out = std::io::stdout();
-            // Terminals that don't support synchronized output should ignore this.
-            out.write_all(SYNC_START.as_bytes())?;
-            out.flush()?;
-        }
-
-        self.console.print_segments(diff)?;
-
-        if self.sync_output {
-            let mut out = std::io::stdout();
-            out.write_all(SYNC_END.as_bytes())?;
-            out.flush()?;
-        }
+        console_write_with_optional_sync(&mut self.console, self.sync_output, |console| {
+            console.print_segments(diff)
+        })?;
         Ok(())
     }
 
@@ -486,6 +474,52 @@ impl App {
             self.stylesheet = StyleSheet::parse(&css);
             watch.last_modified = Some(modified);
         }
+    }
+}
+
+fn console_write_with_optional_sync<W: std::io::Write>(
+    console: &mut rich_rs::Console<W>,
+    sync_enabled: bool,
+    write_payload: impl FnOnce(&mut rich_rs::Console<W>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    if sync_enabled {
+        console.write_str(SYNC_START)?;
+    }
+
+    write_payload(console)?;
+
+    if sync_enabled {
+        console.write_str(SYNC_END)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_output_wraps_payload_when_enabled() {
+        let mut console = rich_rs::Console::capture();
+        console_write_with_optional_sync(&mut console, true, |console| {
+            console.write_str("PAYLOAD")
+        })
+        .unwrap();
+        let out = console.get_captured_bytes();
+        assert!(out.starts_with(SYNC_START.as_bytes()));
+        assert!(out.ends_with(SYNC_END.as_bytes()));
+        assert!(out.windows(b"PAYLOAD".len()).any(|w| w == b"PAYLOAD"));
+    }
+
+    #[test]
+    fn sync_output_does_not_wrap_payload_when_disabled() {
+        let mut console = rich_rs::Console::capture();
+        console_write_with_optional_sync(&mut console, false, |console| {
+            console.write_str("PAYLOAD")
+        })
+        .unwrap();
+        let out = console.get_captured_bytes();
+        assert_eq!(out, b"PAYLOAD");
     }
 }
 

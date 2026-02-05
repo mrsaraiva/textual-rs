@@ -3,7 +3,7 @@ name = "textual"
 version = "0.0.1"
 edition = "2024"
 license = "MIT"
-description = "A reactive TUI framework inspired by Textual"
+description = "A reactive TUI framework inspired by the Python Textual library"
 keywords = ["terminal", "tui", "textual", "ui", "widgets"]
 categories = ["command-line-interface"]
 
