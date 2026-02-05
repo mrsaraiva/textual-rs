@@ -1,5 +1,5 @@
 use crate::debug::{DebugLayout, debug_input, debug_render};
-use crate::driver::{Size, TerminalDriver};
+use crate::driver::{PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
 use crate::render::FrameBuffer;
 use crate::style::Theme;
@@ -33,6 +33,7 @@ pub struct App {
     last_resize_at: Option<Instant>,
     resize_burst: u64,
     sync_output: bool,
+    pointer_shape: PointerShape,
 }
 
 struct StylesheetWatcher {
@@ -72,6 +73,7 @@ impl App {
             last_resize_at: None,
             resize_burst: 0,
             sync_output,
+            pointer_shape: PointerShape::Default,
         })
     }
 
@@ -132,6 +134,12 @@ impl App {
         self.driver.start()?;
         self.refresh_size()?;
         debug_render(&format!("[app] sync_output={}", self.sync_output));
+        debug_render(&format!(
+            "[app] pointer_shapes_enabled={}",
+            self.driver.pointer_shapes_enabled()
+        ));
+        // Ensure we start in a known state.
+        self.set_pointer_shape(PointerShape::Default)?;
         Ok(())
     }
 
@@ -400,10 +408,21 @@ impl App {
         if hovered != self.hovered {
             self.hovered = hovered;
             crate::widget::set_hover_by_id(root, self.hovered);
+            let shape = pointer_shape_for_hover(root, self.hovered);
+            let _ = self.set_pointer_shape(shape);
             return true;
         }
 
         false
+    }
+
+    fn set_pointer_shape(&mut self, shape: PointerShape) -> Result<()> {
+        if shape == self.pointer_shape {
+            return Ok(());
+        }
+        self.pointer_shape = shape;
+        self.driver.set_pointer_shape(shape)?;
+        Ok(())
     }
 
     fn widget_at(&self, x: u16, y: u16) -> Option<WidgetId> {
@@ -474,6 +493,49 @@ impl App {
             self.stylesheet = StyleSheet::parse(&css);
             watch.last_modified = Some(modified);
         }
+    }
+}
+
+fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> PointerShape {
+    let Some(id) = hovered else {
+        return PointerShape::Default;
+    };
+
+    // Traverse the widget tree to locate the hovered widget.
+    let mut found: Option<(bool, bool, &'static str)> = None; // (focusable, disabled, type)
+    fn visit(
+        w: &mut dyn Widget,
+        id: WidgetId,
+        out: &mut Option<(bool, bool, &'static str)>,
+    ) {
+        if out.is_some() {
+            return;
+        }
+        if w.id() == id {
+            *out = Some((w.focusable(), w.is_disabled(), w.style_type()));
+            return;
+        }
+        w.visit_children_mut(&mut |child| visit(child, id, out));
+    }
+
+    visit(root, id, &mut found);
+
+    let Some((focusable, disabled, ty)) = found else {
+        return PointerShape::Default;
+    };
+
+    if !focusable {
+        return PointerShape::Default;
+    }
+
+    if ty == "Input" {
+        return PointerShape::Text;
+    }
+
+    if disabled {
+        PointerShape::NotAllowed
+    } else {
+        PointerShape::Pointer
     }
 }
 
