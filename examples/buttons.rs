@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use rich_rs::{Segment, Segments};
 use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
-use textual::style::Color;
+use textual::style::{Color, parse_color_like};
 
 struct StatusLine {
     id: WidgetId,
@@ -38,15 +38,10 @@ fn build_buttons_widget() -> AppRoot {
     let status = Arc::new(Mutex::new(String::from("")));
     let status_clone = status.clone();
 
-    let headers = Horizontal::new()
-        .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
-        .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
-        .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
-        .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"));
-
     let buttons = Horizontal::new()
         .with_child(
             VerticalScroll::new()
+                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
                 .with_child(Button::new("Default").on_press({
                     let status = status.clone();
                     move |button| {
@@ -80,6 +75,7 @@ fn build_buttons_widget() -> AppRoot {
         )
         .with_child(
             VerticalScroll::new()
+                .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
                 .with_child(Button::new("Default").disabled(true))
                 .with_child(Button::primary("Primary!").disabled(true))
                 .with_child(Button::success("Success!").disabled(true))
@@ -88,14 +84,41 @@ fn build_buttons_widget() -> AppRoot {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Button::new("Default").flat(true))
-                .with_child(Button::primary("Primary!").flat(true))
-                .with_child(Button::success("Success!").flat(true))
-                .with_child(Button::warning("Warning!").flat(true))
-                .with_child(Button::error("Error!").flat(true)),
+                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
+                .with_child(Button::new("Default").flat(true).on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::primary("Primary!").flat(true).on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::success("Success!").flat(true).on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::warning("Warning!").flat(true).on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                }))
+                .with_child(Button::error("Error!").flat(true).on_press({
+                    let status = status.clone();
+                    move |button| {
+                        *status.lock().unwrap() = button.describe();
+                    }
+                })),
         )
         .with_child(
             VerticalScroll::new()
+                .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
                 .with_child(Button::new("Default").disabled(true).flat(true))
                 .with_child(Button::primary("Primary!").disabled(true).flat(true))
                 .with_child(Button::success("Success!").disabled(true).flat(true))
@@ -103,10 +126,12 @@ fn build_buttons_widget() -> AppRoot {
                 .with_child(Button::error("Error!").disabled(true).flat(true)),
         );
 
+    let status_bg = parse_color_like("$panel").or_else(|| parse_color_like("$surface"));
     let status = Styled::new(
         StatusLine::new(status_clone),
         Style::new()
             .line_pad(1)
+            .bg(status_bg.unwrap_or(Color::parse("#303a43").unwrap()))
             .border_top(Color::parse("#44cc44").unwrap())
             .border_right(Color::parse("#44cc44").unwrap())
             .border_bottom(Color::parse("#44cc44").unwrap())
@@ -114,7 +139,6 @@ fn build_buttons_widget() -> AppRoot {
     );
     let scroll = ScrollView::new(buttons).scroll_step(2);
     let layout = Dock::new()
-        .push_top(Some(1), headers)
         .push_fill(scroll)
         .push_bottom(Some(3), status);
     AppRoot::new().with_child(layout)
