@@ -392,15 +392,15 @@ fn rule_specificity(rule: &StyleRule, meta: &SelectorMeta) -> Option<u8> {
 
     let stack_snapshot = SELECTOR_STACK.with(|stack| stack.borrow().clone());
     let mut idx = stack_snapshot.len() as isize - 2;
+    if idx < 0 {
+        return None;
+    }
     let combinators = &rule.selector_chain.combinators;
     let parts = &rule.selector_chain.parts;
     for (part_index, selector) in parts[..parts.len() - 1].iter().rev().enumerate() {
         let comb = combinators[combinators.len() - 1 - part_index];
         match comb {
             Combinator::Child => {
-                if idx < 0 {
-                    return None;
-                }
                 let meta = &stack_snapshot[idx as usize];
                 if !selector.matches(meta) {
                     return None;
