@@ -56,11 +56,22 @@ struct SyntaxSpan {
     style: Style,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct SyntaxCache {
     revision: u64,
     line_offsets: Vec<usize>,
     spans: Vec<SyntaxSpan>,
+}
+
+impl Default for SyntaxCache {
+    fn default() -> Self {
+        // Use a sentinel revision so the first render always computes the cache.
+        Self {
+            revision: u64::MAX,
+            line_offsets: Vec::new(),
+            spans: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -196,7 +207,7 @@ impl TextArea {
     }
 
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
-        self.language = Some(language.into());
+        self.set_language(language);
         self
     }
 
@@ -207,7 +218,7 @@ impl TextArea {
     pub fn set_language(&mut self, language: impl Into<String>) {
         self.language = Some(language.into());
         if let Ok(mut cache) = self.syntax_cache.lock() {
-            cache.revision = 0;
+            cache.revision = u64::MAX;
         }
     }
 
@@ -247,7 +258,7 @@ impl TextArea {
             },
         );
         if let Ok(mut cache) = self.syntax_cache.lock() {
-            cache.revision = 0;
+            cache.revision = u64::MAX;
         }
         Ok(())
     }
@@ -262,6 +273,9 @@ impl TextArea {
 
     pub fn set_theme(&mut self, name: impl Into<String>) {
         self.theme = Some(name.into());
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = u64::MAX;
+        }
     }
 
     pub fn with_theme(mut self, name: impl Into<String>) -> Self {
@@ -1066,7 +1080,7 @@ impl Widget for TextArea {
 
         let syntax_cache = {
             let mut guard = self.syntax_cache.lock().unwrap_or_else(|e| e.into_inner());
-            if guard.revision != self.doc_revision {
+            if guard.revision != self.doc_revision || guard.line_offsets.is_empty() {
                 self.recompute_syntax_cache(&mut guard);
             }
             guard.clone()
