@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
+use crate::message::Message;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -208,6 +209,17 @@ impl Input {
         }
     }
 
+    fn post_changed(&mut self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            Message::InputChanged {
+                value: self.text.clone(),
+                validation: self.validation_result.clone(),
+            },
+        );
+        self.notify_changed();
+    }
+
     fn revalidate(&mut self) {
         if self.validators.is_empty() {
             self.validation_result = ValidationResult::success();
@@ -359,10 +371,19 @@ impl Widget for Input {
                         self.cursor += ch.len_utf8();
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.reset_blink();
                         ctx.request_repaint();
                     }
+                    ctx.set_handled();
+                }
+                KeyCode::Enter => {
+                    ctx.post_message(
+                        self.id,
+                        Message::InputSubmitted {
+                            value: self.text.clone(),
+                        },
+                    );
                     ctx.set_handled();
                 }
                 KeyCode::Backspace => {
@@ -377,7 +398,7 @@ impl Widget for Input {
                         self.cursor = prev;
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
@@ -393,7 +414,7 @@ impl Widget for Input {
                         self.text.drain(self.cursor..next);
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();

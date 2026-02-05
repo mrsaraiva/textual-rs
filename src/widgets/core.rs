@@ -4,6 +4,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
 
 use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
+use crate::message::MessageEvent;
 use crate::style::{Color, Style};
 
 use super::helpers;
@@ -103,6 +104,7 @@ pub trait Widget: Send + Sync {
     fn on_resize(&mut self, _width: u16, _height: u16) {}
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }

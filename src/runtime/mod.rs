@@ -1,6 +1,7 @@
 use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{DriverOptions, PointerShape, Size, TerminalDriver};
 use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseUpEvent};
+use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
 use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
@@ -468,11 +469,15 @@ impl App {
                         // it before the global ActionMap translates it to an Action.
                         let key_outcome = dispatch_event(root, Event::Key(key));
                         dirty |= key_outcome.should_repaint();
+                        let msg_outcome = dispatch_message_queue(root, key_outcome.messages);
+                        dirty |= msg_outcome.should_repaint();
                         if !key_outcome.handled {
                             let bind = KeyBind::from_event(&key);
                             if let Some(action) = self.action_map.lookup(&bind) {
                                 let outcome = dispatch_event(root, Event::Action(action));
                                 dirty |= outcome.should_repaint();
+                                let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                dirty |= msg_outcome.should_repaint();
                             }
                         }
                     }
@@ -511,6 +516,8 @@ impl App {
                                     }),
                                 );
                                 dirty |= outcome.should_repaint();
+                                let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                dirty |= msg_outcome.should_repaint();
                             }
                         }
                         MouseEventKind::Up(_) => {
@@ -536,6 +543,8 @@ impl App {
                                 }),
                             );
                             dirty |= outcome.should_repaint();
+                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            dirty |= msg_outcome.should_repaint();
                         }
                         _ => {}
                     },
@@ -545,19 +554,22 @@ impl App {
                         self.refresh_size()?;
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
-                        let _ = dispatch_event(root, Event::Resize(size.width, size.height));
+                        let outcome = dispatch_event(root, Event::Resize(size.width, size.height));
+                        let _ = dispatch_message_queue(root, outcome.messages);
                         dirty = true;
                     }
                     CrosstermEvent::FocusLost => {
                         self.app_active = false;
                         debug_input("[event] FocusLost");
-                        let _ = dispatch_event(root, Event::AppFocus(false));
+                        let outcome = dispatch_event(root, Event::AppFocus(false));
+                        let _ = dispatch_message_queue(root, outcome.messages);
                         dirty = true;
                     }
                     CrosstermEvent::FocusGained => {
                         self.app_active = true;
                         debug_input("[event] FocusGained");
-                        let _ = dispatch_event(root, Event::AppFocus(true));
+                        let outcome = dispatch_event(root, Event::AppFocus(true));
+                        let _ = dispatch_message_queue(root, outcome.messages);
                         dirty = true;
                     }
                     _ => {}
@@ -581,6 +593,8 @@ impl App {
                 root.on_tick(tick);
                 let outcome = dispatch_event(root, Event::Tick(tick));
                 dirty |= outcome.should_repaint();
+                let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                dirty |= msg_outcome.should_repaint();
 
                 let any_active = any_widget_active(root);
                 if dirty || any_active || prev_any_active {
@@ -956,14 +970,15 @@ fn default_action_map() -> ActionMap {
     map
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct DispatchOutcome {
     handled: bool,
     repaint_requested: bool,
+    messages: Vec<MessageEvent>,
 }
 
 impl DispatchOutcome {
-    fn should_repaint(self) -> bool {
+    fn should_repaint(&self) -> bool {
         self.handled || self.repaint_requested
     }
 }
@@ -978,5 +993,195 @@ fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
     DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
+        messages: ctx.take_messages(),
     }
 }
+
+fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> DispatchOutcome {
+    use std::collections::VecDeque;
+
+    let mut handled = false;
+    let mut repaint_requested = false;
+    let mut queue: VecDeque<MessageEvent> = initial.into();
+    let mut emitted: Vec<MessageEvent> = Vec::new();
+
+    // Prevent message storms from hanging the runtime.
+    const LIMIT: usize = 1024;
+    let mut processed = 0usize;
+
+    while let Some(message) = queue.pop_front() {
+        processed += 1;
+        if processed > LIMIT {
+            break;
+        }
+
+        let mut path: Vec<WidgetId> = Vec::new();
+        if !find_path_to_sender(root, message.sender, &mut path) {
+            continue;
+        }
+
+        let mut ctx = EventCtx::default();
+        for id in path {
+            let _ = call_on_message_by_id(root, id, &message, &mut ctx);
+            if ctx.handled() {
+                handled = true;
+                break;
+            }
+        }
+
+        repaint_requested |= ctx.repaint_requested();
+        let next = ctx.take_messages();
+        if !next.is_empty() {
+            queue.extend(next.clone());
+            emitted.extend(next);
+        }
+    }
+
+    DispatchOutcome {
+        handled,
+        repaint_requested,
+        messages: emitted,
+    }
+}
+
+fn find_path_to_sender(root: &mut dyn Widget, sender: WidgetId, path: &mut Vec<WidgetId>) -> bool {
+    if root.id() == sender {
+        path.push(root.id());
+        return true;
+    }
+    let mut found = false;
+    root.visit_children_mut(&mut |child| {
+        if found {
+            return;
+        }
+        if find_path_to_sender(child, sender, path) {
+            found = true;
+        }
+    });
+    if found {
+        path.push(root.id());
+    }
+    found
+}
+
+fn call_on_message_by_id(
+    root: &mut dyn Widget,
+    id: WidgetId,
+    message: &MessageEvent,
+    ctx: &mut EventCtx,
+) -> bool {
+    if root.id() == id {
+        root.on_message(message, ctx);
+        return true;
+    }
+    let mut found = false;
+    root.visit_children_mut(&mut |child| {
+        if found {
+            return;
+        }
+        found = call_on_message_by_id(child, id, message, ctx);
+    });
+    found
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+    use crate::message::Message;
+
+    struct Child {
+        id: WidgetId,
+    }
+
+    impl Child {
+        fn new() -> Self {
+            Self { id: WidgetId::new() }
+        }
+    }
+
+    impl Widget for Child {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if let Event::Key(key) = event {
+                if matches!(key.code, KeyCode::Char('x')) {
+                    ctx.post_message(
+                        self.id,
+                        Message::InputChanged {
+                            value: "ok".into(),
+                            validation: crate::validation::ValidationResult::success(),
+                        },
+                    );
+                    ctx.set_handled();
+                }
+            }
+        }
+    }
+
+    struct Parent {
+        id: WidgetId,
+        child: Box<dyn Widget>,
+        seen: usize,
+    }
+
+    impl Parent {
+        fn new(child: impl Widget + 'static) -> Self {
+            Self {
+                id: WidgetId::new(),
+                child: Box::new(child),
+                seen: 0,
+            }
+        }
+    }
+
+    impl Widget for Parent {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+            self.child.on_event_capture(event, ctx);
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            self.child.on_event(event, ctx);
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if matches!(message.message, Message::InputChanged { .. }) {
+                self.seen += 1;
+                ctx.set_handled();
+            }
+        }
+
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            f(self.child.as_mut());
+        }
+    }
+
+    #[test]
+        fn messages_bubble_to_ancestor_handlers() {
+            let mut root = Parent::new(Child::new());
+            let key = crossterm::event::KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
+            let outcome = dispatch_event(&mut root, Event::Key(key));
+            assert_eq!(outcome.messages.len(), 1);
+
+            let msg_outcome = dispatch_message_queue(&mut root, outcome.messages);
+            assert!(msg_outcome.handled);
+            assert_eq!(root.seen, 1);
+        }
+    }

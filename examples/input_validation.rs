@@ -38,27 +38,16 @@ Pretty {
 
     let input = Input::new()
         .with_placeholder("Enter a number...")
-        .with_validators(validators)
-        .on_change({
-            let failures = failures.clone();
-            move |input| {
-                let next = if input.text().trim().is_empty() {
-                    Vec::new()
-                } else if !input.validation_result().is_valid {
-                    input.validation_result().failure_descriptions.clone()
-                } else {
-                    Vec::new()
-                };
-                *failures.lock().unwrap() = next;
-            }
-        });
+        .with_validators(validators);
 
-    let root_widget = Container::new()
-        .with_child(Label::new(
-            "Enter an even number between 1 and 100 that is also a palindrome.",
-        ))
-        .with_child(input)
-        .with_child(Pretty::new(failures_for_widget));
+    let root_widget = ValidationDemo::new(failures.clone()).with_child(
+        Container::new()
+            .with_child(Label::new(
+                "Enter an even number between 1 and 100 that is also a palindrome.",
+            ))
+            .with_child(input)
+            .with_child(Pretty::new(failures_for_widget)),
+    );
 
     let mut root = AppRoot::new().with_child(root_widget);
     let mut app = App::new()?;
@@ -88,4 +77,80 @@ impl Validator for Palindrome {
 
 fn is_palindrome(value: &str) -> bool {
     value.chars().eq(value.chars().rev())
+}
+
+struct ValidationDemo {
+    id: WidgetId,
+    failures: Arc<Mutex<Vec<String>>>,
+    child: Box<dyn Widget>,
+}
+
+impl ValidationDemo {
+    fn new(failures: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            id: WidgetId::new(),
+            failures,
+            child: Box::new(Spacer::new(1)),
+        }
+    }
+
+    fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.child = Box::new(child);
+        self
+    }
+}
+
+impl Widget for ValidationDemo {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {
+        self.child.render_styled(console, options)
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        match &message.message {
+            Message::InputChanged { value, validation } => {
+                let next = if value.trim().is_empty() {
+                    Vec::new()
+                } else if !validation.is_valid {
+                    validation.failure_descriptions.clone()
+                } else {
+                    Vec::new()
+                };
+                *self.failures.lock().unwrap() = next;
+                ctx.request_repaint();
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(self.child.as_mut());
+    }
 }

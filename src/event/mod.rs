@@ -1,4 +1,5 @@
 use crate::widgets::WidgetId;
+use crate::message::{Message, MessageEvent};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 
@@ -90,6 +91,7 @@ impl ActionMap {
 pub struct EventCtx {
     handled: bool,
     repaint_requested: bool,
+    messages: Vec<MessageEvent>,
 }
 
 impl EventCtx {
@@ -111,5 +113,13 @@ impl EventCtx {
 
     pub fn repaint_requested(&self) -> bool {
         self.repaint_requested
+    }
+
+    pub fn post_message(&mut self, sender: WidgetId, message: Message) {
+        self.messages.push(MessageEvent { sender, message });
+    }
+
+    pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
+        std::mem::take(&mut self.messages)
     }
 }

@@ -2,6 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
@@ -60,6 +61,7 @@ impl Widget for Checkbox {
         }
         if let Event::Action(Action::Toggle) = event {
             self.checked = !self.checked;
+            ctx.post_message(self.id, Message::CheckboxChanged { checked: self.checked });
             ctx.set_handled();
             return;
         }
@@ -67,6 +69,7 @@ impl Widget for Checkbox {
             match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.checked = !self.checked;
+                    ctx.post_message(self.id, Message::CheckboxChanged { checked: self.checked });
                     ctx.set_handled();
                 }
                 _ => {}

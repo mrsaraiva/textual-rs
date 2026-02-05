@@ -6,6 +6,7 @@ pub mod driver;
 mod error;
 pub mod css;
 pub mod event;
+pub mod message;
 pub mod render;
 pub mod runtime;
 pub mod style;
@@ -21,6 +22,7 @@ pub mod prelude {
     pub use crate::debug::DebugLayout;
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::event::{Action, ActionMap, Event, EventCtx, KeyBind};
+    pub use crate::message::{Message, MessageEvent};
     pub use crate::runtime::App;
     pub use crate::style::{Color, Style, Theme};
     pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
