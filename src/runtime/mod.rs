@@ -1015,19 +1015,9 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
             break;
         }
 
-        let mut path: Vec<WidgetId> = Vec::new();
-        if !find_path_to_sender(root, message.sender, &mut path) {
-            continue;
-        }
-
         let mut ctx = EventCtx::default();
-        for id in path {
-            let _ = call_on_message_by_id(root, id, &message, &mut ctx);
-            if ctx.handled() {
-                handled = true;
-                break;
-            }
-        }
+        dispatch_message_tree(root, &message, &mut ctx);
+        handled |= ctx.handled();
 
         repaint_requested |= ctx.repaint_requested();
         let next = ctx.take_messages();
@@ -1044,50 +1034,25 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
     }
 }
 
-fn find_path_to_sender(root: &mut dyn Widget, sender: WidgetId, path: &mut Vec<WidgetId>) -> bool {
-    if root.id() == sender {
-        path.push(root.id());
-        return true;
+fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mut EventCtx) {
+    root.on_message(message, ctx);
+    if ctx.handled() {
+        return;
     }
-    let mut found = false;
     root.visit_children_mut(&mut |child| {
-        if found {
+        if ctx.handled() {
             return;
         }
-        if find_path_to_sender(child, sender, path) {
-            found = true;
-        }
+        dispatch_message_tree(child, message, ctx);
     });
-    if found {
-        path.push(root.id());
-    }
-    found
-}
-
-fn call_on_message_by_id(
-    root: &mut dyn Widget,
-    id: WidgetId,
-    message: &MessageEvent,
-    ctx: &mut EventCtx,
-) -> bool {
-    if root.id() == id {
-        root.on_message(message, ctx);
-        return true;
-    }
-    let mut found = false;
-    root.visit_children_mut(&mut |child| {
-        if found {
-            return;
-        }
-        found = call_on_message_by_id(child, id, message, ctx);
-    });
-    found
 }
 
 #[cfg(test)]
 mod message_tests {
     use super::*;
     use crate::message::Message;
+    use crate::event::{MouseDownEvent, MouseUpEvent};
+    use crate::widgets::{AppRoot, Button};
 
     struct Child {
         id: WidgetId,
@@ -1174,14 +1139,85 @@ mod message_tests {
     }
 
     #[test]
-        fn messages_bubble_to_ancestor_handlers() {
+    fn messages_bubble_to_ancestor_handlers() {
             let mut root = Parent::new(Child::new());
             let key = crossterm::event::KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
             let outcome = dispatch_event(&mut root, Event::Key(key));
             assert_eq!(outcome.messages.len(), 1);
 
             let msg_outcome = dispatch_message_queue(&mut root, outcome.messages);
-            assert!(msg_outcome.handled);
-            assert_eq!(root.seen, 1);
+        assert!(msg_outcome.handled);
+        assert_eq!(root.seen, 1);
+    }
+
+    struct Receiver {
+        id: WidgetId,
+        child: Box<dyn Widget>,
+        seen: usize,
+    }
+
+    impl Receiver {
+        fn new(child: impl Widget + 'static) -> Self {
+            Self {
+                id: WidgetId::new(),
+                child: Box::new(child),
+                seen: 0,
+            }
         }
     }
+
+    impl Widget for Receiver {
+        fn id(&self) -> WidgetId { self.id }
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+            self.child.on_event_capture(event, ctx);
+        }
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            self.child.on_event(event, ctx);
+        }
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if matches!(message.message, Message::ButtonPressed { .. }) {
+                self.seen += 1;
+                ctx.set_handled();
+            }
+        }
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            f(self.child.as_mut());
+        }
+    }
+
+    #[test]
+    fn button_pressed_message_reaches_ancestor() {
+        let button = Button::new("x");
+        let button_id = button.id();
+        let mut root = AppRoot::new().with_child(Receiver::new(button));
+
+        let down = dispatch_event(
+            &mut root,
+            Event::MouseDown(MouseDownEvent {
+                target: button_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+        );
+        let _ = dispatch_message_queue(&mut root, down.messages);
+
+        let up = dispatch_event(
+            &mut root,
+            Event::MouseUp(MouseUpEvent {
+                target: Some(button_id),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+        );
+        assert!(!up.messages.is_empty());
+        let routed = dispatch_message_queue(&mut root, up.messages);
+        assert!(routed.handled);
+    }
+}
