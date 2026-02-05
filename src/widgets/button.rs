@@ -239,11 +239,13 @@ impl Widget for Button {
                     self.id.as_u64(),
                     self.label
                 ));
+                ctx.request_repaint();
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
                 if self.pressed == PressedState::Mouse {
                     self.pressed = PressedState::None;
+                    ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
                     if mouse.target == Some(self.id) {
                         if let Some(handler) = &self.on_press {

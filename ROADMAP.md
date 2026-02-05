@@ -66,7 +66,7 @@ Deliverable: ~~an app that can render a full-screen view and update it on a time
 | Done | Mount/unmount lifecycle | `on_mount`/`on_unmount`, `visit_children_mut` for tree traversal |
 | Done | Composition helpers | Vertical, Horizontal, Dock, Frame, Constrained, ScrollView, VerticalScroll, Grid |
 | Done | Per-widget styles API | `WidgetStyles` for inline overrides; `style_classes()` for CSS class resolution |
-| Todo | Invalidation model | Currently full re-render each tick; no dirty marking or selective re-layout yet |
+| Partial | Invalidation model | **MVP dirty flag**: render on invalidation (input/hover/style reload/active), not every tick; still re-renders whole frame when dirty (no dirty regions / selective relayout yet) |
 
 Deliverable: ~~compose a view with multiple widgets and update state to trigger re-render.~~ **Done.**
 
@@ -122,7 +122,7 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 | Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
 | Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
 | Todo | Computed styles | No full "resolve inherited + cascaded → computed" pipeline yet |
-| Todo | Style invalidation | Full re-render each tick; no selective style updates |
+| Partial | Style invalidation | Stylesheet watch reload marks the app dirty; still no selective style updates / dirty regions |
 
 Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**
 
@@ -281,7 +281,7 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 
 - Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
-- Dirty invalidation — avoid full re-render every tick.
+- Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.
 - CI pipeline (fmt, clippy, tests).

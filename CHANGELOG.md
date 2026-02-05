@@ -8,6 +8,7 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-05
+- Implemented dirty-flag rendering: the runtime now only re-renders when something actually changes (input, hover, style reload, active-state transitions), instead of every tick. Added `EventCtx::request_repaint()` so widgets can explicitly request a repaint. `dispatch_event()` returns a `DispatchOutcome` and `poll_stylesheet()` returns a `bool` to propagate dirty signals.
 - Modularized the codebase: split the monolithic `controls.rs` into one file per widget (`button.rs`, `list_view.rs`, `data_table.rs`, `tree.rs`, `tabs.rs`, `checkbox.rs`, `spacer.rs`, `input.rs`), renamed `src/widget/` to `src/widgets/`, and extracted CSS styling into a dedicated `src/css/` module. Re-exported `ButtonVariant` in the public prelude.
 
 ### 2026-02-04

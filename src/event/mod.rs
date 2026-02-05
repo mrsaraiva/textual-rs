@@ -88,6 +88,7 @@ impl ActionMap {
 #[derive(Debug, Default)]
 pub struct EventCtx {
     handled: bool,
+    repaint_requested: bool,
 }
 
 impl EventCtx {
@@ -97,5 +98,17 @@ impl EventCtx {
 
     pub fn set_handled(&mut self) {
         self.handled = true;
+    }
+
+    /// Request a repaint after this event dispatch finishes.
+    ///
+    /// This is useful when a widget updates visual state but does not (or should not)
+    /// mark the event as handled.
+    pub fn request_repaint(&mut self) {
+        self.repaint_requested = true;
+    }
+
+    pub fn repaint_requested(&self) -> bool {
+        self.repaint_requested
     }
 }

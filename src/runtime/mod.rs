@@ -410,7 +410,7 @@ impl App {
             }
 
             if last_render.elapsed() >= tick_rate {
-                self.poll_stylesheet();
+                let _ = self.poll_stylesheet();
                 let renderable = render(self, tick);
                 self.render(&renderable)?;
                 tick += 1;
@@ -439,6 +439,8 @@ impl App {
 
         let mut tick: u64 = 0;
         let tick_rate = Duration::from_millis(100);
+        let mut dirty = false;
+        let mut prev_any_active = false;
         self.render_widget(root)?;
         let mut last_render = Instant::now();
 
@@ -455,16 +457,17 @@ impl App {
                         }
                         let bind = KeyBind::from_event(&key);
                         if let Some(action) = self.action_map.lookup(&bind) {
-                            dispatch_event(root, Event::Action(action));
+                            let outcome = dispatch_event(root, Event::Action(action));
+                            dirty |= outcome.should_repaint();
                         } else {
-                            dispatch_event(root, Event::Key(key));
+                            let outcome = dispatch_event(root, Event::Key(key));
+                            dirty |= outcome.should_repaint();
                         }
                     }
                     CrosstermEvent::Mouse(mouse) => match mouse.kind {
                         MouseEventKind::Moved | MouseEventKind::Drag(_) => {
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                self.render_widget(root)?;
-                                last_render = Instant::now();
+                                dirty = true;
                             }
                         }
                         MouseEventKind::Down(_) => {
@@ -485,7 +488,7 @@ impl App {
                                     "[input] mouse target id={}",
                                     target.as_u64()
                                 ));
-                                dispatch_event(
+                                let outcome = dispatch_event(
                                     root,
                                     Event::MouseDown(MouseDownEvent {
                                         target,
@@ -495,9 +498,7 @@ impl App {
                                         y,
                                     }),
                                 );
-                                // Provide immediate feedback for `:active` styles.
-                                self.render_widget(root)?;
-                                last_render = Instant::now();
+                                dirty |= outcome.should_repaint();
                             }
                         }
                         MouseEventKind::Up(_) => {
@@ -512,7 +513,7 @@ impl App {
                                     )
                                 })
                                 .unwrap_or((0, 0));
-                            dispatch_event(
+                            let outcome = dispatch_event(
                                 root,
                                 Event::MouseUp(MouseUpEvent {
                                     target,
@@ -522,9 +523,7 @@ impl App {
                                     y,
                                 }),
                             );
-                            // Provide immediate feedback for `:active` styles.
-                            self.render_widget(root)?;
-                            last_render = Instant::now();
+                            dirty |= outcome.should_repaint();
                         }
                         _ => {}
                     },
@@ -534,22 +533,38 @@ impl App {
                         self.refresh_size()?;
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
-                        dispatch_event(root, Event::Resize(size.width, size.height));
+                        let _ = dispatch_event(root, Event::Resize(size.width, size.height));
+                        dirty = true;
                     }
                     _ => {}
                 }
+            }
+
+            if dirty {
+                self.render_widget(root)?;
+                dirty = false;
+                last_render = Instant::now();
             }
 
             if last_render.elapsed() >= tick_rate {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _guard = set_style_context(sheet);
-                self.poll_stylesheet();
+                if self.poll_stylesheet() {
+                    dirty = true;
+                }
                 root.on_tick(tick);
-                dispatch_event(root, Event::Tick(tick));
-                self.render_widget(root)?;
+                let outcome = dispatch_event(root, Event::Tick(tick));
+                dirty |= outcome.should_repaint();
+
+                let any_active = any_widget_active(root);
+                if dirty || any_active || prev_any_active {
+                    self.render_widget(root)?;
+                    dirty = false;
+                    last_render = Instant::now();
+                }
+                prev_any_active = any_active;
                 tick += 1;
-                last_render = Instant::now();
             }
         }
 
@@ -661,31 +676,33 @@ impl App {
         Ok(())
     }
 
-    fn poll_stylesheet(&mut self) {
+    fn poll_stylesheet(&mut self) -> bool {
         let Some(watch) = &mut self.stylesheet_watch else {
-            return;
+            return false;
         };
         if watch.last_checked.elapsed() < watch.interval {
-            return;
+            return false;
         }
         watch.last_checked = Instant::now();
         let Ok(meta) = fs::metadata(&watch.path) else {
-            return;
+            return false;
         };
         let Ok(modified) = meta.modified() else {
-            return;
+            return false;
         };
         let changed = watch
             .last_modified
             .map(|prev| modified > prev)
             .unwrap_or(true);
         if !changed {
-            return;
+            return false;
         }
         if let Ok(css) = fs::read_to_string(&watch.path) {
             self.stylesheet = StyleSheet::parse(&css);
             watch.last_modified = Some(modified);
+            return true;
         }
+        false
     }
 }
 
@@ -704,6 +721,23 @@ fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) -
     let mut out: Option<bool> = None;
     visit(root, target, x, y, &mut out);
     out.unwrap_or(false)
+}
+
+fn any_widget_active(root: &mut dyn Widget) -> bool {
+    fn visit(w: &mut dyn Widget, out: &mut bool) {
+        if *out {
+            return;
+        }
+        if w.is_active() {
+            *out = true;
+            return;
+        }
+        w.visit_children_mut(&mut |child| visit(child, out));
+    }
+
+    let mut out = false;
+    visit(root, &mut out);
+    out
 }
 
 fn pointer_shape_for_hover(root: &mut dyn Widget, hovered: Option<WidgetId>) -> PointerShape {
@@ -897,11 +931,27 @@ fn default_action_map() -> ActionMap {
     map
 }
 
-fn dispatch_event(root: &mut dyn Widget, event: Event) {
+#[derive(Debug, Clone, Copy, Default)]
+struct DispatchOutcome {
+    handled: bool,
+    repaint_requested: bool,
+}
+
+impl DispatchOutcome {
+    fn should_repaint(self) -> bool {
+        self.handled || self.repaint_requested
+    }
+}
+
+fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
     let mut ctx = EventCtx::default();
     let always_bubble = matches!(&event, Event::MouseUp(..));
     root.on_event_capture(&event, &mut ctx);
     if always_bubble || !ctx.handled() {
         root.on_event(&event, &mut ctx);
+    }
+    DispatchOutcome {
+        handled: ctx.handled(),
+        repaint_requested: ctx.repaint_requested(),
     }
 }
