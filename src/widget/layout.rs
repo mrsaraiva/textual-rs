@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::DebugLayout;
+use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Event, EventCtx};
 
 use super::{
@@ -105,6 +105,29 @@ impl Widget for Row {
             }
         }
 
+        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            debug_layout(&format!(
+                "[row] id={} viewport=({}, {}) children={} fixed_total={}",
+                self.id.as_u64(),
+                width,
+                height_limit,
+                count,
+                fixed_total
+            ));
+            for (idx, fixed) in fixed_widths.iter().enumerate() {
+                debug_layout(&format!(
+                    "[row] child={} fixed={:?} margin=({}, {}) constraints=({:?},{:?}) width_auto={:?}",
+                    idx,
+                    fixed,
+                    margins[idx].left,
+                    margins[idx].right,
+                    constraints_list[idx].min_width,
+                    constraints_list[idx].max_width,
+                    resolved_list[idx].width_auto
+                ));
+            }
+        }
+
         let remaining = width.saturating_sub(fixed_total);
         let base = if flex_count > 0 {
             remaining / flex_count
@@ -130,6 +153,18 @@ impl Widget for Row {
                 }
             })
             .collect();
+
+        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            debug_layout(&format!(
+                "[row] id={} widths={:?} remaining={} flex_count={} base={} remainder={}",
+                self.id.as_u64(),
+                widths,
+                remaining,
+                flex_count,
+                base,
+                remainder
+            ));
+        }
 
         let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
 

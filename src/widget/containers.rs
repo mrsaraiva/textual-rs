@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
-use crate::debug::DebugLayout;
+use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Action, Event, EventCtx};
 use crate::style::Style;
 
@@ -1656,6 +1656,16 @@ impl Widget for ScrollView {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            debug_layout(&format!(
+                "[scroll] id={} viewport=({}, {}) offset=({}, {})",
+                self.id.as_u64(),
+                width,
+                viewport_height,
+                self.offset_x,
+                self.offset_y
+            ));
+        }
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
         self.viewport_width.store(width, Ordering::Relaxed);
@@ -1667,6 +1677,15 @@ impl Widget for ScrollView {
             .unwrap_or_else(|| viewport_height.saturating_add(self.offset_y).max(1));
         let render_width =
             clamp_with_constraints(width, constraints.min_width, constraints.max_width, width);
+        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            debug_layout(&format!(
+                "[scroll] id={} child render_width={} constraints=({:?},{:?})",
+                self.id.as_u64(),
+                render_width,
+                constraints.min_width,
+                constraints.max_width
+            ));
+        }
         let render_height = clamp_with_constraints(
             target_height,
             constraints.min_height,
