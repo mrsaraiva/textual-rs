@@ -36,7 +36,8 @@ pub mod prelude {
         HorizontalScroll, Input, InputType, KeyPanel, Label, LayoutConstraints, ListView, Markdown,
         Node, Overlay, Panel, Pretty, RichLog, Row, RowAlign, ScrollView, Spacer, Static, Styled,
         Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Tree, TreeNode,
-        VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+        VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles, preview_root,
+        preview_root_with_bottom, preview_root_with_top_bottom,
     };
     pub use crate::{Error, Result};
 }

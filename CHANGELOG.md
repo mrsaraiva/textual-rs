@@ -25,6 +25,10 @@ until the API stabilizes.
   - Added widget behavior tests for new components: `tests/header_footer.rs`, `tests/key_panel.rs`, `tests/rich_log.rs`.
   - Updated `ROADMAP.md` Phase 9.5 status to reflect completed visual parity pass and current pending fundamentals.
   - Expanded `tests/key_panel.rs` coverage with sizing, non-overflow action handling, and scrollbar drag behavior checks.
+  - Added preview scaffold tests (`tests/preview_root.rs`) and snapshot coverage (`tests/preview_root_snapshot.rs`).
+- **Preview scaffold fundamentals**
+  - Added reusable preview composition helpers: `preview_root`, `preview_root_with_bottom`, and `preview_root_with_top_bottom` (`src/widgets/preview.rs`).
+  - Migrated `examples/keys.rs` and `examples/data_table.rs` to the shared preview scaffold composition path.
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

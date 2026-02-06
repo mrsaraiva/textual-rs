@@ -280,15 +280,14 @@ fn help_panel() -> impl Widget {
 }
 
 fn build_keys_widget() -> AppRoot {
-    let body = Dock::new()
-        .push_top(Some(4), help_panel())
-        .push_fill(KeyLog::new())
-        .push_bottom(Some(3), ActionBar::new());
-
-    let layout = Dock::new()
-        .push_top(None, Header::new().title("Textual Keys"))
-        .push_fill(body);
-    AppRoot::new().with_child(layout)
+    preview_root_with_top_bottom(
+        Some("Textual Keys"),
+        Some(4),
+        help_panel(),
+        KeyLog::new(),
+        Some(3),
+        ActionBar::new(),
+    )
 }
 
 #[tokio::main]

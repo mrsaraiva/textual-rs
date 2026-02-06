@@ -37,11 +37,12 @@ async fn main() -> Result<()> {
             .border_left(Color::parse("#44cc44").unwrap()),
     );
 
-    let layout = Dock::new()
-        .push_fill(ScrollView::new(table))
-        .push_bottom(Some(3), status_line);
-
-    let mut root = AppRoot::new().with_child(DataTableDemo::new(status, layout));
+    let mut root = preview_root_with_bottom(
+        None,
+        DataTableDemo::new(status, ScrollView::new(table)),
+        Some(3),
+        status_line,
+    );
     let mut app = App::new()?;
     app.run_widget_tree(&mut root).await
 }

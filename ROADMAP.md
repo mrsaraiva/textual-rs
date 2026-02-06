@@ -312,13 +312,13 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
    - Right-side binding panel removed from the preview target.
    - Python preview structure/copy matched (`Textual Keys`, instruction panel, bottom `Clear`/`Quit` bar).
    - Demo styling tuned for parity (header, log styling, action bar, scrollbar, interactions).
-2. **Phase 2: reusable preview scaffold fundamentals (pending)**
-   - Introduce a reusable preview shell composition for title/content/action-bar.
-   - Migrate `keys` and at least one additional preview demo to this shell.
+2. **Phase 2: reusable preview scaffold fundamentals (completed)**
+   - Added reusable preview composition helpers (`preview_root*`) for title/content/top/bottom sections.
+   - Migrated `keys` and `data_table` demos to the shared scaffold composition.
 3. **Phase 3: styling fidelity fundamentals (pending)**
    - Add missing style engine capabilities needed for parity (component-scoped styles, selector expressiveness, border/divider nuance).
-4. **Phase 4: visual regression discipline (pending)**
-   - Add snapshot/image-based parity checks for `keys` and extend to other high-value demos.
+4. **Phase 4: visual regression discipline (in progress)**
+   - Added initial scaffold snapshot coverage (`tests/preview_root_snapshot.rs`); next is parity-oriented snapshots for `keys` and additional high-value demos.
 
 ### Implementation notes (for cross-session continuity)
 
@@ -347,7 +347,7 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
   - Canonical key semantics, driver protocol, and preview parity pass are done.
-  - Next: complete scaffold/style/regression fundamentals listed in Phase 9.5.
+  - Next: complete styling fidelity + parity-oriented visual regression fundamentals listed in Phase 9.5.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.
