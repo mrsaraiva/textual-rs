@@ -43,6 +43,11 @@ until the API stabilizes.
   - Added forwarding fundamentals to container wrappers (`Panel`, `Frame`) for `on_layout`, `on_message`, and (for `Frame`) mouse-scroll propagation.
   - Improved text-family and utility widgets: `Label`/`Markdown` intrinsic layout width-aware sizing, richer `Pretty` rendering with multiline fallback and CSS component styles, and `Spacer` intrinsic width hints.
   - Added/expanded tests for tabs and wrapper forwarding (`tests/tabs.rs`, `tests/container_wrappers.rs`, `tests/text_pretty_spacer.rs`).
+- **Overlay + input/markdown first-class completion**
+  - Upgraded `Overlay`/modal fundamentals with focus-trap event routing, `Esc` dismiss behavior, and message-driven visibility controls (`OverlaySetVisible`, `OverlayToggle`, `OverlayDismissRequested`, `OverlayVisibilityChanged`).
+  - Added behavior coverage for overlay interaction semantics (`tests/overlay_widget.rs`), including event trapping and message/escape dismissal.
+  - Strengthened `Input` and `Markdown` behavior coverage (message emission tests in `src/widgets/input.rs`; wrap-aware sizing test in `tests/text_pretty_spacer.rs`).
+  - Updated `ROADMAP.md` widget status to mark `Input`, `Markdown`, and `Modal/overlay` as first-class.
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

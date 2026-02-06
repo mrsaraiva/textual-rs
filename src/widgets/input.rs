@@ -640,6 +640,8 @@ impl Renderable for Input {
 mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn mouse_click_positions_cursor_in_text() {
@@ -698,5 +700,46 @@ mod tests {
         assert!(changed);
         let (a, b) = input.selection.normalized();
         assert_eq!((a, b), (1, 4));
+    }
+
+    #[test]
+    fn typing_emits_input_changed_message() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::InputChanged { ref value, .. } if value == "a"
+        ));
+    }
+
+    #[test]
+    fn enter_emits_input_submitted_message() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("done");
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::InputSubmitted { ref value } if value == "done"
+        ));
     }
 }

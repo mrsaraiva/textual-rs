@@ -34,6 +34,20 @@ pub enum Message {
         label: String,
         expanded: bool,
     },
+    OverlaySetVisible {
+        overlay: WidgetId,
+        visible: bool,
+    },
+    OverlayToggle {
+        overlay: WidgetId,
+    },
+    OverlayDismissRequested {
+        overlay: Option<WidgetId>,
+    },
+    OverlayVisibilityChanged {
+        overlay: WidgetId,
+        visible: bool,
+    },
     DataTableCursorMoved {
         row: usize,
         column: usize,

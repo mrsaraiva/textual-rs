@@ -7,7 +7,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::css;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{Action, Event, EventCtx};
-use crate::message::MessageEvent;
+use crate::message::{Message, MessageEvent};
 use crate::style::{Style, parse_color_like};
 
 use super::{
@@ -2541,6 +2541,8 @@ pub struct Overlay {
     base: Box<dyn Widget>,
     modal: Box<dyn Widget>,
     visible: bool,
+    trap_base_events: bool,
+    dismiss_on_escape: bool,
     styles: WidgetStyles,
 }
 
@@ -2551,6 +2553,8 @@ impl Overlay {
             base: Box::new(base),
             modal: Box::new(modal),
             visible: true,
+            trap_base_events: true,
+            dismiss_on_escape: true,
             styles: WidgetStyles::default(),
         }
     }
@@ -2558,6 +2562,62 @@ impl Overlay {
     pub fn visible(mut self, visible: bool) -> Self {
         self.visible = visible;
         self
+    }
+
+    pub fn trap_base_events(mut self, trap: bool) -> Self {
+        self.trap_base_events = trap;
+        self
+    }
+
+    pub fn dismiss_on_escape(mut self, enabled: bool) -> Self {
+        self.dismiss_on_escape = enabled;
+        self
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.visible
+    }
+
+    fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+        if self.visible == visible {
+            return;
+        }
+        self.visible = visible;
+        ctx.post_message(
+            self.id,
+            Message::OverlayVisibilityChanged {
+                overlay: self.id,
+                visible,
+            },
+        );
+        ctx.request_repaint();
+    }
+
+    fn interactive_event(event: &Event) -> bool {
+        matches!(
+            event,
+            Event::Key(..)
+                | Event::Action(..)
+                | Event::MouseDown(..)
+                | Event::MouseUp(..)
+                | Event::MouseScroll(..)
+        )
+    }
+
+    fn modal_contains(&mut self, target: WidgetId) -> bool {
+        fn contains(widget: &mut dyn Widget, target: WidgetId) -> bool {
+            if widget.id() == target {
+                return true;
+            }
+            let mut found = false;
+            widget.visit_children_mut(&mut |child| {
+                if !found && contains(child, target) {
+                    found = true;
+                }
+            });
+            found
+        }
+        contains(self.modal.as_mut(), target)
     }
 }
 
@@ -2610,17 +2670,76 @@ impl Widget for Overlay {
         self.modal.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.base.on_layout(width, height);
+        self.modal.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if !self.visible {
+            self.base.on_event_capture(event, ctx);
+            return;
+        }
         self.modal.on_event_capture(event, ctx);
-        if !ctx.handled() {
+        if !ctx.handled() && self.trap_base_events && Self::interactive_event(event) {
+            ctx.set_handled();
+        } else if !ctx.handled() {
             self.base.on_event_capture(event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.modal.on_event(event, ctx);
-        if !ctx.handled() {
+        if !self.visible {
             self.base.on_event(event, ctx);
+            return;
+        }
+        self.modal.on_event(event, ctx);
+        if ctx.handled() {
+            return;
+        }
+        if self.dismiss_on_escape
+            && matches!(
+                event,
+                Event::Key(key) if key.code == KeyCode::Esc
+            )
+        {
+            self.set_visible(false, ctx);
+            ctx.set_handled();
+            return;
+        }
+        if !self.trap_base_events {
+            self.base.on_event(event, ctx);
+            return;
+        }
+        if Self::interactive_event(event) {
+            ctx.set_handled();
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        match &message.message {
+            Message::OverlaySetVisible { overlay, visible } if *overlay == self.id => {
+                self.set_visible(*visible, ctx);
+                ctx.set_handled();
+            }
+            Message::OverlayToggle { overlay } if *overlay == self.id => {
+                self.set_visible(!self.visible, ctx);
+                ctx.set_handled();
+            }
+            Message::OverlayDismissRequested { overlay } => {
+                let target_matches = overlay.map(|target| target == self.id).unwrap_or(true);
+                let sender_in_modal = self.modal_contains(message.sender);
+                if target_matches && (sender_in_modal || overlay.is_some()) {
+                    self.set_visible(false, ctx);
+                    ctx.set_handled();
+                }
+            }
+            _ => {}
+        }
+
+        self.modal.on_message(message, ctx);
+        if !ctx.handled() {
+            self.base.on_message(message, ctx);
         }
     }
 

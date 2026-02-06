@@ -40,3 +40,10 @@ fn spacer_reports_intrinsic_width_hint() {
     assert_eq!(spacer.content_width(), Some(8));
     assert_eq!(spacer.layout_height(), Some(2));
 }
+
+#[test]
+fn markdown_layout_height_tracks_wrap_width() {
+    let mut markdown = Markdown::new("abcdefghij");
+    markdown.on_layout(4, 1);
+    assert_eq!(markdown.layout_height(), Some(3));
+}
