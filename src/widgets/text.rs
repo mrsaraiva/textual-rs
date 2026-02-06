@@ -7,6 +7,8 @@ use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constrain
 pub struct Label {
     id: WidgetId,
     text: String,
+    wrap: bool,
+    layout_width: usize,
     styles: WidgetStyles,
 }
 
@@ -15,6 +17,8 @@ impl Label {
         Self {
             id: WidgetId::new(),
             text: text.into(),
+            wrap: true,
+            layout_width: 0,
             styles: WidgetStyles::default(),
         }
     }
@@ -26,6 +30,25 @@ impl Label {
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
     }
+
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
+    fn intrinsic_height(&self) -> usize {
+        let width = self.layout_width;
+        let mut lines = 0usize;
+        for line in self.text.lines() {
+            if self.wrap && width > 0 {
+                let len = rich_rs::cell_len(line);
+                lines += len.div_ceil(width).max(1);
+            } else {
+                lines += 1;
+            }
+        }
+        lines.max(1)
+    }
 }
 
 impl Widget for Label {
@@ -34,16 +57,27 @@ impl Widget for Label {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let text = Text::plain(&self.text);
+        let text = Text::plain(self.text.clone());
         text.render(console, options)
     }
 
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        self.layout_width = usize::from(width).max(1);
+    }
+
     fn content_width(&self) -> Option<usize> {
-        Some(rich_rs::cell_len(&self.text).max(1))
+        Some(
+            self.text
+                .lines()
+                .map(rich_rs::cell_len)
+                .max()
+                .unwrap_or(0)
+                .max(1),
+        )
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.intrinsic_height()))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -65,6 +99,7 @@ impl Renderable for Label {
 pub struct Markdown {
     id: WidgetId,
     markup: String,
+    layout_width: usize,
     styles: WidgetStyles,
 }
 
@@ -73,6 +108,7 @@ impl Markdown {
         Self {
             id: WidgetId::new(),
             markup: markup.into(),
+            layout_width: 0,
             styles: WidgetStyles::default(),
         }
     }
@@ -91,8 +127,20 @@ impl Widget for Markdown {
         RichMarkdown::new(self.markup.clone()).render(console, options)
     }
 
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        self.layout_width = usize::from(width).max(1);
+    }
+
     fn layout_height(&self) -> Option<usize> {
-        let intrinsic = self.markup.lines().count().max(1);
+        let intrinsic = if self.layout_width > 0 {
+            self.markup
+                .lines()
+                .map(|line| rich_rs::cell_len(line).div_ceil(self.layout_width).max(1))
+                .sum::<usize>()
+                .max(1)
+        } else {
+            self.markup.lines().count().max(1)
+        };
         fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
     }
 

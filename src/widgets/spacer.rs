@@ -5,6 +5,7 @@ use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constrain
 pub struct Spacer {
     id: WidgetId,
     height: usize,
+    width_hint: Option<usize>,
     styles: WidgetStyles,
 }
 
@@ -13,8 +14,14 @@ impl Spacer {
         Self {
             id: WidgetId::new(),
             height: height.max(1),
+            width_hint: None,
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn width(mut self, width: usize) -> Self {
+        self.width_hint = Some(width.max(1));
+        self
     }
 }
 
@@ -38,6 +45,10 @@ impl Widget for Spacer {
 
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(Some(self.height))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        Some(self.width_hint.unwrap_or(1).max(1))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

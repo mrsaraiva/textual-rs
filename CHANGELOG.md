@@ -38,6 +38,11 @@ until the API stabilizes.
   - Reworked `Tree` with flattened visible-index mapping, mouse branch-toggle hit testing, keyboard expand/collapse navigation parity, hover-aware row rendering, and emitted messages (`TreeNodeSelected`, `TreeNodeToggled`).
   - Added default CSS rules for `Checkbox`, `ListView`, and `Tree`, including component-level state styling for rows/items.
   - Expanded behavior tests for all three widgets (`tests/checkbox_widget.rs`, `tests/list_view.rs`, `tests/tree.rs`) and refreshed snapshots.
+- **Widget + container fundamentals: Tabs/Text/Pretty/Spacer and wrappers**
+  - Upgraded `Tabs` with header hit-testing and mouse activation, keyboard activation parity, focus/hover-aware component styling, child `on_layout`/`on_message` forwarding, and `TabActivated` message emission.
+  - Added forwarding fundamentals to container wrappers (`Panel`, `Frame`) for `on_layout`, `on_message`, and (for `Frame`) mouse-scroll propagation.
+  - Improved text-family and utility widgets: `Label`/`Markdown` intrinsic layout width-aware sizing, richer `Pretty` rendering with multiline fallback and CSS component styles, and `Spacer` intrinsic width hints.
+  - Added/expanded tests for tabs and wrapper forwarding (`tests/tabs.rs`, `tests/container_wrappers.rs`, `tests/text_pretty_spacer.rs`).
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

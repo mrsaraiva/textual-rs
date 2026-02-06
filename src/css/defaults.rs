@@ -8,6 +8,15 @@ use super::StyleSheet;
 const DEFAULT_WIDGET_CSS: &str = r#"
 VerticalScroll { bg: $panel; }
 
+Label { fg: $foreground; }
+Markdown { fg: $foreground; }
+Spacer { bg: $background; }
+
+Pretty { fg: $foreground; }
+Pretty > .pretty--punct { fg: $text-muted; }
+Pretty > .pretty--string { fg: $success; }
+Pretty > .pretty--empty { fg: $text-disabled; }
+
 Header {
     bg: $primary;
     fg: $text;
@@ -145,6 +154,17 @@ Tree > .tree--node.-hover { bg: $block-hover-background; }
 Tree > .tree--node.-selected { bg: $primary-muted; fg: $text; text-style: bold; }
 Tree > .tree--node.-selected.-focus { bg: $primary; fg: $text; text-style: bold; }
 Tree > .tree--node.-leaf { dim: true; }
+
+Tabs {
+    bg: $surface;
+    fg: $foreground;
+}
+
+Tabs > .tabs--bar { bg: $panel; fg: $foreground; }
+Tabs > .tabs--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
+Tabs > .tabs--tab.-hover { bg: $surface-lighten-1; fg: $text; }
+Tabs > .tabs--tab.-active { bg: $primary-muted; fg: $text; }
+Tabs > .tabs--tab.-active.-focus { bg: $primary; fg: $text; }
 
 Button {
     width: auto;

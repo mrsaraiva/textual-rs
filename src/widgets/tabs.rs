@@ -1,11 +1,12 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
+use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 pub struct Tabs {
@@ -13,6 +14,11 @@ pub struct Tabs {
     tabs: Vec<Tab>,
     active: usize,
     focused: bool,
+    hovered: bool,
+    hovered_tab: Option<usize>,
+    layout_width: usize,
+    classes: Vec<String>,
+    focused_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -28,6 +34,11 @@ impl Tabs {
             tabs: Vec::new(),
             active: 0,
             focused: false,
+            hovered: false,
+            hovered_tab: None,
+            layout_width: 1,
+            classes: vec!["tabs".to_string()],
+            focused_classes: vec!["tabs".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
     }
@@ -52,6 +63,10 @@ impl Tabs {
     }
 
     pub fn set_active(&mut self, index: usize) {
+        self.activate(index, None);
+    }
+
+    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) {
         if self.tabs.is_empty() {
             self.active = 0;
             return;
@@ -65,10 +80,24 @@ impl Tabs {
             if let Some(tab) = self.tabs.get_mut(self.active) {
                 tab.child.set_focus(true);
             }
+            if let Some(ctx) = ctx.as_mut() {
+                ctx.post_message(
+                    self.id,
+                    Message::TabActivated {
+                        index: self.active,
+                        title: self.tabs[self.active].title.clone(),
+                    },
+                );
+                ctx.request_repaint();
+            }
         }
     }
 
     pub fn activate_prev(&mut self) {
+        self.activate_prev_with_ctx(None);
+    }
+
+    fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
         if self.tabs.is_empty() {
             return;
         }
@@ -77,15 +106,49 @@ impl Tabs {
         } else {
             self.active - 1
         };
-        self.set_active(prev);
+        self.activate(prev, ctx);
     }
 
     pub fn activate_next(&mut self) {
+        self.activate_next_with_ctx(None);
+    }
+
+    fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
         if self.tabs.is_empty() {
             return;
         }
         let next = (self.active + 1) % self.tabs.len();
-        self.set_active(next);
+        self.activate(next, ctx);
+    }
+
+    fn tab_spans(&self, width: usize) -> Vec<(usize, usize, usize)> {
+        let mut spans = Vec::new();
+        let mut cursor = 0usize;
+        for (index, tab) in self.tabs.iter().enumerate() {
+            if cursor >= width {
+                break;
+            }
+            let label = format!(" {} ", tab.title);
+            let label_width = rich_rs::cell_len(&label);
+            if label_width == 0 {
+                continue;
+            }
+            let start = cursor;
+            let end = start.saturating_add(label_width.saturating_sub(1));
+            spans.push((start, end, index));
+            cursor = cursor.saturating_add(label_width);
+        }
+        spans
+    }
+
+    fn hit_tab(&self, x: usize, y: usize) -> Option<usize> {
+        if y > 0 {
+            return None;
+        }
+        self.tab_spans(self.layout_width)
+            .into_iter()
+            .find(|(start, end, _)| x >= *start && x <= *end)
+            .map(|(_, _, index)| index)
     }
 }
 
@@ -107,6 +170,17 @@ impl Widget for Tabs {
 
     fn has_focus(&self) -> bool {
         self.focused
+    }
+
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.hovered_tab = None;
+        }
     }
 
     fn on_mount(&mut self) {
@@ -133,6 +207,13 @@ impl Widget for Tabs {
         }
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.layout_width = usize::from(width).max(1);
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_layout(width, height.saturating_sub(1));
+        }
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.child.on_event_capture(event, ctx);
@@ -144,22 +225,22 @@ impl Widget for Tabs {
             if let Event::Key(key) = event {
                 match key.code {
                     KeyCode::Left => {
-                        self.activate_prev();
+                        self.activate_prev_with_ctx(Some(ctx));
                         ctx.set_handled();
                         return;
                     }
                     KeyCode::Right => {
-                        self.activate_next();
+                        self.activate_next_with_ctx(Some(ctx));
                         ctx.set_handled();
                         return;
                     }
                     KeyCode::Char('h') => {
-                        self.activate_prev();
+                        self.activate_prev_with_ctx(Some(ctx));
                         ctx.set_handled();
                         return;
                     }
                     KeyCode::Char('l') => {
-                        self.activate_next();
+                        self.activate_next_with_ctx(Some(ctx));
                         ctx.set_handled();
                         return;
                     }
@@ -167,9 +248,33 @@ impl Widget for Tabs {
                 }
             }
         }
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == self.id {
+                if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
+                    self.activate(index, Some(ctx));
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.child.on_event(event, ctx);
         }
+    }
+
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.child.on_message(message, ctx);
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hovered = self.hit_tab(x as usize, y as usize);
+        if hovered != self.hovered_tab {
+            self.hovered_tab = hovered;
+            return true;
+        }
+        false
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -182,23 +287,32 @@ impl Widget for Tabs {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
 
-        let header = if self.tabs.is_empty() {
-            "no tabs".to_string()
+        let mut header_line = Vec::new();
+        if self.tabs.is_empty() {
+            let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
+                .to_rich()
+                .unwrap_or_else(rich_rs::Style::new);
+            header_line.push(Segment::styled(" no tabs ".to_string(), bar_style));
         } else {
-            let mut parts = Vec::new();
             for (idx, tab) in self.tabs.iter().enumerate() {
+                let mut classes = vec!["tabs--tab"];
                 if idx == self.active {
-                    parts.push(format!("[{}]", tab.title));
-                } else {
-                    parts.push(format!(" {} ", tab.title));
+                    classes.push("-active");
+                    if self.focused {
+                        classes.push("-focus");
+                    }
                 }
+                if self.hovered_tab == Some(idx) {
+                    classes.push("-hover");
+                }
+                let style = crate::css::resolve_component_style(self, &classes)
+                    .to_rich()
+                    .unwrap_or_else(rich_rs::Style::new);
+                header_line.push(Segment::styled(format!(" {} ", tab.title), style));
             }
-            parts.join(" ")
-        };
-        let header_line = rich_rs::set_cell_size(&header, width);
-        let header_segments = Text::plain(header_line).render(console, options);
-        let mut lines = Segment::split_and_crop_lines(header_segments, width, None, true, false);
-        lines = Segment::set_shape(&lines, width, Some(1), None, false);
+        }
+        let header_line = adjust_line_length_no_bg(&header_line, width);
+        let mut lines = vec![header_line];
 
         if height > 1 {
             if let Some(tab) = self.tabs.get(self.active) {
@@ -239,9 +353,11 @@ impl Widget for Tabs {
 
     fn style_classes(&self) -> &[String] {
         if self.focused {
-            focused_classes()
-        } else {
+            &self.focused_classes
+        } else if self.classes.is_empty() {
             empty_classes()
+        } else {
+            &self.classes
         }
     }
 

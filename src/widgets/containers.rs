@@ -7,6 +7,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::css;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{Action, Event, EventCtx};
+use crate::message::MessageEvent;
 use crate::style::{Style, parse_color_like};
 
 use super::{
@@ -403,12 +404,20 @@ impl Widget for Constrained {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.child.on_message(message, ctx);
     }
 
     fn focusable(&self) -> bool {
@@ -509,12 +518,24 @@ impl Widget for Styled {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.child.on_message(message, ctx);
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn focusable(&self) -> bool {
@@ -1350,7 +1371,7 @@ impl Widget for Panel {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let border_width = if self.border { 1 } else { 0 };
+        let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding * 2;
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1489,12 +1510,29 @@ impl Widget for Panel {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        let border_width: usize = if self.border { 1 } else { 0 };
+        let total_padding = self.padding.saturating_mul(2);
+        let inner_width = usize::from(width)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        let inner_height = usize::from(height)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        self.child
+            .on_layout(inner_width as u16, inner_height as u16);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.child.on_message(message, ctx);
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -1534,7 +1572,7 @@ impl Widget for Frame {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let border_width = if self.border { 1 } else { 0 };
+        let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding * 2;
 
         let width = options.size.0.max(1);
@@ -1679,12 +1717,33 @@ impl Widget for Frame {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        let border_width: usize = if self.border { 1 } else { 0 };
+        let total_padding = self.padding.saturating_mul(2);
+        let inner_width = usize::from(width)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        let inner_height = usize::from(height)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        self.child
+            .on_layout(inner_width as u16, inner_height as u16);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.child.on_message(message, ctx);
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn layout_height(&self) -> Option<usize> {

@@ -168,17 +168,18 @@ A widget is considered **first-class** when it meets *all* of the following:
 
 | Widget | Exists (MVP) | First-class | Notes |
 |--------|--------------|-------------|-------|
-| Label / Static | Done | Partial | Rendering/wrapping exists; styling/default CSS parity still light |
+| Label / Static | Done | Done | Wrap-aware intrinsic sizing + default CSS parity baseline |
 | Button | Done | Done | Press/cancel semantics, pseudo-states, default CSS, variants |
 | DataTable | Done | Done | Hit-testing, hover/selection semantics, cached widths, offset/state correctness |
 | Input | Done | Todo | Currently ASCII-first; needs mouse/cursor semantics + messages + styling parity |
 | Checkbox | Done | Done | Mouse + keyboard toggle parity, pseudo-state styling, disabled semantics, and behavior tests |
 | ListView | Done | Done | Mouse selection/hover + wheel scroll + ensure-visible keyboard navigation + selection messages/tests |
-| Tabs | Done | Todo | Needs styling parity + focus/child lifecycle polish + messages |
+| Tabs | Done | Done | Header mouse+keyboard activation, focus/child lifecycle polish, CSS component styling, and activation messages/tests |
 | Tree | Done | Done | Mouse/keyboard parity, CSS-driven row states, selection/toggle messages, and behavior tests |
 | Markdown | Done | Partial | Renders via rich-rs; widget semantics/styling parity TBD |
+| Pretty | Done | Done | Multiline fallback, component styling hooks, and intrinsic sizing |
 | Modal / overlay | Done | Partial | Exists; needs focus-trap semantics + message-based dismissal |
-| Spacer | Done | Partial | Exists; styling semantics minimal by design |
+| Spacer | Done | Done | Intentional minimal widget with intrinsic width hints and default style semantics |
 
 ### Acceptance criteria (per widget)
 
@@ -343,7 +344,7 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 
 ## Next priorities (v0.2)
 
-- Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
+- Widget uplift: MVP → first-class (Input, Markdown, Modal/Overlay, and remaining container polish)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
   - Canonical key semantics, driver protocol, preview parity pass, scaffold reuse, styling-fidelity fundamentals, and visual regression baseline are done.
