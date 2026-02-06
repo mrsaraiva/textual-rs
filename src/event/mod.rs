@@ -1,8 +1,9 @@
 use crate::debug::debug_message;
 use crate::keys::KeyEventData;
+use crate::keys::format_key_display;
 use crate::message::{Message, MessageEvent};
 use crate::widgets::WidgetId;
-use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub struct MouseScrollEvent {
 pub enum Event {
     Key(KeyEventData),
     Action(Action),
+    BindingsChanged(Vec<BindingHint>),
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
     MouseScroll(MouseScrollEvent),
@@ -65,10 +67,34 @@ pub enum Action {
     Toggle,
 }
 
+impl Action {
+    pub fn description(self) -> &'static str {
+        match self {
+            Action::FocusNext => "Focus next",
+            Action::FocusPrev => "Focus previous",
+            Action::ScrollUp => "Scroll up",
+            Action::ScrollDown => "Scroll down",
+            Action::ScrollPageUp => "Page up",
+            Action::ScrollPageDown => "Page down",
+            Action::ScrollLeft => "Scroll left",
+            Action::ScrollRight => "Scroll right",
+            Action::ScrollPageLeft => "Page left",
+            Action::ScrollPageRight => "Page right",
+            Action::Toggle => "Toggle",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyBind {
     pub code: KeyCode,
     pub modifiers: KeyModifiers,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BindingHint {
+    pub key: String,
+    pub description: String,
 }
 
 impl KeyBind {
@@ -81,6 +107,14 @@ impl KeyBind {
             code: key.code,
             modifiers: key.modifiers,
         }
+    }
+
+    pub fn key_name(&self) -> String {
+        KeyEventData::from_crossterm(KeyEvent::new(self.code, self.modifiers)).key
+    }
+
+    pub fn display_key(&self) -> String {
+        format_key_display(&self.key_name())
     }
 }
 
@@ -101,12 +135,20 @@ impl ActionMap {
     pub fn lookup(&self, key: &KeyBind) -> Option<Action> {
         self.bindings.get(key).copied()
     }
+
+    pub fn entries(&self) -> Vec<(KeyBind, Action)> {
+        self.bindings
+            .iter()
+            .map(|(bind, action)| (*bind, *action))
+            .collect()
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct EventCtx {
     handled: bool,
     repaint_requested: bool,
+    stop_requested: bool,
     messages: Vec<MessageEvent>,
 }
 
@@ -131,6 +173,15 @@ impl EventCtx {
         self.repaint_requested
     }
 
+    /// Request the runtime event loop to stop after current dispatch finishes.
+    pub fn request_stop(&mut self) {
+        self.stop_requested = true;
+    }
+
+    pub fn stop_requested(&self) -> bool {
+        self.stop_requested
+    }
+
     pub fn post_message(&mut self, sender: WidgetId, message: Message) {
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
@@ -145,6 +196,9 @@ impl EventCtx {
         }
         if other.repaint_requested {
             self.repaint_requested = true;
+        }
+        if other.stop_requested {
+            self.stop_requested = true;
         }
         self.messages.append(&mut other.messages);
     }

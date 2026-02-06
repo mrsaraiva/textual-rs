@@ -3,6 +3,7 @@ use crate::widgets::WidgetId;
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    ClearRequested,
     InputChanged {
         value: String,
         validation: ValidationResult,

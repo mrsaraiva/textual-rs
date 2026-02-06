@@ -1,0 +1,63 @@
+use rich_rs::Console;
+use textual::prelude::*;
+use textual::render::FrameBuffer;
+
+fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
+    let mut options = console.options().clone();
+    options.size = (width, height);
+    options.max_width = width;
+    options.max_height = height;
+    options
+}
+
+#[test]
+fn rich_log_auto_scrolls_to_latest_lines() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new();
+    log.write("line 1");
+    log.write("line 2");
+    log.write("line 3");
+    log.write("line 4");
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("line 3"));
+    assert!(lines[1].starts_with("line 4"));
+}
+
+#[test]
+fn rich_log_respects_max_lines() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 4);
+
+    let mut log = RichLog::new().max_lines(2);
+    log.write("line 1");
+    log.write("line 2");
+    log.write("line 3");
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("line 2"));
+    assert!(lines[1].starts_with("line 3"));
+}
+
+#[test]
+fn rich_log_scrolls_via_actions() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new().auto_scroll(false);
+    log.write("line 1");
+    log.write("line 2");
+    log.write("line 3");
+
+    let before = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(before.as_plain_lines()[0].starts_with("line 1"));
+
+    log.on_event(&Event::Action(Action::ScrollDown), &mut EventCtx::default());
+
+    let after = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(after.as_plain_lines()[0].starts_with("line 2"));
+}

@@ -5,18 +5,18 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::css;
-use crate::debug::{DebugLayout, debug_input, debug_layout};
+use crate::debug::{debug_input, debug_layout, DebugLayout};
 use crate::event::{Action, Event, EventCtx};
-use crate::style::Style;
+use crate::style::{parse_color_like, Style};
 
 use super::{
-    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
-        constraints_from_style, crop_line_horizontal, dispatch_event_to_focus,
+        adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
+        collect_focus_ids, constraints_from_style, crop_line_horizontal, dispatch_event_to_focus,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
         set_focus_by_id,
     },
+    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 pub struct Container {
@@ -313,7 +313,11 @@ impl Widget for Container {
                 any = true;
             }
         }
-        if any { Some(widest.max(1)) } else { None }
+        if any {
+            Some(widest.max(1))
+        } else {
+            None
+        }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1155,7 +1159,11 @@ impl Widget for AppRoot {
                 any = true;
             }
         }
-        if any { Some(widest.max(1)) } else { None }
+        if any {
+            Some(widest.max(1))
+        } else {
+            None
+        }
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -1176,7 +1184,7 @@ impl Widget for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::widgets::{Input, ListView, collect_focus_ids, set_focus_by_id};
+    use crate::widgets::{collect_focus_ids, set_focus_by_id, Input, ListView};
     use rich_rs::Console;
 
     #[test]
@@ -1735,6 +1743,10 @@ pub struct ScrollView {
     scroll_step_x: usize,
     content_width: AtomicUsize,
     viewport_width: AtomicUsize,
+    widget_width: AtomicUsize,
+    widget_height: AtomicUsize,
+    drag_v: Option<usize>,
+    drag_h: Option<usize>,
     styles: WidgetStyles,
 }
 
@@ -1752,6 +1764,10 @@ impl ScrollView {
             scroll_step_x: 2,
             content_width: AtomicUsize::new(0),
             viewport_width: AtomicUsize::new(0),
+            widget_width: AtomicUsize::new(0),
+            widget_height: AtomicUsize::new(0),
+            drag_v: None,
+            drag_h: None,
             styles: WidgetStyles::default(),
         }
     }
@@ -1829,6 +1845,70 @@ impl ScrollView {
             self.offset_x = max_x;
         }
     }
+
+    fn scrollbar_thumb(
+        track_len: usize,
+        content_len: usize,
+        viewport_len: usize,
+        offset: usize,
+    ) -> (usize, usize) {
+        if track_len == 0 {
+            return (0, 0);
+        }
+        if content_len <= viewport_len {
+            return (0, track_len);
+        }
+        // Match Textual's scrollbar sizing/positioning model:
+        // thumb_size = max(1, window_size / (virtual_size / track_size))
+        // thumb_start = floor((track_size - thumb_size) * position_ratio)
+        let track_f = track_len as f64;
+        let virtual_f = content_len as f64;
+        let window_f = viewport_len as f64;
+        let bar_ratio = virtual_f / track_f;
+        let thumb_size_f = (window_f / bar_ratio).max(1.0);
+        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
+
+        let max_offset = content_len.saturating_sub(viewport_len);
+        if max_offset == 0 {
+            return (0, thumb_len);
+        }
+        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
+        let travel_f = (track_f - thumb_size_f).max(0.0);
+        let thumb_start = (travel_f * position_ratio)
+            .floor()
+            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
+            as usize;
+        (thumb_start, thumb_len)
+    }
+
+    fn scrollbar_styles() -> (
+        rich_rs::Style,
+        rich_rs::Style,
+        rich_rs::Style,
+        rich_rs::Style,
+    ) {
+        let track_bg = parse_color_like("$scrollbar-background")
+            .or_else(|| parse_color_like("$background-darken-1"))
+            .or_else(|| parse_color_like("$surface-darken-1"))
+            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
+        let thumb_bg = parse_color_like("$scrollbar")
+            .or_else(|| parse_color_like("$primary-muted"))
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255));
+        let thumb_active_bg = parse_color_like("$scrollbar-active")
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212));
+        let corner_bg = parse_color_like("$scrollbar-corner-color")
+            .or_else(|| parse_color_like("$scrollbar-background"))
+            .unwrap_or(track_bg);
+
+        let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
+        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
+        let thumb_active_style =
+            rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
+        let corner_style = rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque());
+        (track_style, thumb_style, thumb_active_style, corner_style)
+    }
 }
 
 impl Widget for ScrollView {
@@ -1839,6 +1919,8 @@ impl Widget for ScrollView {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        self.widget_width.store(width, Ordering::Relaxed);
+        self.widget_height.store(viewport_height, Ordering::Relaxed);
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[scroll] id={} viewport=({}, {}) offset=({}, {})",
@@ -1849,78 +1931,200 @@ impl Widget for ScrollView {
                 self.offset_y
             ));
         }
-        self.viewport_height
-            .store(viewport_height, Ordering::Relaxed);
-        self.viewport_width.store(width, Ordering::Relaxed);
-
         let constraints = self.child.layout_constraints();
-        let target_height = self.child.layout_height().unwrap_or_else(|| {
-            // For children without an intrinsic height, probe at least one extra viewport
-            // so scrolling can start from offset 0, without letting probe height
-            // grow with scroll offset.
-            viewport_height.saturating_add(viewport_height).max(1)
-        });
-        let target_width = self.child.content_width().unwrap_or(width).max(width);
-        let render_width = clamp_with_constraints(
-            target_width,
-            constraints.min_width,
-            constraints.max_width,
-            target_width,
-        )
-        .max(width);
-        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
-            debug_layout(&format!(
-                "[scroll] id={} child render_width={} constraints=({:?},{:?})",
-                self.id.as_u64(),
-                render_width,
+        const V_SCROLLBAR_SIZE: usize = 2;
+        const H_SCROLLBAR_SIZE: usize = 1;
+        let mut show_v = false;
+        let mut show_h = false;
+        let mut content_viewport_w = width;
+        let mut content_viewport_h = viewport_height;
+        let mut lines: Vec<Vec<Segment>> = Vec::new();
+        let mut content_width = width;
+        let mut content_height = viewport_height;
+
+        for _ in 0..3 {
+            let viewport_w = width
+                .saturating_sub(if show_v {
+                    V_SCROLLBAR_SIZE.min(width.saturating_sub(1))
+                } else {
+                    0
+                })
+                .max(1);
+            let viewport_h = viewport_height
+                .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                .max(1);
+
+            let target_height = self
+                .child
+                .layout_height()
+                .unwrap_or_else(|| viewport_h.saturating_add(viewport_h).max(1));
+            let target_width = self
+                .child
+                .content_width()
+                .unwrap_or(viewport_w)
+                .max(viewport_w);
+            let render_width = clamp_with_constraints(
+                target_width,
                 constraints.min_width,
-                constraints.max_width
-            ));
-        }
-        let render_height = clamp_with_constraints(
-            target_height,
-            constraints.min_height,
-            constraints.max_height,
-            target_height,
-        );
-        let mut child_options = options.clone();
-        child_options.size = (render_width, render_height);
-        child_options.max_width = render_width;
-        child_options.max_height = render_height;
+                constraints.max_width,
+                target_width,
+            )
+            .max(viewport_w);
+            if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+                debug_layout(&format!(
+                    "[scroll] id={} child render_width={} constraints=({:?},{:?})",
+                    self.id.as_u64(),
+                    render_width,
+                    constraints.min_width,
+                    constraints.max_width
+                ));
+            }
+            let render_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
 
-        let segments = self.child.render_styled(console, &child_options);
-        let mut lines = Segment::split_and_crop_lines(segments, render_width, None, true, false);
-        if let Some(height) = self.child.layout_height() {
-            lines = Segment::set_shape(&lines, render_width, Some(height.max(1)), None, false);
-        }
-        lines = pad_lines_to_width(lines, render_width);
+            let segments = self.child.render_styled(console, &child_options);
+            let mut candidate =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            if let Some(height) = self.child.layout_height() {
+                candidate =
+                    Segment::set_shape(&candidate, render_width, Some(height.max(1)), None, false);
+            }
+            candidate = pad_lines_to_width(candidate, render_width);
 
-        let content_height = lines.len().max(viewport_height);
+            let candidate_height = candidate.len().max(viewport_h);
+            let candidate_width = candidate
+                .iter()
+                .map(|line| Segment::get_line_length(line))
+                .max()
+                .unwrap_or(viewport_w)
+                .max(viewport_w);
+            let next_show_v = candidate_height > viewport_h;
+            let next_show_h = candidate_width > viewport_w;
+
+            lines = candidate;
+            content_width = candidate_width;
+            content_height = candidate_height;
+            content_viewport_w = viewport_w;
+            content_viewport_h = viewport_h;
+
+            if next_show_v == show_v && next_show_h == show_h {
+                break;
+            }
+            show_v = next_show_v;
+            show_h = next_show_h;
+        }
+
+        self.viewport_height
+            .store(content_viewport_h, Ordering::Relaxed);
+        self.viewport_width
+            .store(content_viewport_w, Ordering::Relaxed);
         self.content_height.store(content_height, Ordering::Relaxed);
-        let content_width = lines
-            .iter()
-            .map(|line| Segment::get_line_length(line))
-            .max()
-            .unwrap_or(width)
-            .max(width);
         self.content_width.store(content_width, Ordering::Relaxed);
 
-        let max_offset = content_height.saturating_sub(viewport_height);
+        let max_offset = content_height.saturating_sub(content_viewport_h);
         let offset = self.offset_y.min(max_offset);
-        let max_offset_x = content_width.saturating_sub(width);
+        let max_offset_x = content_width.saturating_sub(content_viewport_w);
         let offset_x = self.offset_x.min(max_offset_x);
         let start = offset.min(lines.len());
-        let end = (start + viewport_height).min(lines.len());
-        let slice = lines[start..end]
+        let end = (start + content_viewport_h).min(lines.len());
+        let mut slice = lines[start..end]
             .to_vec()
             .into_iter()
             .map(|line| {
-                let cropped = crop_line_horizontal(&line, offset_x, width);
-                Segment::adjust_line_length(&cropped, width, None, true)
+                let cropped = crop_line_horizontal(&line, offset_x, content_viewport_w);
+                adjust_line_length_no_bg(&cropped, content_viewport_w)
             })
             .collect::<Vec<_>>();
-        let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+        slice = Segment::set_shape(
+            &slice,
+            content_viewport_w,
+            Some(content_viewport_h),
+            None,
+            false,
+        );
 
+        let (track_style, thumb_style, thumb_active_style, corner_style) = Self::scrollbar_styles();
+        let v_scrollbar_size = if show_v {
+            width.saturating_sub(content_viewport_w)
+        } else {
+            0
+        };
+        if show_v {
+            let track_len = content_viewport_h.max(1);
+            let (thumb_start, thumb_len) =
+                Self::scrollbar_thumb(track_len, content_height, content_viewport_h, offset);
+            let mut thumb_drawn = false;
+            for (row, line) in slice.iter_mut().enumerate() {
+                let in_track = row < track_len;
+                let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
+                    if self.drag_v.is_some() {
+                        thumb_active_style
+                    } else {
+                        thumb_style
+                    }
+                } else {
+                    track_style
+                };
+                for _ in 0..v_scrollbar_size.max(1) {
+                    line.push(Segment::styled(" ".to_string(), style));
+                }
+                thumb_drawn |= in_track && row >= thumb_start && row < thumb_start + thumb_len;
+            }
+            if !thumb_drawn && !slice.is_empty() {
+                let row = track_len.saturating_sub(1).min(slice.len() - 1);
+                let line = &mut slice[row];
+                for _ in 0..v_scrollbar_size.max(1) {
+                    if !line.is_empty() {
+                        line.pop();
+                    }
+                }
+                for _ in 0..v_scrollbar_size.max(1) {
+                    let active_style = if self.drag_v.is_some() {
+                        thumb_active_style
+                    } else {
+                        thumb_style
+                    };
+                    line.push(Segment::styled(" ".to_string(), active_style));
+                }
+            }
+        }
+        if show_h {
+            let (thumb_start, thumb_len) = Self::scrollbar_thumb(
+                content_viewport_w,
+                content_width,
+                content_viewport_w,
+                offset_x,
+            );
+            let mut row = Vec::new();
+            for col in 0..content_viewport_w {
+                let style = if col >= thumb_start && col < thumb_start + thumb_len {
+                    if self.drag_h.is_some() {
+                        thumb_active_style
+                    } else {
+                        thumb_style
+                    }
+                } else {
+                    track_style
+                };
+                row.push(Segment::styled(" ".to_string(), style));
+            }
+            if show_v {
+                for _ in 0..v_scrollbar_size.max(1) {
+                    row.push(Segment::styled(" ".to_string(), corner_style));
+                }
+            }
+            slice.push(row);
+        }
+
+        slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
         let line_count = slice.len();
         let mut out = Segments::new();
         for (idx, line) in slice.into_iter().enumerate() {
@@ -1994,6 +2198,79 @@ impl Widget for ScrollView {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == self.id {
+                let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
+                let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
+                let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
+                let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
+                let content_w = self.content_width.load(Ordering::Relaxed);
+                let content_h = self.content_height.load(Ordering::Relaxed);
+                let show_v = content_h > viewport_h;
+                let show_h = content_w > viewport_w;
+                let v_scrollbar_size = widget_width.saturating_sub(viewport_w).max(1);
+                let h_scrollbar_size = widget_height.saturating_sub(viewport_h).max(1);
+                let local_x = mouse.x as usize;
+                let local_y = mouse.y as usize;
+
+                if show_v
+                    && local_x >= widget_width.saturating_sub(v_scrollbar_size)
+                    && local_y < viewport_h
+                {
+                    let (thumb_start, thumb_len) =
+                        Self::scrollbar_thumb(viewport_h, content_h, viewport_h, self.offset_y);
+                    if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len) {
+                        self.drag_v = Some(local_y.saturating_sub(thumb_start));
+                        self.drag_h = None;
+                        ctx.set_handled();
+                        return;
+                    }
+                    let before = self.offset_y;
+                    if local_y < thumb_start {
+                        self.scroll_by(-(viewport_h as i32));
+                    } else if local_y >= thumb_start.saturating_add(thumb_len) {
+                        self.scroll_by(viewport_h as i32);
+                    }
+                    if self.offset_y != before {
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+
+                if show_h
+                    && local_y >= widget_height.saturating_sub(h_scrollbar_size)
+                    && local_x < viewport_w
+                {
+                    let (thumb_start, thumb_len) =
+                        Self::scrollbar_thumb(viewport_w, content_w, viewport_w, self.offset_x);
+                    if local_x >= thumb_start && local_x < thumb_start.saturating_add(thumb_len) {
+                        self.drag_h = Some(local_x.saturating_sub(thumb_start));
+                        self.drag_v = None;
+                        ctx.set_handled();
+                        return;
+                    }
+                    let before = self.offset_x;
+                    if local_x < thumb_start {
+                        self.scroll_by_x(-(viewport_w as i32));
+                    } else if local_x >= thumb_start.saturating_add(thumb_len) {
+                        self.scroll_by_x(viewport_w as i32);
+                    }
+                    if self.offset_x != before {
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
+        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
+            let was_dragging = self.drag_v.take().is_some() || self.drag_h.take().is_some();
+            if was_dragging {
+                ctx.set_handled();
+            }
+        }
+
         let mut child_ctx = EventCtx::default();
         self.child.on_event(event, &mut child_ctx);
         let child_handled = child_ctx.handled();
@@ -2138,6 +2415,56 @@ impl Widget for ScrollView {
             ctx.request_repaint();
             ctx.set_handled();
         }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let mut changed = false;
+        if let Some(grab_offset) = self.drag_v {
+            let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
+            let content_h = self.content_height.load(Ordering::Relaxed).max(1);
+            if content_h > viewport_h {
+                let (thumb_start, thumb_len) =
+                    Self::scrollbar_thumb(viewport_h, content_h, viewport_h, self.offset_y);
+                let _ = thumb_start;
+                let travel = viewport_h.saturating_sub(thumb_len);
+                let pointer = (y as isize) - (grab_offset as isize);
+                let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
+                let max_offset = content_h.saturating_sub(viewport_h);
+                let new_offset = if travel == 0 {
+                    0
+                } else {
+                    (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
+                        / (travel as u128)) as usize
+                };
+                if new_offset != self.offset_y {
+                    self.offset_y = new_offset;
+                    changed = true;
+                }
+            }
+        } else if let Some(grab_offset) = self.drag_h {
+            let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
+            let content_w = self.content_width.load(Ordering::Relaxed).max(1);
+            if content_w > viewport_w {
+                let (thumb_start, thumb_len) =
+                    Self::scrollbar_thumb(viewport_w, content_w, viewport_w, self.offset_x);
+                let _ = thumb_start;
+                let travel = viewport_w.saturating_sub(thumb_len);
+                let pointer = (x as isize) - (grab_offset as isize);
+                let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
+                let max_offset = content_w.saturating_sub(viewport_w);
+                let new_offset = if travel == 0 {
+                    0
+                } else {
+                    (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
+                        / (travel as u128)) as usize
+                };
+                if new_offset != self.offset_x {
+                    self.offset_x = new_offset;
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {

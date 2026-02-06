@@ -8,6 +8,45 @@ use super::StyleSheet;
 const DEFAULT_WIDGET_CSS: &str = r#"
 VerticalScroll { bg: $panel; }
 
+Header {
+    bg: $primary;
+    fg: $text;
+    text-style: bold;
+    line-pad: 1;
+    height: auto;
+}
+
+Header.-tall {
+    height: 3;
+}
+
+Footer {
+    bg: $panel;
+    fg: $foreground;
+    line-pad: 1;
+    height: auto;
+}
+
+RichLog {
+    bg: $surface;
+    fg: $foreground;
+}
+
+RichLog:focus {
+    border: tall $border;
+}
+
+KeyPanel {
+    bg: $panel;
+    fg: $foreground;
+    border-left: tall $border-blurred;
+}
+
+BindingsTable {
+    bg: $panel;
+    fg: $foreground;
+}
+
 TextArea {
     bg: $surface;
     fg: $foreground;

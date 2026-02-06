@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-06
+- **Keys preview parity + reusable widget foundations**
+  - Added reusable widgets for developer previews and app chrome: `Header`, `Footer`, `RichLog`, `KeyPanel`, and `BindingsTable` (`src/widgets/header.rs`, `src/widgets/footer.rs`, `src/widgets/rich_log.rs`, `src/widgets/key_panel.rs`), with public exports in `src/widgets/mod.rs` and `src/lib.rs`.
+  - Added default CSS coverage for the new widgets (`src/css/defaults.rs`) and new scrollbar theme tokens (`scrollbar*`) in `src/style.rs`.
+  - Refined `examples/keys.rs` to match Python Textual keys preview behavior/structure and moved demo styling to `examples/keys.tcss`.
+- **Input/event/runtime fundamentals for diagnostics tooling**
+  - Added `Event::BindingsChanged(Vec<BindingHint>)` and runtime binding-hint aggregation from `ActionMap` + quit keys, with incremental dispatch when hints change.
+  - Extended `Action` with human-readable descriptions and `ActionMap::entries()` to support bindings UIs.
+  - Added `EventCtx::request_stop()` and stop propagation through dispatch/message queues to support message-driven app shutdown paths.
+  - Added configurable quit key APIs (`set_quit_keys`, `clear_quit_keys`) and corresponding runtime tests.
+- **Scrolling + scrollbar behavior parity**
+  - Upgraded `ScrollView` and `RichLog` scrollbars with proper thumb sizing/positioning, themed track/thumb styles, track-click paging, drag interactions, and clamp behavior improvements.
+  - Fixed `Dock` fill rendering order to resolve layout inconsistencies when mixing fill and side/top/bottom regions.
+- **Tests and docs**
+  - Added widget behavior tests for new components: `tests/header_footer.rs`, `tests/key_panel.rs`, `tests/rich_log.rs`.
+  - Updated `ROADMAP.md` Phase 9.5 status to reflect completed visual parity pass and current pending fundamentals.
+
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**
   - Added canonical key model (`src/keys/mod.rs`): `KeyEventData` wraps crossterm's `KeyEvent` via `Deref` and adds normalized key name, character, printability. Normalization follows Python Textual conventions (alphabetical modifier ordering, shift consumption rules, and non-shift modifier chords not printable).

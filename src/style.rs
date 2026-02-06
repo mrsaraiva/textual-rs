@@ -187,6 +187,18 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         );
         let selection = lighten_lab(primary, 0.15 / 2.0).with_alpha(0.40);
         m.insert("input-selection-background", selection);
+
+        // Scrollbar tokens (mirrors Textual dark design defaults closely enough for parity).
+        let scrollbar_background = darken_lab(background, 0.15 / 2.0);
+        let scrollbar = blend(scrollbar_background, primary, 0.40);
+        let scrollbar_hover = blend(scrollbar_background, primary, 0.50);
+        m.insert("scrollbar", scrollbar);
+        m.insert("scrollbar-hover", scrollbar_hover);
+        m.insert("scrollbar-active", primary);
+        m.insert("scrollbar-background", scrollbar_background);
+        m.insert("scrollbar-background-hover", scrollbar_background);
+        m.insert("scrollbar-background-active", scrollbar_background);
+        m.insert("scrollbar-corner-color", scrollbar_background);
         m
     });
 

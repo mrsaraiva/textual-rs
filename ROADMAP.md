@@ -287,9 +287,11 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 | Done | Add key normalization + alias helpers | `src/keys/mod.rs`: `normalize_key_code`, `key_to_identifier`, `format_key_display`, lazy `aliases()`, symbol table, name replacements |
 | Done | Runtime conversion path | `Event::Key` now holds `KeyEventData`; runtime converts at crossterm boundary; `KeyBind::from_event` updated; all widgets unchanged via `Deref` |
 | Done | Shared driver protocol uplift | Tri-state `KeyboardProtocol` (Off/Auto/On) in `richtui-crossterm`; Kitty mode 1 (DISAMBIGUATE_ESCAPE_CODES); terminal heuristic detection; `TEXTUAL_KEYBOARD_PROTOCOL` env var |
-| Done | Build `examples/keys.rs` harness | `KeyLog` widget: key/mouse/focus/resize/scroll events with canonical + raw data; rolling 100-entry log; run via `cargo run --example keys` |
+| Done | Build key diagnostics harness | Canonical `keys` preview now runs via `textual-dev-rs` (`cargo run -- keys`); `textual-rs/examples/keys.rs` remains available for direct library demo runs |
 | Done | Add key diagnostics tests | 48 unit tests + 2 doc-tests + 74 integration tests (`tests/key_diagnostics.rs`): normalization, aliases, display, identifiers, Deref, edge cases, ActionMap |
 | Done | Document compatibility limits | Module-level docs in `src/keys/mod.rs`: normalization rules, alias table, Kitty protocol modes, terminal compatibility matrix (tmux, screen, macOS Terminal, PuTTY, SSH) |
+| Done | Visual parity pass for preview UI | Preview now matches Python `textual_dev` keys layout/behavior target (single-pane layout, header/body/action bar, styled log, scroll behavior) |
+| In progress | Binding panel fundamentals (for apps that use it) | `KeyPanel`/`BindingsTable` widgets exist with event + scroll tests; remaining work is first-class component-level styling/behavior parity |
 
 ### Acceptance criteria
 
@@ -302,6 +304,21 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 - Mouse diagnostics include button/position/modifiers/scroll deltas and reflect routing decisions.
 - Shared driver can be configured to enable/disable enhanced keyboard protocol; app behavior remains stable when unavailable.
 - No demo-only hacks: the harness consumes framework primitives that other widgets/apps can reuse.
+- Visual target is explicit: parity is against Python's keys preview UI currently used for QA screenshots (not against Textual's standalone `KeyPanel` widget).
+
+### Visual parity and follow-up plan (updated)
+
+1. **Phase 1: keys demo 1:1 pass (completed)**
+   - Right-side binding panel removed from the preview target.
+   - Python preview structure/copy matched (`Textual Keys`, instruction panel, bottom `Clear`/`Quit` bar).
+   - Demo styling tuned for parity (header, log styling, action bar, scrollbar, interactions).
+2. **Phase 2: reusable preview scaffold fundamentals (pending)**
+   - Introduce a reusable preview shell composition for title/content/action-bar.
+   - Migrate `keys` and at least one additional preview demo to this shell.
+3. **Phase 3: styling fidelity fundamentals (pending)**
+   - Add missing style engine capabilities needed for parity (component-scoped styles, selector expressiveness, border/divider nuance).
+4. **Phase 4: visual regression discipline (pending)**
+   - Add snapshot/image-based parity checks for `keys` and extend to other high-value demos.
 
 ### Implementation notes (for cross-session continuity)
 
@@ -329,7 +346,8 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 - Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
-  - Land canonical key semantics, normalization/aliases, and driver protocol improvements before deeper keyboard-heavy widget work.
+  - Canonical key semantics, driver protocol, and preview parity pass are done.
+  - Next: complete binding-panel first-class parity plus scaffold/style/regression fundamentals listed in Phase 9.5.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.

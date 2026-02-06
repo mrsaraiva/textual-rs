@@ -1,0 +1,54 @@
+Header {
+    bg: #2e3338;
+    fg: #c5c8cc;
+    text-style: bold;
+    line-pad: 0;
+}
+
+Header.-tall {
+    bg: #2a2f34;
+}
+
+Container {
+    bg: #1f2328;
+    fg: #e8e8e8;
+}
+
+KeyLog {
+    bg: #1f2328;
+    fg: #98d168;
+    line-pad: 1;
+}
+
+KeyLog:focus {
+    border: none;
+}
+
+Row {
+    bg: #1f2328;
+}
+
+Button {
+    height: 3;
+    min-width: 1;
+}
+
+Button.-style-flat.-warning {
+    bg: #f5a623;
+    fg: #1a1a1a;
+    border: block #f5a623;
+    text-style: bold;
+}
+
+Button.-style-flat.-warning:hover {
+    bg: #f5a623;
+    fg: #1a1a1a;
+    border: block #f5a623;
+}
+
+Button.-style-flat.-error {
+    bg: #b73763;
+    fg: #f2f2f2;
+    border: block #b73763;
+    text-style: bold;
+}

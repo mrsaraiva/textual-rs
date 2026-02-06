@@ -630,8 +630,9 @@ impl Widget for Dock {
         let mut left_columns: Vec<(usize, Vec<Vec<Segment>>)> = Vec::new();
         let mut right_columns: Vec<(usize, Vec<Vec<Segment>>)> = Vec::new();
         let mut fill_lines: Option<Vec<Vec<Segment>>> = None;
+        let mut fill_index: Option<usize> = None;
 
-        for item in &self.items {
+        for (idx, item) in self.items.iter().enumerate() {
             match item.kind {
                 DockKind::Top => {
                     let height = item
@@ -754,32 +755,36 @@ impl Widget for Dock {
                     remaining_width = remaining_width.saturating_sub(width);
                 }
                 DockKind::Fill => {
-                    let constraints = item.child.layout_constraints();
-                    let render_width = clamp_with_constraints(
-                        remaining_width,
-                        constraints.min_width,
-                        constraints.max_width,
-                        remaining_width,
-                    );
-                    let render_height = clamp_with_constraints(
-                        remaining_height,
-                        constraints.min_height,
-                        constraints.max_height,
-                        remaining_height,
-                    );
-                    let mut child_options = options.clone();
-                    child_options.size = (render_width, render_height);
-                    child_options.max_width = render_width;
-                    child_options.max_height = render_height;
-                    let segments = item.child.render_styled(console, &child_options);
-                    let mut lines =
-                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines =
-                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
-                    lines = pad_lines_to_width(lines, remaining_width);
-                    fill_lines = Some(lines);
+                    fill_index = Some(idx);
                 }
             }
+        }
+
+        if let Some(idx) = fill_index {
+            let item = &self.items[idx];
+            let constraints = item.child.layout_constraints();
+            let render_width = clamp_with_constraints(
+                remaining_width,
+                constraints.min_width,
+                constraints.max_width,
+                remaining_width,
+            );
+            let render_height = clamp_with_constraints(
+                remaining_height,
+                constraints.min_height,
+                constraints.max_height,
+                remaining_height,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+            let segments = item.child.render_styled(console, &child_options);
+            let mut lines =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+            lines = pad_lines_to_width(lines, remaining_width);
+            fill_lines = Some(lines);
         }
 
         let mut middle_lines: Vec<Vec<Segment>> = Vec::new();
@@ -859,6 +864,7 @@ impl Widget for Dock {
         let mut left_columns: Vec<(usize, Vec<Vec<Segment>>)> = Vec::new();
         let mut right_columns: Vec<(usize, Vec<Vec<Segment>>)> = Vec::new();
         let mut fill_lines: Option<Vec<Vec<Segment>>> = None;
+        let mut fill_index: Option<usize> = None;
 
         for (idx, item) in self.items.iter().enumerate() {
             match item.kind {
@@ -1035,45 +1041,49 @@ impl Widget for Dock {
                     remaining_width = remaining_width.saturating_sub(width);
                 }
                 DockKind::Fill => {
-                    let constraints = item.child.layout_constraints();
-                    let render_width = clamp_with_constraints(
-                        remaining_width,
-                        constraints.min_width,
-                        constraints.max_width,
-                        remaining_width,
-                    );
-                    let render_height = clamp_with_constraints(
-                        remaining_height,
-                        constraints.min_height,
-                        constraints.max_height,
-                        remaining_height,
-                    );
-                    let mut child_options = options.clone();
-                    child_options.size = (render_width, render_height);
-                    child_options.max_width = render_width;
-                    child_options.max_height = render_height;
-                    let segments = item.child.render_styled(console, &child_options);
-                    let mut lines =
-                        Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                    lines =
-                        Segment::set_shape(&lines, render_width, Some(render_height), None, false);
-                    lines = pad_lines_to_width(lines, remaining_width);
-                    let debug_height = (remaining_height + 2).max(3);
-                    let label = if debug.show_sizes {
-                        Some(format!("{remaining_width}x{debug_height}"))
-                    } else {
-                        None
-                    };
-                    let wrapped = apply_debug_box(
-                        lines,
-                        remaining_width,
-                        debug_height,
-                        label.as_deref(),
-                        debug.style_for(idx),
-                    );
-                    fill_lines = Some(wrapped);
+                    fill_index = Some(idx);
                 }
             }
+        }
+
+        if let Some(idx) = fill_index {
+            let item = &self.items[idx];
+            let constraints = item.child.layout_constraints();
+            let render_width = clamp_with_constraints(
+                remaining_width,
+                constraints.min_width,
+                constraints.max_width,
+                remaining_width,
+            );
+            let render_height = clamp_with_constraints(
+                remaining_height,
+                constraints.min_height,
+                constraints.max_height,
+                remaining_height,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+            let segments = item.child.render_styled(console, &child_options);
+            let mut lines =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            lines = Segment::set_shape(&lines, render_width, Some(render_height), None, false);
+            lines = pad_lines_to_width(lines, remaining_width);
+            let debug_height = (remaining_height + 2).max(3);
+            let label = if debug.show_sizes {
+                Some(format!("{remaining_width}x{debug_height}"))
+            } else {
+                None
+            };
+            let wrapped = apply_debug_box(
+                lines,
+                remaining_width,
+                debug_height,
+                label.as_deref(),
+                debug.style_for(idx),
+            );
+            fill_lines = Some(wrapped);
         }
 
         let mut middle_lines: Vec<Vec<Segment>> = Vec::new();

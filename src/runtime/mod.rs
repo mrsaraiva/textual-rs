@@ -2,7 +2,8 @@ use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_styl
 use crate::debug::{DebugLayout, debug_input, debug_message, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, Size, TerminalDriver};
 use crate::event::{
-    Action, ActionMap, Event, EventCtx, KeyBind, MouseDownEvent, MouseScrollEvent, MouseUpEvent,
+    Action, ActionMap, BindingHint, Event, EventCtx, KeyBind, MouseDownEvent, MouseScrollEvent,
+    MouseUpEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
@@ -13,7 +14,7 @@ use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -126,6 +127,7 @@ pub struct App {
     hit_test: HitTestMap,
     debug_layout: DebugLayout,
     action_map: ActionMap,
+    quit_keys: Vec<KeyBind>,
     theme: Theme,
     default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
@@ -139,6 +141,7 @@ pub struct App {
     sync_output: bool,
     pointer_shape: PointerShape,
     app_active: bool,
+    last_binding_hints: Vec<BindingHint>,
 }
 
 struct StylesheetWatcher {
@@ -168,7 +171,7 @@ impl App {
             .ok()
             .map(|s| s != "0" && s.to_lowercase() != "false")
             .unwrap_or(true);
-        Ok(Self {
+        let mut app = Self {
             driver,
             console,
             options,
@@ -176,6 +179,10 @@ impl App {
             hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
+            quit_keys: vec![
+                KeyBind::new(KeyCode::Char('q'), KeyModifiers::empty()),
+                KeyBind::new(KeyCode::Esc, KeyModifiers::empty()),
+            ],
             theme: Theme::default(),
             default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
@@ -189,7 +196,10 @@ impl App {
             sync_output,
             pointer_shape: PointerShape::Default,
             app_active: true,
-        })
+            last_binding_hints: Vec::new(),
+        };
+        app.last_binding_hints = app.binding_hints();
+        Ok(app)
     }
 
     pub fn driver(&self) -> &TerminalDriver {
@@ -206,6 +216,55 @@ impl App {
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+    }
+
+    pub fn binding_hints(&self) -> Vec<BindingHint> {
+        let mut out = Vec::new();
+        for quit in &self.quit_keys {
+            out.push(BindingHint {
+                key: quit.display_key(),
+                description: "Quit application".to_string(),
+            });
+        }
+        for (bind, action) in self.action_map.entries() {
+            out.push(BindingHint {
+                key: bind.display_key(),
+                description: action.description().to_string(),
+            });
+        }
+
+        let mut unique = HashSet::new();
+        out.retain(|entry| unique.insert((entry.key.clone(), entry.description.clone())));
+
+        let mut grouped: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for entry in out {
+            grouped
+                .entry(entry.description)
+                .or_default()
+                .insert(entry.key);
+        }
+
+        let mut merged = grouped
+            .into_iter()
+            .map(|(description, keys)| BindingHint {
+                key: keys.into_iter().collect::<Vec<_>>().join(", "),
+                description,
+            })
+            .collect::<Vec<_>>();
+        merged.sort_by(|left, right| {
+            left.description
+                .cmp(&right.description)
+                .then_with(|| left.key.cmp(&right.key))
+        });
+        merged
+    }
+
+    pub fn set_quit_keys(&mut self, quit_keys: Vec<KeyBind>) {
+        self.quit_keys = quit_keys;
+    }
+
+    pub fn clear_quit_keys(&mut self) {
+        self.quit_keys.clear();
     }
 
     pub fn set_stylesheet(&mut self, stylesheet: StyleSheet) {
@@ -413,7 +472,7 @@ impl App {
                         if matches!(key.code, KeyCode::Enter | KeyCode::Char(' ')) {
                             debug_input(&format!("[input] key {:?}", key.code));
                         }
-                        if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                        if should_quit_key(&key, &self.quit_keys) {
                             break;
                         }
                     }
@@ -459,7 +518,7 @@ impl App {
         self.render_widget(root)?;
         let mut last_render = Instant::now();
 
-        loop {
+        'event_loop: loop {
             let timeout = tick_rate.saturating_sub(last_render.elapsed());
             if event::poll(timeout)? {
                 let mut sheet = self.default_stylesheet.clone();
@@ -475,7 +534,7 @@ impl App {
                         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                             continue;
                         }
-                        if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                        if should_quit_key(&key, &self.quit_keys) {
                             break;
                         }
                         // Dispatch the raw key first so focused widgets (e.g. Input) can consume
@@ -491,6 +550,9 @@ impl App {
                         dirty |= key_outcome.should_repaint();
                         let msg_outcome = dispatch_message_queue(root, key_outcome.messages);
                         dirty |= msg_outcome.should_repaint();
+                        if key_outcome.stop_requested || msg_outcome.stop_requested {
+                            break 'event_loop;
+                        }
                         if !key_outcome.handled {
                             let bind = KeyBind::from_event(&key);
                             if let Some(action) = self.action_map.lookup(&bind) {
@@ -513,6 +575,9 @@ impl App {
                                 dirty |= outcome.should_repaint();
                                 let msg_outcome = dispatch_message_queue(root, outcome.messages);
                                 dirty |= msg_outcome.should_repaint();
+                                if outcome.stop_requested || msg_outcome.stop_requested {
+                                    break 'event_loop;
+                                }
                             } else {
                                 debug_input(&format!("[input] action-map {:?} -> none", bind));
                             }
@@ -555,6 +620,9 @@ impl App {
                                 dirty |= outcome.should_repaint();
                                 let msg_outcome = dispatch_message_queue(root, outcome.messages);
                                 dirty |= msg_outcome.should_repaint();
+                                if outcome.stop_requested || msg_outcome.stop_requested {
+                                    break 'event_loop;
+                                }
                             }
                         }
                         MouseEventKind::Up(_) => {
@@ -582,6 +650,9 @@ impl App {
                             dirty |= outcome.should_repaint();
                             let msg_outcome = dispatch_message_queue(root, outcome.messages);
                             dirty |= msg_outcome.should_repaint();
+                            if outcome.stop_requested || msg_outcome.stop_requested {
+                                break 'event_loop;
+                            }
                         }
                         MouseEventKind::ScrollUp
                         | MouseEventKind::ScrollDown
@@ -660,6 +731,12 @@ impl App {
                             dirty |= outcome.should_repaint();
                             let msg_outcome = dispatch_message_queue(root, outcome.messages);
                             dirty |= msg_outcome.should_repaint();
+                            if diag_outcome.stop_requested
+                                || outcome.stop_requested
+                                || msg_outcome.stop_requested
+                            {
+                                break 'event_loop;
+                            }
                         }
                     },
                     CrosstermEvent::Resize(_, _) => {
@@ -669,25 +746,40 @@ impl App {
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
                         let outcome = dispatch_event(root, Event::Resize(size.width, size.height));
-                        let _ = dispatch_message_queue(root, outcome.messages);
+                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        if outcome.stop_requested || msg_outcome.stop_requested {
+                            break 'event_loop;
+                        }
                         dirty = true;
                     }
                     CrosstermEvent::FocusLost => {
                         self.app_active = false;
                         debug_input("[event] FocusLost");
                         let outcome = dispatch_event(root, Event::AppFocus(false));
-                        let _ = dispatch_message_queue(root, outcome.messages);
+                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        if outcome.stop_requested || msg_outcome.stop_requested {
+                            break 'event_loop;
+                        }
                         dirty = true;
                     }
                     CrosstermEvent::FocusGained => {
                         self.app_active = true;
                         debug_input("[event] FocusGained");
                         let outcome = dispatch_event(root, Event::AppFocus(true));
-                        let _ = dispatch_message_queue(root, outcome.messages);
+                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        if outcome.stop_requested || msg_outcome.stop_requested {
+                            break 'event_loop;
+                        }
                         dirty = true;
                     }
                     _ => {}
                 }
+            }
+
+            let binding_outcome = self.dispatch_binding_hints_changed(root);
+            dirty |= binding_outcome.should_repaint();
+            if binding_outcome.stop_requested {
+                break 'event_loop;
             }
 
             if dirty {
@@ -709,6 +801,9 @@ impl App {
                 dirty |= outcome.should_repaint();
                 let msg_outcome = dispatch_message_queue(root, outcome.messages);
                 dirty |= msg_outcome.should_repaint();
+                if outcome.stop_requested || msg_outcome.stop_requested {
+                    break 'event_loop;
+                }
 
                 let any_active = any_widget_active(root);
                 if dirty || any_active || prev_any_active {
@@ -724,6 +819,22 @@ impl App {
         root.on_unmount();
         self.finish()?;
         Ok(())
+    }
+
+    fn dispatch_binding_hints_changed(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
+        let current = self.binding_hints();
+        if current == self.last_binding_hints {
+            return DispatchOutcome::default();
+        }
+        self.last_binding_hints = current.clone();
+        let outcome = dispatch_event(root, Event::BindingsChanged(current));
+        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+        DispatchOutcome {
+            handled: outcome.handled || msg_outcome.handled,
+            repaint_requested: outcome.repaint_requested || msg_outcome.repaint_requested,
+            stop_requested: outcome.stop_requested || msg_outcome.stop_requested,
+            messages: msg_outcome.messages,
+        }
     }
 
     fn print_segments(&mut self, diff: &rich_rs::Segments) -> Result<()> {
@@ -952,6 +1063,7 @@ fn console_write_with_optional_sync<W: std::io::Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::KeyEvent;
 
     #[test]
     fn sync_output_wraps_payload_when_enabled() {
@@ -1037,6 +1149,31 @@ mod tests {
             (0, 1)
         );
     }
+
+    #[test]
+    fn quit_key_matches_defaults() {
+        let quit_keys = vec![
+            KeyBind::new(KeyCode::Char('q'), KeyModifiers::empty()),
+            KeyBind::new(KeyCode::Esc, KeyModifiers::empty()),
+        ];
+        let q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty());
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::empty());
+        let x = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
+
+        assert!(should_quit_key(&q, &quit_keys));
+        assert!(should_quit_key(&esc, &quit_keys));
+        assert!(!should_quit_key(&x, &quit_keys));
+    }
+
+    #[test]
+    fn quit_key_can_require_modifiers() {
+        let quit_keys = vec![KeyBind::new(KeyCode::Char('q'), KeyModifiers::CONTROL)];
+        let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
+        let plain_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty());
+
+        assert!(should_quit_key(&ctrl_q, &quit_keys));
+        assert!(!should_quit_key(&plain_q, &quit_keys));
+    }
 }
 
 fn apply_size(options: &mut ConsoleOptions, size: Size) {
@@ -1063,6 +1200,11 @@ fn mouse_scroll_deltas(kind: MouseEventKind, modifiers: KeyModifiers) -> (i32, i
     }
 
     (delta_x, delta_y)
+}
+
+fn should_quit_key(key: &crossterm::event::KeyEvent, quit_keys: &[KeyBind]) -> bool {
+    let bind = KeyBind::new(key.code, key.modifiers);
+    quit_keys.iter().any(|candidate| *candidate == bind)
 }
 
 fn default_action_map() -> ActionMap {
@@ -1130,6 +1272,7 @@ fn default_action_map() -> ActionMap {
 struct DispatchOutcome {
     handled: bool,
     repaint_requested: bool,
+    stop_requested: bool,
     messages: Vec<MessageEvent>,
 }
 
@@ -1150,6 +1293,7 @@ fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
     let outcome = DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
+        stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
     };
     debug_message(&format!(
@@ -1218,6 +1362,7 @@ fn dispatch_event_to_target(
     DispatchOutcome {
         handled,
         repaint_requested,
+        stop_requested: ctx.stop_requested(),
         messages,
     }
 }
@@ -1279,6 +1424,7 @@ fn dispatch_mouse_scroll(root: &mut dyn Widget, delta_x: i32, delta_y: i32) -> D
     DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
+        stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
     }
 }
@@ -1310,6 +1456,7 @@ fn dispatch_mouse_scroll_to_target(
     DispatchOutcome {
         handled,
         repaint_requested,
+        stop_requested: ctx.stop_requested(),
         messages,
     }
 }
@@ -1346,6 +1493,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
 
     let mut handled = false;
     let mut repaint_requested = false;
+    let mut stop_requested = false;
     let mut queue: VecDeque<MessageEvent> = initial.into();
     let mut emitted: Vec<MessageEvent> = Vec::new();
     debug_message(&format!(
@@ -1375,6 +1523,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
         handled |= ctx.handled();
 
         repaint_requested |= ctx.repaint_requested();
+        stop_requested |= ctx.stop_requested();
         let next = ctx.take_messages();
         debug_message(&format!(
             "[dispatch_message_queue] delivered idx={} handled={} repaint={} emitted_now={}",
@@ -1392,6 +1541,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
     let outcome = DispatchOutcome {
         handled,
         repaint_requested,
+        stop_requested,
         messages: emitted,
     };
     debug_message(&format!(
