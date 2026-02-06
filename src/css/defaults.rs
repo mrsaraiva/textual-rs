@@ -114,6 +114,38 @@ Input > .input--cursor { bg: $input-cursor-background; fg: $input-cursor-foregro
 Input > .input--selection { bg: $input-selection-background; }
 Input > .input--placeholder { fg: $text-disabled; }
 
+Checkbox {
+    width: auto;
+    height: auto;
+    fg: $foreground;
+}
+
+Checkbox:focus { background-tint: $foreground 5%; }
+Checkbox:hover { background-tint: $foreground 3%; }
+Checkbox:active { background-tint: $foreground 8%; }
+Checkbox:disabled { dim: true; }
+
+ListView {
+    bg: $surface;
+    fg: $foreground;
+}
+
+ListView > .list-view--item { fg: $foreground; }
+ListView > .list-view--item.-hover { bg: $block-hover-background; }
+ListView > .list-view--item.-selected { bg: $primary-muted; fg: $text; text-style: bold; }
+ListView > .list-view--item.-selected.-focus { bg: $primary; fg: $text; text-style: bold; }
+
+Tree {
+    bg: $surface;
+    fg: $foreground;
+}
+
+Tree > .tree--node { fg: $foreground; }
+Tree > .tree--node.-hover { bg: $block-hover-background; }
+Tree > .tree--node.-selected { bg: $primary-muted; fg: $text; text-style: bold; }
+Tree > .tree--node.-selected.-focus { bg: $primary; fg: $text; text-style: bold; }
+Tree > .tree--node.-leaf { dim: true; }
+
 Button {
     width: auto;
     height: auto;

@@ -172,10 +172,10 @@ A widget is considered **first-class** when it meets *all* of the following:
 | Button | Done | Done | Press/cancel semantics, pseudo-states, default CSS, variants |
 | DataTable | Done | Done | Hit-testing, hover/selection semantics, cached widths, offset/state correctness |
 | Input | Done | Todo | Currently ASCII-first; needs mouse/cursor semantics + messages + styling parity |
-| Checkbox | Done | Todo | Needs mouse parity, pseudo-states, and default CSS parity |
-| ListView | Done | Todo | Needs mouse selection/hover + styling + scroll behavior parity |
+| Checkbox | Done | Done | Mouse + keyboard toggle parity, pseudo-state styling, disabled semantics, and behavior tests |
+| ListView | Done | Done | Mouse selection/hover + wheel scroll + ensure-visible keyboard navigation + selection messages/tests |
 | Tabs | Done | Todo | Needs styling parity + focus/child lifecycle polish + messages |
-| Tree | Done | Todo | Needs mouse parity + styling + better scroll-into-view behavior |
+| Tree | Done | Done | Mouse/keyboard parity, CSS-driven row states, selection/toggle messages, and behavior tests |
 | Markdown | Done | Partial | Renders via rich-rs; widget semantics/styling parity TBD |
 | Modal / overlay | Done | Partial | Exists; needs focus-trap semantics + message-based dismissal |
 | Spacer | Done | Partial | Exists; styling semantics minimal by design |

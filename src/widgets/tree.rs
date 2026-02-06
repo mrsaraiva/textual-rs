@@ -1,11 +1,12 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 #[derive(Debug, Clone)]
@@ -42,7 +43,22 @@ pub struct Tree {
     selected: usize,
     offset: usize,
     focused: bool,
+    hovered: bool,
+    hovered_index: Option<usize>,
+    viewport_height: usize,
+    scroll_step: usize,
+    classes: Vec<String>,
+    focused_classes: Vec<String>,
     styles: WidgetStyles,
+}
+
+#[derive(Debug, Clone)]
+struct VisibleNode {
+    path: Vec<usize>,
+    depth: usize,
+    label: String,
+    expanded: bool,
+    has_children: bool,
 }
 
 impl Tree {
@@ -53,6 +69,12 @@ impl Tree {
             selected: 0,
             offset: 0,
             focused: false,
+            hovered: false,
+            hovered_index: None,
+            viewport_height: 1,
+            scroll_step: 1,
+            classes: vec!["tree".to_string()],
+            focused_classes: vec!["tree".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
     }
@@ -68,75 +90,229 @@ impl Tree {
             self.offset = 0;
             return;
         }
-        self.selected = index.min(total.saturating_sub(1));
+        self.selected = index.min(total - 1);
+        self.ensure_visible();
+    }
+
+    fn visible_nodes(&self) -> Vec<VisibleNode> {
+        fn walk(
+            nodes: &[TreeNode],
+            depth: usize,
+            path: &mut Vec<usize>,
+            out: &mut Vec<VisibleNode>,
+        ) {
+            for (idx, node) in nodes.iter().enumerate() {
+                path.push(idx);
+                out.push(VisibleNode {
+                    path: path.clone(),
+                    depth,
+                    label: node.label.clone(),
+                    expanded: node.expanded,
+                    has_children: !node.children.is_empty(),
+                });
+                if node.expanded {
+                    walk(&node.children, depth + 1, path, out);
+                }
+                path.pop();
+            }
+        }
+
+        let mut out = Vec::new();
+        let mut path = Vec::new();
+        walk(&self.roots, 0, &mut path, &mut out);
+        out
     }
 
     fn visible_count(&self) -> usize {
-        fn count(node: &TreeNode) -> usize {
-            let mut total = 1;
-            if node.expanded {
-                for child in &node.children {
-                    total += count(child);
-                }
-            }
-            total
-        }
-        let mut total = 0;
-        for root in &self.roots {
-            total += count(root);
-        }
-        total
+        self.visible_nodes().len()
     }
 
-    fn ensure_visible(&mut self, height: usize) {
-        if height == 0 {
-            self.offset = 0;
-            return;
-        }
+    fn max_offset(&self) -> usize {
+        self.visible_count()
+            .saturating_sub(self.viewport_height.max(1))
+    }
+
+    fn clamp_offsets(&mut self) {
         let total = self.visible_count();
         if total == 0 {
+            self.selected = 0;
             self.offset = 0;
+            self.hovered_index = None;
             return;
         }
-        if self.selected < self.offset {
-            self.offset = self.selected;
-        } else if self.selected >= self.offset + height {
-            self.offset = self.selected + 1 - height;
+        self.selected = self.selected.min(total - 1);
+        self.offset = self.offset.min(self.max_offset());
+        if let Some(index) = self.hovered_index {
+            if index >= total {
+                self.hovered_index = None;
+            }
         }
     }
 
-    fn toggle_selected(&mut self) {
-        let mut index = 0usize;
-        if let Some(node) = node_mut_by_visible_index(&mut self.roots, self.selected, &mut index) {
-            if !node.children.is_empty() {
-                node.expanded = !node.expanded;
-            }
+    fn ensure_visible(&mut self) {
+        self.clamp_offsets();
+        let total = self.visible_count();
+        if total == 0 {
+            return;
+        }
+        let viewport = self.viewport_height.max(1);
+        if self.selected < self.offset {
+            self.offset = self.selected;
+        } else if self.selected >= self.offset + viewport {
+            self.offset = self.selected + 1 - viewport;
+        }
+        self.offset = self.offset.min(self.max_offset());
+    }
+
+    fn node_mut_by_path<'a>(nodes: &'a mut [TreeNode], path: &[usize]) -> Option<&'a mut TreeNode> {
+        if path.is_empty() {
+            return None;
+        }
+        let idx = path[0];
+        let node = nodes.get_mut(idx)?;
+        if path.len() == 1 {
+            Some(node)
+        } else {
+            Self::node_mut_by_path(&mut node.children, &path[1..])
+        }
+    }
+
+    fn emit_selected(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
+        if let Some(node) = nodes.get(self.selected) {
+            ctx.post_message(
+                self.id,
+                Message::TreeNodeSelected {
+                    index: self.selected,
+                    label: node.label.clone(),
+                },
+            );
+        }
+    }
+
+    fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
+        ctx.post_message(
+            self.id,
+            Message::TreeNodeToggled {
+                index,
+                label,
+                expanded,
+            },
+        );
+    }
+
+    fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
+        let total = self.visible_count();
+        if total == 0 {
+            return;
+        }
+        let next = index.min(total - 1);
+        if next != self.selected {
+            self.selected = next;
+            self.ensure_visible();
+            let nodes = self.visible_nodes();
+            self.emit_selected(ctx, &nodes);
+            ctx.request_repaint();
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
+        let total = self.visible_count();
+        if total == 0 {
+            return;
+        }
+        let current = self.selected as isize;
+        let max = (total - 1) as isize;
+        let next = (current + delta).clamp(0, max) as usize;
+        self.select_index(next, ctx);
+    }
+
+    fn page_step(&self) -> usize {
+        self.viewport_height.saturating_sub(1).max(1)
+    }
+
+    fn toggle_selected(&mut self, ctx: &mut EventCtx) {
+        let nodes = self.visible_nodes();
+        let Some(info) = nodes.get(self.selected).cloned() else {
+            return;
+        };
+        if !info.has_children {
+            return;
+        }
+        let mut expanded = info.expanded;
+        if let Some(node) = Self::node_mut_by_path(&mut self.roots, &info.path) {
+            node.expanded = !node.expanded;
+            expanded = node.expanded;
+        }
+        self.ensure_visible();
+        self.emit_toggled(ctx, self.selected, info.label, expanded);
+        ctx.request_repaint();
+    }
+
+    fn collapse_or_parent(&mut self, ctx: &mut EventCtx) {
+        let nodes = self.visible_nodes();
+        let Some(info) = nodes.get(self.selected).cloned() else {
+            return;
+        };
+        if info.has_children && info.expanded {
+            self.toggle_selected(ctx);
+            return;
+        }
+        if info.path.len() <= 1 {
+            return;
+        }
+        let parent_path = &info.path[..info.path.len() - 1];
+        if let Some(parent_index) = nodes
+            .iter()
+            .position(|node| node.path.as_slice() == parent_path)
+        {
+            self.select_index(parent_index, ctx);
+        }
+    }
+
+    fn expand_or_child(&mut self, ctx: &mut EventCtx) {
+        let nodes = self.visible_nodes();
+        let Some(info) = nodes.get(self.selected).cloned() else {
+            return;
+        };
+        if !info.has_children {
+            return;
+        }
+        if !info.expanded {
+            self.toggle_selected(ctx);
+            return;
+        }
+        let current_depth = info.depth;
+        if let Some(child_index) =
+            (self.selected + 1..nodes.len()).find(|idx| nodes[*idx].depth == current_depth + 1)
+        {
+            self.select_index(child_index, ctx);
+        }
+    }
+
+    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+        let before = self.offset;
+        if delta_rows.is_negative() {
+            self.offset = self.offset.saturating_sub(delta_rows.unsigned_abs());
+        } else {
+            self.offset = self.offset.saturating_add(delta_rows as usize);
+        }
+        self.offset = self.offset.min(self.max_offset());
+        if self.offset != before {
+            ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 
     fn max_line_width(&self) -> usize {
-        fn visit(node: &TreeNode, depth: usize, max_width: &mut usize) {
-            let marker_width = 2usize;
-            let indent_width = depth.saturating_mul(2);
-            let twist_width = 2usize;
-            let label_width = rich_rs::cell_len(&node.label);
-            let width = marker_width
-                .saturating_add(indent_width)
-                .saturating_add(twist_width)
-                .saturating_add(label_width);
-            *max_width = (*max_width).max(width);
-            if node.expanded {
-                for child in &node.children {
-                    visit(child, depth + 1, max_width);
-                }
-            }
+        let mut max_width = 1usize;
+        for node in self.visible_nodes() {
+            let width = 2usize
+                .saturating_add(node.depth.saturating_mul(2))
+                .saturating_add(2)
+                .saturating_add(rich_rs::cell_len(&node.label));
+            max_width = max_width.max(width);
         }
-
-        let mut max_width = 0usize;
-        for root in &self.roots {
-            visit(root, 0, &mut max_width);
-        }
-        max_width.max(1)
+        max_width
     }
 }
 
@@ -157,127 +333,189 @@ impl Widget for Tree {
         self.focused
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.focused {
-            return;
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.hovered_index = None;
         }
-        let mut handled = false;
+    }
+
+    fn on_layout(&mut self, _width: u16, height: u16) {
+        self.viewport_height = usize::from(height).max(1);
+        self.ensure_visible();
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::Action(Action::ScrollUp) => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollDown) => {
-                let total = self.visible_count();
-                if self.selected + 1 < total {
-                    self.selected += 1;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageUp) => {
-                if self.selected > 0 {
-                    let step = 5.min(self.selected);
-                    self.selected -= step;
-                }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageDown) => {
-                let total = self.visible_count();
-                if self.selected + 1 < total {
-                    let step = 5.min(total.saturating_sub(1) - self.selected);
-                    self.selected += step;
-                }
-                handled = true;
-            }
-            Event::Action(Action::Toggle) => {
-                self.toggle_selected();
-                handled = true;
-            }
-            Event::Key(key) => match key.code {
-                KeyCode::Up => {
-                    if self.selected > 0 {
-                        self.selected -= 1;
+            Event::MouseDown(mouse) if mouse.target == self.id => {
+                let nodes = self.visible_nodes();
+                let index = self.offset.saturating_add(mouse.y as usize);
+                if let Some(node) = nodes.get(index) {
+                    self.select_index(index, ctx);
+                    let twist_col = node.depth.saturating_mul(2) + 2;
+                    if node.has_children && (mouse.x as usize) <= twist_col {
+                        self.toggle_selected(ctx);
                     }
-                    handled = true;
+                    ctx.set_handled();
+                }
+            }
+            Event::Action(action) if self.focused => match action {
+                Action::ScrollUp => {
+                    self.move_selection(-1, ctx);
+                    ctx.set_handled();
+                }
+                Action::ScrollDown => {
+                    self.move_selection(1, ctx);
+                    ctx.set_handled();
+                }
+                Action::ScrollPageUp => {
+                    self.move_selection(-(self.page_step() as isize), ctx);
+                    ctx.set_handled();
+                }
+                Action::ScrollPageDown => {
+                    self.move_selection(self.page_step() as isize, ctx);
+                    ctx.set_handled();
+                }
+                Action::Toggle => {
+                    self.toggle_selected(ctx);
+                    ctx.set_handled();
+                }
+                _ => {}
+            },
+            Event::Key(key) if self.focused => match key.code {
+                KeyCode::Up => {
+                    self.move_selection(-1, ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::Down => {
-                    let total = self.visible_count();
-                    if self.selected + 1 < total {
-                        self.selected += 1;
-                    }
-                    handled = true;
+                    self.move_selection(1, ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::PageUp => {
-                    if self.selected > 0 {
-                        let step = 5.min(self.selected);
-                        self.selected -= step;
-                    }
-                    handled = true;
+                    self.move_selection(-(self.page_step() as isize), ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::PageDown => {
+                    self.move_selection(self.page_step() as isize, ctx);
+                    ctx.set_handled();
+                }
+                KeyCode::Home => {
+                    self.select_index(0, ctx);
+                    ctx.set_handled();
+                }
+                KeyCode::End => {
                     let total = self.visible_count();
-                    if self.selected + 1 < total {
-                        let step = 5.min(total.saturating_sub(1) - self.selected);
-                        self.selected += step;
+                    if total > 0 {
+                        self.select_index(total - 1, ctx);
                     }
-                    handled = true;
+                    ctx.set_handled();
                 }
                 KeyCode::Left => {
-                    let mut index = 0usize;
-                    if let Some(node) =
-                        node_mut_by_visible_index(&mut self.roots, self.selected, &mut index)
-                    {
-                        if node.expanded {
-                            node.expanded = false;
-                        }
-                    }
-                    handled = true;
+                    self.collapse_or_parent(ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::Right => {
-                    let mut index = 0usize;
-                    if let Some(node) =
-                        node_mut_by_visible_index(&mut self.roots, self.selected, &mut index)
-                    {
-                        if !node.children.is_empty() {
-                            node.expanded = true;
-                        }
-                    }
-                    handled = true;
+                    self.expand_or_child(ctx);
+                    ctx.set_handled();
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.toggle_selected(ctx);
+                    ctx.set_handled();
                 }
                 _ => {}
             },
             _ => {}
         }
-        if handled {
-            ctx.set_handled();
-        }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let height = options.size.1.max(1);
-        let mut view = self.clone();
-        view.ensure_visible(height);
-
-        let mut lines: Vec<String> = Vec::new();
-        let mut index = 0usize;
-        render_tree_lines(
-            &view.roots,
-            0,
-            &mut index,
-            view.selected,
-            view.offset,
-            height,
-            view.focused,
-            &mut lines,
-        );
-
-        if lines.is_empty() {
-            lines.push(String::new());
+    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+        let index = self.offset.saturating_add(y as usize);
+        let total = self.visible_count();
+        let hovered = (index < total).then_some(index);
+        if hovered != self.hovered_index {
+            self.hovered_index = hovered;
+            return true;
         }
-        let text = Text::plain(lines.join("\n"));
-        text.render(console, options)
+        false
+    }
+
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        if delta_y == 0 {
+            return;
+        }
+        self.scroll_offset(
+            delta_y.saturating_mul(self.scroll_step as i32) as isize,
+            ctx,
+        );
+    }
+
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let nodes = self.visible_nodes();
+        let mut out = Segments::new();
+        let base_style = crate::css::resolve_component_style(self, &["tree--node"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+
+        for row in 0..height {
+            let index = self.offset + row;
+            let mut text = String::new();
+            let mut style = base_style;
+            if let Some(node) = nodes.get(index) {
+                let selected = index == self.selected;
+                let hovered = self.hovered_index == Some(index);
+                let twist = if !node.has_children {
+                    " "
+                } else if node.expanded {
+                    "▾"
+                } else {
+                    "▸"
+                };
+                let mut classes = vec!["tree--node"];
+                if selected {
+                    classes.push("-selected");
+                }
+                if hovered {
+                    classes.push("-hover");
+                }
+                if selected && self.focused {
+                    classes.push("-focus");
+                }
+                if node.has_children {
+                    classes.push("-branch");
+                } else {
+                    classes.push("-leaf");
+                }
+                if node.expanded {
+                    classes.push("-expanded");
+                } else {
+                    classes.push("-collapsed");
+                }
+                style = crate::css::resolve_component_style(self, &classes)
+                    .to_rich()
+                    .unwrap_or(style);
+                let marker = if selected { "› " } else { "  " };
+                text = format!(
+                    "{}{}{} {}",
+                    marker,
+                    "  ".repeat(node.depth),
+                    twist,
+                    node.label
+                );
+            }
+            let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
+            out.extend(line);
+            if row + 1 < height {
+                out.push(Segment::line());
+            }
+        }
+
+        out
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -291,9 +529,11 @@ impl Widget for Tree {
 
     fn style_classes(&self) -> &[String] {
         if self.focused {
-            focused_classes()
-        } else {
+            &self.focused_classes
+        } else if self.classes.is_empty() {
             empty_classes()
+        } else {
+            &self.classes
         }
     }
 
@@ -309,70 +549,5 @@ impl Widget for Tree {
 impl Renderable for Tree {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
-    }
-}
-
-fn node_mut_by_visible_index<'a>(
-    nodes: &'a mut [TreeNode],
-    target: usize,
-    index: &mut usize,
-) -> Option<&'a mut TreeNode> {
-    for node in nodes {
-        if *index == target {
-            return Some(node);
-        }
-        *index += 1;
-        if node.expanded {
-            if let Some(found) = node_mut_by_visible_index(&mut node.children, target, index) {
-                return Some(found);
-            }
-        }
-    }
-    None
-}
-
-fn render_tree_lines(
-    nodes: &[TreeNode],
-    depth: usize,
-    index: &mut usize,
-    selected: usize,
-    offset: usize,
-    height: usize,
-    focused: bool,
-    lines: &mut Vec<String>,
-) {
-    for node in nodes {
-        if lines.len() >= height {
-            return;
-        }
-        if *index >= offset && lines.len() < height {
-            let marker = if *index == selected {
-                if focused { "> " } else { "* " }
-            } else {
-                "  "
-            };
-            let twist = if node.children.is_empty() {
-                " "
-            } else if node.expanded {
-                "v"
-            } else {
-                ">"
-            };
-            let indent = "  ".repeat(depth);
-            lines.push(format!("{marker}{indent}{twist} {}", node.label));
-        }
-        *index += 1;
-        if node.expanded {
-            render_tree_lines(
-                &node.children,
-                depth + 1,
-                index,
-                selected,
-                offset,
-                height,
-                focused,
-                lines,
-            );
-        }
     }
 }

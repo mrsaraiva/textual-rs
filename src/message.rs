@@ -17,6 +17,23 @@ pub enum Message {
     CheckboxChanged {
         checked: bool,
     },
+    ListViewSelectionChanged {
+        index: usize,
+        item: String,
+    },
+    TabActivated {
+        index: usize,
+        title: String,
+    },
+    TreeNodeSelected {
+        index: usize,
+        label: String,
+    },
+    TreeNodeToggled {
+        index: usize,
+        label: String,
+        expanded: bool,
+    },
     DataTableCursorMoved {
         row: usize,
         column: usize,

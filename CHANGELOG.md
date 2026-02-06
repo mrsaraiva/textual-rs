@@ -32,6 +32,12 @@ until the API stabilizes.
 - **Phase 9.5 styling + regression completion**
   - Added component-style resolver primitives in the CSS engine (`selector_meta_component_for`, `resolve_component_style`) and wired `Header` + `KeyPanel`/`BindingsTable` to use CSS-driven component styles.
   - Added keys parity snapshot baseline (`tests/keys_preview_snapshot.rs`) and updated `examples/keys.tcss` to style header components through component selectors.
+- **Widget uplift: Checkbox/ListView/Tree → first-class**
+  - Upgraded `Checkbox` with mouse press/release activation semantics (click-cancel), hover/active/disabled state handling, improved rendering (`☐`/`☑`), and preserved message emission via `CheckboxChanged`.
+  - Reworked `ListView` with stable viewport state (`on_layout`), ensure-visible navigation, mouse row selection, hover tracking, wheel scrolling, and selection messages (`ListViewSelectionChanged`).
+  - Reworked `Tree` with flattened visible-index mapping, mouse branch-toggle hit testing, keyboard expand/collapse navigation parity, hover-aware row rendering, and emitted messages (`TreeNodeSelected`, `TreeNodeToggled`).
+  - Added default CSS rules for `Checkbox`, `ListView`, and `Tree`, including component-level state styling for rows/items.
+  - Expanded behavior tests for all three widgets (`tests/checkbox_widget.rs`, `tests/list_view.rs`, `tests/tree.rs`) and refreshed snapshots.
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

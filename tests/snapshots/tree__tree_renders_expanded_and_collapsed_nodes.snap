@@ -1,12 +1,12 @@
 ---
 source: tests/tree.rs
-assertion_line: 28
+assertion_line: 30
 expression: buf.debug_dump()
 ---
 lines:
-0: "  v Root                "
-1: ">     Child A           "
-2: "    > Child B           "
-3: "    Other               "
+0: "›     Child A           "
+1: "    ▸ Child B           "
+2: "    Other               "
+3: "                        "
 4: "                        "
 meta:

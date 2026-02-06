@@ -1,11 +1,12 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,12 @@ pub struct ListView {
     selected: usize,
     offset: usize,
     focused: bool,
+    hovered: bool,
+    hovered_index: Option<usize>,
+    viewport_height: usize,
+    scroll_step: usize,
+    classes: Vec<String>,
+    focused_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -26,6 +33,12 @@ impl ListView {
             selected: 0,
             offset: 0,
             focused: false,
+            hovered: false,
+            hovered_index: None,
+            viewport_height: 1,
+            scroll_step: 1,
+            classes: vec!["list-view".to_string()],
+            focused_classes: vec!["list-view".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
     }
@@ -41,17 +54,98 @@ impl ListView {
             return;
         }
         self.selected = index.min(self.items.len() - 1);
+        self.ensure_visible();
     }
 
-    fn ensure_visible(&mut self, height: usize) {
+    pub fn scroll_step(mut self, step: usize) -> Self {
+        self.scroll_step = step.max(1);
+        self
+    }
+
+    fn max_offset(&self) -> usize {
+        self.items.len().saturating_sub(self.viewport_height.max(1))
+    }
+
+    fn clamp_offsets(&mut self) {
         if self.items.is_empty() {
+            self.selected = 0;
             self.offset = 0;
+            self.hovered_index = None;
             return;
         }
+        self.selected = self.selected.min(self.items.len() - 1);
+        self.offset = self.offset.min(self.max_offset());
+        if let Some(index) = self.hovered_index {
+            if index >= self.items.len() {
+                self.hovered_index = None;
+            }
+        }
+    }
+
+    fn ensure_visible(&mut self) {
+        self.clamp_offsets();
+        if self.items.is_empty() {
+            return;
+        }
+        let viewport = self.viewport_height.max(1);
         if self.selected < self.offset {
             self.offset = self.selected;
-        } else if self.selected >= self.offset + height {
-            self.offset = self.selected + 1 - height;
+        } else if self.selected >= self.offset + viewport {
+            self.offset = self.selected + 1 - viewport;
+        }
+        self.offset = self.offset.min(self.max_offset());
+    }
+
+    fn emit_selection_changed(&self, ctx: &mut EventCtx) {
+        if let Some(item) = self.items.get(self.selected) {
+            ctx.post_message(
+                self.id,
+                Message::ListViewSelectionChanged {
+                    index: self.selected,
+                    item: item.clone(),
+                },
+            );
+        }
+    }
+
+    fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
+        if self.items.is_empty() {
+            return;
+        }
+        let next = index.min(self.items.len() - 1);
+        if next != self.selected {
+            self.selected = next;
+            self.ensure_visible();
+            self.emit_selection_changed(ctx);
+            ctx.request_repaint();
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
+        if self.items.is_empty() {
+            return;
+        }
+        let current = self.selected as isize;
+        let max = (self.items.len() - 1) as isize;
+        let next = (current + delta).clamp(0, max) as usize;
+        self.select_index(next, ctx);
+    }
+
+    fn page_step(&self) -> usize {
+        self.viewport_height.saturating_sub(1).max(1)
+    }
+
+    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+        let before = self.offset;
+        if delta_rows.is_negative() {
+            self.offset = self.offset.saturating_sub(delta_rows.unsigned_abs());
+        } else {
+            self.offset = self.offset.saturating_add(delta_rows as usize);
+        }
+        self.offset = self.offset.min(self.max_offset());
+        if self.offset != before {
+            ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 }
@@ -73,101 +167,147 @@ impl Widget for ListView {
         self.focused
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.focused {
-            return;
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.hovered_index = None;
         }
-        let mut handled = false;
+    }
+
+    fn on_layout(&mut self, _width: u16, height: u16) {
+        self.viewport_height = usize::from(height).max(1);
+        self.ensure_visible();
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::Action(Action::ScrollUp) => {
-                if self.selected > 0 {
-                    self.selected -= 1;
+            Event::MouseDown(mouse) if mouse.target == self.id => {
+                let index = self.offset.saturating_add(mouse.y as usize);
+                if index < self.items.len() {
+                    self.select_index(index, ctx);
+                    ctx.set_handled();
                 }
-                handled = true;
             }
-            Event::Action(Action::ScrollDown) => {
-                if self.selected + 1 < self.items.len() {
-                    self.selected += 1;
+            Event::Action(action) if self.focused => match action {
+                Action::ScrollUp => {
+                    self.move_selection(-1, ctx);
+                    ctx.set_handled();
                 }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageUp) => {
-                if self.selected > 0 {
-                    let step = 5.min(self.selected);
-                    self.selected -= step;
+                Action::ScrollDown => {
+                    self.move_selection(1, ctx);
+                    ctx.set_handled();
                 }
-                handled = true;
-            }
-            Event::Action(Action::ScrollPageDown) => {
-                if self.selected + 1 < self.items.len() {
-                    let step = 5.min(self.items.len().saturating_sub(1) - self.selected);
-                    self.selected += step;
+                Action::ScrollPageUp => {
+                    self.move_selection(-(self.page_step() as isize), ctx);
+                    ctx.set_handled();
                 }
-                handled = true;
-            }
-            Event::Key(key) => match key.code {
+                Action::ScrollPageDown => {
+                    self.move_selection(self.page_step() as isize, ctx);
+                    ctx.set_handled();
+                }
+                _ => {}
+            },
+            Event::Key(key) if self.focused => match key.code {
                 KeyCode::Up => {
-                    if self.selected > 0 {
-                        self.selected -= 1;
-                    }
-                    handled = true;
+                    self.move_selection(-1, ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::Down => {
-                    if self.selected + 1 < self.items.len() {
-                        self.selected += 1;
-                    }
-                    handled = true;
+                    self.move_selection(1, ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::PageUp => {
-                    if self.selected > 0 {
-                        let step = 5.min(self.selected);
-                        self.selected -= step;
-                    }
-                    handled = true;
+                    self.move_selection(-(self.page_step() as isize), ctx);
+                    ctx.set_handled();
                 }
                 KeyCode::PageDown => {
-                    if self.selected + 1 < self.items.len() {
-                        let step = 5.min(self.items.len().saturating_sub(1) - self.selected);
-                        self.selected += step;
+                    self.move_selection(self.page_step() as isize, ctx);
+                    ctx.set_handled();
+                }
+                KeyCode::Home => {
+                    self.select_index(0, ctx);
+                    ctx.set_handled();
+                }
+                KeyCode::End => {
+                    if !self.items.is_empty() {
+                        self.select_index(self.items.len() - 1, ctx);
                     }
-                    handled = true;
+                    ctx.set_handled();
                 }
                 _ => {}
             },
             _ => {}
         }
-        if handled {
-            ctx.set_handled();
-        }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let height = options.size.1.max(1);
-        let mut view = self.clone();
-        view.ensure_visible(height);
+    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+        if self.items.is_empty() {
+            return false;
+        }
+        let index = self.offset.saturating_add(y as usize);
+        let hovered = (index < self.items.len()).then_some(index);
+        if hovered != self.hovered_index {
+            self.hovered_index = hovered;
+            return true;
+        }
+        false
+    }
 
-        let mut lines: Vec<String> = Vec::new();
-        for (idx, item) in view.items.iter().enumerate() {
-            if idx < view.offset {
-                continue;
-            }
-            if lines.len() >= height {
-                break;
-            }
-            let marker = if self.focused && idx == view.selected {
-                "> "
-            } else if idx == view.selected {
-                "* "
-            } else {
-                "  "
-            };
-            lines.push(format!("{marker}{item}"));
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        if delta_y == 0 {
+            return;
         }
-        if lines.is_empty() {
-            lines.push(String::new());
+        self.scroll_offset(
+            delta_y.saturating_mul(self.scroll_step as i32) as isize,
+            ctx,
+        );
+    }
+
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let mut out = Segments::new();
+
+        let base_style = crate::css::resolve_component_style(self, &["list-view--item"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+
+        for row in 0..height {
+            let index = self.offset + row;
+            let mut text = String::new();
+            let mut style = base_style;
+            if let Some(item) = self.items.get(index) {
+                let selected = index == self.selected;
+                let hovered = self.hovered_index == Some(index);
+                let mut classes = vec!["list-view--item"];
+                if selected {
+                    classes.push("-selected");
+                }
+                if hovered {
+                    classes.push("-hover");
+                }
+                if selected && self.focused {
+                    classes.push("-focus");
+                }
+                style = crate::css::resolve_component_style(self, &classes)
+                    .to_rich()
+                    .unwrap_or(style);
+                let marker = if selected { "› " } else { "  " };
+                text = format!("{marker}{item}");
+            }
+
+            let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
+            out.extend(line);
+            if row + 1 < height {
+                out.push(Segment::line());
+            }
         }
-        let text = Text::plain(lines.join("\n"));
-        text.render(console, options)
+
+        out
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -187,9 +327,11 @@ impl Widget for ListView {
 
     fn style_classes(&self) -> &[String] {
         if self.focused {
-            focused_classes()
-        } else {
+            &self.focused_classes
+        } else if self.classes.is_empty() {
             empty_classes()
+        } else {
+            &self.classes
         }
     }
 
