@@ -12,6 +12,7 @@ until the API stabilizes.
   - Added reusable widgets for developer previews and app chrome: `Header`, `Footer`, `RichLog`, `KeyPanel`, and `BindingsTable` (`src/widgets/header.rs`, `src/widgets/footer.rs`, `src/widgets/rich_log.rs`, `src/widgets/key_panel.rs`), with public exports in `src/widgets/mod.rs` and `src/lib.rs`.
   - Added default CSS coverage for the new widgets (`src/css/defaults.rs`) and new scrollbar theme tokens (`scrollbar*`) in `src/style.rs`.
   - Refined `examples/keys.rs` to match Python Textual keys preview behavior/structure and moved demo styling to `examples/keys.tcss`.
+  - Improved `KeyPanel` / `BindingsTable` fundamentals: styled table component rendering, corrected intrinsic height math, and full vertical scrollbar interactions (wheel, actions, track click, drag).
 - **Input/event/runtime fundamentals for diagnostics tooling**
   - Added `Event::BindingsChanged(Vec<BindingHint>)` and runtime binding-hint aggregation from `ActionMap` + quit keys, with incremental dispatch when hints change.
   - Extended `Action` with human-readable descriptions and `ActionMap::entries()` to support bindings UIs.
@@ -23,6 +24,7 @@ until the API stabilizes.
 - **Tests and docs**
   - Added widget behavior tests for new components: `tests/header_footer.rs`, `tests/key_panel.rs`, `tests/rich_log.rs`.
   - Updated `ROADMAP.md` Phase 9.5 status to reflect completed visual parity pass and current pending fundamentals.
+  - Expanded `tests/key_panel.rs` coverage with sizing, non-overflow action handling, and scrollbar drag behavior checks.
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

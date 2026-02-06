@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -68,4 +69,54 @@ fn key_panel_updates_on_bindings_changed_event() {
     let lines = buf.as_plain_lines();
     assert!(lines.iter().any(|line| line.contains("x, y")));
     assert!(lines.iter().any(|line| line.contains("Updated action")));
+}
+
+#[test]
+fn bindings_table_layout_height_includes_header_and_divider() {
+    let table = BindingsTable::new().with_bindings(vec![
+        FooterBinding::new("a", "one"),
+        FooterBinding::new("b", "two"),
+    ]);
+    assert_eq!(table.layout_height(), Some(4));
+}
+
+#[test]
+fn key_panel_does_not_consume_scroll_actions_without_overflow() {
+    let mut panel = KeyPanel::new().with_bindings(vec![FooterBinding::new("a", "alpha")]);
+    let mut ctx = EventCtx::default();
+    panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+    assert!(!ctx.handled());
+}
+
+#[test]
+fn key_panel_supports_scrollbar_drag() {
+    let console = Console::new();
+    let options = options_for(&console, 32, 6);
+    let bindings = (1..=16)
+        .map(|index| FooterBinding::new(format!("k{index:02}"), format!("item {index:02}")))
+        .collect::<Vec<_>>();
+    let mut panel = KeyPanel::new().with_bindings(bindings);
+
+    let before = FrameBuffer::from_renderable(&console, &options, &panel, None);
+    let before_lines = before.as_plain_lines();
+    assert!(before_lines.iter().all(|line| !line.contains("item 16")));
+
+    let mut ctx = EventCtx::default();
+    panel.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: panel.id(),
+            screen_x: 31,
+            screen_y: 1,
+            x: 31,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    assert!(ctx.handled());
+
+    assert!(panel.on_mouse_move(31, 5));
+
+    let after = FrameBuffer::from_renderable(&console, &options, &panel, None);
+    let after_lines = after.as_plain_lines();
+    assert!(after_lines.iter().any(|line| line.contains("item 16")));
 }

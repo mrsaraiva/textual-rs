@@ -291,7 +291,7 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 | Done | Add key diagnostics tests | 48 unit tests + 2 doc-tests + 74 integration tests (`tests/key_diagnostics.rs`): normalization, aliases, display, identifiers, Deref, edge cases, ActionMap |
 | Done | Document compatibility limits | Module-level docs in `src/keys/mod.rs`: normalization rules, alias table, Kitty protocol modes, terminal compatibility matrix (tmux, screen, macOS Terminal, PuTTY, SSH) |
 | Done | Visual parity pass for preview UI | Preview now matches Python `textual_dev` keys layout/behavior target (single-pane layout, header/body/action bar, styled log, scroll behavior) |
-| In progress | Binding panel fundamentals (for apps that use it) | `KeyPanel`/`BindingsTable` widgets exist with event + scroll tests; remaining work is first-class component-level styling/behavior parity |
+| Done | Binding panel fundamentals (for apps that use it) | `KeyPanel`/`BindingsTable` now include styled table rendering, corrected sizing math, and scrollbar interactions (wheel/action/track/drag) with dedicated tests |
 
 ### Acceptance criteria
 
@@ -347,7 +347,7 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
   - Canonical key semantics, driver protocol, and preview parity pass are done.
-  - Next: complete binding-panel first-class parity plus scaffold/style/regression fundamentals listed in Phase 9.5.
+  - Next: complete scaffold/style/regression fundamentals listed in Phase 9.5.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.

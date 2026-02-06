@@ -5,18 +5,18 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::css;
-use crate::debug::{debug_input, debug_layout, DebugLayout};
+use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{Action, Event, EventCtx};
-use crate::style::{parse_color_like, Style};
+use crate::style::{Style, parse_color_like};
 
 use super::{
+    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
         collect_focus_ids, constraints_from_style, crop_line_horizontal, dispatch_event_to_focus,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
         set_focus_by_id,
     },
-    LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 pub struct Container {
@@ -313,11 +313,7 @@ impl Widget for Container {
                 any = true;
             }
         }
-        if any {
-            Some(widest.max(1))
-        } else {
-            None
-        }
+        if any { Some(widest.max(1)) } else { None }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1159,11 +1155,7 @@ impl Widget for AppRoot {
                 any = true;
             }
         }
-        if any {
-            Some(widest.max(1))
-        } else {
-            None
-        }
+        if any { Some(widest.max(1)) } else { None }
     }
 
     fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
@@ -1184,7 +1176,7 @@ impl Widget for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::widgets::{collect_focus_ids, set_focus_by_id, Input, ListView};
+    use crate::widgets::{Input, ListView, collect_focus_ids, set_focus_by_id};
     use rich_rs::Console;
 
     #[test]

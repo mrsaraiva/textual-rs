@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, BindingHint, Event, EventCtx};
+use crate::style::parse_color_like;
 
 use super::footer::FooterBinding;
 use super::helpers::{
@@ -37,10 +38,59 @@ impl BindingsTable {
         self.bindings = bindings;
     }
 
+    fn line_count(&self) -> usize {
+        if self.bindings.is_empty() {
+            1
+        } else {
+            // Header + divider + data rows.
+            self.bindings.len() + 2
+        }
+    }
+
+    fn component_styles(
+        &self,
+    ) -> (
+        rich_rs::Style,
+        rich_rs::Style,
+        rich_rs::Style,
+        rich_rs::Style,
+    ) {
+        let key_color = parse_color_like("$text-accent")
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(183, 55, 99))
+            .to_simple_opaque();
+        let description_color = parse_color_like("$foreground")
+            .unwrap_or_else(|| crate::style::Color::rgb(215, 219, 224))
+            .to_simple_opaque();
+        let divider_color = parse_color_like("$border-blurred")
+            .or_else(|| parse_color_like("$foreground"))
+            .unwrap_or_else(|| crate::style::Color::rgb(127, 134, 141))
+            .to_simple_opaque();
+        let header_color = parse_color_like("$text")
+            .or_else(|| parse_color_like("$foreground"))
+            .unwrap_or_else(|| crate::style::Color::rgb(242, 244, 246))
+            .to_simple_opaque();
+
+        let key_style = rich_rs::Style::new().with_color(key_color).with_bold(true);
+        let description_style = rich_rs::Style::new().with_color(description_color);
+        let divider_style = rich_rs::Style::new()
+            .with_color(divider_color)
+            .with_dim(true);
+        let header_style = rich_rs::Style::new()
+            .with_color(header_color)
+            .with_bold(true)
+            .with_underline(true);
+        (key_style, description_style, divider_style, header_style)
+    }
+
     fn lines(&self, width: usize) -> Vec<Vec<Segment>> {
+        let (key_style, description_style, divider_style, header_style) = self.component_styles();
         if self.bindings.is_empty() {
             return vec![adjust_line_length_no_bg(
-                &[Segment::new("(no bindings)".to_string())],
+                &[Segment::styled(
+                    "(no bindings)".to_string(),
+                    description_style,
+                )],
                 width,
             )];
         }
@@ -52,22 +102,34 @@ impl BindingsTable {
             .max()
             .unwrap_or(0)
             .min(24)
-            .max(1);
+            .max(3);
 
         let mut out = Vec::new();
-        let key_head = rich_rs::set_cell_size("Key", key_column_width);
+        let key_head = rich_rs::set_cell_size("Key", key_column_width.max(3));
         out.push(adjust_line_length_no_bg(
-            &[Segment::new(format!(" {}  Description", key_head))],
+            &[
+                Segment::new(" ".to_string()),
+                Segment::styled(key_head, header_style),
+                Segment::styled("  ".to_string(), divider_style),
+                Segment::styled("Description".to_string(), header_style),
+            ],
             width,
         ));
         out.push(adjust_line_length_no_bg(
-            &[Segment::new("-".repeat(width))],
+            &[Segment::styled("─".repeat(width), divider_style)],
             width,
         ));
         for binding in &self.bindings {
             let key = rich_rs::set_cell_size(&binding.key, key_column_width);
-            let line = format!(" {}  {}", key, binding.description);
-            out.push(adjust_line_length_no_bg(&[Segment::new(line)], width));
+            out.push(adjust_line_length_no_bg(
+                &[
+                    Segment::new(" ".to_string()),
+                    Segment::styled(key, key_style),
+                    Segment::styled("  ".to_string(), divider_style),
+                    Segment::styled(binding.description.clone(), description_style),
+                ],
+                width,
+            ));
         }
         out
     }
@@ -94,8 +156,7 @@ impl Widget for BindingsTable {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.bindings.len().max(1)))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.line_count()))
     }
 
     fn style_classes(&self) -> &[String] {
@@ -130,6 +191,9 @@ pub struct KeyPanel {
     scroll_step: usize,
     content_height: AtomicUsize,
     viewport_height: AtomicUsize,
+    widget_width: AtomicUsize,
+    widget_height: AtomicUsize,
+    drag_v: Option<usize>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -144,6 +208,9 @@ impl KeyPanel {
             scroll_step: 1,
             content_height: AtomicUsize::new(1),
             viewport_height: AtomicUsize::new(1),
+            widget_width: AtomicUsize::new(1),
+            widget_height: AtomicUsize::new(1),
+            drag_v: None,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
@@ -198,6 +265,62 @@ impl KeyPanel {
         }
         self.clamp_offset();
     }
+
+    fn can_scroll(&self) -> bool {
+        self.content_height.load(Ordering::Relaxed) > self.viewport_height.load(Ordering::Relaxed)
+    }
+
+    fn scrollbar_thumb(
+        track_len: usize,
+        content_len: usize,
+        viewport_len: usize,
+        offset: usize,
+    ) -> (usize, usize) {
+        if track_len == 0 {
+            return (0, 0);
+        }
+        if content_len <= viewport_len {
+            return (0, track_len);
+        }
+        let track_f = track_len as f64;
+        let virtual_f = content_len as f64;
+        let window_f = viewport_len as f64;
+        let bar_ratio = virtual_f / track_f;
+        let thumb_size_f = (window_f / bar_ratio).max(1.0);
+        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
+
+        let max_offset = content_len.saturating_sub(viewport_len);
+        if max_offset == 0 {
+            return (0, thumb_len);
+        }
+        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
+        let travel_f = (track_f - thumb_size_f).max(0.0);
+        let thumb_start = (travel_f * position_ratio)
+            .floor()
+            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
+            as usize;
+        (thumb_start, thumb_len)
+    }
+
+    fn scrollbar_styles() -> (rich_rs::Style, rich_rs::Style, rich_rs::Style) {
+        let track_bg = parse_color_like("$scrollbar-background")
+            .or_else(|| parse_color_like("$background-darken-1"))
+            .or_else(|| parse_color_like("$surface-darken-1"))
+            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
+        let thumb_bg = parse_color_like("$scrollbar")
+            .or_else(|| parse_color_like("$primary-muted"))
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255));
+        let thumb_active_bg = parse_color_like("$scrollbar-active")
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212));
+
+        let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
+        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
+        let thumb_active_style =
+            rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
+        (track_style, thumb_style, thumb_active_style)
+    }
 }
 
 impl Widget for KeyPanel {
@@ -208,24 +331,70 @@ impl Widget for KeyPanel {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+        self.widget_width.store(width, Ordering::Relaxed);
+        self.widget_height.store(height, Ordering::Relaxed);
+        const V_SCROLLBAR_SIZE: usize = 1;
 
         let title_line =
             adjust_line_length_no_bg(&[Segment::new(format!(" {} ", self.title))], width);
 
         let body_viewport = height.saturating_sub(1).max(1);
+        let mut viewport_width = width;
+        let mut table_lines = self.table.lines(viewport_width);
+        let mut content_height = table_lines.len().max(1);
+        let mut show_scrollbar = content_height > body_viewport && width > 2;
+        if show_scrollbar {
+            viewport_width = width.saturating_sub(V_SCROLLBAR_SIZE).max(1);
+            table_lines = self.table.lines(viewport_width);
+            content_height = table_lines.len().max(1);
+            show_scrollbar = content_height > body_viewport;
+        }
         self.viewport_height.store(body_viewport, Ordering::Relaxed);
-        let table_lines = self.table.lines(width);
-        self.content_height
-            .store(table_lines.len().max(1), Ordering::Relaxed);
+        self.content_height.store(content_height, Ordering::Relaxed);
 
-        let max_offset = table_lines.len().saturating_sub(body_viewport);
+        let max_offset = content_height.saturating_sub(body_viewport);
         let offset = self.offset_y.min(max_offset);
-        let start = offset.min(table_lines.len());
-        let end = (start + body_viewport).min(table_lines.len());
+        let start = offset.min(content_height);
+        let end = (start + body_viewport).min(content_height);
         let mut body = table_lines[start..end].to_vec();
-        body = pad_lines_to_width(body, width);
+        body = pad_lines_to_width(body, viewport_width);
         while body.len() < body_viewport {
-            body.push(vec![Segment::new(" ".repeat(width))]);
+            body.push(vec![Segment::new(" ".repeat(viewport_width))]);
+        }
+
+        if show_scrollbar {
+            let (track_style, thumb_style, thumb_active_style) = Self::scrollbar_styles();
+            let (thumb_start, thumb_len) =
+                Self::scrollbar_thumb(body_viewport, content_height, body_viewport, offset);
+            let mut thumb_drawn = false;
+            for (row, line) in body.iter_mut().enumerate() {
+                let active = row >= thumb_start && row < thumb_start + thumb_len;
+                line.push(Segment::styled(
+                    " ".to_string(),
+                    if active {
+                        if self.drag_v.is_some() {
+                            thumb_active_style
+                        } else {
+                            thumb_style
+                        }
+                    } else {
+                        track_style
+                    },
+                ));
+                thumb_drawn |= active;
+            }
+            if !thumb_drawn && !body.is_empty() {
+                let row = body_viewport.saturating_sub(1).min(body.len() - 1);
+                if !body[row].is_empty() {
+                    body[row].pop();
+                }
+                let active_style = if self.drag_v.is_some() {
+                    thumb_active_style
+                } else {
+                    thumb_style
+                };
+                body[row].push(Segment::styled(" ".to_string(), active_style));
+            }
         }
 
         let mut out = Segments::new();
@@ -248,7 +417,54 @@ impl Widget for KeyPanel {
             ctx.request_repaint();
             return;
         }
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == self.id {
+                let width = self.widget_width.load(Ordering::Relaxed).max(1);
+                let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
+                let content_height = self.content_height.load(Ordering::Relaxed).max(1);
+                if content_height > body_viewport
+                    && width > 1
+                    && mouse.x as usize >= width.saturating_sub(1)
+                    && mouse.y > 0
+                {
+                    let local_y = (mouse.y as usize).saturating_sub(1);
+                    if local_y < body_viewport {
+                        let (thumb_start, thumb_len) = Self::scrollbar_thumb(
+                            body_viewport,
+                            content_height,
+                            body_viewport,
+                            self.offset_y,
+                        );
+                        if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len)
+                        {
+                            self.drag_v = Some(local_y.saturating_sub(thumb_start));
+                            ctx.set_handled();
+                            return;
+                        }
+                        let before = self.offset_y;
+                        if local_y < thumb_start {
+                            self.scroll_by(-(body_viewport as i32));
+                        } else {
+                            self.scroll_by(body_viewport as i32);
+                        }
+                        if self.offset_y != before {
+                            ctx.request_repaint();
+                        }
+                        ctx.set_handled();
+                        return;
+                    }
+                }
+            }
+        }
+        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
+            if self.drag_v.take().is_some() {
+                ctx.set_handled();
+            }
+        }
         if let Event::Action(action) = event {
+            if !self.can_scroll() {
+                return;
+            }
             let before = self.offset_y;
             match action {
                 Action::ScrollUp => self.scroll_by(-(self.scroll_step as i32)),
@@ -265,21 +481,51 @@ impl Widget for KeyPanel {
             }
             if self.offset_y != before {
                 ctx.request_repaint();
+                ctx.set_handled();
             }
-            ctx.set_handled();
         }
     }
 
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        if delta_y == 0 {
+        if delta_y == 0 || !self.can_scroll() {
             return;
         }
         let before = self.offset_y;
         self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
         if self.offset_y != before {
             ctx.request_repaint();
+            ctx.set_handled();
         }
-        ctx.set_handled();
+    }
+
+    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+        let Some(grab_offset) = self.drag_v else {
+            return false;
+        };
+        let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_height = self.content_height.load(Ordering::Relaxed).max(1);
+        if content_height <= body_viewport {
+            return false;
+        }
+
+        let local_y = (y as usize).saturating_sub(1);
+        let (_thumb_start, thumb_len) =
+            Self::scrollbar_thumb(body_viewport, content_height, body_viewport, self.offset_y);
+        let travel = body_viewport.saturating_sub(thumb_len);
+        let pointer = (local_y as isize) - (grab_offset as isize);
+        let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
+        let max_offset = content_height.saturating_sub(body_viewport);
+        let new_offset = if travel == 0 {
+            0
+        } else {
+            (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
+                / (travel as u128)) as usize
+        };
+        if new_offset != self.offset_y {
+            self.offset_y = new_offset;
+            return true;
+        }
+        false
     }
 
     fn layout_height(&self) -> Option<usize> {
