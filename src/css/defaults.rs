@@ -20,6 +20,23 @@ Header.-tall {
     height: 3;
 }
 
+Header > .header--icon {
+    fg: $text-muted;
+}
+
+Header > .header--icon.-hover {
+    bg: $foreground;
+    fg: $text;
+}
+
+Header > .header--title {
+    fg: $text-muted;
+}
+
+Header > .header--clock {
+    fg: $text-disabled;
+}
+
 Footer {
     bg: $panel;
     fg: $foreground;
@@ -45,6 +62,25 @@ KeyPanel {
 BindingsTable {
     bg: $panel;
     fg: $foreground;
+}
+
+KeyPanel > .bindings-table--key {
+    fg: $text-accent;
+    text-style: bold;
+}
+
+KeyPanel > .bindings-table--description {
+    fg: $foreground;
+}
+
+KeyPanel > .bindings-table--divider {
+    fg: $border-blurred;
+    text-style: dim;
+}
+
+KeyPanel > .bindings-table--header {
+    fg: $text;
+    text-style: bold underline;
 }
 
 TextArea {

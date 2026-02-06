@@ -310,6 +310,23 @@ pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> Se
     }
 }
 
+pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
+    widget: &T,
+    classes: &[&str],
+) -> SelectorMeta {
+    SelectorMeta {
+        type_name: widget.style_type().to_string(),
+        id: None,
+        classes: classes.iter().map(|s| (*s).to_string()).collect(),
+        states: SelectorStates {
+            disabled: widget.is_disabled(),
+            focused: widget.has_focus() && app_is_active(),
+            hovered: widget.is_hovered(),
+            active: widget.is_active(),
+        },
+    }
+}
+
 pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().copied())
 }
@@ -345,6 +362,11 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
         style = style.inherit_from(&parent);
     }
     style
+}
+
+pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
+    let meta = selector_meta_component_for(widget, classes);
+    resolve_style_for_meta(&meta)
 }
 
 pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl FnOnce() -> T) -> T {

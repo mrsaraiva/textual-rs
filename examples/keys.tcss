@@ -9,6 +9,23 @@ Header.-tall {
     bg: #2a2f34;
 }
 
+Header > .header--icon {
+    fg: #9aa1a8;
+}
+
+Header > .header--icon.-hover {
+    bg: #4b5259;
+    fg: #f2f2f2;
+}
+
+Header > .header--title {
+    fg: #c5c8cc;
+}
+
+Header > .header--clock {
+    fg: #9aa1a8;
+}
+
 Container {
     bg: #1f2328;
     fg: #e8e8e8;

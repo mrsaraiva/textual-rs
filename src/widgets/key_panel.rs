@@ -47,6 +47,16 @@ impl BindingsTable {
         }
     }
 
+    fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
+        let meta = crate::css::selector_meta_component("KeyPanel", classes);
+        let resolved = crate::css::resolve_style_for_meta(&meta);
+        if resolved.is_empty() {
+            fallback
+        } else {
+            resolved.to_rich().unwrap_or(fallback)
+        }
+    }
+
     fn component_styles(
         &self,
     ) -> (
@@ -55,32 +65,42 @@ impl BindingsTable {
         rich_rs::Style,
         rich_rs::Style,
     ) {
-        let key_color = parse_color_like("$text-accent")
-            .or_else(|| parse_color_like("$primary"))
-            .unwrap_or_else(|| crate::style::Color::rgb(183, 55, 99))
-            .to_simple_opaque();
-        let description_color = parse_color_like("$foreground")
-            .unwrap_or_else(|| crate::style::Color::rgb(215, 219, 224))
-            .to_simple_opaque();
-        let divider_color = parse_color_like("$border-blurred")
-            .or_else(|| parse_color_like("$foreground"))
-            .unwrap_or_else(|| crate::style::Color::rgb(127, 134, 141))
-            .to_simple_opaque();
-        let header_color = parse_color_like("$text")
-            .or_else(|| parse_color_like("$foreground"))
-            .unwrap_or_else(|| crate::style::Color::rgb(242, 244, 246))
-            .to_simple_opaque();
-
-        let key_style = rich_rs::Style::new().with_color(key_color).with_bold(true);
-        let description_style = rich_rs::Style::new().with_color(description_color);
-        let divider_style = rich_rs::Style::new()
-            .with_color(divider_color)
+        let key_fallback = rich_rs::Style::new()
+            .with_color(
+                parse_color_like("$text-accent")
+                    .or_else(|| parse_color_like("$primary"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(183, 55, 99))
+                    .to_simple_opaque(),
+            )
+            .with_bold(true);
+        let description_fallback = rich_rs::Style::new().with_color(
+            parse_color_like("$foreground")
+                .unwrap_or_else(|| crate::style::Color::rgb(215, 219, 224))
+                .to_simple_opaque(),
+        );
+        let divider_fallback = rich_rs::Style::new()
+            .with_color(
+                parse_color_like("$border-blurred")
+                    .or_else(|| parse_color_like("$foreground"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(127, 134, 141))
+                    .to_simple_opaque(),
+            )
             .with_dim(true);
-        let header_style = rich_rs::Style::new()
-            .with_color(header_color)
+        let header_fallback = rich_rs::Style::new()
+            .with_color(
+                parse_color_like("$text")
+                    .or_else(|| parse_color_like("$foreground"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(242, 244, 246))
+                    .to_simple_opaque(),
+            )
             .with_bold(true)
             .with_underline(true);
-        (key_style, description_style, divider_style, header_style)
+        (
+            self.component_style(&["bindings-table--key"], key_fallback),
+            self.component_style(&["bindings-table--description"], description_fallback),
+            self.component_style(&["bindings-table--divider"], divider_fallback),
+            self.component_style(&["bindings-table--header"], header_fallback),
+        )
     }
 
     fn lines(&self, width: usize) -> Vec<Vec<Segment>> {

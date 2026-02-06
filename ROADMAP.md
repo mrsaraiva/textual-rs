@@ -315,10 +315,10 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 2. **Phase 2: reusable preview scaffold fundamentals (completed)**
    - Added reusable preview composition helpers (`preview_root*`) for title/content/top/bottom sections.
    - Migrated `keys` and `data_table` demos to the shared scaffold composition.
-3. **Phase 3: styling fidelity fundamentals (pending)**
-   - Add missing style engine capabilities needed for parity (component-scoped styles, selector expressiveness, border/divider nuance).
-4. **Phase 4: visual regression discipline (in progress)**
-   - Added initial scaffold snapshot coverage (`tests/preview_root_snapshot.rs`); next is parity-oriented snapshots for `keys` and additional high-value demos.
+3. **Phase 3: styling fidelity fundamentals (completed)**
+   - Added reusable component-style resolution helpers and applied them in first-class keys widgets (`Header`, `KeyPanel`/`BindingsTable`) with CSS-driven component tokens/states.
+4. **Phase 4: visual regression discipline (completed)**
+   - Added snapshot coverage for preview scaffold + keys parity surface (`tests/preview_root_snapshot.rs`, `tests/keys_preview_snapshot.rs`).
 
 ### Implementation notes (for cross-session continuity)
 
@@ -346,8 +346,7 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 - Widget uplift: MVP → first-class (Input, ListView, Tabs, Tree, Checkbox)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
-  - Canonical key semantics, driver protocol, and preview parity pass are done.
-  - Next: complete styling fidelity + parity-oriented visual regression fundamentals listed in Phase 9.5.
+  - Canonical key semantics, driver protocol, preview parity pass, scaffold reuse, styling-fidelity fundamentals, and visual regression baseline are done.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.

@@ -29,6 +29,9 @@ until the API stabilizes.
 - **Preview scaffold fundamentals**
   - Added reusable preview composition helpers: `preview_root`, `preview_root_with_bottom`, and `preview_root_with_top_bottom` (`src/widgets/preview.rs`).
   - Migrated `examples/keys.rs` and `examples/data_table.rs` to the shared preview scaffold composition path.
+- **Phase 9.5 styling + regression completion**
+  - Added component-style resolver primitives in the CSS engine (`selector_meta_component_for`, `resolve_component_style`) and wired `Header` + `KeyPanel`/`BindingsTable` to use CSS-driven component styles.
+  - Added keys parity snapshot baseline (`tests/keys_preview_snapshot.rs`) and updated `examples/keys.tcss` to style header components through component selectors.
 
 ### 2026-02-05
 - **Phase 9.5: Input diagnostics + key model parity**

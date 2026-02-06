@@ -5,7 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::style::parse_color_like;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetId, WidgetStyles};
@@ -118,6 +117,15 @@ impl Header {
             formatted
         }
     }
+
+    fn component_style(&self, classes: &[&str]) -> rich_rs::Style {
+        let style = crate::css::resolve_component_style(self, classes);
+        if style.is_empty() {
+            rich_rs::Style::new()
+        } else {
+            style.to_rich().unwrap_or_else(rich_rs::Style::new)
+        }
+    }
 }
 
 impl Widget for Header {
@@ -217,27 +225,18 @@ impl Widget for Header {
             " ".repeat(right_pad)
         );
 
-        let mut first_line = Vec::new();
-        if self.icon_hover {
-            let icon_style = rich_rs::Style::new()
-                .with_bgcolor(
-                    parse_color_like("$foreground")
-                        .or_else(|| parse_color_like("$surface-lighten-1"))
-                        .unwrap_or_else(|| crate::style::Color::rgb(88, 96, 106))
-                        .to_simple_opaque(),
-                )
-                .with_color(
-                    parse_color_like("$text")
-                        .or_else(|| parse_color_like("$foreground"))
-                        .unwrap_or_else(|| crate::style::Color::rgb(242, 244, 246))
-                        .to_simple_opaque(),
-                );
-            first_line.push(Segment::styled(icon_text, icon_style));
+        let icon_style = if self.icon_hover {
+            self.component_style(&["header--icon", "-hover"])
         } else {
-            first_line.push(Segment::new(icon_text));
-        }
-        first_line.push(Segment::new(center_text));
-        first_line.push(Segment::new(right_text));
+            self.component_style(&["header--icon"])
+        };
+        let title_style = self.component_style(&["header--title"]);
+        let clock_style = self.component_style(&["header--clock"]);
+
+        let mut first_line = Vec::new();
+        first_line.push(Segment::styled(icon_text, icon_style));
+        first_line.push(Segment::styled(center_text, title_style));
+        first_line.push(Segment::styled(right_text, clock_style));
         let first_line = adjust_line_length_no_bg(&first_line, width);
 
         let mut out = Segments::new();
