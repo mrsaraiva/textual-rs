@@ -259,7 +259,11 @@ impl FrameBuffer {
             0
         } else {
             let w = cell.width();
-            if w == 0 { 1 } else { w }
+            if w == 0 {
+                1
+            } else {
+                w
+            }
         }
     }
 
@@ -275,9 +279,6 @@ impl FrameBuffer {
 
         let mut out = Segments::new();
         out.push(Segment::control(rich_rs::ControlType::Home));
-
-        let mut cursor_x: usize = 0;
-        let mut cursor_y: usize = 0;
 
         for y in 0..self.height {
             let mut x: usize = 0;
@@ -320,31 +321,10 @@ impl FrameBuffer {
                     end_x = cmp::min(end_x + extra, self.width);
                 }
 
-                if y != cursor_y {
-                    if y > cursor_y {
-                        out.push(Segment::control(rich_rs::ControlType::CursorDown(
-                            (y - cursor_y) as u16,
-                        )));
-                    } else {
-                        out.push(Segment::control(rich_rs::ControlType::CursorUp(
-                            (cursor_y - y) as u16,
-                        )));
-                    }
-                    cursor_y = y;
-                    cursor_x = 0;
-                    out.push(Segment::control(rich_rs::ControlType::CarriageReturn));
-                }
-
-                if x != cursor_x {
-                    out.push(Segment::control(rich_rs::ControlType::CarriageReturn));
-                    cursor_x = 0;
-                    if x > 0 {
-                        out.push(Segment::control(rich_rs::ControlType::CursorForward(
-                            x as u16,
-                        )));
-                        cursor_x = x;
-                    }
-                }
+                out.push(Segment::control(rich_rs::ControlType::MoveTo {
+                    x: x as u16,
+                    y: y as u16,
+                }));
 
                 let mut run_x = x;
                 while run_x < end_x {
@@ -363,7 +343,6 @@ impl FrameBuffer {
                     seg.style = cell.style;
                     seg.meta = cell.meta.clone();
                     out.push(seg);
-                    cursor_x += w;
                     run_x += w;
                 }
 
@@ -381,4 +360,36 @@ fn cell_len(text: &str) -> usize {
 
 fn char_width(c: char) -> usize {
     UnicodeWidthChar::width(c).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diff_uses_absolute_move_to_for_changed_spans() {
+        let previous = FrameBuffer::from_lines(&[vec![Segment::new("aaaa")]], 4, 1, None);
+        let next = FrameBuffer::from_lines(&[vec![Segment::new("abba")]], 4, 1, None);
+
+        let diff = next.diff_to_segments(&previous);
+        let mut saw_move_to = false;
+
+        for segment in diff.iter() {
+            if let Some(control) = segment.control.as_ref() {
+                match control {
+                    rich_rs::ControlType::MoveTo { .. } => saw_move_to = true,
+                    rich_rs::ControlType::CarriageReturn
+                    | rich_rs::ControlType::CursorDown(_)
+                    | rich_rs::ControlType::CursorUp(_)
+                    | rich_rs::ControlType::CursorForward(_)
+                    | rich_rs::ControlType::CursorBackward(_) => {
+                        panic!("diff emitted relative cursor control: {control:?}");
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        assert!(saw_move_to, "expected at least one MoveTo in diff stream");
+    }
 }

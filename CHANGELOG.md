@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 9)
+- **Resize/corruption fundamentals: absolute diff cursoring + hardened redraw path**
+  - Switched framebuffer diff emission to absolute cursor positioning (`MoveTo`) instead of relative cursor movement (`CursorDown`/`CarriageReturn`/`CursorForward`) to prevent drift/corruption during aggressive resize bursts (`src/render/mod.rs`).
+  - Added runtime one-shot clear-on-resize handling and explicit runtime-mode reassertion around resize/render paths so terminals that reset modes during resize recover cleanly (`src/runtime/mod.rs`).
+  - Added optional render-stream diagnostics (`TEXTUAL_DEBUG_RESIZE_TRACE`) including control-head and cursor/overflow stats to support deterministic resize debugging (`src/runtime/mod.rs`).
+  - Added regression tests for absolute cursor diff behavior and clear-prepend behavior (`src/render/mod.rs`, `src/runtime/mod.rs` tests).
+
 ### 2026-02-07 (batch 8)
 - **Buttons demo split: parity demo + advanced event-propagation demo**
   - Converted `examples/buttons.rs` into a clean Python-parity buttons layout demo (no embedded status footer/event wiring).

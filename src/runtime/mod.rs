@@ -1,6 +1,6 @@
-use crate::animation::{Animator, animation_level_from_env};
-use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
-use crate::debug::{DebugLayout, debug_input, debug_message, debug_render};
+use crate::animation::{animation_level_from_env, Animator};
+use crate::css::{default_widget_stylesheet, set_app_active, set_style_context, StyleSheet};
+use crate::debug::{debug_input, debug_message, debug_render, DebugLayout};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, Size, TerminalDriver};
 use crate::event::{
     Action, ActionMap, AnimationRequest, AnimationValueEvent, BindingHint, Event, EventCtx,
@@ -10,14 +10,15 @@ use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::widgets::{Widget, WidgetId, border_spacing_from_style};
+use crate::widgets::{border_spacing_from_style, Widget, WidgetId};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
+use rich_rs::{Console, ConsoleOptions, ControlType, MetaValue, Renderable, Segment, Segments};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 const SYNC_START: &str = "\x1b[?2026h";
@@ -139,6 +140,7 @@ pub struct App {
     hovered: Option<WidgetId>,
     last_render_at: Instant,
     resized_since_last_render: bool,
+    clear_on_next_render: bool,
     last_resize_at: Option<Instant>,
     resize_burst: u64,
     sync_output: bool,
@@ -211,6 +213,7 @@ impl App {
             hovered: None,
             last_render_at: Instant::now(),
             resized_since_last_render: false,
+            clear_on_next_render: false,
             last_resize_at: None,
             resize_burst: 0,
             sync_output,
@@ -434,35 +437,47 @@ impl App {
         let now = Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
-        let diff = next.diff_to_segments(&self.frame);
-        let mut controls = 0usize;
-        let mut text_segments = 0usize;
-        let mut text_bytes = 0usize;
-        for seg in diff.iter() {
-            if seg.control.is_some() {
-                controls += 1;
-            } else {
-                if !seg.text.is_empty() {
-                    text_segments += 1;
-                    text_bytes += seg.text.len();
-                }
-            }
-        }
+        let clear_before_draw = self.clear_on_next_render;
+        let diff = prepend_clear_if_needed(next.diff_to_segments(&self.frame), clear_before_draw);
+        let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
-            "[render] dt={}ms resized={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
+            "[render] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
             dt_ms,
             self.resized_since_last_render,
+            clear_before_draw,
             next.width,
             next.height,
             self.frame.width,
             self.frame.height,
             diff.len(),
-            controls,
-            text_segments,
-            text_bytes
+            stream_stats.controls,
+            stream_stats.text_segments,
+            stream_stats.text_bytes
         ));
-        self.resized_since_last_render = false;
+        if resize_trace_enabled() && (self.resized_since_last_render || clear_before_draw) {
+            debug_render(&format!(
+                "[render_trace] kind=render size={}x{} controls={} home={} clear={} cr={} move_to={} cursor_moves={} text_segments={} text_bytes={} newlines={} touch_last_col={} overflow_right={} max_cursor=({}, {}) control_head=[{}]",
+                next.width,
+                next.height,
+                stream_stats.controls,
+                stream_stats.home,
+                stream_stats.clear,
+                stream_stats.carriage_return,
+                stream_stats.move_to,
+                stream_stats.cursor_moves,
+                stream_stats.text_segments,
+                stream_stats.text_bytes,
+                stream_stats.newline_text,
+                stream_stats.touch_last_col,
+                stream_stats.overflow_right,
+                stream_stats.max_cursor_x,
+                stream_stats.max_cursor_y,
+                control_head(&diff, 12)
+            ));
+        }
         self.print_segments(&diff)?;
+        self.resized_since_last_render = false;
+        self.clear_on_next_render = false;
         self.frame = next;
         Ok(())
     }
@@ -485,35 +500,47 @@ impl App {
         let now = Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
-        let diff = next.diff_to_segments(&self.frame);
-        let mut controls = 0usize;
-        let mut text_segments = 0usize;
-        let mut text_bytes = 0usize;
-        for seg in diff.iter() {
-            if seg.control.is_some() {
-                controls += 1;
-            } else {
-                if !seg.text.is_empty() {
-                    text_segments += 1;
-                    text_bytes += seg.text.len();
-                }
-            }
-        }
+        let clear_before_draw = self.clear_on_next_render;
+        let diff = prepend_clear_if_needed(next.diff_to_segments(&self.frame), clear_before_draw);
+        let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
-            "[render_widget] dt={}ms resized={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
+            "[render_widget] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
             dt_ms,
             self.resized_since_last_render,
+            clear_before_draw,
             next.width,
             next.height,
             self.frame.width,
             self.frame.height,
             diff.len(),
-            controls,
-            text_segments,
-            text_bytes
+            stream_stats.controls,
+            stream_stats.text_segments,
+            stream_stats.text_bytes
         ));
-        self.resized_since_last_render = false;
+        if resize_trace_enabled() && (self.resized_since_last_render || clear_before_draw) {
+            debug_render(&format!(
+                "[render_trace] kind=widget size={}x{} controls={} home={} clear={} cr={} move_to={} cursor_moves={} text_segments={} text_bytes={} newlines={} touch_last_col={} overflow_right={} max_cursor=({}, {}) control_head=[{}]",
+                next.width,
+                next.height,
+                stream_stats.controls,
+                stream_stats.home,
+                stream_stats.clear,
+                stream_stats.carriage_return,
+                stream_stats.move_to,
+                stream_stats.cursor_moves,
+                stream_stats.text_segments,
+                stream_stats.text_bytes,
+                stream_stats.newline_text,
+                stream_stats.touch_last_col,
+                stream_stats.overflow_right,
+                stream_stats.max_cursor_x,
+                stream_stats.max_cursor_y,
+                control_head(&diff, 12)
+            ));
+        }
         self.print_segments(&diff)?;
+        self.resized_since_last_render = false;
+        self.clear_on_next_render = false;
         self.hit_test = HitTestMap::from_frame(&next);
         self.apply_layout_info(widget);
         self.frame = next;
@@ -1044,6 +1071,9 @@ impl App {
     }
 
     fn print_segments(&mut self, diff: &rich_rs::Segments) -> Result<()> {
+        // Some terminals may silently reset runtime modes (including line wrap)
+        // during aggressive resize bursts. Reassert before every frame write.
+        let _ = self.driver.reassert_runtime_modes();
         console_write_with_optional_sync(&mut self.console, self.sync_output, |console| {
             console.print_segments(diff)
         })?;
@@ -1132,7 +1162,7 @@ impl App {
             self.last_resize_at = Some(now);
             self.resize_burst = self.resize_burst.saturating_add(1);
             debug_render(&format!(
-                "[app] resize: burst={} dt={}ms frame {}x{} -> {}x{} (reset framebuffer to blanks; no explicit clear)",
+                "[app] resize: burst={} dt={}ms frame {}x{} -> {}x{} (reset framebuffer to blanks; clear on next render)",
                 self.resize_burst,
                 dt_ms,
                 self.frame.width,
@@ -1140,8 +1170,12 @@ impl App {
                 size.width,
                 size.height
             ));
+            if let Err(error) = self.driver.reassert_runtime_modes() {
+                debug_render(&format!("[app] resize: mode reassert failed: {error}"));
+            }
             self.frame = FrameBuffer::new(size.width as usize, size.height as usize, None);
             self.resized_since_last_render = true;
+            self.clear_on_next_render = true;
         }
         Ok(())
     }
@@ -1266,6 +1300,156 @@ fn console_write_with_optional_sync<W: std::io::Write>(
     Ok(())
 }
 
+fn prepend_clear_if_needed(diff: Segments, clear_before_draw: bool) -> Segments {
+    if !clear_before_draw {
+        return diff;
+    }
+    let mut out = Segments::new();
+    out.push(Segment::control(ControlType::Clear));
+    out.extend(diff);
+    out
+}
+
+#[derive(Debug, Default)]
+struct SegmentStreamStats {
+    controls: usize,
+    home: usize,
+    clear: usize,
+    carriage_return: usize,
+    cursor_moves: usize,
+    move_to: usize,
+    text_segments: usize,
+    text_bytes: usize,
+    newline_text: usize,
+    touch_last_col: usize,
+    overflow_right: usize,
+    max_cursor_x: usize,
+    max_cursor_y: usize,
+}
+
+fn analyze_segment_stream(segments: &Segments, width: usize) -> SegmentStreamStats {
+    let mut stats = SegmentStreamStats::default();
+    let mut cursor_x = 0usize;
+    let mut cursor_y = 0usize;
+
+    for segment in segments.iter() {
+        if let Some(control) = segment.control.as_ref() {
+            stats.controls += 1;
+            match control {
+                ControlType::Home => {
+                    stats.home += 1;
+                    cursor_x = 0;
+                    cursor_y = 0;
+                }
+                ControlType::Clear => {
+                    stats.clear += 1;
+                    cursor_x = 0;
+                    cursor_y = 0;
+                }
+                ControlType::CarriageReturn => {
+                    stats.carriage_return += 1;
+                    cursor_x = 0;
+                }
+                ControlType::CursorUp(n) => {
+                    stats.cursor_moves += 1;
+                    cursor_y = cursor_y.saturating_sub(*n as usize);
+                }
+                ControlType::CursorDown(n) => {
+                    stats.cursor_moves += 1;
+                    cursor_y = cursor_y.saturating_add(*n as usize);
+                }
+                ControlType::CursorForward(n) => {
+                    stats.cursor_moves += 1;
+                    cursor_x = cursor_x.saturating_add(*n as usize);
+                }
+                ControlType::CursorBackward(n) => {
+                    stats.cursor_moves += 1;
+                    cursor_x = cursor_x.saturating_sub(*n as usize);
+                }
+                ControlType::MoveTo { x, y } => {
+                    stats.move_to += 1;
+                    cursor_x = *x as usize;
+                    cursor_y = *y as usize;
+                }
+                _ => {}
+            }
+            stats.max_cursor_x = stats.max_cursor_x.max(cursor_x);
+            stats.max_cursor_y = stats.max_cursor_y.max(cursor_y);
+            continue;
+        }
+
+        if segment.text.is_empty() {
+            continue;
+        }
+
+        stats.text_segments += 1;
+        stats.text_bytes += segment.text.len();
+        let newline_count = segment.text.as_ref().matches('\n').count();
+        stats.newline_text += newline_count;
+
+        let text_width = rich_rs::cell_len(segment.text.as_ref());
+        if width > 0 && text_width > 0 {
+            let end_x = cursor_x.saturating_add(text_width - 1);
+            if end_x == width - 1 {
+                stats.touch_last_col += 1;
+            }
+            if end_x >= width {
+                stats.overflow_right += 1;
+            }
+        }
+        cursor_x = cursor_x.saturating_add(text_width);
+        stats.max_cursor_x = stats.max_cursor_x.max(cursor_x);
+        stats.max_cursor_y = stats.max_cursor_y.max(cursor_y);
+    }
+
+    stats
+}
+
+fn control_head(segments: &Segments, limit: usize) -> String {
+    let mut labels: Vec<String> = Vec::new();
+    for segment in segments.iter() {
+        let Some(control) = segment.control.as_ref() else {
+            continue;
+        };
+        let label = match control {
+            ControlType::Home => "Home".to_string(),
+            ControlType::Clear => "Clear".to_string(),
+            ControlType::CarriageReturn => "CR".to_string(),
+            ControlType::CursorUp(n) => format!("Up({n})"),
+            ControlType::CursorDown(n) => format!("Down({n})"),
+            ControlType::CursorForward(n) => format!("Right({n})"),
+            ControlType::CursorBackward(n) => format!("Left({n})"),
+            ControlType::MoveTo { x, y } => format!("MoveTo({x},{y})"),
+            ControlType::EraseInLine(mode) => format!("EraseInLine({mode})"),
+            ControlType::ShowCursor => "ShowCursor".to_string(),
+            ControlType::HideCursor => "HideCursor".to_string(),
+            _ => format!("{control:?}"),
+        };
+        labels.push(label);
+        if labels.len() >= limit {
+            break;
+        }
+    }
+    labels.join(", ")
+}
+
+fn resize_trace_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("TEXTUAL_DEBUG_RESIZE_TRACE")
+            .ok()
+            .map(|value| {
+                let normalized = value.trim().to_ascii_lowercase();
+                !(normalized.is_empty()
+                    || normalized == "0"
+                    || normalized == "false"
+                    || normalized == "off"
+                    || normalized == "no")
+            })
+            .unwrap_or(false)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1293,6 +1477,33 @@ mod tests {
         .unwrap();
         let out = console.get_captured_bytes();
         assert_eq!(out, b"PAYLOAD");
+    }
+
+    #[test]
+    fn prepend_clear_only_when_requested() {
+        let mut diff = Segments::new();
+        diff.push(Segment::control(ControlType::Home));
+        diff.push(Segment::new("x"));
+
+        let without_clear = prepend_clear_if_needed(diff.clone(), false);
+        let with_clear = prepend_clear_if_needed(diff.clone(), true);
+
+        assert_eq!(without_clear.len(), diff.len());
+        assert_eq!(with_clear.len(), diff.len() + 1);
+        assert!(matches!(
+            without_clear
+                .iter()
+                .next()
+                .and_then(|seg| seg.control.as_ref()),
+            Some(ControlType::Home)
+        ));
+        assert!(matches!(
+            with_clear
+                .iter()
+                .next()
+                .and_then(|seg| seg.control.as_ref()),
+            Some(ControlType::Clear)
+        ));
     }
 
     #[test]
@@ -1812,8 +2023,8 @@ mod message_tests {
     use crate::event::{MouseDownEvent, MouseUpEvent};
     use crate::message::Message;
     use crate::widgets::{AppRoot, Button, ScrollView};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     struct Child {
         id: WidgetId,
