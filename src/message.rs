@@ -65,6 +65,26 @@ pub enum Message {
         row: usize,
         column: usize,
     },
+    SwitchChanged {
+        value: bool,
+    },
+    RadioButtonChanged {
+        value: bool,
+    },
+    RadioSetChanged {
+        index: usize,
+        button_id: WidgetId,
+    },
+    OptionHighlighted {
+        index: usize,
+    },
+    OptionSelected {
+        index: usize,
+    },
+    SelectChanged {
+        index: usize,
+        label: String,
+    },
 }
 
 #[derive(Debug, Clone)]

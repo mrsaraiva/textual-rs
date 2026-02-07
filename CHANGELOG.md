@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-07
+- **Port 7 new widgets from Python Textual**
+  - Added `Rule` widget (`src/widgets/rule.rs`) — horizontal/vertical separator with 9 line styles (solid, dashed, double, heavy, thick, ascii, blank, hidden, none).
+  - Added `Switch` widget (`src/widgets/switch.rs`) — boolean toggle with slider rendering, keyboard/mouse interaction, emits `SwitchChanged` message.
+  - Added `Placeholder` widget (`src/widgets/placeholder.rs`) — layout placeholder with cycling variants (Default/Size/Text) and rotating background colors.
+  - Added `RadioButton` widget (`src/widgets/radio_button.rs`) — radio button with circle glyphs (●/○), component styles, emits `RadioButtonChanged` message.
+  - Added `RadioSet` widget (`src/widgets/radio_set.rs`) — mutual-exclusion container for radio buttons with keyboard navigation, emits `RadioSetChanged` message.
+  - Added `OptionList` widget (`src/widgets/option_list.rs`) — scrollable option list with separators, disabled items, keyboard/mouse navigation, emits `OptionHighlighted`/`OptionSelected` messages.
+  - Added `Select<T>` widget (`src/widgets/select.rs`) — generic dropdown select with overlay popup, emits `SelectChanged` message.
+  - All widgets are first-class: segment-based rendering, CSS component styles, `style_type()`, default CSS rules, full Widget trait, proper event handling.
+  - Added porting guidelines document (`docs/devel/WIDGETS_LEFT_TO_PORT.md`).
+
 - **Phase 9.6 fundamentals: tabbed parity + command palette + markdown heading hooks**
   - Added first-pass `CommandPalette` widget (`src/widgets/command_palette.rs`) and integrated it into the `tabbed_content` demo via framework composition (`examples/tabbed_content.rs`), with open/close, search/filter, selection, and execute/dismiss flow.
   - Added runtime priority action routing so `Ctrl+P` is handled as a high-priority action before raw key dispatch, plus default `Ctrl+P -> Action::CommandPalette` mapping (`src/runtime/mod.rs`), preventing focused input widgets from swallowing command-palette activation.

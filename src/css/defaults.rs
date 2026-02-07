@@ -140,6 +140,89 @@ Checkbox:hover { background-tint: $foreground 3%; }
 Checkbox:active { background-tint: $foreground 8%; }
 Checkbox:disabled { dim: true; }
 
+Switch {
+    width: auto;
+    height: auto;
+    border: tall $border-blurred;
+    bg: $surface;
+    line-pad: 2;
+}
+
+Switch:focus { border: tall $border; background-tint: $foreground 5%; }
+Switch > .switch--slider { fg: $panel; bg: $panel-darken-2; }
+Switch.-on > .switch--slider { fg: $success; bg: $panel-darken-2; }
+Switch:hover > .switch--slider { fg: $panel-lighten-1; }
+Switch.-on:hover > .switch--slider { fg: $success-lighten-1; }
+
+RadioButton {
+    width: auto;
+    height: auto;
+    border: tall $border-blurred;
+    bg: $surface;
+    line-pad: 1;
+}
+
+RadioButton:focus { border: tall $border; background-tint: $foreground 5%; }
+RadioButton > .radio-button--button { fg: $panel-darken-2; bg: $panel; }
+RadioButton.-on > .radio-button--button { fg: $success; bg: $panel; }
+RadioButton > .radio-button--label { fg: $foreground; }
+RadioButton > .radio-button--label.-hover { bg: $block-hover-background; }
+RadioButton > .radio-button--label.-focus { fg: $text; bg: $primary; text-style: bold; }
+
+RadioSet {
+    border: tall $border-blurred;
+    bg: $surface;
+    line-pad: 1;
+    height: auto;
+    width: 1fr;
+}
+
+RadioSet:focus { border: tall $border; background-tint: $foreground 5%; }
+RadioSet > .radio-button--button { fg: $panel-darken-2; bg: $panel; }
+RadioSet > .radio-button--button.-on { fg: $success; bg: $panel; }
+RadioSet > .radio-button--label { fg: $foreground; }
+RadioSet > .radio-button--label.-hover { bg: $block-hover-background; }
+RadioSet > .radio-button--label.-selected { bg: $primary-muted; fg: $text; text-style: bold; }
+RadioSet > .radio-button--label.-selected.-focus { bg: $primary; fg: $text; text-style: bold; }
+
+OptionList {
+    height: auto;
+    bg: $surface;
+    fg: $foreground;
+    border: tall $border-blurred;
+    line-pad: 1;
+}
+
+OptionList:focus { border: tall $border; background-tint: $foreground 5%; }
+OptionList > .option-list--option { fg: $foreground; }
+OptionList > .option-list--option.-highlighted { fg: $foreground; bg: $primary-muted; text-style: bold; }
+OptionList > .option-list--option.-highlighted.-focus { fg: $text; bg: $primary; text-style: bold; }
+OptionList > .option-list--option.-disabled { fg: $text-disabled; }
+OptionList > .option-list--option.-hover { bg: $block-hover-background; }
+OptionList > .option-list--separator { fg: $text-disabled; }
+
+Select {
+    height: auto;
+    fg: $foreground;
+    border: tall $border-blurred;
+    bg: $surface;
+}
+
+Select:focus { border: tall $border; background-tint: $foreground 5%; }
+Select > .select--current-value { fg: $foreground; bg: $surface; }
+Select > .select--current-value.-hover { bg: $surface-lighten-1; }
+Select > .select--current-value.-focus { fg: $foreground; bg: $surface-lighten-1; text-style: bold; }
+Select > .select--arrow { fg: $text-disabled; bg: $surface; }
+Select > .select--arrow.-open { fg: $text; bg: $surface; }
+Select > .select--dropdown { bg: $surface; fg: $foreground; }
+
+Placeholder > .placeholder { fg: $text; }
+Placeholder.-text { line-pad: 1; }
+
+Rule { fg: $secondary; }
+Rule > .rule--horizontal { fg: $secondary; }
+Rule > .rule--vertical { fg: $secondary; }
+
 ListView {
     bg: $surface;
     fg: $foreground;
