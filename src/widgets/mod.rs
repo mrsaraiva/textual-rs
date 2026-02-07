@@ -12,6 +12,7 @@ mod footer;
 mod header;
 mod helpers;
 mod input;
+mod input_chrome;
 mod key_panel;
 mod layout;
 mod link;

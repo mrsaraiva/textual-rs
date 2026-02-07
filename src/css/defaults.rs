@@ -475,6 +475,9 @@ MaskedInput {
 MaskedInput:focus { border: tall $border; background-tint: $foreground 5%; }
 MaskedInput.-invalid { border: tall $error; }
 MaskedInput.-invalid:focus { border: tall $error; }
+MaskedInput > .input--cursor { bg: $input-cursor-background; fg: $input-cursor-foreground; }
+MaskedInput > .input--selection { bg: $input-selection-background; }
+MaskedInput > .input--placeholder { fg: $text-disabled; }
 "#;
 
 pub fn default_widget_stylesheet() -> StyleSheet {

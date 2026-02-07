@@ -7,6 +7,12 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 5)
+- **Input-family chrome unification (Input + MaskedInput)**
+  - Refactored `Input` and `MaskedInput` to share focus/mouse-active state, cursor blink timing, app-focus handling, and class toggling through `InputChrome` (`src/widgets/input.rs`, `src/widgets/masked_input.rs`, `src/widgets/input_chrome.rs`).
+  - Added `MaskedInput` component CSS parity hooks for cursor, selection, and placeholder styling (`src/css/defaults.rs`).
+  - Wired `input_chrome` module into widget exports for shared internal reuse (`src/widgets/mod.rs`).
+
 ### 2026-02-07 (batch 4)
 - **ScrollView fill/background fundamentals + buttons demo parity fix**
   - Added default `ScrollView` background (`bg: $panel`) in built-in CSS so fill-area rows render with panel styling instead of terminal black (`src/css/defaults.rs`).

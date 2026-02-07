@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
@@ -12,6 +12,7 @@ use crate::validation::{ValidationResult, ValidatorRef};
 use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    input_chrome::InputChrome,
 };
 
 // ---------------------------------------------------------------------------
@@ -472,29 +473,15 @@ pub struct MaskedInput {
     /// Current value as a char vec (positions correspond 1:1 with template defs).
     value: Vec<char>,
     cursor: usize,
-    focused: bool,
     placeholder: String,
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
     on_change: Option<Arc<dyn Fn(&mut MaskedInput) + Send + Sync>>,
-    mouse_down: bool,
-    cursor_visible: bool,
-    cursor_blink_next_at: Option<Instant>,
-    app_active: bool,
-    user_classes: Vec<String>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
+    chrome: InputChrome,
     styles: WidgetStyles,
 }
 
 impl MaskedInput {
-    const CURSOR_BLINK_PERIOD: Duration = Duration::from_millis(500);
-
-    fn next_blink_deadline() -> Instant {
-        let now = Instant::now();
-        now.checked_add(Self::CURSOR_BLINK_PERIOD).unwrap_or(now)
-    }
-
     pub fn new(template_str: impl Into<String>) -> Self {
         let template_str = template_str.into();
         let mut template = Template::parse(&template_str);
@@ -505,21 +492,13 @@ impl MaskedInput {
             template,
             value,
             cursor,
-            focused: false,
             placeholder: String::new(),
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
             on_change: None,
-            mouse_down: false,
-            cursor_visible: false,
-            cursor_blink_next_at: None,
-            app_active: true,
-            user_classes: Vec::new(),
-            classes: Vec::new(),
-            focused_classes: Vec::new(),
+            chrome: InputChrome::new(),
             styles: WidgetStyles::default(),
         };
-        out.rebuild_classes();
         out.revalidate();
         out
     }
@@ -552,20 +531,12 @@ impl MaskedInput {
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
-        self.user_classes.push(class.into());
-        self.rebuild_classes();
+        self.chrome.add_user_class(class.into());
         self
     }
 
     pub fn set_class(&mut self, class: &str, enabled: bool) {
-        if enabled {
-            if !self.user_classes.iter().any(|c| c == class) {
-                self.user_classes.push(class.to_string());
-            }
-        } else {
-            self.user_classes.retain(|c| c != class);
-        }
-        self.rebuild_classes();
+        self.chrome.set_class(class, enabled);
     }
 
     /// Returns the current value as a string.
@@ -586,6 +557,13 @@ impl MaskedInput {
             }
             self.revalidate();
         }
+    }
+
+    pub fn clear(&mut self) {
+        let (value, cursor) = self.template.insert_separators(&[], 0);
+        self.value = value;
+        self.cursor = cursor;
+        self.revalidate();
     }
 
     // --- internal helpers --------------------------------------------------
@@ -647,23 +625,6 @@ impl MaskedInput {
             self.set_class("-valid", false);
             self.set_class("-invalid", true);
         }
-    }
-
-    fn reset_blink(&mut self) {
-        if !self.focused || !self.app_active {
-            return;
-        }
-        self.cursor_visible = true;
-        self.cursor_blink_next_at = Some(Self::next_blink_deadline());
-    }
-
-    fn rebuild_classes(&mut self) {
-        let mut classes = vec!["input".to_string()];
-        classes.extend(self.user_classes.iter().cloned());
-        let mut focused_classes = classes.clone();
-        focused_classes.push("focused".to_string());
-        self.classes = classes;
-        self.focused_classes = focused_classes;
     }
 
     fn cursor_from_x(&self, x: u16) -> usize {
@@ -805,12 +766,6 @@ impl MaskedInput {
             self.cursor = 0;
         }
     }
-
-    fn action_clear(&mut self) {
-        let (new_val, new_cursor) = self.template.insert_separators(&[], 0);
-        self.value = new_val;
-        self.cursor = new_cursor;
-    }
 }
 
 impl Widget for MaskedInput {
@@ -827,26 +782,19 @@ impl Widget for MaskedInput {
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        if !focused {
-            self.mouse_down = false;
-            self.cursor_visible = false;
-            self.cursor_blink_next_at = None;
-            return;
-        }
-        self.reset_blink();
+        self.chrome.set_focus(focused);
     }
 
     fn has_focus(&self) -> bool {
-        self.focused
+        self.chrome.has_focus()
     }
 
     fn is_active(&self) -> bool {
-        self.mouse_down
+        self.chrome.is_active()
     }
 
     fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
-        if !self.mouse_down {
+        if !self.chrome.is_mouse_down() {
             return false;
         }
         let mut next = self.cursor_from_x(x);
@@ -863,13 +811,7 @@ impl Widget for MaskedInput {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::AppFocus(active) => {
-                self.app_active = *active;
-                if !*active {
-                    self.cursor_visible = false;
-                    self.cursor_blink_next_at = None;
-                } else {
-                    self.reset_blink();
-                }
+                self.chrome.handle_app_focus(*active);
                 ctx.request_repaint();
             }
             Event::MouseDown(mouse) if mouse.target == self.id => {
@@ -878,40 +820,30 @@ impl Widget for MaskedInput {
                 if self.template.at_separator(self.cursor) {
                     self.cursor = self.template.move_cursor(self.cursor, 1);
                 }
-                self.mouse_down = true;
-                self.reset_blink();
+                self.chrome.set_mouse_down(true);
+                self.chrome.reset_blink();
                 ctx.request_repaint();
                 ctx.set_handled();
             }
             Event::MouseUp(_) => {
-                if self.mouse_down {
-                    self.mouse_down = false;
+                if self.chrome.is_mouse_down() {
+                    self.chrome.set_mouse_down(false);
                     ctx.request_repaint();
                 }
             }
             Event::Tick(_) => {
-                if !self.focused || !self.app_active {
-                    return;
-                }
-                let Some(next_at) = self.cursor_blink_next_at else {
-                    return;
-                };
-                let now = Instant::now();
-                if now >= next_at {
-                    self.cursor_visible = !self.cursor_visible;
-                    self.cursor_blink_next_at =
-                        now.checked_add(Self::CURSOR_BLINK_PERIOD).or(Some(now));
+                if self.chrome.handle_tick(Instant::now()) {
                     ctx.request_repaint();
                 }
             }
-            Event::Key(key) if self.focused => {
+            Event::Key(key) if self.chrome.has_focus() => {
                 let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
                     KeyCode::Char('u') if has_ctrl => {
                         self.action_delete_left_all();
                         self.revalidate();
                         self.post_changed(ctx);
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -921,7 +853,7 @@ impl Widget for MaskedInput {
                             if self.action_insert_text(&s) {
                                 self.revalidate();
                                 self.post_changed(ctx);
-                                self.reset_blink();
+                                self.chrome.reset_blink();
                                 ctx.request_repaint();
                             }
                         }
@@ -940,7 +872,7 @@ impl Widget for MaskedInput {
                         self.action_delete_left_word();
                         self.revalidate();
                         self.post_changed(ctx);
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -948,7 +880,7 @@ impl Widget for MaskedInput {
                         self.action_delete_left();
                         self.revalidate();
                         self.post_changed(ctx);
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -956,7 +888,7 @@ impl Widget for MaskedInput {
                         self.action_delete_right_word();
                         self.revalidate();
                         self.post_changed(ctx);
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -964,43 +896,43 @@ impl Widget for MaskedInput {
                         self.action_delete_right();
                         self.revalidate();
                         self.post_changed(ctx);
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::Left if has_ctrl => {
                         self.action_cursor_left_word();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::Left => {
                         self.action_cursor_left();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::Right if has_ctrl => {
                         self.action_cursor_right_word();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::Right => {
                         self.action_cursor_right();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::Home => {
                         self.action_home();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
                     KeyCode::End => {
                         self.action_end();
-                        self.reset_blink();
+                        self.chrome.reset_blink();
                         ctx.request_repaint();
                         ctx.set_handled();
                     }
@@ -1056,7 +988,8 @@ impl Widget for MaskedInput {
                 break;
             }
 
-            let is_cursor = self.focused && self.cursor_visible && i == self.cursor;
+            let is_cursor =
+                self.chrome.has_focus() && self.chrome.cursor_visible() && i == self.cursor;
             let original_is_space = i < self.value.len() && self.value[i] == ' ';
 
             let style = if is_cursor {
@@ -1076,7 +1009,8 @@ impl Widget for MaskedInput {
             if cells_used >= width {
                 break;
             }
-            let is_cursor = self.focused && self.cursor_visible && j == self.cursor;
+            let is_cursor =
+                self.chrome.has_focus() && self.chrome.cursor_visible() && j == self.cursor;
 
             let style = if is_cursor {
                 cursor_style
@@ -1089,8 +1023,8 @@ impl Widget for MaskedInput {
         }
 
         // Cursor past end of mask.
-        if self.focused
-            && self.cursor_visible
+        if self.chrome.has_focus()
+            && self.chrome.cursor_visible()
             && self.cursor >= self.template.len()
             && cells_used < width
         {
@@ -1117,12 +1051,11 @@ impl Widget for MaskedInput {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
+        let classes = self.chrome.style_classes();
+        if classes.is_empty() {
             empty_classes()
         } else {
-            &self.classes
+            classes
         }
     }
 
