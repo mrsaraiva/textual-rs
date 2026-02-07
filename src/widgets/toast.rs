@@ -82,10 +82,7 @@ impl Toast {
     }
 
     fn rebuild_classes(mut self) -> Self {
-        self.classes = vec![
-            "toast".to_string(),
-            self.severity.class_name().to_string(),
-        ];
+        self.classes = vec!["toast".to_string(), self.severity.class_name().to_string()];
         self
     }
 
@@ -175,7 +172,10 @@ impl Widget for Toast {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
         if self.message.is_empty() {
-            out.push(Segment::styled(rich_rs::set_cell_size("", width), base_style));
+            out.push(Segment::styled(
+                rich_rs::set_cell_size("", width),
+                base_style,
+            ));
         } else {
             let lines: Vec<&str> = self.message.lines().collect();
             let line_count = lines.len();

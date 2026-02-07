@@ -1,12 +1,16 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use std::time::Duration;
 
-use crate::event::{Event, EventCtx};
+use crate::event::{
+    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+};
 use crate::message::Message;
+use crate::style::TransitionTiming;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    helpers::{empty_classes, fixed_height_from_constraints},
 };
 
 pub struct Tabs {
@@ -17,6 +21,9 @@ pub struct Tabs {
     hovered: bool,
     hovered_tab: Option<usize>,
     layout_width: usize,
+    tab_row_height: usize,
+    underline_start: f32,
+    underline_end: f32,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -28,6 +35,11 @@ pub struct Tab {
 }
 
 impl Tabs {
+    const UNDERLINE_START_ATTR: &'static str = "tabs.underline_start";
+    const UNDERLINE_END_ATTR: &'static str = "tabs.underline_end";
+    const UNDERLINE_ANIMATION_DURATION: Duration = Duration::from_millis(300);
+    const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
+
     pub fn new() -> Self {
         Self {
             id: WidgetId::new(),
@@ -37,6 +49,9 @@ impl Tabs {
             hovered: false,
             hovered_tab: None,
             layout_width: 1,
+            tab_row_height: 2,
+            underline_start: 0.0,
+            underline_end: 0.0,
             classes: vec!["tabs".to_string()],
             focused_classes: vec!["tabs".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
@@ -69,8 +84,11 @@ impl Tabs {
     fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) {
         if self.tabs.is_empty() {
             self.active = 0;
+            self.underline_start = 0.0;
+            self.underline_end = 0.0;
             return;
         }
+        let previous_active = self.active;
         let next = index.min(self.tabs.len() - 1);
         if next != self.active {
             if let Some(tab) = self.tabs.get_mut(self.active) {
@@ -80,7 +98,51 @@ impl Tabs {
             if let Some(tab) = self.tabs.get_mut(self.active) {
                 tab.child.set_focus(true);
             }
+            let target_span = self.span_for_index(self.active);
             if let Some(ctx) = ctx.as_mut() {
+                if let Some((target_start, target_end)) = target_span {
+                    let (duration, delay, ease) = self.underline_animation_params();
+                    let fallback_source = self
+                        .span_for_index(previous_active)
+                        .unwrap_or((target_start, target_end));
+                    let from_start = if self.underline_end > self.underline_start {
+                        self.underline_start
+                    } else {
+                        fallback_source.0
+                    };
+                    let from_end = if self.underline_end > self.underline_start {
+                        self.underline_end
+                    } else {
+                        fallback_source.1
+                    };
+                    ctx.request_animation(
+                        AnimationRequest::new(
+                            self.id,
+                            Self::UNDERLINE_START_ATTR,
+                            from_start,
+                            target_start,
+                            duration,
+                        )
+                        .with_delay(delay)
+                        .with_ease(ease)
+                        .with_level(AnimationLevel::Basic),
+                    );
+                    ctx.request_animation(
+                        AnimationRequest::new(
+                            self.id,
+                            Self::UNDERLINE_END_ATTR,
+                            from_end,
+                            target_end,
+                            duration,
+                        )
+                        .with_delay(delay)
+                        .with_ease(ease)
+                        .with_level(AnimationLevel::Basic),
+                    );
+                } else {
+                    self.underline_start = 0.0;
+                    self.underline_end = 0.0;
+                }
                 ctx.post_message(
                     self.id,
                     Message::TabActivated {
@@ -89,6 +151,12 @@ impl Tabs {
                     },
                 );
                 ctx.request_repaint();
+            } else if let Some((target_start, target_end)) = target_span {
+                self.underline_start = target_start;
+                self.underline_end = target_end;
+            } else {
+                self.underline_start = 0.0;
+                self.underline_end = 0.0;
             }
         }
     }
@@ -134,11 +202,53 @@ impl Tabs {
                 continue;
             }
             let start = cursor;
-            let end = start.saturating_add(label_width.saturating_sub(1));
+            let end = start.saturating_add(label_width);
             spans.push((start, end, index));
             cursor = cursor.saturating_add(label_width);
         }
         spans
+    }
+
+    fn span_for_index(&self, index: usize) -> Option<(f32, f32)> {
+        self.tab_spans(self.layout_width)
+            .into_iter()
+            .find(|(_, _, tab_index)| *tab_index == index)
+            .map(|(start, end, _)| (start as f32, end as f32))
+    }
+
+    fn sync_underline_to_active(&mut self) {
+        if let Some((start, end)) = self.span_for_index(self.active) {
+            self.underline_start = start;
+            self.underline_end = end;
+        } else {
+            self.underline_start = 0.0;
+            self.underline_end = 0.0;
+        }
+    }
+
+    fn underline_animation_params(&self) -> (Duration, Duration, AnimationEase) {
+        let style = crate::css::resolve_component_style(self, &["tabs--underline", "-active"]);
+        let duration = style
+            .transition_duration
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DURATION);
+        let delay = style
+            .transition_delay
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DELAY);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::InOutCubic);
+        (duration, delay, ease)
+    }
+
+    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
+        match timing {
+            TransitionTiming::Linear => AnimationEase::Linear,
+            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+            TransitionTiming::OutCubic => AnimationEase::OutCubic,
+            TransitionTiming::Round => AnimationEase::Round,
+            TransitionTiming::None => AnimationEase::None,
+        }
     }
 
     fn hit_tab(&self, x: usize, y: usize) -> Option<usize> {
@@ -147,8 +257,79 @@ impl Tabs {
         }
         self.tab_spans(self.layout_width)
             .into_iter()
-            .find(|(start, end, _)| x >= *start && x <= *end)
+            .find(|(start, end, _)| x >= *start && x < *end)
             .map(|(_, _, index)| index)
+    }
+
+    fn render_underline_line(
+        width: usize,
+        start: f32,
+        end: f32,
+        base_style: rich_rs::Style,
+        active_style: rich_rs::Style,
+    ) -> Vec<Segment> {
+        if width == 0 {
+            return Vec::new();
+        }
+
+        let mut cells = vec![('─', false); width];
+        let start = start.clamp(0.0, width as f32);
+        let end = end.clamp(0.0, width as f32);
+        if end > start {
+            let start = (start * 2.0).round() / 2.0;
+            let end = (end * 2.0).round() / 2.0;
+
+            let full_start = start.ceil() as usize;
+            let full_end = end.floor() as usize;
+            for idx in full_start..full_end.min(width) {
+                cells[idx] = ('━', true);
+            }
+
+            if start.fract().abs() > f32::EPSILON {
+                let idx = start.floor() as usize;
+                if idx < width {
+                    cells[idx] = ('╺', true);
+                }
+            }
+
+            if end.fract().abs() > f32::EPSILON {
+                let idx = end.floor() as usize;
+                if idx < width {
+                    cells[idx] = if cells[idx].1 {
+                        ('━', true)
+                    } else {
+                        ('╸', true)
+                    };
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        let mut current_active = cells[0].1;
+        let mut buffer = String::new();
+        for (ch, active) in cells {
+            if active == current_active {
+                buffer.push(ch);
+            } else {
+                let style = if current_active {
+                    active_style.clone()
+                } else {
+                    base_style.clone()
+                };
+                out.push(Segment::styled(std::mem::take(&mut buffer), style));
+                buffer.push(ch);
+                current_active = active;
+            }
+        }
+        if !buffer.is_empty() {
+            let style = if current_active {
+                active_style
+            } else {
+                base_style
+            };
+            out.push(Segment::styled(buffer, style));
+        }
+        out
     }
 }
 
@@ -187,6 +368,7 @@ impl Widget for Tabs {
         for tab in &mut self.tabs {
             tab.child.on_mount();
         }
+        self.sync_underline_to_active();
     }
 
     fn on_unmount(&mut self) {
@@ -203,14 +385,22 @@ impl Widget for Tabs {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.child.on_resize(width, height);
+            tab.child
+                .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.layout_width = usize::from(width).max(1);
+        let next_layout_width = usize::from(width).max(1);
+        if next_layout_width != self.layout_width {
+            self.layout_width = next_layout_width;
+            self.sync_underline_to_active();
+        } else {
+            self.layout_width = next_layout_width;
+        }
         if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.child.on_layout(width, height.saturating_sub(1));
+            tab.child
+                .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
@@ -221,6 +411,28 @@ impl Widget for Tabs {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::AnimationValue(AnimationValueEvent {
+            target,
+            attribute,
+            value,
+            ..
+        }) = event
+        {
+            if *target == self.id {
+                if attribute == Self::UNDERLINE_START_ATTR {
+                    self.underline_start = *value;
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+                if attribute == Self::UNDERLINE_END_ATTR {
+                    self.underline_end = *value;
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
         if self.focused {
             if let Event::Key(key) = event {
                 match key.code {
@@ -286,12 +498,19 @@ impl Widget for Tabs {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+        let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let base_underline_style = crate::css::resolve_component_style(self, &["tabs--underline"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let active_underline_style =
+            crate::css::resolve_component_style(self, &["tabs--underline", "-active"])
+                .to_rich()
+                .unwrap_or(base_underline_style);
 
         let mut header_line = Vec::new();
         if self.tabs.is_empty() {
-            let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new);
             header_line.push(Segment::styled(" no tabs ".to_string(), bar_style));
         } else {
             for (idx, tab) in self.tabs.iter().enumerate() {
@@ -307,24 +526,52 @@ impl Widget for Tabs {
                 }
                 let style = crate::css::resolve_component_style(self, &classes)
                     .to_rich()
-                    .unwrap_or_else(rich_rs::Style::new);
+                    .unwrap_or(bar_style);
                 header_line.push(Segment::styled(format!(" {} ", tab.title), style));
             }
         }
-        let header_line = adjust_line_length_no_bg(&header_line, width);
-        let mut lines = vec![header_line];
+        let mut header_line = Segment::adjust_line_length(&header_line, width, None, false);
+        let mut underline_line = Segment::adjust_line_length(
+            &Self::render_underline_line(
+                width,
+                self.underline_start,
+                self.underline_end,
+                base_underline_style,
+                active_underline_style,
+            ),
+            width,
+            None,
+            false,
+        );
+        let header_len = Segment::get_line_length(&header_line);
+        if header_len < width {
+            header_line.push(Segment::styled(" ".repeat(width - header_len), bar_style));
+        }
+        let underline_len = Segment::get_line_length(&underline_line);
+        if underline_len < width {
+            underline_line.push(Segment::styled(
+                "─".repeat(width - underline_len),
+                base_underline_style,
+            ));
+        }
+        let mut lines = vec![header_line, underline_line];
 
-        if height > 1 {
+        if height > self.tab_row_height {
             if let Some(tab) = self.tabs.get(self.active) {
                 let mut child_options = options.clone();
-                child_options.size = (width, height - 1);
+                child_options.size = (width, height - self.tab_row_height);
                 child_options.max_width = width;
-                child_options.max_height = height - 1;
+                child_options.max_height = height - self.tab_row_height;
                 let child_segments = tab.child.render_styled(console, &child_options);
                 let mut child_lines =
                     Segment::split_and_crop_lines(child_segments, width, None, true, false);
-                child_lines =
-                    Segment::set_shape(&child_lines, width, Some(height - 1), None, false);
+                child_lines = Segment::set_shape(
+                    &child_lines,
+                    width,
+                    Some(height - self.tab_row_height),
+                    None,
+                    false,
+                );
                 lines.extend(child_lines);
             }
         }
@@ -348,7 +595,7 @@ impl Widget for Tabs {
             .tabs
             .get(self.active)
             .and_then(|tab| tab.child.layout_height());
-        child_height.map(|height| height + 1)
+        child_height.map(|height| height + self.tab_row_height)
     }
 
     fn style_classes(&self) -> &[String] {

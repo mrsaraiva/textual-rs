@@ -1,9 +1,12 @@
 use std::cell::RefCell;
+use std::time::Duration;
 
 use rich_rs::{MetaValue, Segments};
 
 use crate::debug::debug_style;
-use crate::style::{BorderEdge, BorderType, Margin, Style, Tint, parse_color_like};
+use crate::style::{
+    BorderEdge, BorderType, Margin, Style, Tint, TransitionTiming, parse_color_like,
+};
 
 use crate::widgets::{Widget, WidgetId};
 
@@ -383,8 +386,14 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
 }
 
 pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
+    let parent_meta = selector_meta_generic(widget);
     let meta = selector_meta_component_for(widget, classes);
-    resolve_style_for_meta(&meta)
+    SELECTOR_STACK.with(|stack| {
+        stack.borrow_mut().push(parent_meta);
+        let out = resolve_style_for_meta(&meta);
+        stack.borrow_mut().pop();
+        out
+    })
 }
 
 pub(crate) fn resolve_component_style_with_id<T: Widget + ?Sized>(
@@ -392,8 +401,14 @@ pub(crate) fn resolve_component_style_with_id<T: Widget + ?Sized>(
     id: Option<&str>,
     classes: &[&str],
 ) -> Style {
+    let parent_meta = selector_meta_generic(widget);
     let meta = selector_meta_component_for_with_id(widget, id, classes);
-    resolve_style_for_meta(&meta)
+    SELECTOR_STACK.with(|stack| {
+        stack.borrow_mut().push(parent_meta);
+        let out = resolve_style_for_meta(&meta);
+        stack.borrow_mut().pop();
+        out
+    })
 }
 
 pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl FnOnce() -> T) -> T {
@@ -859,6 +874,34 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.line_pad(value);
                 }
             }
+            "transition" => {
+                if let Some((duration, delay, timing)) = parse_transition_shorthand(value) {
+                    if let Some(duration) = duration {
+                        style = style.transition_duration(duration);
+                    }
+                    if let Some(delay) = delay {
+                        style = style.transition_delay(delay);
+                    }
+                    if let Some(timing) = timing {
+                        style = style.transition_timing(timing);
+                    }
+                }
+            }
+            "transition-duration" => {
+                if let Some(duration) = parse_duration(value) {
+                    style = style.transition_duration(duration);
+                }
+            }
+            "transition-delay" => {
+                if let Some(delay) = parse_duration(value) {
+                    style = style.transition_delay(delay);
+                }
+            }
+            "transition-timing-function" => {
+                if let Some(timing) = parse_transition_timing(value) {
+                    style = style.transition_timing(timing);
+                }
+            }
             "border-top" => {
                 if let Some(edge) = parse_border_edge(value) {
                     style.border_top = edge;
@@ -1009,4 +1052,108 @@ fn parse_tint(value: &str) -> Option<Tint> {
         }
     }
     Some(Tint::new(color?, percent.unwrap_or(0)))
+}
+
+fn parse_transition_shorthand(
+    value: &str,
+) -> Option<(Option<Duration>, Option<Duration>, Option<TransitionTiming>)> {
+    // Parse only the first transition item in a comma-separated declaration.
+    // Example: "offset 300ms ease-in-out 50ms".
+    let first_item = value.split(',').next()?.trim();
+    if first_item.is_empty() {
+        return None;
+    }
+    let mut duration: Option<Duration> = None;
+    let mut delay: Option<Duration> = None;
+    let mut timing: Option<TransitionTiming> = None;
+
+    for token in first_item.split_whitespace() {
+        if duration.is_none() {
+            if let Some(parsed) = parse_duration(token) {
+                duration = Some(parsed);
+                continue;
+            }
+        } else if delay.is_none() {
+            if let Some(parsed) = parse_duration(token) {
+                delay = Some(parsed);
+                continue;
+            }
+        }
+        if timing.is_none() {
+            timing = parse_transition_timing(token);
+        }
+    }
+
+    Some((duration, delay, timing))
+}
+
+fn parse_duration(value: &str) -> Option<Duration> {
+    let token = value.trim().to_lowercase();
+    if token.is_empty() {
+        return None;
+    }
+    if let Some(raw) = token.strip_suffix("ms") {
+        let ms: f64 = raw.trim().parse().ok()?;
+        if ms.is_sign_negative() {
+            return None;
+        }
+        return Some(Duration::from_secs_f64(ms / 1000.0));
+    }
+    if let Some(raw) = token.strip_suffix('s') {
+        let secs: f64 = raw.trim().parse().ok()?;
+        if secs.is_sign_negative() {
+            return None;
+        }
+        return Some(Duration::from_secs_f64(secs));
+    }
+    None
+}
+
+fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
+    match value.trim().to_lowercase().as_str() {
+        "linear" => Some(TransitionTiming::Linear),
+        "ease" | "ease-in-out" => Some(TransitionTiming::InOutCubic),
+        "ease-out" => Some(TransitionTiming::OutCubic),
+        "none" => Some(TransitionTiming::None),
+        "round" | "step-end" | "steps(1,end)" => Some(TransitionTiming::Round),
+        "in-out-cubic" | "in_out_cubic" => Some(TransitionTiming::InOutCubic),
+        "out-cubic" | "out_cubic" => Some(TransitionTiming::OutCubic),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_duration, parse_transition_shorthand, parse_transition_timing};
+    use crate::style::TransitionTiming;
+    use std::time::Duration;
+
+    #[test]
+    fn parses_transition_shorthand_duration_delay_and_timing() {
+        let parsed = parse_transition_shorthand("offset 300ms ease-in-out 75ms")
+            .expect("transition shorthand should parse");
+        assert_eq!(parsed.0, Some(Duration::from_millis(300)));
+        assert_eq!(parsed.1, Some(Duration::from_millis(75)));
+        assert_eq!(parsed.2, Some(TransitionTiming::InOutCubic));
+    }
+
+    #[test]
+    fn parses_duration_units() {
+        assert_eq!(parse_duration("250ms"), Some(Duration::from_millis(250)));
+        assert_eq!(parse_duration("0.5s"), Some(Duration::from_millis(500)));
+        assert_eq!(parse_duration("bogus"), None);
+    }
+
+    #[test]
+    fn parses_transition_timing_aliases() {
+        assert_eq!(
+            parse_transition_timing("ease-out"),
+            Some(TransitionTiming::OutCubic)
+        );
+        assert_eq!(
+            parse_transition_timing("steps(1,end)"),
+            Some(TransitionTiming::Round)
+        );
+        assert_eq!(parse_transition_timing("unknown"), None);
+    }
 }

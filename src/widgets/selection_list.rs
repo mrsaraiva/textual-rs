@@ -120,10 +120,7 @@ impl SelectionList {
         }
         self.selected_set[index] = !self.selected_set[index];
         let selected = self.selected_set[index];
-        ctx.post_message(
-            self.id,
-            Message::SelectionListToggled { index, selected },
-        );
+        ctx.post_message(self.id, Message::SelectionListToggled { index, selected });
         ctx.post_message(self.id, Message::SelectionListSelectedChanged);
         ctx.request_repaint();
     }
@@ -274,7 +271,10 @@ impl Widget for SelectionList {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 // Compute the item index from the click position.
-                let index = self.inner.offset_for_click().saturating_add(mouse.y as usize);
+                let index = self
+                    .inner
+                    .offset_for_click()
+                    .saturating_add(mouse.y as usize);
                 if index < self.inner.option_count() {
                     // First, highlight the clicked item via the inner list.
                     self.inner.set_highlighted(index);
@@ -304,9 +304,12 @@ impl Widget for SelectionList {
                 _ => {}
             },
             // Delegate action-based scroll to inner list.
-            Event::Action(Action::ScrollUp | Action::ScrollDown | Action::ScrollPageUp | Action::ScrollPageDown)
-                if self.focused =>
-            {
+            Event::Action(
+                Action::ScrollUp
+                | Action::ScrollDown
+                | Action::ScrollPageUp
+                | Action::ScrollPageDown,
+            ) if self.focused => {
                 self.inner.on_event(event, ctx);
             }
             _ => {}
@@ -360,7 +363,9 @@ impl Widget for SelectionList {
                             adjust_line_length_no_bg(&[Segment::styled(text, sep_style)], width);
                         out.extend(line);
                     }
-                    OptionItem::Option { prompt, disabled, .. } => {
+                    OptionItem::Option {
+                        prompt, disabled, ..
+                    } => {
                         // Resolve the option row style (same classes as OptionList).
                         let mut opt_classes = vec!["option-list--option"];
                         if highlighted {
@@ -387,10 +392,9 @@ impl Widget for SelectionList {
                         if highlighted {
                             btn_class.push_str("-highlighted");
                         }
-                        let btn_style =
-                            crate::css::resolve_component_style(self, &[&btn_class])
-                                .to_rich()
-                                .unwrap_or(opt_style);
+                        let btn_style = crate::css::resolve_component_style(self, &[&btn_class])
+                            .to_rich()
+                            .unwrap_or(opt_style);
 
                         // Build the button prefix: ▐X▌  or ▐ ▌
                         let inner_char = if selected {
@@ -424,10 +428,8 @@ impl Widget for SelectionList {
                 }
             } else {
                 // Empty row below the items.
-                let line = adjust_line_length_no_bg(
-                    &[Segment::styled(String::new(), base_style)],
-                    width,
-                );
+                let line =
+                    adjust_line_length_no_bg(&[Segment::styled(String::new(), base_style)], width);
                 out.extend(line);
             }
 
@@ -500,10 +502,7 @@ mod tests {
 
     #[test]
     fn selection_list_toggle() {
-        let selections = vec![
-            Selection::new("Alpha", "a"),
-            Selection::new("Beta", "b"),
-        ];
+        let selections = vec![Selection::new("Alpha", "a"), Selection::new("Beta", "b")];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
@@ -533,10 +532,7 @@ mod tests {
 
     #[test]
     fn selection_list_select_deselect_individual() {
-        let selections = vec![
-            Selection::new("A", "a"),
-            Selection::new("B", "b"),
-        ];
+        let selections = vec![Selection::new("A", "a"), Selection::new("B", "b")];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 

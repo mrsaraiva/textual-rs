@@ -5,6 +5,6 @@ expression: buf.debug_dump()
 ---
 lines:
 0: " One  Two           "
-1: "first               "
-2: "                    "
+1: "────────────────────"
+2: "first               "
 meta:

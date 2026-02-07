@@ -1,21 +1,20 @@
 ---
 source: tests/command_palette_snapshot.rs
-assertion_line: 31
 expression: buf.debug_dump()
 ---
 lines:
-0: "Body content                                                            "
+0: " 🔎 Search for commands...                                              "
 1: "                                                                        "
-2: " 🔎 Search for commands...                                              "
-3: "                                                                        "
-4: " Keys                                                                   "
-5: " Show help for the focused widget and available keys                    "
-6: " Maximize                                                               "
-7: " Maximize the focused widget                                            "
-8: " Quit                                                                   "
-9: " Quit the application as soon as possible                               "
-10: " Screenshot                                                             "
-11: " Save an SVG screenshot of the current screen                           "
-12: "                                                                        "
+2: " Keys                                                                   "
+3: " Show help for the focused widget and available keys                    "
+4: " Maximize                                                               "
+5: " Maximize the focused widget                                            "
+6: " Quit                                                                   "
+7: " Quit the application as soon as possible                               "
+8: " Screenshot                                                             "
+9: " Save an SVG screenshot of the current screen                           "
+10: "                                                                        "
+11: "                                                                        "
+12: "────────────────────────────────────────────────────────────────────────"
 13: "                                                                        "
 meta:

@@ -718,7 +718,8 @@ impl App {
                                     outcome.messages.len()
                                 ));
                                 self.absorb_outcome(&mut outcome, &mut dirty);
-                                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                let mut msg_outcome =
+                                    dispatch_message_queue(root, outcome.messages);
                                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
@@ -763,7 +764,8 @@ impl App {
                                     }),
                                 );
                                 self.absorb_outcome(&mut outcome, &mut dirty);
-                                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                let mut msg_outcome =
+                                    dispatch_message_queue(root, outcome.messages);
                                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
@@ -860,7 +862,8 @@ impl App {
                                 )
                             };
                             self.absorb_outcome(&mut diag_outcome, &mut dirty);
-                            let mut msg_outcome = dispatch_message_queue(root, diag_outcome.messages);
+                            let mut msg_outcome =
+                                dispatch_message_queue(root, diag_outcome.messages);
                             self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             let mut outcome = if let Some(target) = target {
                                 dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
@@ -890,7 +893,8 @@ impl App {
                         self.refresh_size()?;
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
-                        let mut outcome = dispatch_event(root, Event::Resize(size.width, size.height));
+                        let mut outcome =
+                            dispatch_event(root, Event::Resize(size.width, size.height));
                         self.absorb_outcome(&mut outcome, &mut dirty);
                         let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
                         self.absorb_outcome(&mut msg_outcome, &mut dirty);

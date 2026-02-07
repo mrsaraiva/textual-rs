@@ -6,6 +6,7 @@ use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
 use crate::message::Message;
+use crate::style::TransitionTiming;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
@@ -60,6 +61,7 @@ impl TabbedContent {
     const UNDERLINE_START_ATTR: &'static str = "tabbed_content.underline_start";
     const UNDERLINE_END_ATTR: &'static str = "tabbed_content.underline_end";
     const UNDERLINE_ANIMATION_DURATION: Duration = Duration::from_millis(300);
+    const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
 
     pub fn new() -> Self {
         Self {
@@ -140,6 +142,7 @@ impl TabbedContent {
             let target_span = self.span_for_index(self.active);
             if let Some(ctx) = ctx.as_mut() {
                 if let Some((target_start, target_end)) = target_span {
+                    let (duration, delay, ease) = self.underline_animation_params();
                     let fallback_source = self
                         .span_for_index(previous_active)
                         .unwrap_or((target_start, target_end));
@@ -159,9 +162,10 @@ impl TabbedContent {
                             Self::UNDERLINE_START_ATTR,
                             from_start,
                             target_start,
-                            Self::UNDERLINE_ANIMATION_DURATION,
+                            duration,
                         )
-                        .with_ease(AnimationEase::InOutCubic)
+                        .with_delay(delay)
+                        .with_ease(ease)
                         .with_level(AnimationLevel::Basic),
                     );
                     ctx.request_animation(
@@ -170,9 +174,10 @@ impl TabbedContent {
                             Self::UNDERLINE_END_ATTR,
                             from_end,
                             target_end,
-                            Self::UNDERLINE_ANIMATION_DURATION,
+                            duration,
                         )
-                        .with_ease(AnimationEase::InOutCubic)
+                        .with_delay(delay)
+                        .with_ease(ease)
                         .with_level(AnimationLevel::Basic),
                     );
                 } else {
@@ -252,6 +257,32 @@ impl TabbedContent {
         } else {
             self.underline_start = 0.0;
             self.underline_end = 0.0;
+        }
+    }
+
+    fn underline_animation_params(&self) -> (Duration, Duration, AnimationEase) {
+        let style =
+            crate::css::resolve_component_style(self, &["tabbed-content--underline", "-active"]);
+        let duration = style
+            .transition_duration
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DURATION);
+        let delay = style
+            .transition_delay
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DELAY);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::InOutCubic);
+        (duration, delay, ease)
+    }
+
+    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
+        match timing {
+            TransitionTiming::Linear => AnimationEase::Linear,
+            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+            TransitionTiming::OutCubic => AnimationEase::OutCubic,
+            TransitionTiming::Round => AnimationEase::Round,
+            TransitionTiming::None => AnimationEase::None,
         }
     }
 

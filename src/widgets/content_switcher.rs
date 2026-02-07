@@ -145,10 +145,7 @@ impl Widget for ContentSwitcher {
             None => {
                 // No visible child: render empty space
                 let mut out = Segments::new();
-                out.push(Segment::styled(
-                    " ".repeat(width),
-                    rich_rs::Style::new(),
-                ));
+                out.push(Segment::styled(" ".repeat(width), rich_rs::Style::new()));
                 return out;
             }
         };

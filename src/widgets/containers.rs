@@ -1,14 +1,17 @@
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::css;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{
+    Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+};
 use crate::message::{Message, MessageEvent};
-use crate::style::{Style, parse_color_like};
+use crate::style::{Style, TransitionTiming, parse_color_like};
 
 use super::{
     LayoutConstraints, Widget, WidgetId, WidgetRenderable, WidgetStyles,
@@ -1197,6 +1200,7 @@ impl Widget for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
+    use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::{Input, ListView, collect_focus_ids, set_focus_by_id};
     use rich_rs::Console;
 
@@ -1243,6 +1247,36 @@ mod focus_tests {
         scroll.on_mouse_scroll(0, 1, &mut ctx);
         assert!(ctx.handled());
         assert_eq!(scroll.offset_y, 1);
+    }
+
+    #[test]
+    fn scroll_view_action_emits_offset_animation_requests_when_transition_enabled() {
+        let _guard = set_style_context(StyleSheet::parse(
+            "ScrollView > .scrollview--content { transition: scrollview.offset 120ms ease-out; }",
+        ));
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (12, 3);
+        options.max_width = 12;
+        options.max_height = 3;
+
+        let list = ListView::new(vec![
+            "item 1".to_string(),
+            "item 2".to_string(),
+            "item 3".to_string(),
+            "item 4".to_string(),
+            "item 5".to_string(),
+        ]);
+        let mut scroll = ScrollView::new(list).height(3);
+        let _ = Widget::render(&scroll, &console, &options);
+
+        let mut ctx = EventCtx::default();
+        scroll.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        let requests = ctx.take_animation_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].attribute, ScrollView::OFFSET_Y_ATTR);
+        assert_eq!(requests[0].start, 0.0);
+        assert_eq!(requests[0].end, 1.0);
     }
 
     #[test]
@@ -1787,10 +1821,12 @@ pub struct ScrollView {
     child: Box<dyn Widget>,
     height: Option<usize>,
     offset_y: usize,
+    render_offset_y: f32,
     scroll_step: usize,
     content_height: AtomicUsize,
     viewport_height: AtomicUsize,
     offset_x: usize,
+    render_offset_x: f32,
     scroll_step_x: usize,
     content_width: AtomicUsize,
     viewport_width: AtomicUsize,
@@ -1802,16 +1838,21 @@ pub struct ScrollView {
 }
 
 impl ScrollView {
+    const OFFSET_Y_ATTR: &'static str = "scrollview.offset_y";
+    const OFFSET_X_ATTR: &'static str = "scrollview.offset_x";
+
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
             id: WidgetId::new(),
             child: Box::new(child),
             height: None,
             offset_y: 0,
+            render_offset_y: 0.0,
             scroll_step: 1,
             content_height: AtomicUsize::new(0),
             viewport_height: AtomicUsize::new(0),
             offset_x: 0,
+            render_offset_x: 0.0,
             scroll_step_x: 2,
             content_width: AtomicUsize::new(0),
             viewport_width: AtomicUsize::new(0),
@@ -1831,11 +1872,13 @@ impl ScrollView {
     pub fn scroll_to(&mut self, offset_y: usize) {
         self.offset_y = offset_y;
         self.clamp_offset();
+        self.render_offset_y = self.offset_y as f32;
     }
 
     pub fn scroll_to_x(&mut self, offset_x: usize) {
         self.offset_x = offset_x;
         self.clamp_offset();
+        self.render_offset_x = self.offset_x as f32;
     }
 
     pub fn scroll_by(&mut self, delta: i32) {
@@ -1845,6 +1888,7 @@ impl ScrollView {
             self.offset_y = self.offset_y.saturating_add(delta as usize);
         }
         self.clamp_offset();
+        self.render_offset_y = self.offset_y as f32;
     }
 
     pub fn scroll_by_x(&mut self, delta: i32) {
@@ -1854,6 +1898,7 @@ impl ScrollView {
             self.offset_x = self.offset_x.saturating_add(delta as usize);
         }
         self.clamp_offset();
+        self.render_offset_x = self.offset_x as f32;
     }
 
     pub fn scroll_step(mut self, step: usize) -> Self {
@@ -1891,10 +1936,86 @@ impl ScrollView {
         if self.offset_y > max_y {
             self.offset_y = max_y;
         }
+        self.render_offset_y = self.render_offset_y.clamp(0.0, max_y as f32);
         let max_x = self.max_offset_x();
         if self.offset_x > max_x {
             self.offset_x = max_x;
         }
+        self.render_offset_x = self.render_offset_x.clamp(0.0, max_x as f32);
+    }
+
+    fn scroll_animation_params(&self) -> Option<(Duration, Duration, AnimationEase)> {
+        let style = crate::css::resolve_component_style(self, &["scrollview--content"]);
+        let duration = style.transition_duration?;
+        if duration.is_zero() {
+            return None;
+        }
+        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::OutCubic);
+        Some((duration, delay, ease))
+    }
+
+    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
+        match timing {
+            TransitionTiming::Linear => AnimationEase::Linear,
+            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+            TransitionTiming::OutCubic => AnimationEase::OutCubic,
+            TransitionTiming::Round => AnimationEase::Round,
+            TransitionTiming::None => AnimationEase::None,
+        }
+    }
+
+    fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+        if from == to {
+            self.render_offset_y = to as f32;
+            return;
+        }
+        if let Some((duration, delay, ease)) = self.scroll_animation_params() {
+            self.render_offset_y = from as f32;
+            ctx.request_animation(
+                AnimationRequest::new(
+                    self.id,
+                    Self::OFFSET_Y_ATTR,
+                    from as f32,
+                    to as f32,
+                    duration,
+                )
+                .with_delay(delay)
+                .with_ease(ease)
+                .with_level(AnimationLevel::Basic),
+            );
+        } else {
+            self.render_offset_y = to as f32;
+        }
+        ctx.request_repaint();
+    }
+
+    fn request_offset_x_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+        if from == to {
+            self.render_offset_x = to as f32;
+            return;
+        }
+        if let Some((duration, delay, ease)) = self.scroll_animation_params() {
+            self.render_offset_x = from as f32;
+            ctx.request_animation(
+                AnimationRequest::new(
+                    self.id,
+                    Self::OFFSET_X_ATTR,
+                    from as f32,
+                    to as f32,
+                    duration,
+                )
+                .with_delay(delay)
+                .with_ease(ease)
+                .with_level(AnimationLevel::Basic),
+            );
+        } else {
+            self.render_offset_x = to as f32;
+        }
+        ctx.request_repaint();
     }
 
     fn scrollbar_thumb(
@@ -2081,9 +2202,9 @@ impl Widget for ScrollView {
         self.content_width.store(content_width, Ordering::Relaxed);
 
         let max_offset = content_height.saturating_sub(content_viewport_h);
-        let offset = self.offset_y.min(max_offset);
+        let offset = self.render_offset_y.clamp(0.0, max_offset as f32).round() as usize;
         let max_offset_x = content_width.saturating_sub(content_viewport_w);
-        let offset_x = self.offset_x.min(max_offset_x);
+        let offset_x = self.render_offset_x.clamp(0.0, max_offset_x as f32).round() as usize;
         let start = offset.min(lines.len());
         let end = (start + content_viewport_h).min(lines.len());
         let mut slice = lines[start..end]
@@ -2249,6 +2370,32 @@ impl Widget for ScrollView {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::AnimationValue(AnimationValueEvent {
+            target,
+            attribute,
+            value,
+            done,
+        }) = event
+        {
+            if *target == self.id {
+                if attribute == Self::OFFSET_Y_ATTR {
+                    if self.drag_v.is_none() {
+                        self.render_offset_y = if *done { self.offset_y as f32 } else { *value };
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+                if attribute == Self::OFFSET_X_ATTR {
+                    if self.drag_h.is_none() {
+                        self.render_offset_x = if *done { self.offset_x as f32 } else { *value };
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.id {
                 let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
@@ -2283,6 +2430,7 @@ impl Widget for ScrollView {
                         self.scroll_by(viewport_h as i32);
                     }
                     if self.offset_y != before {
+                        self.request_offset_y_animation(before, self.offset_y, ctx);
                         ctx.request_repaint();
                     }
                     ctx.set_handled();
@@ -2308,6 +2456,7 @@ impl Widget for ScrollView {
                         self.scroll_by_x(viewport_w as i32);
                     }
                     if self.offset_x != before {
+                        self.request_offset_x_animation(before, self.offset_x, ctx);
                         ctx.request_repaint();
                     }
                     ctx.set_handled();
@@ -2334,6 +2483,7 @@ impl Widget for ScrollView {
                 Action::ScrollUp => {
                     let before = self.offset_y;
                     self.scroll_by(-(self.scroll_step as i32));
+                    self.request_offset_y_animation(before, self.offset_y, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollUp before_y={} after_y={} max_y={}",
                         before,
@@ -2346,6 +2496,7 @@ impl Widget for ScrollView {
                 Action::ScrollDown => {
                     let before = self.offset_y;
                     self.scroll_by(self.scroll_step as i32);
+                    self.request_offset_y_animation(before, self.offset_y, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollDown before_y={} after_y={} max_y={}",
                         before,
@@ -2359,6 +2510,7 @@ impl Widget for ScrollView {
                     let before = self.offset_y;
                     let page = self.height.unwrap_or(1).max(1);
                     self.scroll_by(-(page as i32));
+                    self.request_offset_y_animation(before, self.offset_y, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollPageUp page={} before_y={} after_y={} max_y={}",
                         page,
@@ -2373,6 +2525,7 @@ impl Widget for ScrollView {
                     let before = self.offset_y;
                     let page = self.height.unwrap_or(1).max(1);
                     self.scroll_by(page as i32);
+                    self.request_offset_y_animation(before, self.offset_y, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollPageDown page={} before_y={} after_y={} max_y={}",
                         page,
@@ -2386,6 +2539,7 @@ impl Widget for ScrollView {
                 Action::ScrollLeft => {
                     let before = self.offset_x;
                     self.scroll_by_x(-(self.scroll_step_x as i32));
+                    self.request_offset_x_animation(before, self.offset_x, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollLeft before_x={} after_x={} max_x={}",
                         before,
@@ -2398,6 +2552,7 @@ impl Widget for ScrollView {
                 Action::ScrollRight => {
                     let before = self.offset_x;
                     self.scroll_by_x(self.scroll_step_x as i32);
+                    self.request_offset_x_animation(before, self.offset_x, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollRight before_x={} after_x={} max_x={}",
                         before,
@@ -2411,6 +2566,7 @@ impl Widget for ScrollView {
                     let before = self.offset_x;
                     let page = self.viewport_width.load(Ordering::Relaxed).max(1);
                     self.scroll_by_x(-(page as i32));
+                    self.request_offset_x_animation(before, self.offset_x, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollPageLeft page={} before_x={} after_x={} max_x={}",
                         page,
@@ -2425,6 +2581,7 @@ impl Widget for ScrollView {
                     let before = self.offset_x;
                     let page = self.viewport_width.load(Ordering::Relaxed).max(1);
                     self.scroll_by_x(page as i32);
+                    self.request_offset_x_animation(before, self.offset_x, ctx);
                     debug_input(&format!(
                         "[scrollview] action=ScrollPageRight page={} before_x={} after_x={} max_x={}",
                         page,
@@ -2463,6 +2620,8 @@ impl Widget for ScrollView {
         ));
 
         if self.offset_x != before_x || self.offset_y != before_y {
+            self.request_offset_x_animation(before_x, self.offset_x, ctx);
+            self.request_offset_y_animation(before_y, self.offset_y, ctx);
             ctx.request_repaint();
             ctx.set_handled();
         }
@@ -2489,6 +2648,7 @@ impl Widget for ScrollView {
                 };
                 if new_offset != self.offset_y {
                     self.offset_y = new_offset;
+                    self.render_offset_y = new_offset as f32;
                     changed = true;
                 }
             }
@@ -2511,6 +2671,7 @@ impl Widget for ScrollView {
                 };
                 if new_offset != self.offset_x {
                     self.offset_x = new_offset;
+                    self.render_offset_x = new_offset as f32;
                     changed = true;
                 }
             }

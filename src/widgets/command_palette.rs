@@ -1,8 +1,12 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use std::time::Duration;
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{
+    Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+};
 use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
+use crate::style::TransitionTiming;
 
 use super::{Input, KeyPanel, ListView, Widget, WidgetId, WidgetRenderable, WidgetStyles};
 
@@ -33,12 +37,19 @@ pub struct CommandPalette {
     key_panel: KeyPanel,
     commands: Vec<PaletteCommand>,
     filtered: Vec<usize>,
+    key_panel_render_width: f32,
+    panel_visible: bool,
+    panel_render_y: f32,
     layout_width: usize,
     layout_height: usize,
     styles: WidgetStyles,
 }
 
 impl CommandPalette {
+    const KEY_PANEL_WIDTH_ATTR: &'static str = "command_palette.key_panel_width";
+    const PANEL_Y_ATTR: &'static str = "command_palette.panel_y";
+    const CLOSED_PANEL_Y: f32 = 0.0;
+
     pub fn new(child: impl Widget + 'static) -> Self {
         let commands = vec![
             PaletteCommand::new(
@@ -65,6 +76,9 @@ impl CommandPalette {
             key_panel: KeyPanel::new(),
             commands,
             filtered: Vec::new(),
+            key_panel_render_width: 0.0,
+            panel_visible: false,
+            panel_render_y: 0.0,
             layout_width: 1,
             layout_height: 1,
             styles: WidgetStyles::default(),
@@ -89,6 +103,107 @@ impl CommandPalette {
         }
         let preferred = ((width as f32) * 0.30).round() as usize;
         preferred.clamp(28, 40).min(width.saturating_sub(20))
+    }
+
+    fn visible_key_panel_width(&self, width: usize) -> usize {
+        if self.open {
+            return 0;
+        }
+        let max_width = self.key_panel_width(width);
+        if !self.show_key_panel && self.key_panel_render_width <= 0.5 {
+            return 0;
+        }
+        self.key_panel_render_width
+            .round()
+            .clamp(0.0, max_width as f32) as usize
+    }
+
+    fn key_panel_animation_params(&self) -> Option<(Duration, Duration, AnimationEase)> {
+        let style = crate::css::resolve_component_style(self, &["command-palette--key-panel"]);
+        let duration = style.transition_duration?;
+        if duration.is_zero() {
+            return None;
+        }
+        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::OutCubic);
+        Some((duration, delay, ease))
+    }
+
+    fn panel_animation_params(&self) -> Option<(Duration, Duration, AnimationEase)> {
+        let style = crate::css::resolve_component_style(self, &["command-palette--panel"]);
+        let duration = style.transition_duration?;
+        if duration.is_zero() {
+            return None;
+        }
+        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::OutCubic);
+        Some((duration, delay, ease))
+    }
+
+    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
+        match timing {
+            TransitionTiming::Linear => AnimationEase::Linear,
+            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+            TransitionTiming::OutCubic => AnimationEase::OutCubic,
+            TransitionTiming::Round => AnimationEase::Round,
+            TransitionTiming::None => AnimationEase::None,
+        }
+    }
+
+    fn animate_key_panel_width(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+        if from == to {
+            self.key_panel_render_width = to as f32;
+            return;
+        }
+        if let Some((duration, delay, ease)) = self.key_panel_animation_params() {
+            self.key_panel_render_width = from as f32;
+            ctx.request_animation(
+                AnimationRequest::new(
+                    self.id,
+                    Self::KEY_PANEL_WIDTH_ATTR,
+                    from as f32,
+                    to as f32,
+                    duration,
+                )
+                .with_delay(delay)
+                .with_ease(ease)
+                .with_level(AnimationLevel::Basic),
+            );
+        } else {
+            self.key_panel_render_width = to as f32;
+        }
+    }
+
+    fn animate_panel_y(&mut self, from: f32, to: f32, ctx: &mut EventCtx) {
+        if (from - to).abs() < f32::EPSILON {
+            self.panel_render_y = to;
+            return;
+        }
+        if let Some((duration, delay, ease)) = self.panel_animation_params() {
+            self.panel_render_y = from;
+            ctx.request_animation(
+                AnimationRequest::new(self.id, Self::PANEL_Y_ATTR, from, to, duration)
+                    .with_delay(delay)
+                    .with_ease(ease)
+                    .with_level(AnimationLevel::Basic),
+            );
+        } else {
+            self.panel_render_y = to;
+            if !self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y {
+                self.panel_visible = false;
+            }
+        }
+    }
+
+    fn panel_target_y(&self) -> f32 {
+        let (_, panel_y, _, _) = self.palette_geometry(self.layout_width, self.layout_height);
+        panel_y as f32
     }
 
     fn palette_geometry(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
@@ -146,20 +261,41 @@ impl CommandPalette {
     }
 
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
-        if self.open == open {
+        if self.open == open
+            && ((self.open && self.panel_visible) || (!self.open && !self.panel_visible))
+        {
             return;
         }
+        let was_open = self.open;
+        let was_visible = self.panel_visible;
         self.open = open;
         if self.open {
+            self.panel_visible = true;
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
             self.rebuild_results();
+            let target_y = self.panel_target_y();
+            let start_y = if was_visible {
+                self.panel_render_y
+            } else {
+                Self::CLOSED_PANEL_Y
+            };
+            self.animate_panel_y(start_y, target_y, ctx);
             ctx.post_message(self.id, Message::CommandPaletteOpened);
         } else {
             self.query.set_focus(false);
             self.list.set_focus(false);
-            ctx.post_message(self.id, Message::CommandPaletteClosed);
+            let start_y = self.panel_render_y;
+            if was_visible {
+                self.animate_panel_y(start_y, Self::CLOSED_PANEL_Y, ctx);
+                if !self.panel_visible && self.panel_render_y <= Self::CLOSED_PANEL_Y {
+                    self.panel_visible = false;
+                }
+            }
+            if was_open {
+                ctx.post_message(self.id, Message::CommandPaletteClosed);
+            }
         }
         ctx.request_repaint();
     }
@@ -174,7 +310,17 @@ impl CommandPalette {
         match command.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
+                let before = self
+                    .key_panel_render_width
+                    .round()
+                    .clamp(0.0, self.layout_width as f32) as usize;
                 self.show_key_panel = !self.show_key_panel;
+                let target = if self.show_key_panel {
+                    self.key_panel_width(self.layout_width)
+                } else {
+                    0
+                };
+                self.animate_key_panel_width(before, target, ctx);
                 ctx.request_repaint();
             }
             _ => {
@@ -203,8 +349,8 @@ impl Widget for CommandPalette {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let (width, height) = options.size;
 
-        if !self.open {
-            let key_width = self.key_panel_width(width);
+        if !self.open && !self.panel_visible {
+            let key_width = self.visible_key_panel_width(width);
             if key_width == 0 {
                 return self.child.render_styled(console, options);
             }
@@ -256,7 +402,12 @@ impl Widget for CommandPalette {
             None,
         );
         let mut merged = base.clone();
-        let (panel_x, panel_y, panel_width, panel_height) = self.palette_geometry(width, height);
+        let (panel_x, target_panel_y, panel_width, panel_height) =
+            self.palette_geometry(width, height);
+        let panel_y = self
+            .panel_render_y
+            .round()
+            .clamp(0.0, target_panel_y as f32) as usize;
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
@@ -437,7 +588,20 @@ impl Widget for CommandPalette {
         let total_height = usize::from(height);
         self.layout_width = total_width.max(1);
         self.layout_height = total_height.max(1);
-        let key_width = self.key_panel_width(total_width);
+        let panel_target_y = self.panel_target_y();
+        if self.open {
+            self.panel_visible = true;
+            self.panel_render_y = self
+                .panel_render_y
+                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+        } else if !self.panel_visible {
+            self.panel_render_y = Self::CLOSED_PANEL_Y;
+        } else {
+            self.panel_render_y = self
+                .panel_render_y
+                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+        }
+        let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
         self.child.on_resize(child_width, height);
         if key_width > 0 {
@@ -459,7 +623,20 @@ impl Widget for CommandPalette {
         let total_height = usize::from(height);
         self.layout_width = total_width.max(1);
         self.layout_height = total_height.max(1);
-        let key_width = self.key_panel_width(total_width);
+        let panel_target_y = self.panel_target_y();
+        if self.open {
+            self.panel_visible = true;
+            self.panel_render_y = self
+                .panel_render_y
+                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+        } else if !self.panel_visible {
+            self.panel_render_y = Self::CLOSED_PANEL_Y;
+        } else {
+            self.panel_render_y = self
+                .panel_render_y
+                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+        }
+        let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
         self.child.on_layout(child_width, height);
         if key_width > 0 {
@@ -488,6 +665,36 @@ impl Widget for CommandPalette {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::AnimationValue(AnimationValueEvent {
+            target,
+            attribute,
+            value,
+            done,
+        }) = event
+        {
+            if *target == self.id {
+                if attribute == Self::KEY_PANEL_WIDTH_ATTR {
+                    self.key_panel_render_width = (*value).max(0.0);
+                    if *done && !self.show_key_panel {
+                        self.key_panel_render_width = 0.0;
+                    }
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+                if attribute == Self::PANEL_Y_ATTR {
+                    self.panel_render_y = (*value).max(Self::CLOSED_PANEL_Y);
+                    if *done && !self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y {
+                        self.panel_visible = false;
+                    } else if self.open {
+                        self.panel_visible = true;
+                    }
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
         if matches!(event, Event::BindingsChanged(_)) {
             self.key_panel.on_event(event, ctx);
         }
@@ -650,6 +857,7 @@ impl Renderable for CommandPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::Message;
     use crate::widgets::Label;
@@ -711,5 +919,112 @@ mod tests {
 
         assert!(!palette.is_open());
         assert!(palette.show_key_panel);
+    }
+
+    #[test]
+    fn command_palette_keys_command_emits_key_panel_animation_request() {
+        let _guard = set_style_context(StyleSheet::parse(
+            "CommandPalette > .command-palette--key-panel { transition: command-palette.key-panel 220ms ease-out; }",
+        ));
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        assert!(palette.is_open());
+
+        let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+        let mut execute_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+
+        let requests = execute_ctx.take_animation_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].attribute, CommandPalette::KEY_PANEL_WIDTH_ATTR);
+        assert!(requests[0].end > requests[0].start);
+    }
+
+    #[test]
+    fn command_palette_keys_command_hides_key_panel_on_second_toggle() {
+        let _guard = set_style_context(StyleSheet::parse(
+            "CommandPalette > .command-palette--key-panel { transition: command-palette.key-panel 220ms ease-out; }",
+        ));
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        assert!(palette.is_open());
+
+        let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+
+        let mut first_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter.clone()), &mut first_ctx);
+        assert!(!palette.is_open());
+        assert!(palette.show_key_panel);
+        let first = first_ctx.take_animation_requests();
+        assert_eq!(first.len(), 1);
+        assert!(first[0].end > 0.0);
+        let mut settle_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::AnimationValue(AnimationValueEvent {
+                target: palette.id(),
+                attribute: CommandPalette::KEY_PANEL_WIDTH_ATTR.to_string(),
+                value: first[0].end,
+                done: true,
+            }),
+            &mut settle_ctx,
+        );
+
+        let mut reopen_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut reopen_ctx);
+        assert!(palette.is_open());
+
+        let mut second_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter), &mut second_ctx);
+        assert!(!palette.is_open());
+        assert!(!palette.show_key_panel);
+        let second = second_ctx.take_animation_requests();
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].attribute, CommandPalette::KEY_PANEL_WIDTH_ATTR);
+        assert_eq!(second[0].end, 0.0);
+    }
+
+    #[test]
+    fn command_palette_open_close_emits_panel_animation_requests() {
+        let _guard = set_style_context(StyleSheet::parse(
+            "CommandPalette > .command-palette--panel { transition: command-palette.panel-y 180ms ease-out; }",
+        ));
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+        let open_requests = open_ctx.take_animation_requests();
+        assert_eq!(open_requests.len(), 1);
+        assert_eq!(open_requests[0].attribute, CommandPalette::PANEL_Y_ATTR);
+        assert!(open_requests[0].end > open_requests[0].start);
+        let mut settle_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::AnimationValue(AnimationValueEvent {
+                target: palette.id(),
+                attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
+                value: open_requests[0].end,
+                done: true,
+            }),
+            &mut settle_ctx,
+        );
+
+        let mut close_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        assert!(!palette.is_open());
+        let close_requests = close_ctx.take_animation_requests();
+        assert_eq!(close_requests.len(), 1);
+        assert_eq!(close_requests[0].attribute, CommandPalette::PANEL_Y_ATTR);
+        assert!(close_requests[0].end <= close_requests[0].start);
     }
 }

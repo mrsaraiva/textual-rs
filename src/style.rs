@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Color {
     pub r: u8,
@@ -478,6 +480,9 @@ pub struct Style {
     pub max_width: Option<usize>,
     pub min_height: Option<usize>,
     pub max_height: Option<usize>,
+    pub transition_duration: Option<Duration>,
+    pub transition_delay: Option<Duration>,
+    pub transition_timing: Option<TransitionTiming>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -497,6 +502,15 @@ impl Tint {
     pub fn amount(self) -> f32 {
         (self.percent as f32) / 100.0
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransitionTiming {
+    Linear,
+    InOutCubic,
+    OutCubic,
+    Round,
+    None,
 }
 
 impl Style {
@@ -622,6 +636,21 @@ impl Style {
         self
     }
 
+    pub fn transition_duration(mut self, value: Duration) -> Self {
+        self.transition_duration = Some(value);
+        self
+    }
+
+    pub fn transition_delay(mut self, value: Duration) -> Self {
+        self.transition_delay = Some(value);
+        self
+    }
+
+    pub fn transition_timing(mut self, value: TransitionTiming) -> Self {
+        self.transition_timing = Some(value);
+        self
+    }
+
     pub fn combine(&self, other: &Style) -> Style {
         Style {
             fg: other.fg.or(self.fg),
@@ -662,6 +691,9 @@ impl Style {
             max_width: other.max_width.or(self.max_width),
             min_height: other.min_height.or(self.min_height),
             max_height: other.max_height.or(self.max_height),
+            transition_duration: other.transition_duration.or(self.transition_duration),
+            transition_delay: other.transition_delay.or(self.transition_delay),
+            transition_timing: other.transition_timing.or(self.transition_timing),
         }
     }
 
@@ -689,6 +721,9 @@ impl Style {
             max_width: self.max_width,
             min_height: self.min_height,
             max_height: self.max_height,
+            transition_duration: self.transition_duration,
+            transition_delay: self.transition_delay,
+            transition_timing: self.transition_timing,
         }
     }
 
@@ -767,6 +802,9 @@ impl Style {
             && self.max_width.is_none()
             && self.min_height.is_none()
             && self.max_height.is_none()
+            && self.transition_duration.is_none()
+            && self.transition_delay.is_none()
+            && self.transition_timing.is_none()
     }
 }
 

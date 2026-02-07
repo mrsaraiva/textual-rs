@@ -140,7 +140,12 @@ impl Widget for Collapsible {
         let symbol_width = rich_rs::cell_len(self.current_symbol());
         let title_width = rich_rs::cell_len(&self.title);
         // symbol + space + title
-        Some(symbol_width.saturating_add(1).saturating_add(title_width).max(1))
+        Some(
+            symbol_width
+                .saturating_add(1)
+                .saturating_add(title_width)
+                .max(1),
+        )
     }
 
     fn on_mount(&mut self) {
@@ -271,8 +276,7 @@ impl Widget for Collapsible {
                 let resolved = css::resolve_style(child.as_ref(), &meta);
                 let margin = margin_from_style(&resolved);
                 let style_constraints = constraints_from_style(&resolved);
-                let constraints =
-                    merge_constraints(style_constraints, child.layout_constraints());
+                let constraints = merge_constraints(style_constraints, child.layout_constraints());
                 let available_width = width.saturating_sub(margin.left + margin.right).max(1);
                 let render_width = clamp_with_constraints(
                     available_width,
@@ -300,8 +304,7 @@ impl Widget for Collapsible {
                 let segments = child.render_styled(console, &child_options);
                 let mut child_lines =
                     Segment::split_and_crop_lines(segments, render_width, None, true, false);
-                let mut target_height =
-                    child.layout_height().unwrap_or(child_lines.len().max(1));
+                let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
                 target_height = clamp_with_constraints(
                     target_height,
                     constraints.min_height,
@@ -316,8 +319,7 @@ impl Widget for Collapsible {
                     false,
                 );
                 child_lines = pad_lines_to_width(child_lines, render_width);
-                child_lines =
-                    super::helpers::apply_margin(child_lines, width, margin);
+                child_lines = super::helpers::apply_margin(child_lines, width, margin);
 
                 let child_h = child_lines.len();
                 for line in child_lines {
