@@ -1,9 +1,10 @@
+use crate::animation::{Animator, animation_level_from_env};
 use crate::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
 use crate::debug::{DebugLayout, debug_input, debug_message, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, Size, TerminalDriver};
 use crate::event::{
-    Action, ActionMap, BindingHint, Event, EventCtx, KeyBind, MouseDownEvent, MouseScrollEvent,
-    MouseUpEvent,
+    Action, ActionMap, AnimationRequest, AnimationValueEvent, BindingHint, Event, EventCtx,
+    KeyBind, MouseDownEvent, MouseScrollEvent, MouseUpEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
@@ -144,6 +145,8 @@ pub struct App {
     pointer_shape: PointerShape,
     app_active: bool,
     last_binding_hints: Vec<BindingHint>,
+    animator: Animator,
+    animation_level: crate::event::AnimationLevel,
 }
 
 #[derive(Debug, Clone)]
@@ -214,6 +217,8 @@ impl App {
             pointer_shape: PointerShape::Default,
             app_active: true,
             last_binding_hints: Vec::new(),
+            animator: Animator::new(60),
+            animation_level: animation_level_from_env(),
         };
         app.last_binding_hints = app.binding_hints();
         Ok(app)
@@ -273,18 +278,17 @@ impl App {
                 entry.system,
             ))
         });
-        out.sort_by(|left, right| {
-            right
-                .priority
-                .cmp(&left.priority)
-                .then_with(|| left.description.cmp(&right.description))
-                .then_with(|| left.key.cmp(&right.key))
-                .then_with(|| left.show.cmp(&right.show))
-                .then_with(|| left.system.cmp(&right.system))
-                .then_with(|| left.group.cmp(&right.group))
-                .then_with(|| left.key_display.cmp(&right.key_display))
-        });
-        out
+        let mut prioritized = Vec::new();
+        let mut regular = Vec::new();
+        for entry in out {
+            if entry.priority {
+                prioritized.push(entry);
+            } else {
+                regular.push(entry);
+            }
+        }
+        prioritized.extend(regular);
+        prioritized
     }
 
     pub fn set_command_palette_hint(&mut self, enabled: bool) {
@@ -613,14 +617,27 @@ impl App {
         }
 
         let mut tick: u64 = 0;
-        let tick_rate = Duration::from_millis(100);
+        let idle_tick_rate = Duration::from_millis(100);
+        let active_tick_rate = Duration::from_millis(16);
         let mut dirty = false;
         let mut prev_any_active = false;
         self.render_widget(root)?;
         let mut last_render = Instant::now();
 
         'event_loop: loop {
-            let timeout = tick_rate.saturating_sub(last_render.elapsed());
+            let now = Instant::now();
+            let has_runtime_animation = self.animator.has_animations();
+            let tick_rate = if has_runtime_animation || prev_any_active {
+                active_tick_rate
+            } else {
+                idle_tick_rate
+            };
+            let tick_timeout = tick_rate.saturating_sub(last_render.elapsed());
+            let timeout = self
+                .animator
+                .next_timeout(now)
+                .map(|anim_timeout| tick_timeout.min(anim_timeout))
+                .unwrap_or(tick_timeout);
             if event::poll(timeout)? {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
@@ -648,7 +665,7 @@ impl App {
                                 "[input] priority action-map {:?} -> {:?}",
                                 bind, action
                             ));
-                            let outcome = dispatch_event(root, Event::Action(action));
+                            let mut outcome = dispatch_event(root, Event::Action(action));
                             debug_input(&format!(
                                 "[input] priority action dispatch action={:?} handled={} repaint={} messages={}",
                                 action,
@@ -656,9 +673,9 @@ impl App {
                                 outcome.repaint_requested,
                                 outcome.messages.len()
                             ));
-                            dirty |= outcome.should_repaint();
-                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                            dirty |= msg_outcome.should_repaint();
+                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
                             }
@@ -668,16 +685,16 @@ impl App {
                         }
 
                         // Dispatch the raw key so focused widgets (e.g. Input) can consume it.
-                        let key_outcome = dispatch_event(root, Event::Key(key.clone()));
+                        let mut key_outcome = dispatch_event(root, Event::Key(key.clone()));
                         debug_input(&format!(
                             "[input] key dispatch handled={} repaint={} messages={}",
                             key_outcome.handled,
                             key_outcome.repaint_requested,
                             key_outcome.messages.len()
                         ));
-                        dirty |= key_outcome.should_repaint();
-                        let msg_outcome = dispatch_message_queue(root, key_outcome.messages);
-                        dirty |= msg_outcome.should_repaint();
+                        self.absorb_outcome(&mut key_outcome, &mut dirty);
+                        let mut msg_outcome = dispatch_message_queue(root, key_outcome.messages);
+                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if key_outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -688,7 +705,7 @@ impl App {
                                     "[input] action-map {:?} -> {:?}",
                                     bind, action
                                 ));
-                                let outcome = if is_scroll_action(action) {
+                                let mut outcome = if is_scroll_action(action) {
                                     dispatch_scroll_action(root, action, self.hovered)
                                 } else {
                                     dispatch_event(root, Event::Action(action))
@@ -700,9 +717,9 @@ impl App {
                                     outcome.repaint_requested,
                                     outcome.messages.len()
                                 ));
-                                dirty |= outcome.should_repaint();
-                                let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                                dirty |= msg_outcome.should_repaint();
+                                self.absorb_outcome(&mut outcome, &mut dirty);
+                                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
                                 }
@@ -735,7 +752,7 @@ impl App {
                                     "[input] mouse target id={}",
                                     target.as_u64()
                                 ));
-                                let outcome = dispatch_event(
+                                let mut outcome = dispatch_event(
                                     root,
                                     Event::MouseDown(MouseDownEvent {
                                         target,
@@ -745,9 +762,9 @@ impl App {
                                         y,
                                     }),
                                 );
-                                dirty |= outcome.should_repaint();
-                                let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                                dirty |= msg_outcome.should_repaint();
+                                self.absorb_outcome(&mut outcome, &mut dirty);
+                                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                                self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
                                 }
@@ -765,7 +782,7 @@ impl App {
                                     )
                                 })
                                 .unwrap_or((0, 0));
-                            let outcome = dispatch_event(
+                            let mut outcome = dispatch_event(
                                 root,
                                 Event::MouseUp(MouseUpEvent {
                                     target,
@@ -775,9 +792,9 @@ impl App {
                                     y,
                                 }),
                             );
-                            dirty |= outcome.should_repaint();
-                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                            dirty |= msg_outcome.should_repaint();
+                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
                             }
@@ -812,7 +829,7 @@ impl App {
                                 delta_x,
                                 delta_y
                             ));
-                            let diag_outcome = if let Some(target) = target {
+                            let mut diag_outcome = if let Some(target) = target {
                                 dispatch_event_to_target(
                                     root,
                                     target,
@@ -842,10 +859,10 @@ impl App {
                                     }),
                                 )
                             };
-                            dirty |= diag_outcome.should_repaint();
-                            let msg_outcome = dispatch_message_queue(root, diag_outcome.messages);
-                            dirty |= msg_outcome.should_repaint();
-                            let outcome = if let Some(target) = target {
+                            self.absorb_outcome(&mut diag_outcome, &mut dirty);
+                            let mut msg_outcome = dispatch_message_queue(root, diag_outcome.messages);
+                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                            let mut outcome = if let Some(target) = target {
                                 dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
                             } else {
                                 dispatch_mouse_scroll(root, delta_x, delta_y)
@@ -856,9 +873,9 @@ impl App {
                                 outcome.repaint_requested,
                                 outcome.messages.len()
                             ));
-                            dirty |= outcome.should_repaint();
-                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                            dirty |= msg_outcome.should_repaint();
+                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if diag_outcome.stop_requested
                                 || outcome.stop_requested
                                 || msg_outcome.stop_requested
@@ -873,40 +890,49 @@ impl App {
                         self.refresh_size()?;
                         let size = self.driver.size();
                         root.on_resize(size.width, size.height);
-                        let outcome = dispatch_event(root, Event::Resize(size.width, size.height));
-                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut outcome = dispatch_event(root, Event::Resize(size.width, size.height));
+                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
-                        dirty = true;
                     }
                     CrosstermEvent::FocusLost => {
                         self.app_active = false;
                         debug_input("[event] FocusLost");
-                        let outcome = dispatch_event(root, Event::AppFocus(false));
-                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut outcome = dispatch_event(root, Event::AppFocus(false));
+                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
-                        dirty = true;
                     }
                     CrosstermEvent::FocusGained => {
                         self.app_active = true;
                         debug_input("[event] FocusGained");
-                        let outcome = dispatch_event(root, Event::AppFocus(true));
-                        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut outcome = dispatch_event(root, Event::AppFocus(true));
+                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
-                        dirty = true;
                     }
                     _ => {}
                 }
             }
 
-            let binding_outcome = self.dispatch_binding_hints_changed(root);
-            dirty |= binding_outcome.should_repaint();
+            let mut binding_outcome = self.dispatch_binding_hints_changed(root);
+            self.absorb_outcome(&mut binding_outcome, &mut dirty);
             if binding_outcome.stop_requested {
+                break 'event_loop;
+            }
+
+            let mut animation_outcome = self.dispatch_animation_frame(root);
+            self.absorb_outcome(&mut animation_outcome, &mut dirty);
+            if animation_outcome.stop_requested {
                 break 'event_loop;
             }
 
@@ -925,10 +951,10 @@ impl App {
                     dirty = true;
                 }
                 root.on_tick(tick);
-                let outcome = dispatch_event(root, Event::Tick(tick));
-                dirty |= outcome.should_repaint();
-                let msg_outcome = dispatch_message_queue(root, outcome.messages);
-                dirty |= msg_outcome.should_repaint();
+                let mut outcome = dispatch_event(root, Event::Tick(tick));
+                self.absorb_outcome(&mut outcome, &mut dirty);
+                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                self.absorb_outcome(&mut msg_outcome, &mut dirty);
                 if outcome.stop_requested || msg_outcome.stop_requested {
                     break 'event_loop;
                 }
@@ -962,7 +988,55 @@ impl App {
             repaint_requested: outcome.repaint_requested || msg_outcome.repaint_requested,
             stop_requested: outcome.stop_requested || msg_outcome.stop_requested,
             messages: msg_outcome.messages,
+            animation_requests: {
+                let mut requests = outcome.animation_requests;
+                requests.extend(msg_outcome.animation_requests);
+                requests
+            },
         }
+    }
+
+    fn enqueue_animation_requests(&mut self, requests: Vec<AnimationRequest>) {
+        if requests.is_empty() {
+            return;
+        }
+        self.animator.enqueue_many(requests, Instant::now());
+    }
+
+    fn absorb_outcome(&mut self, outcome: &mut DispatchOutcome, dirty: &mut bool) {
+        *dirty |= outcome.should_repaint();
+        let requests = std::mem::take(&mut outcome.animation_requests);
+        self.enqueue_animation_requests(requests);
+    }
+
+    fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
+        let updates = self.animator.step(Instant::now(), self.animation_level);
+        if updates.is_empty() {
+            return DispatchOutcome::default();
+        }
+
+        let mut aggregate = DispatchOutcome::default();
+        for update in updates {
+            let mut outcome = dispatch_event_to_target(
+                root,
+                update.target,
+                &Event::AnimationValue(AnimationValueEvent {
+                    target: update.target,
+                    attribute: update.attribute,
+                    value: update.value,
+                    done: update.done,
+                }),
+            );
+            self.absorb_outcome(&mut outcome, &mut aggregate.repaint_requested);
+            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut aggregate.repaint_requested);
+
+            aggregate.handled |= outcome.handled || msg_outcome.handled;
+            aggregate.stop_requested |= outcome.stop_requested || msg_outcome.stop_requested;
+            aggregate.messages.extend(msg_outcome.messages);
+        }
+        aggregate.repaint_requested = true;
+        aggregate
     }
 
     fn print_segments(&mut self, diff: &rich_rs::Segments) -> Result<()> {
@@ -1406,6 +1480,7 @@ struct DispatchOutcome {
     repaint_requested: bool,
     stop_requested: bool,
     messages: Vec<MessageEvent>,
+    animation_requests: Vec<AnimationRequest>,
 }
 
 impl DispatchOutcome {
@@ -1427,6 +1502,7 @@ fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         repaint_requested: ctx.repaint_requested(),
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
+        animation_requests: ctx.take_animation_requests(),
     };
     debug_message(&format!(
         "[dispatch_event] event={event_debug} handled={} repaint={} messages={}",
@@ -1488,6 +1564,7 @@ fn dispatch_event_to_target(
     let handled = ctx.handled();
     let repaint_requested = ctx.repaint_requested();
     let messages = ctx.take_messages();
+    let animation_requests = ctx.take_animation_requests();
     debug_message(&format!(
         "[dispatch_event_to_target] target={} event={event:?} handled={} repaint={} messages={}",
         target.as_u64(),
@@ -1500,6 +1577,7 @@ fn dispatch_event_to_target(
         repaint_requested,
         stop_requested: ctx.stop_requested(),
         messages,
+        animation_requests,
     }
 }
 
@@ -1562,6 +1640,7 @@ fn dispatch_mouse_scroll(root: &mut dyn Widget, delta_x: i32, delta_y: i32) -> D
         repaint_requested: ctx.repaint_requested(),
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
+        animation_requests: ctx.take_animation_requests(),
     }
 }
 
@@ -1579,6 +1658,7 @@ fn dispatch_mouse_scroll_to_target(
     let handled = ctx.handled();
     let repaint_requested = ctx.repaint_requested();
     let messages = ctx.take_messages();
+    let animation_requests = ctx.take_animation_requests();
     debug_message(&format!(
         "[dispatch_mouse_scroll] target={} found={} dx={} dy={} handled={} repaint={} messages={}",
         target.as_u64(),
@@ -1594,6 +1674,7 @@ fn dispatch_mouse_scroll_to_target(
         repaint_requested,
         stop_requested: ctx.stop_requested(),
         messages,
+        animation_requests,
     }
 }
 
@@ -1632,6 +1713,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
     let mut stop_requested = false;
     let mut queue: VecDeque<MessageEvent> = initial.into();
     let mut emitted: Vec<MessageEvent> = Vec::new();
+    let mut animation_requests: Vec<AnimationRequest> = Vec::new();
     debug_message(&format!(
         "[dispatch_message_queue] start initial={}",
         queue.len()
@@ -1661,6 +1743,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
         repaint_requested |= ctx.repaint_requested();
         stop_requested |= ctx.stop_requested();
         let next = ctx.take_messages();
+        let mut next_animation_requests = ctx.take_animation_requests();
         debug_message(&format!(
             "[dispatch_message_queue] delivered idx={} handled={} repaint={} emitted_now={}",
             processed,
@@ -1672,6 +1755,9 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
             queue.extend(next.clone());
             emitted.extend(next);
         }
+        if !next_animation_requests.is_empty() {
+            animation_requests.append(&mut next_animation_requests);
+        }
     }
 
     let outcome = DispatchOutcome {
@@ -1679,6 +1765,7 @@ fn dispatch_message_queue(root: &mut dyn Widget, initial: Vec<MessageEvent>) -> 
         repaint_requested,
         stop_requested,
         messages: emitted,
+        animation_requests,
     };
     debug_message(&format!(
         "[dispatch_message_queue] end handled={} repaint={} emitted_total={} processed={}",

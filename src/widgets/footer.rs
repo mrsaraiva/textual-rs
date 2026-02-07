@@ -65,23 +65,48 @@ impl Footer {
         self
     }
 
-    fn line_text(&self) -> String {
-        if self.bindings.is_empty() {
-            return String::new();
+    fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
+        let style = crate::css::resolve_component_style(self, classes);
+        if style.is_empty() {
+            fallback
+        } else {
+            style.to_rich().unwrap_or(fallback)
         }
+    }
 
-        let separator = if self.compact { " " } else { "   " };
-        let mut line = String::new();
-        for (index, binding) in self.bindings.iter().enumerate() {
-            if index > 0 {
-                line.push_str(separator);
-            }
-            line.push(' ');
-            line.push_str(&binding.key);
-            line.push(' ');
-            line.push_str(&binding.description);
+    fn base_style(&self) -> rich_rs::Style {
+        self.component_style(&["footer"], rich_rs::Style::new())
+    }
+
+    fn key_style(&self) -> rich_rs::Style {
+        self.component_style(&["footer-key--key"], self.base_style().with_bold(true))
+    }
+
+    fn description_style(&self) -> rich_rs::Style {
+        self.component_style(&["footer-key--description"], self.base_style())
+    }
+
+    fn command_palette_style(&self) -> rich_rs::Style {
+        self.component_style(&["footer-key--command-palette"], self.description_style())
+    }
+
+    fn render_binding(
+        &self,
+        binding: &FooterBinding,
+        key_style: rich_rs::Style,
+        description_style: rich_rs::Style,
+    ) -> Vec<Segment> {
+        let mut out = Vec::new();
+        out.push(Segment::styled(format!(" {}", binding.key), key_style));
+        if binding.description.is_empty() {
+            out.push(Segment::styled(" ".to_string(), description_style));
+        } else {
+            out.push(Segment::styled(
+                format!(" {}", binding.description),
+                description_style,
+            ));
         }
-        line
+        out
     }
 }
 
@@ -92,7 +117,12 @@ impl Widget for Footer {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let mut left_bindings = Vec::new();
+        let base_style = self.base_style();
+        let key_style = self.key_style();
+        let description_style = self.description_style();
+        let command_palette_style = self.command_palette_style();
+
+        let mut left_bindings: Vec<FooterBinding> = Vec::new();
         let mut palette = None::<FooterBinding>;
         for binding in &self.bindings {
             if binding.group.as_deref() == Some("command_palette") {
@@ -101,36 +131,49 @@ impl Widget for Footer {
                 left_bindings.push(binding.clone());
             }
         }
-        let text = if let Some(palette) = palette {
-            let mut left = Footer {
-                id: self.id,
-                bindings: left_bindings,
-                compact: self.compact,
-                classes: self.classes.clone(),
-                styles: self.styles.clone(),
+
+        let separator = if self.compact { " " } else { "   " };
+        let mut left_segments = Vec::new();
+        for (index, binding) in left_bindings.iter().enumerate() {
+            if index > 0 {
+                left_segments.push(Segment::styled(separator.to_string(), base_style));
             }
-            .line_text();
-            let right = format!(" {} {}", palette.key, palette.description);
-            let left_width = rich_rs::cell_len(&left);
-            let right_width = rich_rs::cell_len(&right);
+            left_segments.extend(self.render_binding(binding, key_style, description_style));
+        }
+
+        let mut line_segments = left_segments;
+        if let Some(palette_binding) = palette {
+            let mut right_segments =
+                self.render_binding(&palette_binding, key_style, command_palette_style);
+            // Keep command palette hint docked at the right with a subtle separator.
+            right_segments.insert(0, Segment::styled("  ".to_string(), command_palette_style));
+
+            let left_width = Segment::get_line_length(&line_segments);
+            let right_width = Segment::get_line_length(&right_segments);
             if left_width + right_width < width {
-                let pad = width.saturating_sub(left_width + right_width);
-                left.push_str(&" ".repeat(pad));
-                left.push_str(&right);
-                Text::plain(left)
+                line_segments.push(Segment::styled(
+                    " ".repeat(width - left_width - right_width),
+                    base_style,
+                ));
+                line_segments.extend(right_segments);
             } else {
-                Text::plain(format!("{left}{right}"))
+                line_segments.extend(right_segments);
             }
+        }
+
+        let rendered = if line_segments.is_empty() {
+            Text::plain(String::new()).render(console, options)
         } else {
-            Text::plain(self.line_text())
+            let mut out = Segments::new();
+            out.extend(line_segments);
+            out
         };
-        let rendered = text.render(console, options);
         let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
         let mut out = Segments::new();
         if let Some(line) = split.first() {
             out.extend(adjust_line_length_no_bg(line, width));
         } else {
-            out.push(Segment::new(" ".repeat(width)));
+            out.push(Segment::styled(" ".repeat(width), base_style));
         }
         out
     }

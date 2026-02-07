@@ -51,6 +51,10 @@ impl ListView {
         self.items.get(self.selected).map(String::as_str)
     }
 
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
     pub fn items(&self) -> &[String] {
         &self.items
     }

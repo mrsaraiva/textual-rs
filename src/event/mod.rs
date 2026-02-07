@@ -5,6 +5,7 @@ use crate::message::{Message, MessageEvent};
 use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseDownEvent {
@@ -39,6 +40,78 @@ pub struct MouseScrollEvent {
     pub modifiers: KeyModifiers,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationLevel {
+    None,
+    Basic,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationEase {
+    None,
+    Round,
+    Linear,
+    InOutCubic,
+    OutCubic,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationRequest {
+    pub target: WidgetId,
+    pub attribute: String,
+    pub start: f32,
+    pub end: f32,
+    pub duration: Duration,
+    pub delay: Duration,
+    pub ease: AnimationEase,
+    pub level: AnimationLevel,
+}
+
+impl AnimationRequest {
+    pub fn new(
+        target: WidgetId,
+        attribute: impl Into<String>,
+        start: f32,
+        end: f32,
+        duration: Duration,
+    ) -> Self {
+        Self {
+            target,
+            attribute: attribute.into(),
+            start,
+            end,
+            duration,
+            delay: Duration::ZERO,
+            ease: AnimationEase::InOutCubic,
+            level: AnimationLevel::Full,
+        }
+    }
+
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
+
+    pub fn with_ease(mut self, ease: AnimationEase) -> Self {
+        self.ease = ease;
+        self
+    }
+
+    pub fn with_level(mut self, level: AnimationLevel) -> Self {
+        self.level = level;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationValueEvent {
+    pub target: WidgetId,
+    pub attribute: String,
+    pub value: f32,
+    pub done: bool,
+}
+
 #[derive(Debug, Clone)]
 pub enum Event {
     Key(KeyEventData),
@@ -47,6 +120,7 @@ pub enum Event {
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
     MouseScroll(MouseScrollEvent),
+    AnimationValue(AnimationValueEvent),
     AppFocus(bool),
     Tick(u64),
     Resize(u16, u16),
@@ -196,6 +270,7 @@ pub struct EventCtx {
     repaint_requested: bool,
     stop_requested: bool,
     messages: Vec<MessageEvent>,
+    animation_requests: Vec<AnimationRequest>,
 }
 
 impl EventCtx {
@@ -236,6 +311,21 @@ impl EventCtx {
         self.messages.push(MessageEvent { sender, message });
     }
 
+    pub fn request_animation(&mut self, request: AnimationRequest) {
+        debug_message(&format!(
+            "[request_animation] target={} attribute={} start={} end={} duration_ms={} delay_ms={} ease={:?} level={:?}",
+            request.target.as_u64(),
+            request.attribute,
+            request.start,
+            request.end,
+            request.duration.as_millis(),
+            request.delay.as_millis(),
+            request.ease,
+            request.level
+        ));
+        self.animation_requests.push(request);
+    }
+
     pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
         if other.handled {
             self.handled = true;
@@ -247,9 +337,15 @@ impl EventCtx {
             self.stop_requested = true;
         }
         self.messages.append(&mut other.messages);
+        self.animation_requests
+            .append(&mut other.animation_requests);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
         std::mem::take(&mut self.messages)
+    }
+
+    pub(crate) fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
+        std::mem::take(&mut self.animation_requests)
     }
 }

@@ -254,7 +254,12 @@ impl KeyPanel {
     pub fn set_binding_hints(&mut self, bindings: &[BindingHint]) {
         let mapped = bindings
             .iter()
-            .map(|hint| FooterBinding::new(hint.key.clone(), hint.description.clone()))
+            .map(|hint| {
+                FooterBinding::new(
+                    hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
+                    hint.description.clone(),
+                )
+            })
             .collect::<Vec<_>>();
         self.set_bindings(mapped);
     }
