@@ -1,5 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
+use crate::event::{Event, EventCtx};
+
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetId, WidgetStyles};
 
@@ -7,6 +9,7 @@ use super::{Widget, WidgetId, WidgetStyles};
 pub struct FooterBinding {
     pub key: String,
     pub description: String,
+    pub group: Option<String>,
 }
 
 impl FooterBinding {
@@ -14,7 +17,13 @@ impl FooterBinding {
         Self {
             key: key.into(),
             description: description.into(),
+            group: None,
         }
+    }
+
+    pub fn with_group(mut self, group: impl Into<String>) -> Self {
+        self.group = Some(group.into());
+        self
     }
 }
 
@@ -83,7 +92,38 @@ impl Widget for Footer {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let text = Text::plain(self.line_text());
+        let mut left_bindings = Vec::new();
+        let mut palette = None::<FooterBinding>;
+        for binding in &self.bindings {
+            if binding.group.as_deref() == Some("command_palette") {
+                palette = Some(binding.clone());
+            } else {
+                left_bindings.push(binding.clone());
+            }
+        }
+        let text = if let Some(palette) = palette {
+            let mut left = Footer {
+                id: self.id,
+                bindings: left_bindings,
+                compact: self.compact,
+                classes: self.classes.clone(),
+                styles: self.styles.clone(),
+            }
+            .line_text();
+            let right = format!(" {} {}", palette.key, palette.description);
+            let left_width = rich_rs::cell_len(&left);
+            let right_width = rich_rs::cell_len(&right);
+            if left_width + right_width < width {
+                let pad = width.saturating_sub(left_width + right_width);
+                left.push_str(&" ".repeat(pad));
+                left.push_str(&right);
+                Text::plain(left)
+            } else {
+                Text::plain(format!("{left}{right}"))
+            }
+        } else {
+            Text::plain(self.line_text())
+        };
         let rendered = text.render(console, options);
         let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
         let mut out = Segments::new();
@@ -97,6 +137,27 @@ impl Widget for Footer {
 
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::BindingsChanged(bindings) = event {
+            let next = bindings
+                .iter()
+                .filter(|hint| hint.show)
+                .map(|hint| {
+                    let mut binding = FooterBinding::new(
+                        hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
+                        hint.description.clone(),
+                    );
+                    binding.group = hint.group.clone();
+                    binding
+                })
+                .collect::<Vec<_>>();
+            if next != self.bindings {
+                self.bindings = next;
+                ctx.request_repaint();
+            }
+        }
     }
 
     fn style_classes(&self) -> &[String] {

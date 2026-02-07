@@ -1,5 +1,6 @@
 use rich_rs::markdown::Markdown as RichMarkdown;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
+use std::collections::VecDeque;
 
 use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
 
@@ -124,7 +125,68 @@ impl Widget for Markdown {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        RichMarkdown::new(self.markup.clone()).render(console, options)
+        let rendered = RichMarkdown::new(self.markup.clone()).render(console, options);
+
+        let mut headings = self
+            .markup
+            .lines()
+            .filter_map(|line| {
+                let trimmed = line.trim_start();
+                let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
+                if marker_len == 0 || marker_len > 6 {
+                    return None;
+                }
+                let title = trimmed[marker_len..].trim();
+                if title.is_empty() {
+                    return None;
+                }
+                Some((marker_len, title.to_string()))
+            })
+            .collect::<VecDeque<_>>();
+
+        if headings.is_empty() {
+            return rendered;
+        }
+
+        let mut lines = rich_rs::Segment::split_lines(rendered);
+        for line in &mut lines {
+            if headings.is_empty() {
+                break;
+            }
+            let plain = line
+                .iter()
+                .filter(|segment| segment.control.is_none())
+                .map(|segment| segment.text.as_ref())
+                .collect::<String>();
+            if plain.trim().is_empty() {
+                continue;
+            }
+            let Some((level, title)) = headings.front() else {
+                break;
+            };
+            if plain.trim() != title {
+                continue;
+            }
+
+            let class_name = format!("markdown--h{level}");
+            let style = crate::css::resolve_component_style(self, &[class_name.as_str()])
+                .to_rich()
+                .unwrap_or_else(rich_rs::Style::new);
+            for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
+                segment.style = Some(segment.style.unwrap_or_default().combine(&style));
+            }
+            headings.pop_front();
+        }
+
+        let mut out = Segments::new();
+        let line_count = lines.len();
+        for (index, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if index + 1 < line_count {
+                out.push(rich_rs::Segment::line());
+            }
+        }
+        out
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {

@@ -125,6 +125,31 @@ impl FrameBuffer {
         out
     }
 
+    pub fn to_segments(&self) -> Segments {
+        let mut out = Segments::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let cell = self.get(x, y);
+                if cell.continuation {
+                    continue;
+                }
+                let text = if cell.text.is_empty() {
+                    " ".to_string()
+                } else {
+                    cell.text.clone()
+                };
+                let mut seg = Segment::new(text);
+                seg.style = cell.style;
+                seg.meta = cell.meta.clone();
+                out.push(seg);
+            }
+            if y + 1 < self.height {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
     /// Render a renderable to a FrameBuffer.
     pub fn from_renderable(
         console: &Console,

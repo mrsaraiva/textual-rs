@@ -47,6 +47,14 @@ impl ListView {
         self.selected
     }
 
+    pub fn selected_item(&self) -> Option<&str> {
+        self.items.get(self.selected).map(String::as_str)
+    }
+
+    pub fn items(&self) -> &[String] {
+        &self.items
+    }
+
     pub fn set_selected(&mut self, index: usize) {
         if self.items.is_empty() {
             self.selected = 0;
@@ -54,6 +62,12 @@ impl ListView {
             return;
         }
         self.selected = index.min(self.items.len() - 1);
+        self.ensure_visible();
+    }
+
+    pub fn set_items(&mut self, items: Vec<String>) {
+        self.items = items;
+        self.clamp_offsets();
         self.ensure_visible();
     }
 

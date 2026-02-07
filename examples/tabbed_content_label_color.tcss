@@ -1,0 +1,7 @@
+TabbedContent #--content-tab-green {
+    color: green;
+}
+
+TabbedContent #--content-tab-red {
+    color: red;
+}

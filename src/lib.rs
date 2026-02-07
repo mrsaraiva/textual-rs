@@ -31,13 +31,14 @@ pub mod prelude {
     pub use crate::style::{Color, Style, Theme};
     pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
     pub use crate::widgets::{
-        AppRoot, BindingsTable, Button, ButtonVariant, Checkbox, Constrained, Container,
-        CursorType, DataTable, Dock, Footer, FooterBinding, Frame, Grid, Header, Horizontal,
-        HorizontalScroll, Input, InputType, KeyPanel, Label, LayoutConstraints, ListView, Markdown,
-        Node, Overlay, Panel, Pretty, RichLog, Row, RowAlign, ScrollView, Spacer, Static, Styled,
-        Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Tree, TreeNode,
-        VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles, preview_root,
-        preview_root_with_bottom, preview_root_with_top_bottom,
+        AppRoot, BindingsTable, Button, ButtonVariant, Checkbox, CommandPalette, Constrained,
+        Container, CursorType, DataTable, Dock, Footer, FooterBinding, Frame, Grid, Header,
+        Horizontal, HorizontalScroll, Input, InputType, KeyPanel, Label, LayoutConstraints,
+        ListView, Markdown, Node, Overlay, PaletteCommand, Panel, Pretty, RichLog, Row, RowAlign,
+        ScrollView, Spacer, Static, Styled, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
+        TextAreaSelection, TextAreaTheme, Tree, TreeNode, VerticalScroll, Widget, WidgetId,
+        WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
+        preview_root_with_top_bottom,
     };
     pub use crate::{Error, Result};
 }

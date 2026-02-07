@@ -65,6 +65,7 @@ pub enum Action {
     ScrollPageLeft,
     ScrollPageRight,
     Toggle,
+    CommandPalette,
 }
 
 impl Action {
@@ -81,6 +82,7 @@ impl Action {
             Action::ScrollPageLeft => "Page left",
             Action::ScrollPageRight => "Page right",
             Action::Toggle => "Toggle",
+            Action::CommandPalette => "Command palette",
         }
     }
 }
@@ -95,6 +97,50 @@ pub struct KeyBind {
 pub struct BindingHint {
     pub key: String,
     pub description: String,
+    pub show: bool,
+    pub key_display: Option<String>,
+    pub group: Option<String>,
+    pub priority: bool,
+    pub system: bool,
+}
+
+impl BindingHint {
+    pub fn new(key: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            description: description.into(),
+            show: true,
+            key_display: None,
+            group: None,
+            priority: false,
+            system: false,
+        }
+    }
+
+    pub fn hidden(mut self, hidden: bool) -> Self {
+        self.show = !hidden;
+        self
+    }
+
+    pub fn with_key_display(mut self, key_display: impl Into<String>) -> Self {
+        self.key_display = Some(key_display.into());
+        self
+    }
+
+    pub fn with_group(mut self, group: impl Into<String>) -> Self {
+        self.group = Some(group.into());
+        self
+    }
+
+    pub fn with_priority(mut self, priority: bool) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_system(mut self, system: bool) -> Self {
+        self.system = system;
+        self
+    }
 }
 
 impl KeyBind {

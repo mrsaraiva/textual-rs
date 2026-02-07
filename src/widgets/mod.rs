@@ -1,6 +1,7 @@
 mod aliases;
 mod button;
 mod checkbox;
+mod command_palette;
 mod containers;
 mod core;
 mod data_table;
@@ -15,6 +16,7 @@ mod pretty;
 mod preview;
 mod rich_log;
 mod spacer;
+mod tabbed_content;
 mod tabs;
 mod text;
 mod text_area;
@@ -23,6 +25,7 @@ mod tree;
 pub use aliases::{Horizontal, HorizontalScroll, Static, VerticalScroll};
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
+pub use command_palette::{CommandPalette, PaletteCommand};
 pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
@@ -41,6 +44,7 @@ pub use pretty::Pretty;
 pub use preview::{preview_root, preview_root_with_bottom, preview_root_with_top_bottom};
 pub use rich_log::RichLog;
 pub use spacer::Spacer;
+pub use tabbed_content::{TabPane, TabbedContent};
 pub use tabs::{Tab, Tabs};
 pub use text::{Label, Markdown};
 pub use text_area::{

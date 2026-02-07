@@ -48,6 +48,12 @@ pub enum Message {
         overlay: WidgetId,
         visible: bool,
     },
+    CommandPaletteOpened,
+    CommandPaletteClosed,
+    CommandPaletteCommandSelected {
+        id: String,
+        title: String,
+    },
     DataTableCursorMoved {
         row: usize,
         column: usize,

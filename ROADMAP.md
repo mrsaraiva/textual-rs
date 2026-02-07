@@ -335,6 +335,56 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 
 ---
 
+## Phase 9.6: `TabbedContent` + Footer + Command Palette parity
+
+**Goal:** close the remaining parity gap surfaced by the `tabbed_content` Python demos by implementing framework fundamentals (not demo-only styling patches).
+
+This phase is intentionally split by ownership boundary:
+- **Widget defaults:** `Tabs` / `TabbedContent` visual and interaction semantics.
+- **App/runtime:** binding metadata, footer hint rendering, command palette invocation and UI.
+- **Shared styling:** markdown heading parity that affects tabbed demos and other screens.
+
+### Parity gap classification (current)
+
+| Area | Status | Gap |
+|------|--------|-----|
+| `TabbedContent` visuals | Partial | Active-tab treatment/underline bar and spacing differ from Python defaults |
+| Footer bindings | Partial | Footer exists but is not fed by structured active bindings in the same way as Python |
+| Command palette | Partial | First-pass modal exists (`CommandPalette` widget + priority `ctrl+p` action), but app-level global provider/overlay parity is still incomplete |
+| Markdown heading style | Done | `Markdown` now applies heading component-style hooks (`markdown--h1` … `markdown--h6`) with Textual-like defaults |
+
+### Scope and sequence
+
+| Status | Step | Notes |
+|--------|------|-------|
+| Partial | Structured binding model | Runtime now carries richer binding metadata in `BindingHint` (`show`, display, grouping, priority/system) plus app APIs to register visible hints; still needs full app/screen binding lifecycle parity |
+| Partial | Footer from active bindings | `Footer` now consumes `BindingsChanged` and renders showable bindings, including grouped command-palette slot alignment; still missing full Textual grouping/compact behavior |
+| Partial | `Tabs`/`TabbedContent` default CSS parity | Added underline row/highlight mechanics and component CSS hooks; still needs tighter rhythm + focus-state parity with Python defaults |
+| Partial | Command palette fundamentals | Added `CommandPalette` widget (search + results + execute/dismiss), runtime priority routing for `Action::CommandPalette`, and default `ctrl+p` action-map binding; still needs Textual-level global command provider behavior |
+| Done | Markdown heading parity pass | Added widget-level heading style hooks + default CSS component styles; no demo-level overrides required |
+| Done | Regression coverage | Tab activation + footer binding + command-palette lifecycle tests and open/closed palette snapshots are in place |
+
+### Acceptance criteria
+
+- `examples/tabbed_content.rs` and `examples/tabbed_content_label_color.rs` match Python behavior and visual hierarchy without demo-specific logic.
+- Footer hints are generated from active bindings (not hardcoded), including `^p palette` when command palette is enabled.
+- `ctrl+p` opens command palette in-app; palette supports basic search, selection, execute, and dismiss.
+- `TabbedContent #--content-tab-<id>` selectors remain supported and tested.
+- Tab strip active/focus/hover visuals are controlled by widget defaults and CSS components, not ad-hoc render branches in demos.
+- Snapshot/behavior tests cover at least:
+  - tab activation state transitions (keyboard + mouse),
+  - footer hint composition from bindings,
+  - command palette lifecycle (open, choose command, close).
+
+### Implementation notes (cross-session)
+
+1. Land binding-model uplift first; Footer and command palette should both consume the same source of truth.
+2. Keep command palette minimal on first pass (system commands + app commands) and extend providers later.
+3. Do not patch parity at demo layer if the behavior is widget/runtime responsibility.
+4. Treat `tabbed_content` screenshots as a regression target for this phase.
+
+---
+
 ## Definition of Done (v0.1) — Achieved
 
 - [x] A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
@@ -344,6 +394,8 @@ This work is intentionally treated as **fundamentals**, not a one-off demo:
 
 ## Next priorities (v0.2)
 
+- `TabbedContent` + Footer + command palette parity (Phase 9.6)
+  - Land binding-model foundation, footer auto-hints, command palette modal, and tab-strip default style parity.
 - Widget uplift: MVP → first-class (remaining container polish and parity hardening for newly-upgraded widgets)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)

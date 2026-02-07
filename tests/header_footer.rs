@@ -40,6 +40,30 @@ fn footer_renders_bindings() {
 }
 
 #[test]
+fn footer_updates_from_bindings_changed_event() {
+    let console = Console::new();
+    let options = options_for(&console, 60, 1);
+    let mut footer = Footer::new();
+    let mut ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("tab", "next").hidden(true),
+            BindingHint::new("j", "Jessica"),
+            BindingHint::new("ctrl+p", "palette").with_key_display("^p"),
+        ]),
+        &mut ctx,
+    );
+    assert!(ctx.repaint_requested());
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &buf.as_plain_lines()[0];
+    assert!(!line.contains("next"));
+    assert!(line.contains("Jessica"));
+    assert!(line.contains("^p"));
+    assert!(line.contains("palette"));
+}
+
+#[test]
 fn header_mouse_up_toggles_tall_outside_icon() {
     let mut header = Header::new().title("Textual Keys");
     let mut ctx = EventCtx::default();

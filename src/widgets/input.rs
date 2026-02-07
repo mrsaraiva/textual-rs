@@ -368,15 +368,17 @@ impl Widget for Input {
                 }
             }
             Event::Key(key) if self.focused => match key.code {
-                KeyCode::Char(ch) => {
-                    if self.is_allowed_char(ch) {
-                        self.text.insert(self.cursor, ch);
-                        self.cursor += ch.len_utf8();
-                        self.selection = Selection::cursor(self.cursor);
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.reset_blink();
-                        ctx.request_repaint();
+                KeyCode::Char(_) => {
+                    if let Some(ch) = key.character.filter(|_| key.is_printable) {
+                        if self.is_allowed_char(ch) {
+                            self.text.insert(self.cursor, ch);
+                            self.cursor += ch.len_utf8();
+                            self.selection = Selection::cursor(self.cursor);
+                            self.revalidate();
+                            self.post_changed(ctx);
+                            self.reset_blink();
+                            ctx.request_repaint();
+                        }
                     }
                     ctx.set_handled();
                 }

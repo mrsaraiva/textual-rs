@@ -14,7 +14,7 @@ use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -128,6 +128,8 @@ pub struct App {
     debug_layout: DebugLayout,
     action_map: ActionMap,
     quit_keys: Vec<KeyBind>,
+    custom_binding_hints: Vec<BindingHintEntry>,
+    command_palette_hint: Option<BindingHintEntry>,
     theme: Theme,
     default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
@@ -142,6 +144,12 @@ pub struct App {
     pointer_shape: PointerShape,
     app_active: bool,
     last_binding_hints: Vec<BindingHint>,
+}
+
+#[derive(Debug, Clone)]
+struct BindingHintEntry {
+    key: KeyBind,
+    hint: BindingHint,
 }
 
 struct StylesheetWatcher {
@@ -183,6 +191,15 @@ impl App {
                 KeyBind::new(KeyCode::Char('q'), KeyModifiers::empty()),
                 KeyBind::new(KeyCode::Esc, KeyModifiers::empty()),
             ],
+            custom_binding_hints: Vec::new(),
+            command_palette_hint: Some(BindingHintEntry {
+                key: KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+                hint: BindingHint::new("ctrl+p", "palette")
+                    .with_key_display("^p")
+                    .with_group("command_palette")
+                    .with_priority(true)
+                    .with_system(true),
+            }),
             theme: Theme::default(),
             default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
@@ -221,42 +238,126 @@ impl App {
     pub fn binding_hints(&self) -> Vec<BindingHint> {
         let mut out = Vec::new();
         for quit in &self.quit_keys {
-            out.push(BindingHint {
-                key: quit.display_key(),
-                description: "Quit application".to_string(),
-            });
+            out.push(
+                BindingHint::new(quit.display_key(), "Quit application")
+                    .hidden(true)
+                    .with_priority(true)
+                    .with_system(true),
+            );
         }
         for (bind, action) in self.action_map.entries() {
-            out.push(BindingHint {
-                key: bind.display_key(),
-                description: action.description().to_string(),
-            });
+            out.push(
+                BindingHint::new(bind.display_key(), action.description())
+                    .hidden(true)
+                    .with_system(true),
+            );
+        }
+        out.extend(
+            self.custom_binding_hints
+                .iter()
+                .map(|entry| entry.hint.clone()),
+        );
+        if let Some(entry) = &self.command_palette_hint {
+            out.push(entry.hint.clone());
         }
 
         let mut unique = HashSet::new();
-        out.retain(|entry| unique.insert((entry.key.clone(), entry.description.clone())));
-
-        let mut grouped: HashMap<String, BTreeSet<String>> = HashMap::new();
-        for entry in out {
-            grouped
-                .entry(entry.description)
-                .or_default()
-                .insert(entry.key);
-        }
-
-        let mut merged = grouped
-            .into_iter()
-            .map(|(description, keys)| BindingHint {
-                key: keys.into_iter().collect::<Vec<_>>().join(", "),
-                description,
-            })
-            .collect::<Vec<_>>();
-        merged.sort_by(|left, right| {
-            left.description
-                .cmp(&right.description)
-                .then_with(|| left.key.cmp(&right.key))
+        out.retain(|entry| {
+            unique.insert((
+                entry.key.clone(),
+                entry.description.clone(),
+                entry.show,
+                entry.key_display.clone(),
+                entry.group.clone(),
+                entry.priority,
+                entry.system,
+            ))
         });
-        merged
+        out.sort_by(|left, right| {
+            right
+                .priority
+                .cmp(&left.priority)
+                .then_with(|| left.description.cmp(&right.description))
+                .then_with(|| left.key.cmp(&right.key))
+                .then_with(|| left.show.cmp(&right.show))
+                .then_with(|| left.system.cmp(&right.system))
+                .then_with(|| left.group.cmp(&right.group))
+                .then_with(|| left.key_display.cmp(&right.key_display))
+        });
+        out
+    }
+
+    pub fn set_command_palette_hint(&mut self, enabled: bool) {
+        if enabled {
+            if self.command_palette_hint.is_none() {
+                self.command_palette_hint = Some(BindingHintEntry {
+                    key: KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+                    hint: BindingHint::new("ctrl+p", "palette")
+                        .with_key_display("^p")
+                        .with_group("command_palette")
+                        .with_priority(true)
+                        .with_system(true),
+                });
+            }
+        } else {
+            self.command_palette_hint = None;
+        }
+    }
+
+    pub fn set_command_palette_binding(
+        &mut self,
+        key: KeyBind,
+        key_display: impl Into<String>,
+        description: impl Into<String>,
+    ) {
+        self.command_palette_hint = Some(BindingHintEntry {
+            key,
+            hint: BindingHint::new(key.display_key(), description.into())
+                .with_key_display(key_display.into())
+                .with_group("command_palette")
+                .with_priority(true)
+                .with_system(true),
+        });
+    }
+
+    pub fn add_binding_hint(&mut self, key: KeyBind, description: impl Into<String>) {
+        self.add_binding_hint_with_options(key, BindingHint::new(key.display_key(), description));
+    }
+
+    pub fn add_binding_hint_with_options(&mut self, key: KeyBind, mut hint: BindingHint) {
+        if hint.key.is_empty() {
+            hint.key = key.display_key();
+        }
+        self.custom_binding_hints.retain(|existing| {
+            !(existing.key == key && existing.hint.description == hint.description)
+        });
+        self.custom_binding_hints
+            .push(BindingHintEntry { key, hint });
+    }
+
+    pub fn add_hidden_binding_hint(&mut self, key: KeyBind, description: impl Into<String>) {
+        self.add_binding_hint_with_options(
+            key,
+            BindingHint::new(key.display_key(), description).hidden(true),
+        );
+    }
+
+    pub fn clear_binding_hints(&mut self) {
+        self.custom_binding_hints.clear();
+    }
+
+    pub fn remove_binding_hint(&mut self, key: KeyBind, description: &str) -> bool {
+        let before = self.custom_binding_hints.len();
+        self.custom_binding_hints
+            .retain(|entry| !(entry.key == key && entry.hint.description == description));
+        self.custom_binding_hints.len() != before
+    }
+
+    pub fn visible_binding_hints(&self) -> Vec<BindingHint> {
+        self.binding_hints()
+            .into_iter()
+            .filter(|hint| hint.show)
+            .collect()
     }
 
     pub fn set_quit_keys(&mut self, quit_keys: Vec<KeyBind>) {
@@ -537,9 +638,36 @@ impl App {
                         if should_quit_key(&key, &self.quit_keys) {
                             break;
                         }
-                        // Dispatch the raw key first so focused widgets (e.g. Input) can consume
-                        // it before the global ActionMap translates it to an Action.
                         let key = KeyEventData::from_crossterm(key);
+                        let bind = KeyBind::from_event(&key);
+                        let mapped_action = self.action_map.lookup(&bind);
+
+                        // Priority actions (e.g. command palette) run before raw key dispatch.
+                        if let Some(action) = mapped_action.filter(|a| is_priority_action(*a)) {
+                            debug_input(&format!(
+                                "[input] priority action-map {:?} -> {:?}",
+                                bind, action
+                            ));
+                            let outcome = dispatch_event(root, Event::Action(action));
+                            debug_input(&format!(
+                                "[input] priority action dispatch action={:?} handled={} repaint={} messages={}",
+                                action,
+                                outcome.handled,
+                                outcome.repaint_requested,
+                                outcome.messages.len()
+                            ));
+                            dirty |= outcome.should_repaint();
+                            let msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            dirty |= msg_outcome.should_repaint();
+                            if outcome.stop_requested || msg_outcome.stop_requested {
+                                break 'event_loop;
+                            }
+                            if outcome.handled {
+                                continue;
+                            }
+                        }
+
+                        // Dispatch the raw key so focused widgets (e.g. Input) can consume it.
                         let key_outcome = dispatch_event(root, Event::Key(key.clone()));
                         debug_input(&format!(
                             "[input] key dispatch handled={} repaint={} messages={}",
@@ -554,8 +682,8 @@ impl App {
                             break 'event_loop;
                         }
                         if !key_outcome.handled {
-                            let bind = KeyBind::from_event(&key);
-                            if let Some(action) = self.action_map.lookup(&bind) {
+                            if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a))
+                            {
                                 debug_input(&format!(
                                     "[input] action-map {:?} -> {:?}",
                                     bind, action
@@ -1265,6 +1393,10 @@ fn default_action_map() -> ActionMap {
         KeyBind::new(KeyCode::Enter, KeyModifiers::empty()),
         Action::Toggle,
     );
+    map.bind(
+        KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        Action::CommandPalette,
+    );
     map
 }
 
@@ -1317,6 +1449,10 @@ fn is_scroll_action(action: Action) -> bool {
             | Action::ScrollPageLeft
             | Action::ScrollPageRight
     )
+}
+
+fn is_priority_action(action: Action) -> bool {
+    matches!(action, Action::CommandPalette)
 }
 
 fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {

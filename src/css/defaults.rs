@@ -10,6 +10,12 @@ VerticalScroll { bg: $panel; }
 
 Label { fg: $foreground; }
 Markdown { fg: $foreground; }
+Markdown > .markdown--h1 { fg: $primary; text-style: bold underline; }
+Markdown > .markdown--h2 { fg: $primary; text-style: underline; }
+Markdown > .markdown--h3 { fg: $primary; text-style: bold; }
+Markdown > .markdown--h4 { fg: $primary; text-style: italic; }
+Markdown > .markdown--h5 { text-style: italic; }
+Markdown > .markdown--h6 { fg: $text-disabled; text-style: dim; }
 Spacer { bg: $background; }
 
 Pretty { fg: $foreground; }
@@ -165,6 +171,33 @@ Tabs > .tabs--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
 Tabs > .tabs--tab.-hover { bg: $surface-lighten-1; fg: $text; }
 Tabs > .tabs--tab.-active { bg: $primary-muted; fg: $text; }
 Tabs > .tabs--tab.-active.-focus { bg: $primary; fg: $text; }
+
+TabbedContent {
+    bg: $surface;
+    fg: $foreground;
+}
+
+TabbedContent > .tabbed-content--bar { bg: $panel; fg: $foreground; }
+TabbedContent > .tabbed-content--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
+TabbedContent > .tabbed-content--tab.-hover { bg: $surface-lighten-1; fg: $text; }
+TabbedContent > .tabbed-content--tab.-active { bg: $primary-muted; fg: $text; }
+TabbedContent > .tabbed-content--tab.-active.-focus { bg: $primary; fg: $text; }
+TabbedContent > .tabbed-content--underline { bg: $panel-darken-1; fg: $panel-darken-1; }
+TabbedContent > .tabbed-content--underline.-active { bg: $primary; fg: $primary; }
+
+CommandPalette {
+    bg: $surface;
+    fg: $foreground;
+}
+
+CommandPalette > .command-palette--panel {
+    bg: $panel-darken-2;
+    fg: $foreground;
+}
+
+CommandPalette > .command-palette--border {
+    fg: $primary;
+}
 
 Button {
     width: auto;

@@ -58,10 +58,7 @@ fn key_panel_updates_on_bindings_changed_event() {
     let mut panel = KeyPanel::new().with_bindings(vec![FooterBinding::new("a", "alpha")]);
 
     panel.on_event(
-        &Event::BindingsChanged(vec![BindingHint {
-            key: "x, y".to_string(),
-            description: "Updated action".to_string(),
-        }]),
+        &Event::BindingsChanged(vec![BindingHint::new("x, y", "Updated action")]),
         &mut EventCtx::default(),
     );
 

@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07
+- **Phase 9.6 fundamentals: tabbed parity + command palette + markdown heading hooks**
+  - Added first-pass `CommandPalette` widget (`src/widgets/command_palette.rs`) and integrated it into the `tabbed_content` demo via framework composition (`examples/tabbed_content.rs`), with open/close, search/filter, selection, and execute/dismiss flow.
+  - Added runtime priority action routing so `Ctrl+P` is handled as a high-priority action before raw key dispatch, plus default `Ctrl+P -> Action::CommandPalette` mapping (`src/runtime/mod.rs`), preventing focused input widgets from swallowing command-palette activation.
+  - Extended binding/footer pipeline for command-palette hint placement (`^p palette`) using structured `BindingHint` metadata (`show`, grouping, display, priority/system), and kept footer rendering driven by `BindingsChanged`.
+  - Added `TabbedContent` + `TabPane` first-class widget fundamentals and examples (`src/widgets/tabbed_content.rs`, `examples/tabbed_content.rs`, `examples/tabbed_content_label_color.rs`), including component-id selector support for `#--content-tab-<id>`.
+  - Added markdown heading component-style hooks (`markdown--h1` ... `markdown--h6`) at widget level with default CSS parity tokens (`src/widgets/text.rs`, `src/css/defaults.rs`) so heading styling is framework-driven rather than demo CSS.
+  - Added regression coverage for this slice: tabbed behavior tests, footer/binding tests, command-palette lifecycle tests, command-palette open/closed snapshots, and markdown heading style assertion (`tests/tabbed_content.rs`, `tests/header_footer.rs`, `tests/command_palette_snapshot.rs`, `tests/markdown.rs`).
+
 ### 2026-02-06
 - **Keys preview parity + reusable widget foundations**
   - Added reusable widgets for developer previews and app chrome: `Header`, `Footer`, `RichLog`, `KeyPanel`, and `BindingsTable` (`src/widgets/header.rs`, `src/widgets/footer.rs`, `src/widgets/rich_log.rs`, `src/widgets/key_panel.rs`), with public exports in `src/widgets/mod.rs` and `src/lib.rs`.
