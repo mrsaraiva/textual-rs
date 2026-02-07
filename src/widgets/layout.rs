@@ -7,8 +7,9 @@ use crate::event::{Event, EventCtx};
 use super::{
     LayoutConstraints, Widget, WidgetId, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
-        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
+        adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
+        constraints_from_style, fixed_height_from_constraints, margin_from_style,
+        merge_constraints, pad_lines_to_width,
     },
 };
 use crate::style::Margin;
@@ -258,13 +259,18 @@ impl Widget for Row {
                     .get(row)
                     .cloned()
                     .unwrap_or_else(|| vec![Segment::new(" ".repeat(child_width))]);
-                let adjusted = Segment::adjust_line_length(&child_line, child_width, None, true);
+                let adjusted = adjust_line_length_no_bg(&child_line, child_width);
                 line.extend(adjusted);
             }
             out_lines.push(line);
         }
 
-        let out_lines = Segment::set_shape(&out_lines, width, Some(max_child_height), None, false);
+        let mut out_lines = out_lines;
+        out_lines.truncate(max_child_height);
+        while out_lines.len() < max_child_height {
+            out_lines.push(Vec::new());
+        }
+        let out_lines = pad_lines_to_width(out_lines, width);
         let line_count = out_lines.len();
         let mut out = Segments::new();
         for (idx, line) in out_lines.into_iter().enumerate() {
@@ -459,13 +465,18 @@ impl Widget for Row {
                     .get(row)
                     .cloned()
                     .unwrap_or_else(|| vec![Segment::new(" ".repeat(child_width))]);
-                let adjusted = Segment::adjust_line_length(&child_line, child_width, None, true);
+                let adjusted = adjust_line_length_no_bg(&child_line, child_width);
                 line.extend(adjusted);
             }
             out_lines.push(line);
         }
 
-        let out_lines = Segment::set_shape(&out_lines, width, Some(max_child_height), None, false);
+        let mut out_lines = out_lines;
+        out_lines.truncate(max_child_height);
+        while out_lines.len() < max_child_height {
+            out_lines.push(Vec::new());
+        }
+        let out_lines = pad_lines_to_width(out_lines, width);
         let line_count = out_lines.len();
         let mut out = Segments::new();
         for (idx, line) in out_lines.into_iter().enumerate() {

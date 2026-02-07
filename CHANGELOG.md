@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 6)
+- **Rendering/style composition fundamentals: transparent segment compositing + row bleed fix**
+  - Aligned container defaults with Python Textual by removing opinionated default backgrounds from `VerticalScroll` and `ScrollView` (their defaults now focus on layout/overflow behavior, not paint) (`src/css/defaults.rs`).
+  - Fixed framebuffer write composition so transparent segments no longer wipe inherited/default cell style; base theme background is preserved when writing unstyled spaces and transparent segments (`src/render/mod.rs`).
+  - Fixed `Row` horizontal composition to avoid carrying the last child background into trailing viewport width (right-side color bleed/leak on wide terminals), using no-bg-safe width normalization (`src/widgets/layout.rs`).
+  - Added regression coverage for both fundamentals (`tests/layout_transparency_regression.rs`).
+
 ### 2026-02-07 (batch 5)
 - **Input-family chrome unification (Input + MaskedInput)**
   - Refactored `Input` and `MaskedInput` to share focus/mouse-active state, cursor blink timing, app-focus handling, and class toggling through `InputChrome` (`src/widgets/input.rs`, `src/widgets/masked_input.rs`, `src/widgets/input_chrome.rs`).

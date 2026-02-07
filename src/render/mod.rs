@@ -205,10 +205,12 @@ impl FrameBuffer {
 
                 if w == 0 {
                     if let Some((prev_x, prev_w)) = last_non_zero {
+                        let existing_style = self.get(prev_x, y).style;
+                        let existing_meta = self.get(prev_x, y).meta.clone();
                         let cell = self.get_mut(prev_x, y);
                         cell.text.push(ch);
-                        cell.style = style;
-                        cell.meta = meta.clone();
+                        cell.style = style.or(existing_style);
+                        cell.meta = meta.clone().or(existing_meta);
                         last_non_zero = Some((prev_x, prev_w));
                     }
                     continue;
@@ -219,22 +221,30 @@ impl FrameBuffer {
                 }
 
                 if w == 2 && x + 1 >= self.width {
-                    *self.get_mut(x, y) = Cell::blank(style);
+                    let existing_style = self.get(x, y).style;
+                    *self.get_mut(x, y) = Cell::blank(style.or(existing_style));
                     x += 1;
                     last_non_zero = Some((x.saturating_sub(1), 1));
                     continue;
                 }
 
+                let existing_style = self.get(x, y).style;
+                let existing_meta = self.get(x, y).meta.clone();
                 *self.get_mut(x, y) = Cell {
                     text: ch.to_string(),
-                    style,
-                    meta: meta.clone(),
+                    style: style.or(existing_style),
+                    meta: meta.clone().or(existing_meta),
                     continuation: false,
                 };
                 last_non_zero = Some((x, w));
 
                 if w == 2 {
-                    *self.get_mut(x + 1, y) = Cell::continuation(style, meta.clone());
+                    let existing_style = self.get(x + 1, y).style;
+                    let existing_meta = self.get(x + 1, y).meta.clone();
+                    *self.get_mut(x + 1, y) = Cell::continuation(
+                        style.or(existing_style),
+                        meta.clone().or(existing_meta),
+                    );
                     x += 2;
                 } else {
                     x += 1;

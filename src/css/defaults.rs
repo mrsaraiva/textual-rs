@@ -6,8 +6,6 @@ use super::StyleSheet;
 // Note: this is a pragmatic subset of Textual's built-in widget CSS. We intentionally avoid
 // full TCSS features (nesting, `&`, `!important`, advanced opacity) until the style engine grows.
 const DEFAULT_WIDGET_CSS: &str = r#"
-VerticalScroll { bg: $panel; }
-ScrollView { bg: $panel; }
 ScrollView > .scrollview--content { transition: scrollview.offset 140ms ease-out; }
 
 Label { fg: $foreground; }
