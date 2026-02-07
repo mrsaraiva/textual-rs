@@ -1201,7 +1201,9 @@ impl Widget for AppRoot {
 mod focus_tests {
     use super::*;
     use crate::css::{StyleSheet, set_style_context};
-    use crate::widgets::{Input, ListView, collect_focus_ids, set_focus_by_id};
+    use crate::widgets::{
+        Button, Horizontal, Input, ListView, VerticalScroll, collect_focus_ids, set_focus_by_id,
+    };
     use rich_rs::Console;
 
     #[test]
@@ -1323,6 +1325,26 @@ mod focus_tests {
         let mut ctx = EventCtx::default();
         panel.on_mouse_scroll(0, 1, &mut ctx);
         assert!(ctx.handled());
+    }
+
+    #[test]
+    fn scroll_view_ignores_trailing_blank_probe_lines_for_fill_layouts() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (48, 12);
+        options.max_width = 48;
+        options.max_height = 12;
+
+        let columns =
+            Horizontal::new().with_child(VerticalScroll::new().with_child(Button::new("One")));
+        let scroll = ScrollView::new(columns);
+        let _ = Widget::render(&scroll, &console, &options);
+
+        assert_eq!(
+            scroll.viewport_width.load(Ordering::Relaxed),
+            48,
+            "false vertical scrollbar shrank viewport width"
+        );
     }
 }
 
@@ -2165,7 +2187,8 @@ impl Widget for ScrollView {
             let segments = self.child.render_styled(console, &child_options);
             let mut candidate =
                 Segment::split_and_crop_lines(segments, render_width, None, true, false);
-            if let Some(height) = self.child.layout_height() {
+            let fixed_height = self.child.layout_height();
+            if let Some(height) = fixed_height {
                 candidate =
                     Segment::set_shape(&candidate, render_width, Some(height.max(1)), None, false);
             }

@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 4)
+- **ScrollView fill/background fundamentals + buttons demo parity fix**
+  - Added default `ScrollView` background (`bg: $panel`) in built-in CSS so fill-area rows render with panel styling instead of terminal black (`src/css/defaults.rs`).
+  - Fixed CSS style application for unstyled segments so widget `bg` / `fg` can still be applied to padded blank lines generated during layout (`src/css/selectors.rs`).
+  - Hardened `VerticalScroll` intrinsic-height shaping to avoid truncating rendered content when effective rendered height exceeds reported intrinsic height (`src/widgets/aliases.rs`).
+  - Added shared input chrome scaffold module (`src/widgets/input_chrome.rs`) to centralize cursor-blink/focus/class behavior for input-family widgets.
+  - Result: in `examples/buttons.rs`, the fill area between buttons and footer is now painted correctly, and scrollbar visibility remains tied to actual overflow.
+
 ### 2026-02-07 (batch 3)
 - **Port 4 more widgets from Python Textual** (LoadingIndicator, Sparkline, Digits, MaskedInput)
   - Added `LoadingIndicator` widget (`src/widgets/loading_indicator.rs`) — animated cycling gradient dots (5 `●` chars), blocks input events during capture phase, tick-driven animation. 6 unit tests.

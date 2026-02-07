@@ -469,62 +469,69 @@ pub(crate) fn apply_style_to_segments(
                     None => rich_attrs,
                 });
             }
-            if let Some(mut s) = seg.style {
-                let mut no_bg = false;
-                if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
-                    if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
-                        no_bg = true;
-                    }
+            let mut no_bg = false;
+            if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
+                if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
+                    no_bg = true;
                 }
+            }
 
-                let mut under_bg = s
-                    .bgcolor
-                    .map(crate::style::color_from_simple)
-                    .or(parent_bg)
-                    .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+            let mut style_changed = false;
+            let mut s = seg.style.unwrap_or_else(rich_rs::Style::new);
+            let mut under_bg = s
+                .bgcolor
+                .map(crate::style::color_from_simple)
+                .or(parent_bg)
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
-                if !no_bg {
-                    if let Some(bg) = style.bg {
-                        // Preserve per-segment backgrounds (e.g. DataTable row/cell backgrounds,
-                        // Input selection/cursor) unless the segment has no background.
-                        if s.bgcolor.is_none() {
-                            let flat = bg.flatten_over(under_bg);
-                            under_bg = flat;
-                            s.bgcolor = Some(flat.to_simple_opaque());
-                        }
-                    }
-                } else {
-                    s.bgcolor = None;
-                }
-
-                if let Some(fg) = style.fg {
-                    // Preserve per-segment foregrounds unless unset.
-                    if s.color.is_none() {
-                        let bg_for_text = s
-                            .bgcolor
-                            .map(crate::style::color_from_simple)
-                            .unwrap_or(under_bg);
-                        let flat = fg.flatten_over(bg_for_text);
-                        s.color = Some(flat.to_simple_opaque());
-                    }
-                }
-
-                if let Some(tint) = style.background_tint {
-                    if let Some(bg) = s.bgcolor {
-                        let bg = crate::style::color_from_simple(bg);
-                        let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
-                        let flat = blended.flatten_over(under_bg);
+            if !no_bg {
+                if let Some(bg) = style.bg {
+                    // Preserve per-segment backgrounds (e.g. DataTable row/cell backgrounds,
+                    // Input selection/cursor) unless the segment has no background.
+                    if s.bgcolor.is_none() {
+                        let flat = bg.flatten_over(under_bg);
                         under_bg = flat;
                         s.bgcolor = Some(flat.to_simple_opaque());
+                        style_changed = true;
                     }
                 }
-                if let Some(tint) = style.tint {
-                    if let Some(bg) = s.bgcolor {
-                        let bg = crate::style::color_from_simple(bg);
-                        let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
-                        s.bgcolor = Some(blended.to_simple_opaque());
-                    }
+            } else if s.bgcolor.is_some() {
+                s.bgcolor = None;
+                style_changed = true;
+            }
+
+            if let Some(fg) = style.fg {
+                // Preserve per-segment foregrounds unless unset.
+                if s.color.is_none() {
+                    let bg_for_text = s
+                        .bgcolor
+                        .map(crate::style::color_from_simple)
+                        .unwrap_or(under_bg);
+                    let flat = fg.flatten_over(bg_for_text);
+                    s.color = Some(flat.to_simple_opaque());
+                    style_changed = true;
                 }
+            }
+
+            if let Some(tint) = style.background_tint {
+                if let Some(bg) = s.bgcolor {
+                    let bg = crate::style::color_from_simple(bg);
+                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    let flat = blended.flatten_over(under_bg);
+                    under_bg = flat;
+                    s.bgcolor = Some(flat.to_simple_opaque());
+                    style_changed = true;
+                }
+            }
+            if let Some(tint) = style.tint {
+                if let Some(bg) = s.bgcolor {
+                    let bg = crate::style::color_from_simple(bg);
+                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    s.bgcolor = Some(blended.to_simple_opaque());
+                    style_changed = true;
+                }
+            }
+            if style_changed || seg.style.is_some() {
                 seg.style = Some(s);
             }
             seg
@@ -1124,8 +1131,12 @@ fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration, parse_transition_shorthand, parse_transition_timing};
-    use crate::style::TransitionTiming;
+    use super::{
+        apply_style_to_segments, parse_duration, parse_transition_shorthand, parse_transition_timing,
+    };
+    use crate::style::{Color, Style, TransitionTiming};
+    use crate::widgets::WidgetId;
+    use rich_rs::{Segment, Segments};
     use std::time::Duration;
 
     #[test]
@@ -1155,5 +1166,19 @@ mod tests {
             Some(TransitionTiming::Round)
         );
         assert_eq!(parse_transition_timing("unknown"), None);
+    }
+
+    #[test]
+    fn applies_background_to_unstyled_segments() {
+        let mut segments = Segments::new();
+        segments.push(Segment::new("   "));
+        let style = Style::new().bg(Color::parse("#334455").expect("valid color"));
+        let styled = apply_style_to_segments(WidgetId::from_u64(1), segments, style, None);
+        let bg = styled
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.bgcolor);
+        assert!(bg.is_some(), "background should be applied to unstyled segments");
     }
 }

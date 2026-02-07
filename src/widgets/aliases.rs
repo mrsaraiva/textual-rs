@@ -208,7 +208,8 @@ impl Widget for VerticalScroll {
             .store(viewport_height, Ordering::Relaxed);
 
         let constraints = self.child.layout_constraints();
-        let target_height = self.child.layout_height().unwrap_or_else(|| {
+        let child_layout_height = self.child.layout_height();
+        let target_height = child_layout_height.unwrap_or_else(|| {
             // For children without an intrinsic height, probe at least one extra viewport
             // so scrolling can start from offset 0, without letting probe height
             // grow with scroll offset.
@@ -229,8 +230,10 @@ impl Widget for VerticalScroll {
 
         let segments = self.child.render_styled(console, &child_options);
         let mut lines = Segment::split_and_crop_lines(segments, render_width, None, true, false);
-        if let Some(height) = self.child.layout_height() {
-            lines = Segment::set_shape(&lines, render_width, Some(height.max(1)), None, false);
+        let raw_lines_height = lines.len();
+        if let Some(height) = child_layout_height {
+            let effective_height = height.max(raw_lines_height).max(1);
+            lines = Segment::set_shape(&lines, render_width, Some(effective_height), None, false);
         }
         lines = pad_lines_to_width(lines, width);
 
@@ -327,7 +330,7 @@ impl Widget for VerticalScroll {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        self.height
+        self.height.or_else(|| self.child.layout_height())
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
