@@ -358,17 +358,17 @@ Button.-style-default.-error:hover { bg: $error-darken-1; border-top: tall $erro
 
 Button.-style-default:active { border-top: tall $surface-darken-1; border-bottom: tall $surface-lighten-1; background-tint: $background 30%; }
 Button.-style-default.-primary:active { border-top: tall $primary-darken-3; border-bottom: tall $primary-lighten-3; background-tint: $background 30%; }
-Button.-style-default.-success:active { border-top: tall $success-darken-3; border-bottom: tall $success-lighten-2; background-tint: $background 30%; }
-Button.-style-default.-warning:active { border-top: tall $warning-darken-3; border-bottom: tall $warning-lighten-2; background-tint: $background 30%; }
-Button.-style-default.-error:active { border-top: tall $error-darken-3; border-bottom: tall $error-lighten-2; background-tint: $background 30%; }
+Button.-style-default.-success:active { border-top: tall $success-darken-2; border-bottom: tall $success-lighten-2; background-tint: $background 30%; }
+Button.-style-default.-warning:active { border-top: tall $warning-darken-2; border-bottom: tall $warning-lighten-2; background-tint: $background 30%; }
+Button.-style-default.-error:active { border-top: tall $error-darken-2; border-bottom: tall $error-lighten-2; background-tint: $background 30%; }
 
-Button:disabled { dim: true; }
+Button.-style-default:disabled { text-opacity: 60%; }
 
-Button.-style-flat { text-style: bold; fg: $foreground; bg: $surface; border: block $surface; }
-Button.-style-flat.-primary { fg: $text; bg: $primary-muted; border: block $primary-muted; }
-Button.-style-flat.-success { fg: $text; bg: $success-muted; border: block $success-muted; }
-Button.-style-flat.-warning { fg: $text; bg: $warning-muted; border: block $warning-muted; }
-Button.-style-flat.-error { fg: $text; bg: $error-muted; border: block $error-muted; }
+Button.-style-flat { text-style: bold; fg: $text; bg: $surface; border: block $surface; }
+Button.-style-flat.-primary { fg: $text-primary; bg: $primary-muted; border: block $primary-muted; }
+Button.-style-flat.-success { fg: $text-success; bg: $success-muted; border: block $success-muted; }
+Button.-style-flat.-warning { fg: $text-warning; bg: $warning-muted; border: block $warning-muted; }
+Button.-style-flat.-error { fg: $text-error; bg: $error-muted; border: block $error-muted; }
 
 Button.-style-flat:focus { text-style: $button-focus-text-style; background-tint: $foreground 5%; }
 
@@ -383,6 +383,7 @@ Button.-style-flat.-primary:active { background-tint: $background 30%; }
 Button.-style-flat.-success:active { background-tint: $background 30%; }
 Button.-style-flat.-warning:active { background-tint: $background 30%; }
 Button.-style-flat.-error:active { background-tint: $background 30%; }
+Button.-style-flat:disabled { fg: auto 50%; }
 
 SelectionList {
     height: auto;

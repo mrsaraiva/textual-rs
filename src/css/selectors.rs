@@ -5,7 +5,8 @@ use rich_rs::{MetaValue, Segments};
 
 use crate::debug::debug_style;
 use crate::style::{
-    BorderEdge, BorderType, Margin, Style, Tint, TransitionTiming, parse_color_like,
+    BorderEdge, BorderType, Margin, Style, Tint, TransitionTiming, parse_auto_color_like,
+    parse_color_like,
 };
 
 use crate::widgets::{Widget, WidgetId};
@@ -500,19 +501,6 @@ pub(crate) fn apply_style_to_segments(
                 style_changed = true;
             }
 
-            if let Some(fg) = style.fg {
-                // Preserve per-segment foregrounds unless unset.
-                if s.color.is_none() {
-                    let bg_for_text = s
-                        .bgcolor
-                        .map(crate::style::color_from_simple)
-                        .unwrap_or(under_bg);
-                    let flat = fg.flatten_over(bg_for_text);
-                    s.color = Some(flat.to_simple_opaque());
-                    style_changed = true;
-                }
-            }
-
             if let Some(tint) = style.background_tint {
                 if let Some(bg) = s.bgcolor {
                     let bg = crate::style::color_from_simple(bg);
@@ -522,6 +510,47 @@ pub(crate) fn apply_style_to_segments(
                     s.bgcolor = Some(flat.to_simple_opaque());
                     style_changed = true;
                 }
+            }
+
+            let text_opacity = style.text_opacity.map(|value| value as f32 / 100.0);
+            // Preserve per-segment foregrounds unless unset.
+            if s.color.is_none() {
+                let bg_for_text = s
+                    .bgcolor
+                    .map(crate::style::color_from_simple)
+                    .unwrap_or(under_bg);
+
+                if let Some(fg) = style.fg {
+                    let mut fg = fg;
+                    if let Some(opacity) = text_opacity {
+                        fg.a = ((fg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                    }
+                    let flat = fg.flatten_over(bg_for_text);
+                    s.color = Some(flat.to_simple_opaque());
+                    style_changed = true;
+                } else if let Some(auto) = style.fg_auto {
+                    let auto_alpha = auto.alpha();
+                    let effective_alpha = if let Some(opacity) = text_opacity {
+                        (auto_alpha * opacity).clamp(0.0, 1.0)
+                    } else {
+                        auto_alpha
+                    };
+                    let contrast =
+                        crate::style::contrast_text(bg_for_text).with_alpha(effective_alpha);
+                    let flat = contrast.flatten_over(bg_for_text);
+                    s.color = Some(flat.to_simple_opaque());
+                    style_changed = true;
+                }
+            } else if let (Some(opacity), Some(existing)) = (text_opacity, s.color) {
+                let bg_for_text = s
+                    .bgcolor
+                    .map(crate::style::color_from_simple)
+                    .unwrap_or(under_bg);
+                let mut existing = crate::style::color_from_simple(existing);
+                existing.a = ((existing.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                let flat = existing.flatten_over(bg_for_text);
+                s.color = Some(flat.to_simple_opaque());
+                style_changed = true;
             }
             if let Some(tint) = style.tint {
                 if let Some(bg) = s.bgcolor {
@@ -781,7 +810,9 @@ fn parse_style_body(body: &str) -> Style {
         let value = parts.next().unwrap_or("").trim();
         match key.as_str() {
             "fg" | "color" => {
-                if let Some(color) = parse_color_like(value) {
+                if let Some(auto) = parse_auto_color_like(value) {
+                    style = style.fg_auto(auto);
+                } else if let Some(color) = parse_color_like(value) {
                     style = style.fg(color);
                 }
             }
@@ -857,6 +888,11 @@ fn parse_style_body(body: &str) -> Style {
             "background-tint" => {
                 if let Some(tint) = parse_tint(value) {
                     style.background_tint = Some(tint);
+                }
+            }
+            "text-opacity" => {
+                if let Some(percent) = parse_opacity_percent(value) {
+                    style = style.text_opacity(percent);
                 }
             }
             "text-style" => {
@@ -1061,6 +1097,24 @@ fn parse_tint(value: &str) -> Option<Tint> {
     Some(Tint::new(color?, percent.unwrap_or(0)))
 }
 
+fn parse_opacity_percent(value: &str) -> Option<u8> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(raw) = value.strip_suffix('%') {
+        return raw.trim().parse::<u8>().ok().map(|v| v.min(100));
+    }
+    let value: f32 = value.parse().ok()?;
+    if value.is_sign_negative() {
+        return Some(0);
+    }
+    if value > 1.0 {
+        return Some((value.round() as i32).clamp(0, 100) as u8);
+    }
+    Some((value * 100.0).round().clamp(0.0, 100.0) as u8)
+}
+
 fn parse_transition_shorthand(
     value: &str,
 ) -> Option<(Option<Duration>, Option<Duration>, Option<TransitionTiming>)> {
@@ -1132,7 +1186,8 @@ fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_style_to_segments, parse_duration, parse_transition_shorthand, parse_transition_timing,
+        apply_style_to_segments, parse_duration, parse_style_body, parse_transition_shorthand,
+        parse_transition_timing,
     };
     use crate::style::{Color, Style, TransitionTiming};
     use crate::widgets::WidgetId;
@@ -1179,6 +1234,123 @@ mod tests {
             .next()
             .and_then(|segment| segment.style)
             .and_then(|segment_style| segment_style.bgcolor);
-        assert!(bg.is_some(), "background should be applied to unstyled segments");
+        assert!(
+            bg.is_some(),
+            "background should be applied to unstyled segments"
+        );
+    }
+
+    #[test]
+    fn parses_auto_foreground_styles() {
+        let style = parse_style_body("fg: auto 87%;");
+        assert!(style.fg.is_none(), "auto fg should not set a concrete color");
+        assert_eq!(
+            style.fg_auto.map(|auto| auto.alpha_percent),
+            Some(87),
+            "auto fg percent should be parsed"
+        );
+    }
+
+    #[test]
+    fn parses_auto_foreground_from_text_token() {
+        let style = parse_style_body("fg: $button-color-foreground;");
+        assert!(style.fg.is_none(), "token should resolve to auto fg semantics");
+        assert_eq!(
+            style.fg_auto.map(|auto| auto.alpha_percent),
+            Some(87),
+            "$button-color-foreground should map to Textual auto text 87%"
+        );
+    }
+
+    #[test]
+    fn auto_foreground_contrasts_against_background() {
+        let mut dark_segments = Segments::new();
+        dark_segments.push(Segment::new("x"));
+        let dark_style = parse_style_body("bg: #121212; fg: auto 87%;");
+        let dark = apply_style_to_segments(WidgetId::from_u64(1), dark_segments, dark_style, None);
+        let dark_fg = dark
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.color)
+            .expect("auto fg should resolve on dark backgrounds");
+
+        let mut light_segments = Segments::new();
+        light_segments.push(Segment::new("x"));
+        let light_style = parse_style_body("bg: #f5f5f5; fg: auto 87%;");
+        let light =
+            apply_style_to_segments(WidgetId::from_u64(1), light_segments, light_style, None);
+        let light_fg = light
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.color)
+            .expect("auto fg should resolve on light backgrounds");
+
+        let dark_fg = crate::style::color_from_simple(dark_fg);
+        let light_fg = crate::style::color_from_simple(light_fg);
+
+        assert!(
+            dark_fg.r > 180 && dark_fg.g > 180 && dark_fg.b > 180,
+            "auto fg should resolve to a light color on dark backgrounds"
+        );
+        assert!(
+            light_fg.r < 80 && light_fg.g < 80 && light_fg.b < 80,
+            "auto fg should resolve to a dark color on light backgrounds"
+        );
+    }
+
+    #[test]
+    fn parses_text_opacity() {
+        let style = parse_style_body("text-opacity: 0.6;");
+        assert_eq!(style.text_opacity, Some(60));
+
+        let style = parse_style_body("text-opacity: 42%;");
+        assert_eq!(style.text_opacity, Some(42));
+    }
+
+    #[test]
+    fn text_opacity_applies_to_existing_foreground() {
+        let mut segments = Segments::new();
+        let rich_style =
+            rich_rs::Style::new().with_color(crate::style::Color::rgb(255, 255, 255).to_simple_opaque());
+        segments.push(Segment::styled("x", rich_style));
+
+        let style = parse_style_body("bg: #000000; text-opacity: 50%;");
+        let styled = apply_style_to_segments(WidgetId::from_u64(1), segments, style, None);
+        let fg = styled
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.color)
+            .expect("expected foreground color");
+        let fg = crate::style::color_from_simple(fg);
+
+        assert!(
+            fg.r >= 120 && fg.r <= 136 && fg.g >= 120 && fg.g <= 136 && fg.b >= 120 && fg.b <= 136,
+            "text-opacity 50% over black should produce medium gray, got {:?}",
+            fg
+        );
+    }
+
+    #[test]
+    fn auto_foreground_uses_tinted_background_for_contrast() {
+        let mut segments = Segments::new();
+        segments.push(Segment::new("x"));
+        let style = parse_style_body("bg: #121212; background-tint: #ffffff 100%; fg: auto 87%;");
+        let styled = apply_style_to_segments(WidgetId::from_u64(1), segments, style, None);
+        let fg = styled
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.color)
+            .expect("auto fg should resolve");
+        let fg = crate::style::color_from_simple(fg);
+
+        assert!(
+            fg.r < 80 && fg.g < 80 && fg.b < 80,
+            "auto fg should resolve dark after full light tint, got {:?}",
+            fg
+        );
     }
 }

@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 7)
+- **Style/color fundamentals: `auto` foreground semantics + `text-opacity` parity**
+  - Added first-class auto-foreground semantics in the style engine (`fg: auto <percent>%`) and token-backed auto mappings for `$text`, `$text-muted`, `$text-disabled`, and `$button-color-foreground` (`src/style.rs`, `src/css/selectors.rs`).
+  - Resolved `auto` foreground at render time against the effective composed background, matching Textual's contrast behavior instead of pre-baked hardcoded foreground colors (`src/css/selectors.rs`).
+  - Added `text-opacity` CSS support (percent and float forms) and applied it during segment composition for both explicit and pre-existing foreground styles (`src/style.rs`, `src/css/selectors.rs`).
+  - Corrected composition order so foreground color resolution happens after background tint/tint, ensuring contrast calculations use final background color (`src/css/selectors.rs`).
+  - Aligned button disabled semantics with Python defaults: non-flat uses `text-opacity: 60%`, flat uses `fg: auto 50%` (`src/css/defaults.rs`).
+  - Added regression tests for auto foreground parsing/resolution, tint-aware contrast behavior, text-opacity parsing/application, and style merge precedence between concrete and auto foregrounds (`src/css/selectors.rs`, `src/style.rs`).
+
 ### 2026-02-07 (batch 6)
 - **Rendering/style composition fundamentals: transparent segment compositing + row bleed fix**
   - Aligned container defaults with Python Textual by removing opinionated default backgrounds from `VerticalScroll` and `ScrollView` (their defaults now focus on layout/overflow behavior, not paint) (`src/css/defaults.rs`).

@@ -123,6 +123,65 @@ pub fn parse_color_like(value: &str) -> Option<Color> {
     None
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutoColor {
+    pub alpha_percent: u8,
+}
+
+impl AutoColor {
+    pub fn new(alpha_percent: u8) -> Self {
+        Self {
+            alpha_percent: alpha_percent.min(100),
+        }
+    }
+
+    pub fn alpha(self) -> f32 {
+        self.alpha_percent as f32 / 100.0
+    }
+}
+
+pub fn parse_auto_color_like(value: &str) -> Option<AutoColor> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let tokens: Vec<&str> = value.split_whitespace().filter(|t| !t.is_empty()).collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    if tokens[0].eq_ignore_ascii_case("auto") {
+        let mut percent = 100;
+        for token in tokens.iter().skip(1) {
+            if let Some(raw) = token.strip_suffix('%') {
+                if let Ok(parsed) = raw.parse::<u8>() {
+                    percent = parsed.min(100);
+                }
+            }
+        }
+        return Some(AutoColor::new(percent));
+    }
+
+    for token in tokens {
+        if let Some(name) = token.strip_prefix('$') {
+            if let Some(auto) = resolve_textual_dark_auto_token(name) {
+                return Some(auto);
+            }
+        }
+    }
+    None
+}
+
+fn resolve_textual_dark_auto_token(name: &str) -> Option<AutoColor> {
+    match name {
+        "text" | "button-color-foreground" => Some(AutoColor::new(87)),
+        "text-muted" => Some(AutoColor::new(60)),
+        "text-disabled" => Some(AutoColor::new(38)),
+        _ => None,
+    }
+}
+
 fn resolve_color_token(token: &str) -> Option<Color> {
     let token = token.trim();
     let name = token.strip_prefix('$')?;
@@ -141,14 +200,14 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         // Theme "textual-dark" from Python Textual.
         m.insert("primary", Color::parse("#0178D4").unwrap());
         m.insert("secondary", Color::parse("#004578").unwrap());
-        m.insert("accent", Color::parse("#ffa62b").unwrap());
-        m.insert("warning", Color::parse("#ffa62b").unwrap());
-        m.insert("error", Color::parse("#ba3c5b").unwrap());
+        m.insert("accent", Color::parse("#FEA62B").unwrap());
+        m.insert("warning", Color::parse("#FEA62B").unwrap());
+        m.insert("error", Color::parse("#B93C5B").unwrap());
         m.insert("success", Color::parse("#4EBF71").unwrap());
-        m.insert("foreground", Color::parse("#e0e0e0").unwrap());
+        m.insert("foreground", Color::parse("#E0E0E0").unwrap());
         // Defaults from `textual/design.py` for dark mode.
         m.insert("background", Color::parse("#121212").unwrap());
-        m.insert("surface", Color::parse("#1e1e1e").unwrap());
+        m.insert("surface", Color::parse("#1E1E1E").unwrap());
         // Approximated default panel for textual-dark (Textual computes panel from surface + primary,
         // then adds a subtle boost for dark themes).
         let panel = {
@@ -156,25 +215,81 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
             let primary = m.get("primary").copied().unwrap();
             let background = m.get("background").copied().unwrap();
             let base = blend(surface, primary, 0.10);
-            let boost = contrast_text(background);
-            blend(base, boost, 0.04)
+            let boost = contrast_text(background).with_alpha(0.04);
+            boost.flatten_over(base)
         };
         m.insert("panel", panel);
+
+        let background = m.get("background").copied().unwrap();
+        let foreground = m.get("foreground").copied().unwrap();
+        let surface = m.get("surface").copied().unwrap();
+        let primary = m.get("primary").copied().unwrap();
+        let accent = m.get("accent").copied().unwrap();
+        let contrast = contrast_text(background);
+
+        // Textual's generated semantic colors for textual-dark.
+        m.insert("boost", contrast.with_alpha(0.04));
+        m.insert("text", contrast.with_alpha(0.87));
+        m.insert("text-muted", contrast.with_alpha(0.60));
+        m.insert("text-disabled", contrast.with_alpha(0.38));
+        m.insert("text-primary", Color::parse("#57A5E2").unwrap());
+        m.insert("text-secondary", Color::parse("#5684A5").unwrap());
+        m.insert("text-warning", Color::parse("#FFC473").unwrap());
+        m.insert("text-error", Color::parse("#D17E92").unwrap());
+        m.insert("text-success", Color::parse("#8AD4A1").unwrap());
+        m.insert("text-accent", Color::parse("#FFC473").unwrap());
+        m.insert("foreground-muted", Color::parse("#E0E0E099").unwrap());
+        m.insert("foreground-disabled", Color::parse("#E0E0E060").unwrap());
+        m.insert("surface-active", Color::parse("#2A2A2A").unwrap());
+        m.insert("button-foreground", foreground);
+        m.insert("button-color-foreground", contrast.with_alpha(0.87));
+
+        // Exact textual-dark shades used by Button and related widgets.
+        m.insert("surface-lighten-1", Color::parse("#2D2D2D").unwrap());
+        m.insert("surface-darken-1", Color::parse("#0D0D0D").unwrap());
+        m.insert("primary-lighten-3", Color::parse("#6DB2FF").unwrap());
+        m.insert("primary-darken-3", Color::parse("#004295").unwrap());
+        m.insert("primary-darken-2", Color::parse("#0053AA").unwrap());
+        m.insert("primary-muted", Color::parse("#0C304C").unwrap());
+        m.insert("success-lighten-2", Color::parse("#7AE998").unwrap());
+        m.insert("success-darken-3", Color::parse("#008139").unwrap());
+        m.insert("success-darken-2", Color::parse("#18954B").unwrap());
+        m.insert("success-muted", Color::parse("#24452E").unwrap());
+        m.insert("warning-lighten-2", Color::parse("#FFCF56").unwrap());
+        m.insert("warning-darken-3", Color::parse("#B86B00").unwrap());
+        m.insert("warning-darken-2", Color::parse("#CF7E00").unwrap());
+        m.insert("warning-muted", Color::parse("#593E19").unwrap());
+        m.insert("error-lighten-2", Color::parse("#E76580").unwrap());
+        m.insert("error-darken-3", Color::parse("#780028").unwrap());
+        m.insert("error-darken-2", Color::parse("#8D0638").unwrap());
+        m.insert("error-darken-1", Color::parse("#A32549").unwrap());
+        m.insert("error-muted", Color::parse("#441E27").unwrap());
+
+        // Footer and link color tokens used by builtin styles.
+        m.insert("footer-foreground", foreground);
+        m.insert("footer-background", panel);
+        m.insert("footer-key-foreground", accent);
+        m.insert("footer-key-background", Color::rgba(0, 0, 0, 0));
+        m.insert("footer-description-foreground", foreground);
+        m.insert("footer-description-background", Color::rgba(0, 0, 0, 0));
+        m.insert("footer-item-background", Color::rgba(0, 0, 0, 0));
+        m.insert("link-background-hover", primary);
+        m.insert("link-color", contrast.with_alpha(0.87));
+        m.insert("link-color-hover", contrast.with_alpha(0.87));
+
+        // Cursor/hover tokens from design defaults.
+        m.insert("block-cursor-foreground", contrast.with_alpha(0.87));
+        m.insert("block-cursor-background", primary);
+        m.insert("block-cursor-blurred-foreground", foreground);
+        m.insert("block-cursor-blurred-background", primary.with_alpha(0.30));
         // Textual's `$block-hover-background`: contrast text at 10% alpha, composed at render time.
         let background = m.get("background").copied().unwrap();
         let ct = contrast_text(background);
         m.insert("block-hover-background", ct.with_alpha(0.10));
         // Textual's datatable--header-hover: `$accent 30%` (alpha), composed at render time.
-        let accent = m.get("accent").copied().unwrap();
         m.insert("header-hover-background", accent.with_alpha(0.30));
-        // Minimal convenience aliases.
-        m.insert("text", Color::parse("#e0e0e0").unwrap());
-        m.insert("button-foreground", Color::parse("#e0e0e0").unwrap());
-        m.insert("button-color-foreground", Color::parse("#e0e0e0").unwrap());
 
         // Focused / blurred border tokens (used by many built-in widgets in Textual).
-        let surface = m.get("surface").copied().unwrap();
-        let primary = m.get("primary").copied().unwrap();
         m.insert("border", primary);
         m.insert("border-blurred", darken_lab(surface, 0.025));
 
@@ -189,6 +304,12 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         );
         let selection = lighten_lab(primary, 0.15 / 2.0).with_alpha(0.40);
         m.insert("input-selection-background", selection);
+        m.insert("markdown-h1-color", primary);
+        m.insert("markdown-h2-color", primary);
+        m.insert("markdown-h3-color", primary);
+        m.insert("markdown-h4-color", foreground);
+        m.insert("markdown-h5-color", foreground);
+        m.insert("markdown-h6-color", Color::parse("#E0E0E099").unwrap());
 
         // Scrollbar tokens (mirrors Textual dark design defaults closely enough for parity).
         let scrollbar_background = darken_lab(background, 0.15 / 2.0);
@@ -303,7 +424,7 @@ fn darken_lab(color: Color, amount: f32) -> Color {
     out
 }
 
-fn contrast_text(color: Color) -> Color {
+pub(crate) fn contrast_text(color: Color) -> Color {
     let (r, g, b) = to_rgb(color);
     let r = r as f32 / 255.0;
     let g = g as f32 / 255.0;
@@ -459,7 +580,9 @@ impl BorderEdge {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Style {
     pub fg: Option<Color>,
+    pub fg_auto: Option<AutoColor>,
     pub bg: Option<Color>,
+    pub text_opacity: Option<u8>,
     pub bold: Option<bool>,
     pub dim: Option<bool>,
     pub italic: Option<bool>,
@@ -520,11 +643,23 @@ impl Style {
 
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = Some(color);
+        self.fg_auto = None;
+        self
+    }
+
+    pub fn fg_auto(mut self, auto: AutoColor) -> Self {
+        self.fg_auto = Some(auto);
+        self.fg = None;
         self
     }
 
     pub fn bg(mut self, color: Color) -> Self {
         self.bg = Some(color);
+        self
+    }
+
+    pub fn text_opacity(mut self, percent: u8) -> Self {
+        self.text_opacity = Some(percent.min(100));
         self
     }
 
@@ -652,9 +787,19 @@ impl Style {
     }
 
     pub fn combine(&self, other: &Style) -> Style {
+        let (fg, fg_auto) = if let Some(color) = other.fg {
+            (Some(color), None)
+        } else if let Some(auto) = other.fg_auto {
+            (None, Some(auto))
+        } else {
+            (self.fg, self.fg_auto)
+        };
+
         Style {
-            fg: other.fg.or(self.fg),
+            fg,
+            fg_auto,
             bg: other.bg.or(self.bg),
+            text_opacity: other.text_opacity.or(self.text_opacity),
             bold: other.bold.or(self.bold),
             dim: other.dim.or(self.dim),
             italic: other.italic.or(self.italic),
@@ -698,9 +843,23 @@ impl Style {
     }
 
     pub fn inherit_from(&self, parent: &Style) -> Style {
+        let (fg, fg_auto) = if let Some(color) = self.fg {
+            (Some(color), None)
+        } else if let Some(auto) = self.fg_auto {
+            (None, Some(auto))
+        } else if let Some(color) = parent.fg {
+            (Some(color), None)
+        } else if let Some(auto) = parent.fg_auto {
+            (None, Some(auto))
+        } else {
+            (None, None)
+        };
+
         Style {
-            fg: self.fg.or(parent.fg),
+            fg,
+            fg_auto,
             bg: self.bg.or(parent.bg),
+            text_opacity: self.text_opacity.or(parent.text_opacity),
             bold: self.bold.or(parent.bold),
             dim: self.dim.or(parent.dim),
             italic: self.italic.or(parent.italic),
@@ -781,7 +940,9 @@ impl Style {
 
     pub fn is_empty(&self) -> bool {
         self.fg.is_none()
+            && self.fg_auto.is_none()
             && self.bg.is_none()
+            && self.text_opacity.is_none()
             && self.bold.is_none()
             && self.dim.is_none()
             && self.italic.is_none()
@@ -871,5 +1032,28 @@ impl Default for Theme {
             base = base.fg(fg);
         }
         Self { base }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AutoColor, Color, Style};
+
+    #[test]
+    fn combine_prefers_auto_foreground_over_prior_concrete_foreground() {
+        let base = Style::new().fg(Color::rgb(224, 224, 224));
+        let variant = Style::new().fg_auto(AutoColor::new(87));
+        let combined = base.combine(&variant);
+        assert_eq!(combined.fg, None);
+        assert_eq!(combined.fg_auto.map(|value| value.alpha_percent), Some(87));
+    }
+
+    #[test]
+    fn combine_prefers_concrete_foreground_over_prior_auto_foreground() {
+        let base = Style::new().fg_auto(AutoColor::new(87));
+        let variant = Style::new().fg(Color::rgb(20, 20, 20));
+        let combined = base.combine(&variant);
+        assert_eq!(combined.fg, Some(Color::rgb(20, 20, 20)));
+        assert_eq!(combined.fg_auto, None);
     }
 }
