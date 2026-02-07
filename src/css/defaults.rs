@@ -7,6 +7,7 @@ use super::StyleSheet;
 // full TCSS features (nesting, `&`, `!important`, advanced opacity) until the style engine grows.
 const DEFAULT_WIDGET_CSS: &str = r#"
 VerticalScroll { bg: $panel; }
+ScrollView > .scrollview--content { transition: scrollview.offset 140ms ease-out; }
 
 Label { fg: $foreground; }
 Markdown { fg: $foreground; }
@@ -267,6 +268,12 @@ Tabs > .tabs--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
 Tabs > .tabs--tab.-hover { bg: $surface-lighten-1; fg: $text; }
 Tabs > .tabs--tab.-active { bg: $primary-muted; fg: $text; }
 Tabs > .tabs--tab.-active.-focus { bg: $primary; fg: $text; }
+Tabs > .tabs--underline { bg: $panel-darken-1; fg: $foreground; text-style: dim; }
+Tabs > .tabs--underline.-active {
+    bg: $panel-darken-1;
+    fg: $primary;
+    transition: tabs.underline 300ms ease-in-out;
+}
 
 TabbedContent {
     bg: $surface;
@@ -279,7 +286,11 @@ TabbedContent > .tabbed-content--tab.-hover { bg: $surface-lighten-1; fg: $text;
 TabbedContent > .tabbed-content--tab.-active { bg: $primary-muted; fg: $text; }
 TabbedContent > .tabbed-content--tab.-active.-focus { bg: $primary; fg: $text; }
 TabbedContent > .tabbed-content--underline { bg: $panel-darken-1; fg: $foreground; text-style: dim; }
-TabbedContent > .tabbed-content--underline.-active { bg: $panel-darken-1; fg: $primary; }
+TabbedContent > .tabbed-content--underline.-active {
+    bg: $panel-darken-1;
+    fg: $primary;
+    transition: tabbed-content.underline 300ms ease-in-out;
+}
 
 CommandPalette {
     bg: $surface;
@@ -289,6 +300,10 @@ CommandPalette {
 CommandPalette > .command-palette--panel {
     bg: $panel-darken-1;
     fg: $foreground;
+    transition: command-palette.panel-y 180ms ease-out;
+}
+CommandPalette > .command-palette--key-panel {
+    transition: command-palette.key-panel 220ms ease-out;
 }
 
 CommandPalette > .command-palette--border {
@@ -429,6 +444,36 @@ Toast > .toast--title { fg: $foreground; text-style: bold; }
 Toast.-information > .toast--title { fg: $text-success; }
 Toast.-warning > .toast--title { fg: $text-warning; }
 Toast.-error > .toast--title { fg: $text-error; }
+
+LoadingIndicator {
+    width: 1fr;
+    height: 1fr;
+    min-height: 1;
+    fg: $primary;
+}
+
+Sparkline { height: 1; }
+Sparkline > .sparkline--max-color { fg: $primary; }
+Sparkline > .sparkline--min-color { fg: $primary 30%; }
+
+Digits {
+    width: 1fr;
+    height: auto;
+}
+
+MaskedInput {
+    width: auto;
+    height: 3;
+    min-width: 16;
+    line-pad: 2;
+    bg: $surface;
+    fg: $foreground;
+    border: tall $border-blurred;
+}
+
+MaskedInput:focus { border: tall $border; background-tint: $foreground 5%; }
+MaskedInput.-invalid { border: tall $error; }
+MaskedInput.-invalid:focus { border: tall $error; }
 "#;
 
 pub fn default_widget_stylesheet() -> StyleSheet {

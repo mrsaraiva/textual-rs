@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 3)
+- **Port 4 more widgets from Python Textual** (LoadingIndicator, Sparkline, Digits, MaskedInput)
+  - Added `LoadingIndicator` widget (`src/widgets/loading_indicator.rs`) — animated cycling gradient dots (5 `●` chars), blocks input events during capture phase, tick-driven animation. 6 unit tests.
+  - Added `Sparkline` widget (`src/widgets/sparkline.rs`) — bar chart from numerical data using `▁▂▃▄▅▆▇█` bars, data bucketing with configurable summary function, color gradient between min/max via component classes (`sparkline--min-color`, `sparkline--max-color`). 12 unit tests.
+  - Added `Digits` widget (`src/widgets/digits.rs`) — 3×3 Unicode block font for numerical displays, supports digits, hex, operators, currency symbols; auto-selects bold/normal glyph table from CSS.
+  - Added `MaskedInput` widget (`src/widgets/masked_input.rs`) — template-based formatted input with character-level validation (alpha, digit, hex, binary, etc.), auto-inserted separators, cursor navigation skipping separators, case forcing (`>`/`<`/`!`), custom blank placeholder via `;`. Reuses `InputChanged`/`InputSubmitted` messages. 23 unit tests.
+  - All widgets are first-class: segment-based rendering, CSS component styles, `style_type()`, default CSS rules in `defaults.rs`, full Widget trait, proper event handling.
+
 ### 2026-02-07 (batch 2)
 - **Port 6 more widgets from Python Textual** (SelectionList, ProgressBar, Collapsible, ContentSwitcher, Link, Toast)
   - Added `SelectionList` widget (`src/widgets/selection_list.rs`) — multi-select checklist wrapping OptionList with per-item toggle checkboxes (`▐X▌`/`▐ ▌`), keyboard/mouse toggling, select/deselect all, emits `SelectionListToggled`/`SelectionListSelectedChanged` messages. 5 unit tests.
