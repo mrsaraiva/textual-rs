@@ -10,7 +10,7 @@ VerticalScroll { bg: $panel; }
 
 Label { fg: $foreground; }
 Markdown { fg: $foreground; }
-Markdown > .markdown--h1 { fg: $primary; text-style: bold underline; }
+Markdown > .markdown--h1 { fg: $primary; text-style: bold; }
 Markdown > .markdown--h2 { fg: $primary; text-style: underline; }
 Markdown > .markdown--h3 { fg: $primary; text-style: bold; }
 Markdown > .markdown--h4 { fg: $primary; text-style: italic; }
@@ -57,6 +57,19 @@ Footer {
     fg: $foreground;
     line-pad: 1;
     height: auto;
+}
+
+Footer > .footer-key--key {
+    fg: $accent;
+    text-style: bold;
+}
+
+Footer > .footer-key--description {
+    fg: $text-disabled;
+}
+
+Footer > .footer-key--command-palette {
+    fg: $text-muted;
 }
 
 RichLog {
@@ -265,8 +278,8 @@ TabbedContent > .tabbed-content--tab { bg: $panel; fg: $text-disabled; text-styl
 TabbedContent > .tabbed-content--tab.-hover { bg: $surface-lighten-1; fg: $text; }
 TabbedContent > .tabbed-content--tab.-active { bg: $primary-muted; fg: $text; }
 TabbedContent > .tabbed-content--tab.-active.-focus { bg: $primary; fg: $text; }
-TabbedContent > .tabbed-content--underline { bg: $panel-darken-1; fg: $panel-darken-1; }
-TabbedContent > .tabbed-content--underline.-active { bg: $primary; fg: $primary; }
+TabbedContent > .tabbed-content--underline { bg: $panel-darken-1; fg: $foreground; text-style: dim; }
+TabbedContent > .tabbed-content--underline.-active { bg: $panel-darken-1; fg: $primary; }
 
 CommandPalette {
     bg: $surface;
@@ -274,12 +287,30 @@ CommandPalette {
 }
 
 CommandPalette > .command-palette--panel {
-    bg: $panel-darken-2;
+    bg: $panel-darken-1;
     fg: $foreground;
 }
 
 CommandPalette > .command-palette--border {
     fg: $primary;
+}
+
+CommandPalette > .command-palette--search-icon {
+    fg: $primary;
+}
+
+CommandPalette > .command-palette--item-title {
+    fg: $foreground;
+    text-style: bold;
+}
+
+CommandPalette > .command-palette--item-help {
+    fg: $text-muted;
+}
+
+CommandPalette > .command-palette--item-selected {
+    fg: $text;
+    bg: $primary;
 }
 
 Button {
@@ -338,6 +369,66 @@ Button.-style-flat.-primary:active { background-tint: $background 30%; }
 Button.-style-flat.-success:active { background-tint: $background 30%; }
 Button.-style-flat.-warning:active { background-tint: $background 30%; }
 Button.-style-flat.-error:active { background-tint: $background 30%; }
+
+SelectionList {
+    height: auto;
+    bg: $surface;
+    fg: $foreground;
+    border: tall $border-blurred;
+    line-pad: 1;
+}
+
+SelectionList:focus { border: tall $border; background-tint: $foreground 5%; }
+SelectionList > .selection-list--button { fg: $panel-darken-2; bg: $panel; }
+SelectionList > .selection-list--button-highlighted { fg: $panel-darken-2; bg: $panel; }
+SelectionList > .selection-list--button-selected { fg: $text-success; bg: $panel; }
+SelectionList > .selection-list--button-selected-highlighted { fg: $text-success; bg: $panel; }
+
+ProgressBar {
+    width: 32;
+    height: 1;
+    fg: $foreground;
+}
+
+ProgressBar > .bar--bar { fg: $primary; bg: $surface; }
+ProgressBar > .bar--complete { fg: $success; bg: $surface; }
+ProgressBar > .bar--indeterminate { fg: $error; bg: $surface; }
+
+Collapsible {
+    width: 1fr;
+    height: auto;
+    bg: $surface;
+}
+
+Collapsible:focus { background-tint: $foreground 5%; }
+Collapsible > .collapsible--title { fg: $foreground; text-style: bold; }
+Collapsible > .collapsible--title.-focus { fg: $text; bg: $primary; }
+
+ContentSwitcher {
+    height: auto;
+}
+
+Link {
+    width: auto;
+    height: auto;
+    fg: $text-accent;
+    text-style: underline;
+}
+
+Link:hover { fg: $accent; }
+Link:focus { text-style: bold; }
+
+Toast {
+    width: 60;
+    height: auto;
+    bg: $panel-lighten-1;
+    fg: $foreground;
+}
+
+Toast > .toast--title { fg: $foreground; text-style: bold; }
+Toast.-information > .toast--title { fg: $text-success; }
+Toast.-warning > .toast--title { fg: $text-warning; }
+Toast.-error > .toast--title { fg: $text-error; }
 "#;
 
 pub fn default_widget_stylesheet() -> StyleSheet {

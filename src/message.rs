@@ -85,6 +85,22 @@ pub enum Message {
         index: usize,
         label: String,
     },
+    // SelectionList
+    SelectionListToggled {
+        index: usize,
+        selected: bool,
+    },
+    SelectionListSelectedChanged,
+    // Collapsible
+    CollapsibleToggled {
+        collapsed: bool,
+    },
+    // Link
+    LinkClicked {
+        url: String,
+    },
+    // Toast
+    ToastDismissed,
 }
 
 #[derive(Debug, Clone)]

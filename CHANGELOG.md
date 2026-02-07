@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 2)
+- **Port 6 more widgets from Python Textual** (SelectionList, ProgressBar, Collapsible, ContentSwitcher, Link, Toast)
+  - Added `SelectionList` widget (`src/widgets/selection_list.rs`) — multi-select checklist wrapping OptionList with per-item toggle checkboxes (`▐X▌`/`▐ ▌`), keyboard/mouse toggling, select/deselect all, emits `SelectionListToggled`/`SelectionListSelectedChanged` messages. 5 unit tests.
+  - Added `ProgressBar` widget (`src/widgets/progress_bar.rs`) — determinate/indeterminate progress bar with component classes (`bar--bar`, `bar--complete`, `bar--indeterminate`), bounce animation for indeterminate mode. 9 unit tests.
+  - Added `Collapsible` widget (`src/widgets/collapsible.rs`) — expand/collapse container with clickable title bar (▶/▼), keyboard/mouse toggle, full child rendering pipeline, emits `CollapsibleToggled` message.
+  - Added `ContentSwitcher` widget (`src/widgets/content_switcher.rs`) — shows one child at a time matched by `style_id()`, delegates lifecycle events to visible child only.
+  - Added `Link` widget (`src/widgets/link.rs`) — clickable text opening URLs, activates on click/Enter/Space, emits `LinkClicked` message.
+  - Added `Toast` widget (`src/widgets/toast.rs`) — notification with severity levels (Information/Warning/Error), tick-based auto-dismiss timeout, click to dismiss, emits `ToastDismissed` message.
+  - All widgets are first-class: segment-based rendering, CSS component styles, `style_type()`, default CSS rules in `defaults.rs`, full Widget trait, proper event handling.
+
 ### 2026-02-07
 - **Port 7 new widgets from Python Textual**
   - Added `Rule` widget (`src/widgets/rule.rs`) — horizontal/vertical separator with 9 line styles (solid, dashed, double, heavy, thick, ascii, blank, hidden, none).
