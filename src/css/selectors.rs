@@ -511,6 +511,14 @@ pub(crate) fn apply_style_to_segments(
                     style_changed = true;
                 }
             }
+            if let Some(tint) = style.tint {
+                if let Some(bg) = s.bgcolor {
+                    let bg = crate::style::color_from_simple(bg);
+                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    s.bgcolor = Some(blended.to_simple_opaque());
+                    style_changed = true;
+                }
+            }
 
             let text_opacity = style.text_opacity.map(|value| value as f32 / 100.0);
             // Preserve per-segment foregrounds unless unset.
@@ -552,16 +560,66 @@ pub(crate) fn apply_style_to_segments(
                 s.color = Some(flat.to_simple_opaque());
                 style_changed = true;
             }
-            if let Some(tint) = style.tint {
-                if let Some(bg) = s.bgcolor {
-                    let bg = crate::style::color_from_simple(bg);
-                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
-                    s.bgcolor = Some(blended.to_simple_opaque());
-                    style_changed = true;
-                }
-            }
             if style_changed || seg.style.is_some() {
                 seg.style = Some(s);
+            }
+            seg
+        })
+        .collect()
+}
+
+pub(crate) fn apply_widget_opacity_to_segments(
+    segments: Segments,
+    opacity_percent: u8,
+    parent_style: Option<Style>,
+) -> Segments {
+    if opacity_percent >= 100 {
+        return segments;
+    }
+    let opacity = (opacity_percent as f32 / 100.0).clamp(0.0, 1.0);
+    let fallback_bg = crate::style::parse_color_like("$background");
+    let parent_bg = parent_style
+        .and_then(|style| style.bg)
+        .or(fallback_bg)
+        .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+
+    segments
+        .into_iter()
+        .map(|mut seg| {
+            if seg.control.is_some() {
+                return seg;
+            }
+            let mut style_changed = false;
+            let mut style = seg.style.unwrap_or_else(rich_rs::Style::new);
+            let original_bg = style.bgcolor.map(crate::style::color_from_simple);
+            let original_fg = style.color.map(crate::style::color_from_simple);
+
+            if let Some(bg) = original_bg {
+                let mut bg = bg;
+                bg.a = ((bg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                let flat_bg = bg.flatten_over(parent_bg);
+                style.bgcolor = Some(flat_bg.to_simple_opaque());
+                style_changed = true;
+            }
+
+            if let Some(fg) = original_fg {
+                let fg_source = fg;
+                let mut fg = fg;
+                fg.a = ((fg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                let mut flat_fg = fg.flatten_over(parent_bg);
+                if let (Some(src_bg), Some(dst_bg)) =
+                    (original_bg, style.bgcolor.map(crate::style::color_from_simple))
+                {
+                    if src_bg == fg_source {
+                        flat_fg = dst_bg;
+                    }
+                }
+                style.color = Some(flat_fg.to_simple_opaque());
+                style_changed = true;
+            }
+
+            if style_changed || seg.style.is_some() {
+                seg.style = Some(style);
             }
             seg
         })
@@ -895,6 +953,11 @@ fn parse_style_body(body: &str) -> Style {
                     style = style.text_opacity(percent);
                 }
             }
+            "opacity" => {
+                if let Some(percent) = parse_opacity_percent(value) {
+                    style = style.opacity(percent);
+                }
+            }
             "text-style" => {
                 for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
                     let token = token.trim();
@@ -1186,11 +1249,13 @@ fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_style_to_segments, parse_duration, parse_style_body, parse_transition_shorthand,
-        parse_transition_timing,
+        apply_style_to_segments, apply_widget_opacity_to_segments, parse_duration,
+        parse_style_body, parse_transition_shorthand, parse_transition_timing, resolve_style,
+        selector_meta_generic,
     };
+    use crate::css::default_widget_stylesheet;
     use crate::style::{Color, Style, TransitionTiming};
-    use crate::widgets::WidgetId;
+    use crate::widgets::{Button, WidgetId};
     use rich_rs::{Segment, Segments};
     use std::time::Duration;
 
@@ -1351,6 +1416,61 @@ mod tests {
             fg.r < 80 && fg.g < 80 && fg.b < 80,
             "auto fg should resolve dark after full light tint, got {:?}",
             fg
+        );
+    }
+
+    #[test]
+    fn disabled_primary_button_uses_text_and_widget_opacity() {
+        let _guard = super::set_style_context(default_widget_stylesheet());
+        let enabled = Button::primary("Primary!");
+        let disabled = Button::primary("Primary!").disabled(true);
+
+        let enabled_style = resolve_style(&enabled, &selector_meta_generic(&enabled));
+        let disabled_style = resolve_style(&disabled, &selector_meta_generic(&disabled));
+
+        assert_eq!(enabled_style.fg_auto.map(|value| value.alpha_percent), Some(87));
+        assert_eq!(
+            disabled_style.fg_auto.map(|value| value.alpha_percent),
+            Some(87),
+            "disabled primary keeps auto-foreground alpha and dims via text/widget opacity"
+        );
+        assert_eq!(disabled_style.text_opacity, Some(60));
+        assert_eq!(disabled_style.opacity, Some(70));
+    }
+
+    #[test]
+    fn widget_opacity_dims_background_and_text_together() {
+        let original_bg = crate::style::Color::rgb(1, 120, 212);
+        let original_fg = crate::style::Color::rgb(221, 237, 249);
+        let parent_bg = crate::style::parse_color_like("$background").expect("theme background");
+        let mut segments = Segments::new();
+        let style = rich_rs::Style::new()
+            .with_bgcolor(original_bg.to_simple_opaque())
+            .with_color(original_fg.to_simple_opaque());
+        segments.push(Segment::styled("x", style));
+        let out = apply_widget_opacity_to_segments(segments, 70, None);
+        let style = out
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .expect("style exists");
+        let bg = crate::style::color_from_simple(style.bgcolor.expect("bg"));
+        let fg = crate::style::color_from_simple(style.color.expect("fg"));
+
+        let dist = |a: crate::style::Color, b: crate::style::Color| -> i32 {
+            let dr = a.r as i32 - b.r as i32;
+            let dg = a.g as i32 - b.g as i32;
+            let db = a.b as i32 - b.b as i32;
+            dr * dr + dg * dg + db * db
+        };
+
+        assert!(
+            dist(bg, parent_bg) < dist(original_bg, parent_bg),
+            "background should move toward parent with opacity"
+        );
+        assert!(
+            dist(fg, bg) < dist(original_fg, original_bg),
+            "foreground should move toward local background with opacity"
         );
     }
 }

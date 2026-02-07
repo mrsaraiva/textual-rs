@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-07 (batch 8)
+- **Buttons demo split: parity demo + advanced event-propagation demo**
+  - Converted `examples/buttons.rs` into a clean Python-parity buttons layout demo (no embedded status footer/event wiring).
+  - Added `examples/buttons_advanced.rs` preserving the previous event/status behavior for propagation diagnostics.
+- **Disabled styling fundamentals: widget-level opacity support**
+  - Added first-class `opacity` support to the style model and CSS parser (`src/style.rs`, `src/css/selectors.rs`).
+  - Applied widget opacity after border composition in the render pipeline so disabled styling affects the whole widget surface (`src/widgets/core.rs`).
+  - Added `Button:disabled { opacity: 70%; }` to align with Textual's disabled widget fade semantics (`src/css/defaults.rs`).
+  - Added regression coverage for disabled button dim behavior and opacity composition (`tests/buttons_demo.rs`, `src/css/selectors.rs` tests).
+- **Theme/token parity regression coverage**
+  - Added `tests/theme_tokens.rs` validating key textual-dark token values used by button variants and semantic text colors.
+- **Runtime resize recovery fix (dirty-loop compatibility)**
+  - Ensured resize-invalidated frames trigger render under dirty-flag scheduling by honoring `resized_since_last_render` in render gates (`src/runtime/mod.rs`).
+
 ### 2026-02-07 (batch 7)
 - **Style/color fundamentals: `auto` foreground semantics + `text-opacity` parity**
   - Added first-class auto-foreground semantics in the style engine (`fg: auto <percent>%`) and token-backed auto mappings for `$text`, `$text-muted`, `$text-disabled`, and `$button-color-foreground` (`src/style.rs`, `src/css/selectors.rs`).

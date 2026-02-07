@@ -583,6 +583,7 @@ pub struct Style {
     pub fg_auto: Option<AutoColor>,
     pub bg: Option<Color>,
     pub text_opacity: Option<u8>,
+    pub opacity: Option<u8>,
     pub bold: Option<bool>,
     pub dim: Option<bool>,
     pub italic: Option<bool>,
@@ -660,6 +661,11 @@ impl Style {
 
     pub fn text_opacity(mut self, percent: u8) -> Self {
         self.text_opacity = Some(percent.min(100));
+        self
+    }
+
+    pub fn opacity(mut self, percent: u8) -> Self {
+        self.opacity = Some(percent.min(100));
         self
     }
 
@@ -800,6 +806,7 @@ impl Style {
             fg_auto,
             bg: other.bg.or(self.bg),
             text_opacity: other.text_opacity.or(self.text_opacity),
+            opacity: other.opacity.or(self.opacity),
             bold: other.bold.or(self.bold),
             dim: other.dim.or(self.dim),
             italic: other.italic.or(self.italic),
@@ -860,6 +867,7 @@ impl Style {
             fg_auto,
             bg: self.bg.or(parent.bg),
             text_opacity: self.text_opacity.or(parent.text_opacity),
+            opacity: self.opacity.or(parent.opacity),
             bold: self.bold.or(parent.bold),
             dim: self.dim.or(parent.dim),
             italic: self.italic.or(parent.italic),
@@ -943,6 +951,7 @@ impl Style {
             && self.fg_auto.is_none()
             && self.bg.is_none()
             && self.text_opacity.is_none()
+            && self.opacity.is_none()
             && self.bold.is_none()
             && self.dim.is_none()
             && self.italic.is_none()

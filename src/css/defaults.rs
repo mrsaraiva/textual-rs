@@ -363,6 +363,7 @@ Button.-style-default.-warning:active { border-top: tall $warning-darken-2; bord
 Button.-style-default.-error:active { border-top: tall $error-darken-2; border-bottom: tall $error-lighten-2; background-tint: $background 30%; }
 
 Button.-style-default:disabled { text-opacity: 60%; }
+Button:disabled { opacity: 70%; }
 
 Button.-style-flat { text-style: bold; fg: $text; bg: $surface; border: block $surface; }
 Button.-style-flat.-primary { fg: $text-primary; bg: $primary-muted; border: block $primary-muted; }

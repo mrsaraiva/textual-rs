@@ -940,7 +940,7 @@ impl App {
                 break 'event_loop;
             }
 
-            if dirty {
+            if dirty || self.resized_since_last_render {
                 self.render_widget(root)?;
                 dirty = false;
                 last_render = Instant::now();
@@ -964,7 +964,7 @@ impl App {
                 }
 
                 let any_active = any_widget_active(root);
-                if dirty || any_active || prev_any_active {
+                if dirty || self.resized_since_last_render || any_active || prev_any_active {
                     self.render_widget(root)?;
                     dirty = false;
                     last_render = Instant::now();

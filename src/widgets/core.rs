@@ -88,6 +88,11 @@ pub trait Widget: Send + Sync {
             full_width,
             full_height,
         );
+        let segments = if let Some(opacity) = resolved.opacity {
+            crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)
+        } else {
+            segments
+        };
         tag_widget_meta(self.id(), segments)
     }
     fn render_with_debug(
