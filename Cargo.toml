@@ -21,6 +21,9 @@ tree-sitter-java = "0.23"
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }
 
+[patch.crates-io]
+rich-rs = { path = "../rich-rs" }
+
 [features]
 default = []
 

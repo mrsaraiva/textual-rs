@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use rich_rs::{MetaValue, Segments};
@@ -194,20 +195,17 @@ impl StyleSheet {
 
     fn style_for_meta(&self, meta: &SelectorMeta) -> Style {
         let mut matches: Vec<(u8, usize, Style)> = Vec::new();
+        let debug_style_meta = style_debug_matches(meta);
         for (idx, rule) in self.rules.iter().enumerate() {
             if let Some(score) = rule_specificity(rule, meta) {
                 matches.push((score, idx, rule.style));
-                if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok()
-                    && meta.type_name == "VerticalScroll"
-                {
+                if debug_style_meta {
                     debug_style(&format!(
-                        "[style] match widget={} selector=\"{}\" score={} width=({:?},{:?}) width_auto={:?}",
-                        meta.type_name,
+                        "[style] match widget={} selector=\"{}\" score={} rule={}",
+                        style_debug_meta_label(meta),
                         selector_chain_string(&rule.selector_chain),
                         score,
-                        rule.style.min_width,
-                        rule.style.max_width,
-                        rule.style.width_auto
+                        style_debug_summary(&rule.style),
                     ));
                 }
             }
@@ -217,17 +215,19 @@ impl StyleSheet {
         for (_, _, style) in matches {
             out = out.combine(&style);
         }
-        if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_ok() && meta.type_name == "VerticalScroll" {
+        if debug_style_meta {
             let stack = SELECTOR_STACK.with(|stack| {
                 stack
                     .borrow()
                     .iter()
-                    .map(|m| m.type_name.clone())
+                    .map(style_debug_meta_label)
                     .collect::<Vec<_>>()
             });
             debug_style(&format!(
-                "[style] resolved widget={} stack={:?} width=({:?},{:?}) width_auto={:?}",
-                meta.type_name, stack, out.min_width, out.max_width, out.width_auto
+                "[style] resolved widget={} stack={:?} style={}",
+                style_debug_meta_label(meta),
+                stack,
+                style_debug_summary(&out),
             ));
         }
         out
@@ -486,15 +486,20 @@ pub(crate) fn apply_style_to_segments(
                 .unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
             if !no_bg {
-                if let Some(bg) = style.bg {
+                if s.bgcolor.is_none() {
                     // Preserve per-segment backgrounds (e.g. DataTable row/cell backgrounds,
-                    // Input selection/cursor) unless the segment has no background.
-                    if s.bgcolor.is_none() {
-                        let flat = bg.flatten_over(under_bg);
-                        under_bg = flat;
-                        s.bgcolor = Some(flat.to_simple_opaque());
-                        style_changed = true;
-                    }
+                    // Input selection/cursor). When a segment has no explicit background:
+                    // - apply this widget's own `bg` if present, flattened over parent bg
+                    // - otherwise keep the parent surface color so transparent children
+                    //   visually inherit container background during composition.
+                    let effective_bg = if let Some(bg) = style.bg {
+                        bg.flatten_over(under_bg)
+                    } else {
+                        under_bg
+                    };
+                    under_bg = effective_bg;
+                    s.bgcolor = Some(effective_bg.to_simple_opaque());
+                    style_changed = true;
                 }
             } else if s.bgcolor.is_some() {
                 s.bgcolor = None;
@@ -726,6 +731,132 @@ fn selector_chain_string(chain: &SelectorChain) -> String {
         }
     }
     out
+}
+
+fn style_debug_matches(meta: &SelectorMeta) -> bool {
+    if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_err() {
+        return false;
+    }
+    static FILTERS: OnceLock<Vec<String>> = OnceLock::new();
+    let filters = FILTERS.get_or_init(|| {
+        std::env::var("TEXTUAL_DEBUG_STYLE_FILTER")
+            .ok()
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|part| part.trim().to_string())
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+    if filters.is_empty() {
+        return true;
+    }
+
+    let label = style_debug_meta_label(meta).to_lowercase();
+    filters.iter().all(|filter| {
+        if let Some(value) = filter.strip_prefix("type=") {
+            return meta.type_name.eq_ignore_ascii_case(value.trim());
+        }
+        if let Some(value) = filter.strip_prefix("id=") {
+            return meta
+                .id
+                .as_deref()
+                .is_some_and(|id| id.eq_ignore_ascii_case(value.trim()));
+        }
+        if let Some(value) = filter.strip_prefix("class=") {
+            return meta
+                .classes
+                .iter()
+                .any(|class| class.eq_ignore_ascii_case(value.trim()));
+        }
+        if let Some(value) = filter.strip_prefix("pseudo=") {
+            return match value.trim().to_ascii_lowercase().as_str() {
+                "disabled" => meta.states.disabled,
+                "focus" | "focused" => meta.states.focused,
+                "hover" | "hovered" => meta.states.hovered,
+                "active" => meta.states.active,
+                _ => false,
+            };
+        }
+        label.contains(&filter.to_ascii_lowercase())
+    })
+}
+
+fn style_debug_meta_label(meta: &SelectorMeta) -> String {
+    let mut label = meta.type_name.clone();
+    if let Some(id) = &meta.id {
+        label.push('#');
+        label.push_str(id);
+    }
+    for class in &meta.classes {
+        label.push('.');
+        label.push_str(class);
+    }
+    if meta.states.disabled {
+        label.push_str(":disabled");
+    }
+    if meta.states.focused {
+        label.push_str(":focus");
+    }
+    if meta.states.hovered {
+        label.push_str(":hover");
+    }
+    if meta.states.active {
+        label.push_str(":active");
+    }
+    label
+}
+
+fn style_debug_summary(style: &Style) -> String {
+    let fg = style
+        .fg
+        .map(style_debug_color)
+        .unwrap_or_else(|| "-".to_string());
+    let fg_auto = style
+        .fg_auto
+        .map(|value| format!("{}%", value.alpha_percent))
+        .unwrap_or_else(|| "-".to_string());
+    let bg = style
+        .bg
+        .map(style_debug_color)
+        .unwrap_or_else(|| "-".to_string());
+    let tint = style
+        .tint
+        .map(|value| format!("{}@{}%", style_debug_color(value.color), value.percent))
+        .unwrap_or_else(|| "-".to_string());
+    let bg_tint = style
+        .background_tint
+        .map(|value| format!("{}@{}%", style_debug_color(value.color), value.percent))
+        .unwrap_or_else(|| "-".to_string());
+
+    format!(
+        "fg={} fg_auto={} bg={} bold={:?} dim={:?} italic={:?} underline={:?} reverse={:?} text_opacity={:?} opacity={:?} line_pad={:?} width=({:?},{:?},auto:{:?}) height=({:?},{:?},auto:{:?}) tint={} bg_tint={}",
+        fg,
+        fg_auto,
+        bg,
+        style.bold,
+        style.dim,
+        style.italic,
+        style.underline,
+        style.reverse,
+        style.text_opacity,
+        style.opacity,
+        style.line_pad,
+        style.min_width,
+        style.max_width,
+        style.width_auto,
+        style.min_height,
+        style.max_height,
+        style.height_auto,
+        tint,
+        bg_tint,
+    )
+}
+
+fn style_debug_color(color: crate::style::Color) -> String {
+    format!("#{:02X}{:02X}{:02X}{:02X}", color.r, color.g, color.b, color.a)
 }
 
 fn parse_selector(selector: &str) -> Option<StyleSelector> {

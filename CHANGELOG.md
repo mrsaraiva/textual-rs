@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-08 (batch 10)
+- **Style composition fundamentals: transparent widgets inherit parent surface at render time**
+  - Kept CSS semantics aligned with Textual by making `bg` non-inherited in style resolution (`src/style.rs`).
+  - Fixed render-time segment composition so segments without explicit background are painted with the effective parent surface (or widget `bg` when set), preventing terminal/default background bleed for transparent children like `Static` headers (`src/css/selectors.rs`).
+  - Added regression coverage asserting child backgrounds remain transparent at style-resolution level (`tests/style_inheritance.rs`).
+- **Style-debug instrumentation: selector/rule provenance for any widget**
+  - Generalized style debug logging beyond `VerticalScroll` and width-only traces.
+  - Added `TEXTUAL_DEBUG_STYLE_FILTER` support (`type=`, `class=`, `id=`, `pseudo=` or label substring) to target specific widgets/components.
+  - Style logs now include rule and resolved summaries with `fg`, `fg_auto`, `bg`, text attributes, opacity, tints, and layout-relevant style fields (`src/css/selectors.rs`).
+- **Workspace/dev dependency alignment**
+  - Added `[patch.crates-io] rich-rs = { path = "../rich-rs" }` for local development parity and updated lockfile to the local `rich-rs` + dependency refresh (`Cargo.toml`, `Cargo.lock`).
+
 ### 2026-02-07 (batch 9)
 - **Resize/corruption fundamentals: absolute diff cursoring + hardened redraw path**
   - Switched framebuffer diff emission to absolute cursor positioning (`MoveTo`) instead of relative cursor movement (`CursorDown`/`CarriageReturn`/`CursorForward`) to prevent drift/corruption during aggressive resize bursts (`src/render/mod.rs`).

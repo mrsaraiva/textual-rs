@@ -865,7 +865,10 @@ impl Style {
         Style {
             fg,
             fg_auto,
-            bg: self.bg.or(parent.bg),
+            // Background color is not an inherited CSS property.
+            // Child widgets/components should remain transparent unless they
+            // explicitly set `bg`.
+            bg: self.bg,
             text_opacity: self.text_opacity.or(parent.text_opacity),
             opacity: self.opacity.or(parent.opacity),
             bold: self.bold.or(parent.bold),
