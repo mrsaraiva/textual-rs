@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 
+use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::widgets::{AppRoot, Widget, WidgetId};
@@ -25,6 +26,20 @@ pub trait TextualApp: Send + 'static {
     /// Poll interval used when `css_path` is configured.
     fn stylesheet_watch_interval(&self) -> Duration {
         Duration::from_millis(500)
+    }
+
+    /// Optional stylesheet path for snapshot rendering.
+    ///
+    /// Defaults to `css_path()` so demo apps can stay concise.
+    fn snapshot_css_path(&self) -> Option<&'static str> {
+        self.css_path()
+    }
+
+    /// Build widget tree used by snapshot mode.
+    ///
+    /// Defaults to `compose()`; override if snapshot layout differs from runtime layout.
+    fn compose_for_snapshot(&mut self) -> AppRoot {
+        self.compose()
     }
 
     /// Optional runtime configuration hook (key bindings, debug flags, etc.).
@@ -145,4 +160,17 @@ pub async fn run_textual_app<T: TextualApp>(definition: T) -> Result<()> {
     let composed = state.lock().unwrap_or_else(|e| e.into_inner()).compose();
     let mut root = TextualAppAdapter::new(state, composed);
     app.run_widget_tree(&mut root).await
+}
+
+/// Optional helper for example/dev binaries that support both runtime and snapshot output.
+///
+/// This keeps snapshot wiring out of example `main()` bodies while remaining opt-in:
+/// production apps can continue using `run_textual_app()` directly.
+pub async fn run_textual_app_or_snapshot<T: TextualApp>(mut definition: T) -> Result<()> {
+    if let Some(args) = SnapshotArgs::parse() {
+        let widget = definition.compose_for_snapshot();
+        let css_path = definition.snapshot_css_path().map(Path::new);
+        return snapshot_widget(&widget, &args, css_path);
+    }
+    run_textual_app(definition).await
 }

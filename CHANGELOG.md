@@ -19,6 +19,10 @@ until the API stabilizes.
 - **Buttons example migration to trait-based app API**
   - Migrated `examples/buttons.rs` to the new `TextualApp` + `run_textual_app()` path, keeping snapshot behavior unchanged while removing runtime setup boilerplate.
   - Migrated `examples/buttons_advanced.rs` to app-level message handling (`TextualApp::on_message`), removing the custom wrapper widget used only to intercept `ButtonPressed`.
+- **Optional snapshot integration for trait-based apps**
+  - Added `run_textual_app_or_snapshot()` as an opt-in helper for examples/dev binaries; production apps can continue using `run_textual_app()` without snapshot wiring.
+  - Added trait hooks `snapshot_css_path()` and `compose_for_snapshot()` with defaults, so examples can keep snapshot output aligned with runtime CSS without repeating boilerplate in `main`.
+  - Updated button examples to use the new helper, reducing `main` to a minimal entry path.
 
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**

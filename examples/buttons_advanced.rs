@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use rich_rs::{Segment, Segments};
-use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
 use textual::style::{Color, parse_color_like};
 
@@ -124,15 +123,5 @@ async fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-
-    if let Some(args) = SnapshotArgs::parse() {
-        let widget = build_buttons_widget(Arc::new(Mutex::new(String::new())));
-        return snapshot_widget(
-            &widget,
-            &args,
-            Some(std::path::Path::new("examples/button.tcss")),
-        );
-    }
-
-    run_textual_app(ButtonsAdvancedApp::new()).await
+    run_textual_app_or_snapshot(ButtonsAdvancedApp::new()).await
 }
