@@ -427,7 +427,7 @@ impl App {
                     || bind.modifiers.contains(KeyModifiers::SUPER)
             })
             .or_else(|| self.quit_keys.first())
-            .map(|bind| bind.display_key())
+            .map(|bind| bind.key_name())
             .unwrap_or_else(|| "ctrl+q".to_string());
         self.notify(
             format!("Press {key} to quit the app"),
