@@ -558,8 +558,6 @@ checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 [[package]]
 name = "rich-rs"
 version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2210635cbe6d0effd8c722836e8e208f35e03dd2e5eedcc471a09b3582291512"
 dependencies = [
  "atty",
  "crossterm",
@@ -1084,7 +1082,3 @@ name = "zmij"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4de98dfa5d5b7fef4ee834d0073d560c9ca7b6c46a71d058c48db7960f8cfaf7"
-
-[[patch.unused]]
-name = "rich-rs"
-version = "1.0.0"

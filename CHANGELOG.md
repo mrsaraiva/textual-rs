@@ -8,6 +8,18 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-09
+- **App runner API simplification + sync entrypoints (breaking)**
+  - Introduced concise runner names in `textual_app`: `run`, `run_with_output`, `run_snapshot`, `run_snapshot_with_output`, plus blocking variants `run_sync`, `run_sync_with_output`, `run_sync_snapshot`, and `run_sync_snapshot_with_output` (`src/textual_app.rs`, `src/lib.rs`).
+  - Removed verbose compatibility aliases (`run_textual_app*`) to keep the public API surface minimal during alpha development.
+  - Added typed app ergonomics to `TextualApp`: `on_button_pressed(...)` and optional `take_exit_output()` for simple app-result flows without external shared state.
+  - Added `Static::class(...)` / `Static::id(...)` sugar to reduce composition boilerplate in examples.
+  - Updated button examples accordingly:
+    - `examples/buttons.rs` now uses top-down in-`compose` composition (doc-first readability) and sync snapshot runner (no async `main` required).
+    - Added `examples/buttons_composed_pattern.rs` preserving the helper/indirection composition pattern as an alternative.
+    - Updated `examples/buttons_advanced.rs` to the concise snapshot runner.
+- **Lockfile refresh cleanup**
+  - Updated `Cargo.lock` to reflect current dependency graph with local `rich-rs` patching and removed stale registry/unused patch lock metadata.
+
 - **Toast parity + border semantics refactor (no demo hacks)**
   - Refactored `Toast` rendering to stop manually painting a fake left accent strip; toast now renders content-only and relies on the shared widget style/border pipeline for border composition (`src/widgets/toast.rs`).
   - Added first-class `outer` border type support across style model, CSS parser, and border renderer (`src/style.rs`, `src/css/selectors.rs`, `src/widgets/helpers.rs`), then aligned toast defaults with Python (`border-left: outer ...`) in `src/css/defaults.rs`.

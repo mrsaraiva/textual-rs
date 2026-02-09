@@ -6,7 +6,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
-use crate::message::MessageEvent;
+use crate::message::{Message, MessageEvent};
 use crate::widgets::{AppRoot, Widget, WidgetId};
 use crate::{App, Result};
 
@@ -55,6 +55,14 @@ pub trait TextualApp: Send + 'static {
 
     /// App-level message hook. Called after widget message dispatch if not handled.
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for button-pressed messages.
+    fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {}
+
+    /// Optional app output returned after the runtime exits.
+    fn take_exit_output(&mut self) -> Option<String> {
+        None
+    }
 }
 
 struct TextualAppAdapter<T: TextualApp> {
@@ -128,6 +136,15 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         if ctx.handled() {
             return;
         }
+        if let Message::ButtonPressed { description } = &message.message {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_button_pressed(description, ctx);
+            if ctx.handled() {
+                return;
+            }
+        }
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -139,8 +156,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 }
 
-/// Run a `TextualApp` definition using the standard `App` runtime.
-pub async fn run_textual_app<T: TextualApp>(definition: T) -> Result<()> {
+/// Run a `TextualApp` definition using the standard `App` runtime and return
+/// optional app output.
+pub async fn run_with_output<T: TextualApp>(definition: T) -> Result<Option<String>> {
     let state = Arc::new(Mutex::new(definition));
     let mut app = App::new()?;
 
@@ -158,19 +176,65 @@ pub async fn run_textual_app<T: TextualApp>(definition: T) -> Result<()> {
         .unwrap_or_else(|e| e.into_inner())
         .configure(&mut app)?;
     let composed = state.lock().unwrap_or_else(|e| e.into_inner()).compose();
-    let mut root = TextualAppAdapter::new(state, composed);
-    app.run_widget_tree(&mut root).await
+    let mut root = TextualAppAdapter::new(state.clone(), composed);
+    app.run_widget_tree(&mut root).await?;
+    Ok(state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take_exit_output())
+}
+
+/// Run a `TextualApp` definition using the standard `App` runtime.
+pub async fn run<T: TextualApp>(definition: T) -> Result<()> {
+    let _ = run_with_output(definition).await?;
+    Ok(())
 }
 
 /// Optional helper for example/dev binaries that support both runtime and snapshot output.
 ///
-/// This keeps snapshot wiring out of example `main()` bodies while remaining opt-in:
-/// production apps can continue using `run_textual_app()` directly.
-pub async fn run_textual_app_or_snapshot<T: TextualApp>(mut definition: T) -> Result<()> {
+/// This keeps snapshot wiring out of example `main()` bodies while remaining opt-in.
+pub async fn run_snapshot<T: TextualApp>(definition: T) -> Result<()> {
+    let _ = run_snapshot_with_output(definition).await?;
+    Ok(())
+}
+
+/// Variant of `run_snapshot` that returns optional app output.
+pub async fn run_snapshot_with_output<T: TextualApp>(
+    mut definition: T,
+) -> Result<Option<String>> {
     if let Some(args) = SnapshotArgs::parse() {
         let widget = definition.compose_for_snapshot();
         let css_path = definition.snapshot_css_path().map(Path::new);
-        return snapshot_widget(&widget, &args, css_path);
+        snapshot_widget(&widget, &args, css_path)?;
+        return Ok(None);
     }
-    run_textual_app(definition).await
+    run_with_output(definition).await
+}
+
+/// Blocking/synchronous variant of [`run_with_output`].
+pub fn run_sync_with_output<T: TextualApp>(definition: T) -> Result<Option<String>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run_with_output(definition))
+}
+
+/// Blocking/synchronous variant of [`run`].
+pub fn run_sync<T: TextualApp>(definition: T) -> Result<()> {
+    let _ = run_sync_with_output(definition)?;
+    Ok(())
+}
+
+/// Blocking/synchronous variant of [`run_snapshot_with_output`].
+pub fn run_sync_snapshot_with_output<T: TextualApp>(definition: T) -> Result<Option<String>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(run_snapshot_with_output(definition))
+}
+
+/// Blocking/synchronous variant of [`run_snapshot`].
+pub fn run_sync_snapshot<T: TextualApp>(definition: T) -> Result<()> {
+    let _ = run_sync_snapshot_with_output(definition)?;
+    Ok(())
 }

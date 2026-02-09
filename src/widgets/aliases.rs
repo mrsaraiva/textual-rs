@@ -7,7 +7,7 @@ use crate::style::parse_color_like;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::helpers::{clamp_with_constraints, crop_line_horizontal, pad_lines_to_width};
-use super::{Container, Row, RowAlign, Widget, WidgetId, WidgetStyles};
+use super::{Container, Node, Row, RowAlign, Widget, WidgetId, WidgetStyles};
 
 fn scrollbar_thumb(
     track_len: usize,
@@ -148,6 +148,14 @@ impl Static {
         Self {
             label: super::Label::new(text),
         }
+    }
+
+    pub fn class(self, value: impl Into<String>) -> Node {
+        Node::new(self).class(value)
+    }
+
+    pub fn id(self, value: impl Into<String>) -> Node {
+        Node::new(self).id(value)
     }
 }
 

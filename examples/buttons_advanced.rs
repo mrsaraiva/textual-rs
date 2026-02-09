@@ -123,5 +123,5 @@ async fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_textual_app_or_snapshot(ButtonsAdvancedApp::new()).await
+    run_snapshot(ButtonsAdvancedApp::new()).await
 }
