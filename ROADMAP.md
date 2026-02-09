@@ -385,6 +385,34 @@ This phase is intentionally split by ownership boundary:
 
 ---
 
+## Phase 9.7: Core modularization (next priority)
+
+**Goal:** reduce large monolith modules so parity/fundamentals work can continue safely and faster.
+
+This is a **foundational maintenance phase**, not feature work. It is tracked as the immediate next priority because current monolith hotspots increase regression risk and slow iteration.
+
+Reference plan:
+- `docs/devel/MODULARIZATION_PLAN.md`
+
+### Scope (high level)
+
+| Status | Area | Notes |
+|--------|------|-------|
+| Todo | Runtime decomposition | Split `src/runtime/mod.rs` into internal modules by concern (event loop, routing, focus, render, resize, bindings, palette, invalidation) |
+| Todo | Containers decomposition | Split `src/widgets/containers.rs` into per-widget modules plus shared helpers |
+| Todo | Default CSS ownership split | Move from monolithic `src/css/defaults.rs` to per-widget default CSS modules with deterministic aggregation |
+| Todo | Selector engine decomposition | Split selector AST/parser/matching/specificity into focused modules under `src/css/selectors/` |
+
+### Acceptance criteria
+
+- Modularization commits are behavior-preserving by default and remain bisectable.
+- Existing demos and focused tests continue to pass through each phase.
+- No demo-specific hacks are introduced as part of refactors.
+- Public APIs remain stable unless an intentional breaking change is documented.
+- Foundation work is documented and cross-session executable via `docs/devel/MODULARIZATION_PLAN.md`.
+
+---
+
 ## Definition of Done (v0.1) — Achieved
 
 - [x] A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
@@ -394,6 +422,8 @@ This phase is intentionally split by ownership boundary:
 
 ## Next priorities (v0.2)
 
+- Core modularization pass (Phase 9.7)
+  - Execute `docs/devel/MODULARIZATION_PLAN.md` in phased, behavior-preserving commits before further major parity expansions.
 - `TabbedContent` + Footer + command palette parity (Phase 9.6)
   - Land binding-model foundation, footer auto-hints, command palette modal, and tab-strip default style parity.
 - Widget uplift: MVP → first-class (remaining container polish and parity hardening for newly-upgraded widgets)

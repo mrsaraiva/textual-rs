@@ -7,6 +7,12 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-09
+- **Safety policy hardening**
+  - Enforced a crate-wide no-unsafe policy with `unsafe_code = "forbid"` in `Cargo.toml`, so any `unsafe` usage now fails compilation by default.
+- **Roadmap prioritization update**
+  - Added Phase 9.7 as the next priority in `ROADMAP.md`, formalizing a fundamentals-first modularization pass before further major parity expansion work.
+
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**
   - Kept CSS semantics aligned with Textual by making `bg` non-inherited in style resolution (`src/style.rs`).

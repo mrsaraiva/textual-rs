@@ -27,6 +27,9 @@ rich-rs = { path = "../rich-rs" }
 [features]
 default = []
 
+[lints.rust]
+unsafe_code = "forbid"
+
 [[example]]
 name = "hello"
 path = "examples/hello.rs"
