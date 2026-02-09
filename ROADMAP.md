@@ -20,7 +20,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Todo | Add CI (fmt, clippy, tests) | Keep toolchain stable |
 | Done | Add snapshot testing harness | SVG demo snapshot harness + shared helper (`tests/snapshots.rs`) |
 | Done | Add minimal example app | Multiple examples: `buttons`, `hello`, stylesheet hot-reload, etc. |
-| Done | Async runtime decision | **Tokio** (aligns with Python Textual's asyncio-first model) |
+| Done | Async runtime decision | **Tokio** core runtime (with sync/blocking convenience runners for simple apps/examples) |
 
 ---
 
@@ -272,7 +272,7 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 |--------|------|-------|
 | Done | File-based debug tracing | `TEXTUAL_DEBUG_INPUT_FILE`, `TEXTUAL_DEBUG_LAYOUT_FILE`, `TEXTUAL_DEBUG_STYLE_FILE`, `TEXTUAL_DEBUG_RENDER_FILE` |
 | Done | Layout debug overlay | `DebugLayout` mode renders widget bounds and sizes |
-| Done | Widget/CSS module organization | Widgets live in `src/widgets/` (per-widget modules + core), CSS engine lives in `src/css/` |
+| Done | Initial widget/CSS module organization | Widgets live in `src/widgets/` and CSS engine lives in `src/css/`; deeper decomposition tracked in Phase 9.7 |
 | Todo | DevTools panel | In-app inspector (like Textual's DevTools) |
 
 ---
@@ -414,7 +414,7 @@ Reference plan:
 - Modularization commits are behavior-preserving by default and remain bisectable.
 - Existing demos and focused tests continue to pass through each phase.
 - No demo-specific hacks are introduced as part of refactors.
-- Public APIs remain stable unless an intentional breaking change is documented.
+- Breaking API changes are allowed during alpha, but must be intentional and documented in `CHANGELOG.md`.
 - Foundation work is documented and cross-session executable via `docs/devel/MODULARIZATION_PLAN.md`.
 
 ---
@@ -431,15 +431,11 @@ Reference plan:
 - Core modularization pass (Phase 9.7)
   - Execute `docs/devel/MODULARIZATION_PLAN.md` in phased, behavior-preserving commits before further major parity expansions.
 - Widget-first-class execution plan (source-of-truth)
-  - Use `docs/devel/WIDGET_PORTING_PLAN.md` for detailed per-widget findings, ordering, and acceptance checklists.
-- `TabbedContent` + Footer + command palette parity (Phase 9.6)
-  - Land binding-model foundation, footer auto-hints, command palette modal, and tab-strip default style parity.
+  - Use `docs/devel/WIDGET_PORTING_PLAN.md` for detailed per-widget findings, ordering, and acceptance checklists (this replaces broad, ambiguous widget-uplift tracking in this section).
 - Grapheme correctness pass (cross-cutting)
   - Align text model semantics with grapheme-safe driver behavior (cursor/selection/editing/measurement), starting with `Input` and `TextArea`, then `DataTable`/`Tree`/`Tabs`/text wrapping.
-- Widget uplift: MVP → first-class (remaining container polish and parity hardening for newly-upgraded widgets)
-  - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
-- Input diagnostics + key model parity (`textual keys` harness)
-  - Canonical key semantics, driver protocol, preview parity pass, scaffold reuse, styling-fidelity fundamentals, and visual regression baseline are done.
+- `TabbedContent` + Footer + command palette parity (Phase 9.6)
+  - Land binding-model lifecycle completion, footer active-binding parity, command palette provider model, and final tab-strip default style parity.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.
