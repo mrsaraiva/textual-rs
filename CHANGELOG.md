@@ -36,6 +36,7 @@ until the API stabilizes.
   - Refined notification timing to real-time `Duration` (default 5s, matching Python `NOTIFICATION_TIMEOUT`) so toast lifetime no longer depends on render tick cadence.
   - Aligned toast chrome closer to Python defaults: severity left accent border, `max-width: 50%`, horizontal padding (`line-pad: 1`), and explicit vertical padding in the `Toast` widget render/layout path.
   - Adjusted help-toast quit shortcut text to use readable binding strings (`ctrl+q`) while keeping compact key displays (`^q`) in footer/key-hint UI.
+  - Removed the hard runtime cap on concurrently displayable toasts; visible count now depends on viewport space and toast expiry, matching Python `ToastRack` behavior more closely.
 
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**

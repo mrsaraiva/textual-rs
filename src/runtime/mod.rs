@@ -183,8 +183,6 @@ impl AppNotification {
 }
 
 const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_NOTIFICATIONS: usize = 8;
-const MAX_VISIBLE_NOTIFICATIONS: usize = 3;
 
 struct StylesheetWatcher {
     path: PathBuf,
@@ -412,10 +410,6 @@ impl App {
         let timeout = timeout.unwrap_or(DEFAULT_NOTIFICATION_TIMEOUT);
         self.notifications
             .push(AppNotification::new(title, message, severity, timeout));
-        if self.notifications.len() > MAX_NOTIFICATIONS {
-            let drop = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
-            self.notifications.drain(0..drop);
-        }
     }
 
     fn notify_help_quit(&mut self) {
@@ -616,12 +610,7 @@ impl App {
         }
 
         let mut cursor_bottom = frame.height.saturating_sub(2);
-        for note in self
-            .notifications
-            .iter()
-            .rev()
-            .take(MAX_VISIBLE_NOTIFICATIONS)
-        {
+        for note in self.notifications.iter().rev() {
             let mut toast = Toast::new(note.message.clone(), note.severity);
             if !note.title.is_empty() {
                 toast = toast.with_title(note.title.clone());
