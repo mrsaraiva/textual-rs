@@ -26,6 +26,9 @@ pub struct LoadingIndicator {
     id: WidgetId,
     /// Tick counter driving the animation cycle.
     tick: u64,
+    /// When false, renders static "Loading..." text instead of animated dots.
+    /// Matches Python Textual's `animation_level == "none"` behavior.
+    animation_enabled: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -36,9 +39,19 @@ impl LoadingIndicator {
         Self {
             id: WidgetId::new(),
             tick: 0,
+            animation_enabled: true,
             classes: vec!["loading-indicator".to_string()],
             styles: WidgetStyles::default(),
         }
+    }
+
+    /// Set whether animation is enabled (builder pattern).
+    ///
+    /// When disabled, renders a static "Loading..." text instead of animated dots,
+    /// matching Python Textual's behavior when `animation_level == "none"`.
+    pub fn with_animation(mut self, enabled: bool) -> Self {
+        self.animation_enabled = enabled;
+        self
     }
 }
 
@@ -57,9 +70,9 @@ impl Widget for LoadingIndicator {
         false
     }
 
-    /// Always active so the runtime delivers tick events for animation.
+    /// Active when animation is enabled so the runtime delivers tick events.
     fn is_active(&self) -> bool {
-        true
+        self.animation_enabled
     }
 
     fn on_tick(&mut self, tick: u64) {
@@ -81,13 +94,24 @@ impl Widget for LoadingIndicator {
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-
-        let dot = "\u{25cf}"; // ●
-        let dot_count = 5;
+        let height = options.size.1.max(1);
 
         // Resolve foreground/background from CSS.
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
+
+        // Static fallback when animation is disabled (matches Python's animation_level == "none").
+        if !self.animation_enabled {
+            let fg_color = resolved
+                .fg
+                .or_else(|| parse_color_like("$primary"))
+                .unwrap_or(Color::rgb(0, 120, 215));
+            let style = rich_rs::Style::new().with_color(fg_color.to_simple_opaque());
+            return render_static_loading(width, height, style);
+        }
+
+        let dot = "\u{25cf}"; // ●
+        let dot_count = 5;
 
         let fg = resolved
             .fg
@@ -153,7 +177,6 @@ impl Widget for LoadingIndicator {
 
         let mut out = Segments::new();
         // For multi-line height, center vertically.
-        let height = options.size.1.max(1);
         let top_pad = if height > 1 { (height - 1) / 2 } else { 0 };
         let blank = " ".repeat(width);
         for _ in 0..top_pad {
@@ -195,6 +218,35 @@ impl Renderable for LoadingIndicator {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }
+}
+
+/// Render static "Loading..." text centered in the available area.
+fn render_static_loading(width: usize, height: usize, style: rich_rs::Style) -> Segments {
+    let text = "Loading...";
+    let text_width = rich_rs::cell_len(text).min(width);
+    let left = width.saturating_sub(text_width) / 2;
+    let right = width.saturating_sub(text_width + left);
+    let vert_pad = height.saturating_sub(1) / 2;
+    let blank = " ".repeat(width);
+
+    let mut out = Segments::new();
+    for row in 0..height {
+        if row == vert_pad {
+            let line = format!(
+                "{}{}{}",
+                " ".repeat(left),
+                rich_rs::set_cell_size(text, text_width),
+                " ".repeat(right),
+            );
+            out.push(Segment::styled(line, style));
+        } else {
+            out.push(Segment::styled(blank.clone(), style));
+        }
+        if row + 1 < height {
+            out.push(Segment::line());
+        }
+    }
+    out
 }
 
 // ── Color helpers (private) ──────────────────────────────────────────
@@ -275,5 +327,85 @@ mod tests {
         assert_eq!(mid.r, 128);
         assert_eq!(mid.g, 128);
         assert_eq!(mid.b, 128);
+    }
+
+    #[test]
+    fn static_fallback_contains_loading_text() {
+        let segs = render_static_loading(40, 3, rich_rs::Style::new());
+        let text: String = segs.iter().map(|s| s.text.as_ref()).collect();
+        assert!(
+            text.contains("Loading..."),
+            "static fallback should contain 'Loading...'"
+        );
+    }
+
+    #[test]
+    fn static_fallback_single_line() {
+        let segs = render_static_loading(20, 1, rich_rs::Style::new());
+        let text: String = segs.iter().map(|s| s.text.as_ref()).collect();
+        assert!(text.contains("Loading..."));
+        // Single-line: should be exactly one segment (no newlines).
+        assert_eq!(segs.len(), 1);
+    }
+
+    #[test]
+    fn with_animation_disabled() {
+        let li = LoadingIndicator::new().with_animation(false);
+        assert!(!li.animation_enabled);
+        // When animation is disabled, widget should not request tick events.
+        assert!(!li.is_active());
+    }
+
+    #[test]
+    fn blocks_key_events() {
+        use crate::keys::KeyEventData;
+        let mut li = LoadingIndicator::new();
+        let key_data = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        let event = Event::Key(key_data);
+        let mut ctx = EventCtx::default();
+        li.on_event_capture(&event, &mut ctx);
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn blocks_mouse_down() {
+        let mut li = LoadingIndicator::new();
+        let event = Event::MouseDown(crate::event::MouseDownEvent {
+            x: 0,
+            y: 0,
+            screen_x: 0,
+            screen_y: 0,
+            target: WidgetId::new(),
+        });
+        let mut ctx = EventCtx::default();
+        li.on_event_capture(&event, &mut ctx);
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn allows_resize_events() {
+        let mut li = LoadingIndicator::new();
+        let event = Event::Resize(80, 24);
+        let mut ctx = EventCtx::default();
+        li.on_event_capture(&event, &mut ctx);
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn tick_updates_counter() {
+        let mut li = LoadingIndicator::new();
+        assert_eq!(li.tick, 0);
+        li.on_tick(42);
+        assert_eq!(li.tick, 42);
+    }
+
+    #[test]
+    fn default_impl() {
+        let li = LoadingIndicator::default();
+        assert!(li.animation_enabled);
+        assert_eq!(li.tick, 0);
     }
 }

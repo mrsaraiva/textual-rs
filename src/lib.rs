@@ -43,7 +43,7 @@ pub mod prelude {
     pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
     pub use crate::widgets::{
         AppRoot, BindingsTable, Button, ButtonVariant, Checkbox, Collapsible, CommandPalette,
-        Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits, Dock, Footer,
+        Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits, DigitsAlign, Dock, Footer,
         FooterBinding, Frame, Grid, Header, Horizontal, HorizontalScroll, Input, InputType,
         KeyPanel, Label, LayoutConstraints, LineStyle, Link, ListView, LoadingIndicator, Markdown,
         MaskedInput, Node, OptionItem, OptionList, Overlay, PaletteCommand, Panel, Placeholder,

@@ -51,7 +51,7 @@ pub use containers::{
 pub use content_switcher::ContentSwitcher;
 pub use core::{LayoutConstraints, Widget, WidgetId, WidgetStyles};
 pub use data_table::{CursorType, DataTable};
-pub use digits::Digits;
+pub use digits::{Digits, DigitsAlign};
 pub use footer::{Footer, FooterBinding};
 pub use header::Header;
 pub use helpers::WidgetRenderable;

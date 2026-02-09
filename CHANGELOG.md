@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-09
+- **Tier C widget parity uplift (8 widgets)**
+  - **Pretty (breaking):** redesigned to delegate to `rich_rs::Pretty` — now accepts `impl Debug` instead of `Arc<Mutex<Vec<String>>>`. Added `update()` method, static/shared modes.
+  - **ProgressBar:** added ETA estimation, percentage display, `show_bar`/`show_percentage`/`show_eta` toggles, `animation_level` awareness. Fixed suffix width bug on narrow layouts.
+  - **Digits:** added `DigitsAlign` enum and `text_align` support (left/center/right). Fixed CJK width calculation.
+  - **Rule:** added reactive `set_orientation()` and `set_line_style()` setters.
+  - **Link:** added `tooltip` field with builder/setter. Added focus/hover/activation tests.
+  - **Placeholder:** added `disabled` state with event blocking and CSS opacity. Fixed text variant separator and word wrap.
+  - **LoadingIndicator:** added `animation_enabled` flag with static "Loading..." fallback when disabled.
+  - **Sparkline:** added edge-case test coverage (NaN, empty data, single value).
+  - 135 new unit tests across all 8 widgets.
 - **Core modularization (Phase M1 — behavior-preserving)**
   - Split `src/runtime/mod.rs` (2509 lines) into focused submodules: `event_loop.rs`, `routing.rs`, `render.rs`, `helpers.rs`, `types.rs`; `mod.rs` retains `App` struct and orchestration.
   - Split `src/widgets/containers.rs` (2964 lines) into per-widget modules under `src/widgets/containers/`: `container.rs`, `constrained.rs`, `styled.rs`, `node.rs`, `app_root.rs`, `frame.rs`, `panel.rs`, `scroll_view.rs`, `overlay.rs`.

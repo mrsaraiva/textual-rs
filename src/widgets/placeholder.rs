@@ -63,6 +63,7 @@ pub struct Placeholder {
     last_width: usize,
     last_height: usize,
     hovered: bool,
+    disabled: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -79,10 +80,17 @@ impl Placeholder {
             last_width: 0,
             last_height: 0,
             hovered: false,
+            disabled: false,
             classes: vec!["placeholder".to_string(), "-default".to_string()],
             styles: WidgetStyles::default(),
         }
         .apply_bg_color()
+    }
+
+    /// Set the initial disabled state (builder pattern).
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 
     pub fn with_variant(mut self, variant: PlaceholderVariant) -> Self {
@@ -130,11 +138,11 @@ impl Placeholder {
                 format!("{} x {}", width, height)
             }
             PlaceholderVariant::Text => {
-                // Repeat the lorem ipsum a few times to fill larger placeholders.
+                // Repeat the lorem ipsum with paragraph breaks (matches Python Textual).
                 let mut text = String::new();
                 for i in 0..5 {
                     if i > 0 {
-                        text.push_str("  ");
+                        text.push_str("\n\n");
                     }
                     text.push_str(LOREM_IPSUM);
                 }
@@ -170,7 +178,14 @@ impl Widget for Placeholder {
         self.last_height = height as usize;
     }
 
+    fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 self.cycle_variant();
@@ -189,7 +204,7 @@ impl Widget for Placeholder {
 
         let style = crate::css::resolve_component_style(self, &["placeholder"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         match self.variant {
             PlaceholderVariant::Text => {
@@ -264,32 +279,174 @@ impl Renderable for Placeholder {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn variant_cycles_on_click() {
+        let mut ph = Placeholder::new("test");
+        assert_eq!(ph.variant(), PlaceholderVariant::Default);
+        ph.cycle_variant();
+        assert_eq!(ph.variant(), PlaceholderVariant::Size);
+        ph.cycle_variant();
+        assert_eq!(ph.variant(), PlaceholderVariant::Text);
+        ph.cycle_variant();
+        assert_eq!(ph.variant(), PlaceholderVariant::Default);
+    }
+
+    #[test]
+    fn color_rotation_across_instances() {
+        // Use a single-threaded sequence to verify consecutive instances get
+        // distinct colors. Due to the global atomic counter and parallel tests,
+        // we only verify all three are distinct (palette has 12 colors).
+        let p1 = Placeholder::new("a");
+        let p2 = Placeholder::new("b");
+        let p3 = Placeholder::new("c");
+        assert_ne!(p1.color_index, p2.color_index);
+        assert_ne!(p2.color_index, p3.color_index);
+        assert_ne!(p1.color_index, p3.color_index);
+        // All indices are valid palette positions.
+        assert!(p1.color_index < PLACEHOLDER_COLORS.len());
+        assert!(p2.color_index < PLACEHOLDER_COLORS.len());
+        assert!(p3.color_index < PLACEHOLDER_COLORS.len());
+    }
+
+    #[test]
+    fn size_variant_shows_dimensions() {
+        let ph = Placeholder::new("test").with_variant(PlaceholderVariant::Size);
+        let text = ph.render_text(80, 24);
+        assert_eq!(text, "80 x 24");
+    }
+
+    #[test]
+    fn text_variant_has_paragraph_breaks() {
+        let ph = Placeholder::new("test").with_variant(PlaceholderVariant::Text);
+        let text = ph.render_text(80, 24);
+        // Python uses "\n\n".join() — check for paragraph breaks.
+        assert!(text.contains("\n\n"), "text variant should contain paragraph breaks");
+        // Should repeat LOREM_IPSUM 5 times.
+        assert_eq!(text.matches(LOREM_IPSUM).count(), 5);
+    }
+
+    #[test]
+    fn word_wrap_respects_line_breaks() {
+        let text = "hello world\n\nfoo bar";
+        let lines = word_wrap(text, 80);
+        assert_eq!(lines, vec!["hello world", "", "foo bar"]);
+    }
+
+    #[test]
+    fn word_wrap_wraps_long_lines() {
+        let text = "aaa bbb ccc ddd";
+        let lines = word_wrap(text, 7);
+        assert_eq!(lines, vec!["aaa bbb", "ccc ddd"]);
+    }
+
+    #[test]
+    fn word_wrap_zero_width() {
+        assert!(word_wrap("hello", 0).is_empty());
+    }
+
+    #[test]
+    fn default_label_fallback() {
+        let ph = Placeholder::new("");
+        let text = ph.render_text(80, 24);
+        assert_eq!(text, "Placeholder");
+    }
+
+    #[test]
+    fn custom_label() {
+        let ph = Placeholder::new("My Panel");
+        let text = ph.render_text(80, 24);
+        assert_eq!(text, "My Panel");
+    }
+
+    #[test]
+    fn disabled_blocks_events() {
+        let mut ph = Placeholder::new("test").disabled(true);
+        assert!(ph.is_disabled());
+        // Create a fake mouse event targeting this placeholder.
+        let event = Event::MouseDown(crate::event::MouseDownEvent {
+            x: 0,
+            y: 0,
+            screen_x: 0,
+            screen_y: 0,
+            target: ph.id(),
+        });
+        let mut ctx = EventCtx::default();
+        ph.on_event(&event, &mut ctx);
+        // Should remain Default because disabled blocks event handling.
+        assert_eq!(ph.variant(), PlaceholderVariant::Default);
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn enabled_handles_click() {
+        let mut ph = Placeholder::new("test");
+        assert!(!ph.is_disabled());
+        let event = Event::MouseDown(crate::event::MouseDownEvent {
+            x: 0,
+            y: 0,
+            screen_x: 0,
+            screen_y: 0,
+            target: ph.id(),
+        });
+        let mut ctx = EventCtx::default();
+        ph.on_event(&event, &mut ctx);
+        assert_eq!(ph.variant(), PlaceholderVariant::Size);
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn with_variant_sets_classes() {
+        let ph = Placeholder::new("test").with_variant(PlaceholderVariant::Text);
+        let classes = ph.style_classes();
+        assert!(classes.iter().any(|c| c == "-text"));
+    }
+
+    #[test]
+    fn style_type_is_placeholder() {
+        let ph = Placeholder::new("test");
+        assert_eq!(ph.style_type(), "Placeholder");
+    }
+}
+
 /// Simple word-wrap that breaks text on spaces to fit within `width` cells.
+/// Respects explicit `\n` line breaks (including blank lines from `\n\n`).
 fn word_wrap(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![];
     }
     let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut current_len = 0usize;
 
-    for word in text.split_whitespace() {
-        let word_len = rich_rs::cell_len(word);
-        if current.is_empty() {
-            current = word.to_string();
-            current_len = word_len;
-        } else if current_len + 1 + word_len <= width {
-            current.push(' ');
-            current.push_str(word);
-            current_len += 1 + word_len;
-        } else {
-            lines.push(current);
-            current = word.to_string();
-            current_len = word_len;
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            // Blank line (from \n\n paragraph break).
+            lines.push(String::new());
+            continue;
         }
-    }
-    if !current.is_empty() {
-        lines.push(current);
+        let mut current = String::new();
+        let mut current_len = 0usize;
+
+        for word in paragraph.split_whitespace() {
+            let word_len = rich_rs::cell_len(word);
+            if current.is_empty() {
+                current = word.to_string();
+                current_len = word_len;
+            } else if current_len + 1 + word_len <= width {
+                current.push(' ');
+                current.push_str(word);
+                current_len += 1 + word_len;
+            } else {
+                lines.push(current);
+                current = word.to_string();
+                current_len = word_len;
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
     }
     lines
 }

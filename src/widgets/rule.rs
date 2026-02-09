@@ -99,6 +99,39 @@ impl Rule {
     pub fn orientation(&self) -> RuleOrientation {
         self.orientation
     }
+
+    /// Get the current line style.
+    pub fn get_line_style(&self) -> LineStyle {
+        self.line_style
+    }
+
+    /// Dynamically change the orientation (reactive setter).
+    ///
+    /// Updates the CSS class to match, mirroring Python Textual's reactive `orientation` attribute.
+    pub fn set_orientation(&mut self, orientation: RuleOrientation) {
+        if self.orientation == orientation {
+            return;
+        }
+        // Remove old orientation class, add new one
+        let old_class = match self.orientation {
+            RuleOrientation::Horizontal => "rule--horizontal",
+            RuleOrientation::Vertical => "rule--vertical",
+        };
+        let new_class = match orientation {
+            RuleOrientation::Horizontal => "rule--horizontal",
+            RuleOrientation::Vertical => "rule--vertical",
+        };
+        self.classes.retain(|c| c != old_class);
+        self.classes.push(new_class.to_string());
+        self.orientation = orientation;
+    }
+
+    /// Dynamically change the line style (reactive setter).
+    ///
+    /// Mirrors Python Textual's reactive `line_style` attribute.
+    pub fn set_line_style(&mut self, style: LineStyle) {
+        self.line_style = style;
+    }
 }
 
 impl Widget for Rule {
@@ -185,5 +218,166 @@ impl Widget for Rule {
 impl Renderable for Rule {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn horizontal_default_orientation() {
+        let r = Rule::horizontal();
+        assert_eq!(r.orientation(), RuleOrientation::Horizontal);
+    }
+
+    #[test]
+    fn vertical_constructor() {
+        let r = Rule::vertical();
+        assert_eq!(r.orientation(), RuleOrientation::Vertical);
+    }
+
+    #[test]
+    fn default_line_style_is_solid() {
+        let r = Rule::horizontal();
+        assert_eq!(r.get_line_style(), LineStyle::Solid);
+    }
+
+    #[test]
+    fn builder_line_style() {
+        let r = Rule::horizontal().line_style(LineStyle::Dashed);
+        assert_eq!(r.get_line_style(), LineStyle::Dashed);
+    }
+
+    #[test]
+    fn set_line_style_changes() {
+        let mut r = Rule::horizontal();
+        r.set_line_style(LineStyle::Heavy);
+        assert_eq!(r.get_line_style(), LineStyle::Heavy);
+    }
+
+    #[test]
+    fn set_orientation_updates_classes() {
+        let mut r = Rule::horizontal();
+        assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
+        assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));
+
+        r.set_orientation(RuleOrientation::Vertical);
+        assert_eq!(r.orientation(), RuleOrientation::Vertical);
+        assert!(r.style_classes().iter().any(|c| c == "rule--vertical"));
+        assert!(!r.style_classes().iter().any(|c| c == "rule--horizontal"));
+    }
+
+    #[test]
+    fn set_orientation_noop_same() {
+        let mut r = Rule::horizontal();
+        let classes_before: Vec<String> = r.style_classes().to_vec();
+        r.set_orientation(RuleOrientation::Horizontal);
+        assert_eq!(r.style_classes(), &classes_before[..]);
+    }
+
+    #[test]
+    fn not_focusable() {
+        let r = Rule::horizontal();
+        assert!(!r.focusable());
+    }
+
+    #[test]
+    fn horizontal_content_width_is_none() {
+        let r = Rule::horizontal();
+        assert_eq!(r.content_width(), None);
+    }
+
+    #[test]
+    fn vertical_content_width_is_one() {
+        let r = Rule::vertical();
+        assert_eq!(r.content_width(), Some(1));
+    }
+
+    #[test]
+    fn horizontal_layout_height_is_one() {
+        let r = Rule::horizontal();
+        assert_eq!(r.layout_height(), Some(1));
+    }
+
+    #[test]
+    fn vertical_layout_height_is_none() {
+        let r = Rule::vertical();
+        assert_eq!(r.layout_height(), None);
+    }
+
+    #[test]
+    fn style_type_is_rule() {
+        let r = Rule::horizontal();
+        assert_eq!(r.style_type(), "Rule");
+    }
+
+    #[test]
+    fn horizontal_line_chars_all_styles() {
+        // Verify each line style maps to a non-empty character
+        let styles = [
+            LineStyle::Ascii,
+            LineStyle::Blank,
+            LineStyle::Dashed,
+            LineStyle::Double,
+            LineStyle::Heavy,
+            LineStyle::Hidden,
+            LineStyle::None,
+            LineStyle::Solid,
+            LineStyle::Thick,
+        ];
+        for s in styles {
+            let ch = s.horizontal_char();
+            assert!(!ch.is_empty(), "horizontal_char for {:?} should not be empty", s);
+        }
+    }
+
+    #[test]
+    fn vertical_line_chars_all_styles() {
+        let styles = [
+            LineStyle::Ascii,
+            LineStyle::Blank,
+            LineStyle::Dashed,
+            LineStyle::Double,
+            LineStyle::Heavy,
+            LineStyle::Hidden,
+            LineStyle::None,
+            LineStyle::Solid,
+            LineStyle::Thick,
+        ];
+        for s in styles {
+            let ch = s.vertical_char();
+            assert!(!ch.is_empty(), "vertical_char for {:?} should not be empty", s);
+        }
+    }
+
+    #[test]
+    fn horizontal_char_specific_values() {
+        assert_eq!(LineStyle::Ascii.horizontal_char(), "-");
+        assert_eq!(LineStyle::Solid.horizontal_char(), "─");
+        assert_eq!(LineStyle::Heavy.horizontal_char(), "━");
+        assert_eq!(LineStyle::Dashed.horizontal_char(), "╍");
+        assert_eq!(LineStyle::Double.horizontal_char(), "═");
+        assert_eq!(LineStyle::Thick.horizontal_char(), "█");
+    }
+
+    #[test]
+    fn vertical_char_specific_values() {
+        assert_eq!(LineStyle::Ascii.vertical_char(), "|");
+        assert_eq!(LineStyle::Solid.vertical_char(), "│");
+        assert_eq!(LineStyle::Heavy.vertical_char(), "┃");
+        assert_eq!(LineStyle::Dashed.vertical_char(), "╏");
+        assert_eq!(LineStyle::Double.vertical_char(), "║");
+        assert_eq!(LineStyle::Thick.vertical_char(), "█");
+    }
+
+    #[test]
+    fn round_trip_orientation_switch() {
+        let mut r = Rule::horizontal();
+        r.set_orientation(RuleOrientation::Vertical);
+        r.set_orientation(RuleOrientation::Horizontal);
+        assert_eq!(r.orientation(), RuleOrientation::Horizontal);
+        assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
+        assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));
     }
 }

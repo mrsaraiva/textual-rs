@@ -425,4 +425,109 @@ mod tests {
         assert_eq!(result.g, 100);
         assert_eq!(result.b, 50);
     }
+
+    #[test]
+    fn set_data_replaces_data() {
+        let mut s = Sparkline::new(vec![1.0, 2.0]);
+        s.set_data(vec![3.0, 4.0, 5.0]);
+        assert_eq!(s.data, vec![3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn set_summary_function_changes_fn() {
+        let mut s = Sparkline::new(vec![1.0, 5.0, 3.0]);
+        assert_eq!((s.summary_function)(&[1.0, 5.0, 3.0]), 5.0); // default: max
+        s.set_summary_function(summary_min);
+        assert_eq!((s.summary_function)(&[1.0, 5.0, 3.0]), 1.0);
+    }
+
+    #[test]
+    fn builder_summary_function() {
+        let s = Sparkline::new(vec![1.0, 5.0]).summary_function(summary_mean);
+        assert!((((s.summary_function)(&[2.0, 4.0])) - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn builder_min_max_color() {
+        let s = Sparkline::new(vec![1.0])
+            .min_color(Color::rgb(0, 0, 0))
+            .max_color(Color::rgb(255, 255, 255));
+        assert_eq!(s.min_color, Some(Color::rgb(0, 0, 0)));
+        assert_eq!(s.max_color, Some(Color::rgb(255, 255, 255)));
+    }
+
+    #[test]
+    fn summary_max_empty() {
+        assert_eq!(summary_max(&[]), 0.0);
+    }
+
+    #[test]
+    fn summary_min_empty() {
+        assert_eq!(summary_min(&[]), 0.0);
+    }
+
+    #[test]
+    fn summary_mean_empty() {
+        assert_eq!(summary_mean(&[]), 0.0);
+    }
+
+    #[test]
+    fn summary_max_with_nan() {
+        assert_eq!(summary_max(&[f64::NAN, 3.0, f64::NAN]), 3.0);
+    }
+
+    #[test]
+    fn summary_min_with_nan() {
+        assert_eq!(summary_min(&[f64::NAN, 3.0, f64::NAN]), 3.0);
+    }
+
+    #[test]
+    fn summary_mean_with_nan() {
+        let m = summary_mean(&[f64::NAN, 2.0, 4.0]);
+        assert!((m - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn summary_max_all_nan() {
+        assert_eq!(summary_max(&[f64::NAN, f64::NAN]), 0.0);
+    }
+
+    #[test]
+    fn buckets_single_data_point() {
+        let b = Sparkline::buckets(&[42.0], 3);
+        assert_eq!(b.len(), 3);
+        // Only one data point, some buckets may be empty
+        let total: usize = b.iter().map(|x| x.len()).sum();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn buckets_more_buckets_than_data() {
+        let b = Sparkline::buckets(&[1.0, 2.0], 5);
+        assert_eq!(b.len(), 5);
+        let total: usize = b.iter().map(|x| x.len()).sum();
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn buckets_zero_buckets() {
+        let b = Sparkline::buckets(&[1.0, 2.0], 0);
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn blend_rgb_clamp_beyond_one() {
+        let a = Color::rgb(0, 0, 0);
+        let b = Color::rgb(100, 100, 100);
+        let result = blend_rgb(a, b, 1.5); // clamped to 1.0
+        assert_eq!(result.r, 100);
+    }
+
+    #[test]
+    fn blend_rgb_negative_clamp() {
+        let a = Color::rgb(50, 50, 50);
+        let b = Color::rgb(100, 100, 100);
+        let result = blend_rgb(a, b, -0.5); // clamped to 0.0
+        assert_eq!(result.r, 50);
+    }
 }

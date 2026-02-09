@@ -23,12 +23,14 @@ Pretty {
 
 struct InputValidationApp {
     failures: Arc<Mutex<Vec<String>>>,
+    pretty_str: Arc<Mutex<String>>,
 }
 
 impl InputValidationApp {
     fn new() -> Self {
         Self {
             failures: Arc::new(Mutex::new(Vec::new())),
+            pretty_str: Arc::new(Mutex::new(format!("{:?}", Vec::<String>::new()))),
         }
     }
 }
@@ -49,7 +51,7 @@ impl TextualApp for InputValidationApp {
                             Arc::new(Palindrome) as ValidatorRef,
                         ]),
                 )
-                .with_child(Pretty::new(self.failures.clone())),
+                .with_child(Pretty::shared(self.pretty_str.clone())),
         )
     }
 
@@ -65,7 +67,8 @@ impl TextualApp for InputValidationApp {
             } else {
                 validation.failure_descriptions.clone()
             };
-            *self.failures.lock().unwrap_or_else(|e| e.into_inner()) = next;
+            *self.failures.lock().unwrap_or_else(|e| e.into_inner()) = next.clone();
+            *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
             ctx.request_repaint();
         }
     }

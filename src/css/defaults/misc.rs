@@ -12,9 +12,6 @@ Markdown > .markdown--h5 { text-style: italic; }
 Markdown > .markdown--h6 { fg: $text-disabled; text-style: dim; }
 
 Pretty { fg: $foreground; }
-Pretty > .pretty--punct { fg: $text-muted; }
-Pretty > .pretty--string { fg: $success; }
-Pretty > .pretty--empty { fg: $text-disabled; }
 
 RichLog {
     bg: $surface;
@@ -102,6 +99,7 @@ RadioSet > .radio-button--label.-selected.-focus { bg: $primary; fg: $text; text
 
 Placeholder > .placeholder { fg: $text; }
 Placeholder.-text { line-pad: 1; }
+Placeholder:disabled { opacity: 70%; }
 
 Rule { fg: $secondary; }
 Rule > .rule--horizontal { fg: $secondary; }
