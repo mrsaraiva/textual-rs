@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use rich_rs::{Segment, Segments};
 use textual::prelude::*;
-use textual::style::{Color, parse_color_like};
+use textual::style::{parse_color_like, Color};
 
 struct ButtonsAdvancedApp {
     status: Arc<Mutex<String>>,
@@ -18,7 +18,60 @@ impl ButtonsAdvancedApp {
 
 impl TextualApp for ButtonsAdvancedApp {
     fn compose(&mut self) -> AppRoot {
-        build_buttons_widget(self.status.clone())
+        let buttons = Horizontal::new()
+            .with_child(
+                VerticalScroll::new()
+                    .with_child(Static::new("Standard Buttons").class("header"))
+                    .with_child(Button::new("Default"))
+                    .with_child(Button::primary("Primary!"))
+                    .with_child(Button::success("Success!"))
+                    .with_child(Button::warning("Warning!"))
+                    .with_child(Button::error("Error!")),
+            )
+            .with_child(
+                VerticalScroll::new()
+                    .with_child(Static::new("Disabled Buttons").class("header"))
+                    .with_child(Button::new("Default").disabled(true))
+                    .with_child(Button::primary("Primary!").disabled(true))
+                    .with_child(Button::success("Success!").disabled(true))
+                    .with_child(Button::warning("Warning!").disabled(true))
+                    .with_child(Button::error("Error!").disabled(true)),
+            )
+            .with_child(
+                VerticalScroll::new()
+                    .with_child(Static::new("Flat Buttons").class("header"))
+                    .with_child(Button::new("Default").flat(true))
+                    .with_child(Button::primary("Primary!").flat(true))
+                    .with_child(Button::success("Success!").flat(true))
+                    .with_child(Button::warning("Warning!").flat(true))
+                    .with_child(Button::error("Error!").flat(true)),
+            )
+            .with_child(
+                VerticalScroll::new()
+                    .with_child(Static::new("Disabled Flat Buttons").class("header"))
+                    .with_child(Button::new("Default").disabled(true).flat(true))
+                    .with_child(Button::primary("Primary!").disabled(true).flat(true))
+                    .with_child(Button::success("Success!").disabled(true).flat(true))
+                    .with_child(Button::warning("Warning!").disabled(true).flat(true))
+                    .with_child(Button::error("Error!").disabled(true).flat(true)),
+            );
+
+        let status_bg = parse_color_like("$panel").or_else(|| parse_color_like("$surface"));
+        let status = Styled::new(
+            StatusLine::new(self.status.clone()),
+            Style::new()
+                .line_pad(1)
+                .bg(status_bg.unwrap_or(Color::parse("#303a43").unwrap()))
+                .border_top(Color::parse("#44cc44").unwrap())
+                .border_right(Color::parse("#44cc44").unwrap())
+                .border_bottom(Color::parse("#44cc44").unwrap())
+                .border_left(Color::parse("#44cc44").unwrap()),
+        );
+        AppRoot::new().with_child(
+            Dock::new()
+                .push_fill(ScrollView::new(buttons).scroll_step(2))
+                .push_bottom(Some(3), status),
+        )
     }
 
     fn css_path(&self) -> Option<&'static str> {
@@ -63,65 +116,9 @@ impl Widget for StatusLine {
     }
 }
 
-fn build_buttons_widget(status: Arc<Mutex<String>>) -> AppRoot {
-    let buttons = Horizontal::new()
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
-                .with_child(Button::new("Default"))
-                .with_child(Button::primary("Primary!"))
-                .with_child(Button::success("Success!"))
-                .with_child(Button::warning("Warning!"))
-                .with_child(Button::error("Error!")),
-        )
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
-                .with_child(Button::new("Default").disabled(true))
-                .with_child(Button::primary("Primary!").disabled(true))
-                .with_child(Button::success("Success!").disabled(true))
-                .with_child(Button::warning("Warning!").disabled(true))
-                .with_child(Button::error("Error!").disabled(true)),
-        )
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
-                .with_child(Button::new("Default").flat(true))
-                .with_child(Button::primary("Primary!").flat(true))
-                .with_child(Button::success("Success!").flat(true))
-                .with_child(Button::warning("Warning!").flat(true))
-                .with_child(Button::error("Error!").flat(true)),
-        )
-        .with_child(
-            VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
-                .with_child(Button::new("Default").disabled(true).flat(true))
-                .with_child(Button::primary("Primary!").disabled(true).flat(true))
-                .with_child(Button::success("Success!").disabled(true).flat(true))
-                .with_child(Button::warning("Warning!").disabled(true).flat(true))
-                .with_child(Button::error("Error!").disabled(true).flat(true)),
-        );
-
-    let status_bg = parse_color_like("$panel").or_else(|| parse_color_like("$surface"));
-    let status = Styled::new(
-        StatusLine::new(status),
-        Style::new()
-            .line_pad(1)
-            .bg(status_bg.unwrap_or(Color::parse("#303a43").unwrap()))
-            .border_top(Color::parse("#44cc44").unwrap())
-            .border_right(Color::parse("#44cc44").unwrap())
-            .border_bottom(Color::parse("#44cc44").unwrap())
-            .border_left(Color::parse("#44cc44").unwrap()),
-    );
-    let scroll = ScrollView::new(buttons).scroll_step(2);
-    let layout = Dock::new().push_fill(scroll).push_bottom(Some(3), status);
-    AppRoot::new().with_child(layout)
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_snapshot(ButtonsAdvancedApp::new()).await
+    run_sync_snapshot(ButtonsAdvancedApp::new())
 }

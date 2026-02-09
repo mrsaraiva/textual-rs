@@ -6,7 +6,45 @@ struct ButtonsApp {
 
 impl TextualApp for ButtonsApp {
     fn compose(&mut self) -> AppRoot {
-        build_buttons_widget()
+        AppRoot::new().with_child(
+            Horizontal::new()
+                .with_child(
+                    VerticalScroll::new()
+                        .with_child(Static::new("Standard Buttons").class("header"))
+                        .with_child(Button::new("Default"))
+                        .with_child(Button::primary("Primary!"))
+                        .with_child(Button::success("Success!"))
+                        .with_child(Button::warning("Warning!"))
+                        .with_child(Button::error("Error!")),
+                )
+                .with_child(
+                    VerticalScroll::new()
+                        .with_child(Static::new("Disabled Buttons").class("header"))
+                        .with_child(Button::new("Default").disabled(true))
+                        .with_child(Button::primary("Primary!").disabled(true))
+                        .with_child(Button::success("Success!").disabled(true))
+                        .with_child(Button::warning("Warning!").disabled(true))
+                        .with_child(Button::error("Error!").disabled(true)),
+                )
+                .with_child(
+                    VerticalScroll::new()
+                        .with_child(Static::new("Flat Buttons").class("header"))
+                        .with_child(Button::new("Default").flat(true))
+                        .with_child(Button::primary("Primary!").flat(true))
+                        .with_child(Button::success("Success!").flat(true))
+                        .with_child(Button::warning("Warning!").flat(true))
+                        .with_child(Button::error("Error!").flat(true)),
+                )
+                .with_child(
+                    VerticalScroll::new()
+                        .with_child(Static::new("Disabled Flat Buttons").class("header"))
+                        .with_child(Button::new("Default").disabled(true).flat(true))
+                        .with_child(Button::primary("Primary!").disabled(true).flat(true))
+                        .with_child(Button::success("Success!").disabled(true).flat(true))
+                        .with_child(Button::warning("Warning!").disabled(true).flat(true))
+                        .with_child(Button::error("Error!").disabled(true).flat(true)),
+                ),
+        )
     }
 
     fn css_path(&self) -> Option<&'static str> {
@@ -22,26 +60,6 @@ impl TextualApp for ButtonsApp {
     fn take_exit_output(&mut self) -> Option<String> {
         self.selected.take()
     }
-}
-
-fn button_column(title: &str, disabled: bool, flat: bool) -> VerticalScroll {
-    VerticalScroll::new()
-        .with_child(Static::new(title).class("header"))
-        .with_child(Button::new("Default").disabled(disabled).flat(flat))
-        .with_child(Button::primary("Primary!").disabled(disabled).flat(flat))
-        .with_child(Button::success("Success!").disabled(disabled).flat(flat))
-        .with_child(Button::warning("Warning!").disabled(disabled).flat(flat))
-        .with_child(Button::error("Error!").disabled(disabled).flat(flat))
-}
-
-fn build_buttons_widget() -> AppRoot {
-    let buttons = Horizontal::new()
-        .with_child(button_column("Standard Buttons", false, false))
-        .with_child(button_column("Disabled Buttons", true, false))
-        .with_child(button_column("Flat Buttons", false, true))
-        .with_child(button_column("Disabled Flat Buttons", true, true));
-
-    AppRoot::new().with_child(buttons)
 }
 
 fn main() -> Result<()> {

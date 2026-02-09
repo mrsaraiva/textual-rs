@@ -3,8 +3,6 @@
 //! Python parity target for this demo is the Textual "keys" preview layout:
 //! top title bar, instruction panel, scrolling log body, and bottom action bar.
 
-use std::path::Path;
-
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Segment, Style as RichStyle};
 use textual::prelude::*;
@@ -136,7 +134,9 @@ impl Widget for KeyLog {
             self.clear();
             ctx.request_repaint();
             ctx.set_handled();
+            return;
         }
+        self.log.on_message(message, ctx);
     }
 
     fn render(
@@ -172,138 +172,85 @@ impl Widget for KeyLog {
     }
 }
 
-struct ActionBar {
-    id: WidgetId,
-    clear_id: WidgetId,
-    quit_id: WidgetId,
-    child: Box<dyn Widget>,
+struct KeysApp {
+    key_log_id: Option<WidgetId>,
 }
 
-impl ActionBar {
+impl KeysApp {
     fn new() -> Self {
-        let clear = Button::warning("Clear").flat(true);
-        let clear_id = clear.id();
-        let quit = Button::error("Quit").flat(true);
-        let quit_id = quit.id();
-        let row = Row::new()
-            .with_child(Constrained::new(clear))
-            .with_child(Constrained::new(quit));
-        Self {
-            id: WidgetId::new(),
-            clear_id,
-            quit_id,
-            child: Box::new(Constrained::new(row).min_height(3).max_height(3)),
-        }
+        Self { key_log_id: None }
     }
 }
 
-impl Widget for ActionBar {
-    fn id(&self) -> WidgetId {
-        self.id
+impl TextualApp for KeysApp {
+    fn compose(&mut self) -> AppRoot {
+        let key_log = KeyLog::new();
+        self.key_log_id = Some(key_log.id());
+        preview_root_with_top_bottom(
+            Some("Textual Keys"),
+            Some(4),
+            Constrained::new(Styled::new(
+                Container::new()
+                    .with_child(Styled::new(
+                        Label::new("Press some keys!"),
+                        Style::new().bold(true).underline(true),
+                    ))
+                    .with_child(Label::new(
+                        "To quit the app press Ctrl+Q twice or press the Quit button below.",
+                    )),
+                Style::new()
+                    .line_pad(1)
+                    .border_top(Color::parse("#7f868d").unwrap())
+                    .border_right(Color::parse("#7f868d").unwrap())
+                    .border_bottom(Color::parse("#7f868d").unwrap())
+                    .border_left(Color::parse("#7f868d").unwrap()),
+            ))
+            .min_height(4)
+            .max_height(4),
+            key_log,
+            Some(3),
+            Constrained::new(
+                Row::new()
+                    .with_child(Constrained::new(Button::warning("Clear").flat(true)))
+                    .with_child(Constrained::new(Button::error("Quit").flat(true))),
+            )
+            .min_height(3)
+            .max_height(3),
+        )
     }
 
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
-        self.child.render_styled(console, options)
+    fn css_path(&self) -> Option<&'static str> {
+        Some("examples/keys.tcss")
     }
 
-    fn on_mount(&mut self) {
-        self.child.on_mount();
+    fn configure(&mut self, app: &mut App) -> Result<()> {
+        app.set_quit_keys(vec![KeyBind::new(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL,
+        )]);
+        Ok(())
     }
 
-    fn on_unmount(&mut self) {
-        self.child.on_unmount();
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.child.on_layout(width, height);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
-    }
-
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed { .. } = &message.message {
-            if message.sender == self.clear_id {
-                ctx.post_message(self.id, Message::ClearRequested);
-                ctx.set_handled();
-                return;
+    fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
+        match description {
+            "Clear" => {
+                if let Some(key_log_id) = self.key_log_id {
+                    ctx.post_message(key_log_id, Message::ClearRequested);
+                    ctx.set_handled();
+                }
             }
-            if message.sender == self.quit_id {
+            "Quit" => {
                 ctx.request_stop();
                 ctx.set_handled();
-                return;
             }
+            _ => {}
         }
-        self.child.on_message(message, ctx);
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 
-fn help_panel() -> impl Widget {
-    let title = Styled::new(
-        Label::new("Press some keys!"),
-        Style::new().bold(true).underline(true),
-    );
-    let content = Container::new().with_child(title).with_child(Label::new(
-        "To quit the app press Ctrl+Q twice or press the Quit button below.",
-    ));
-    let boxed = Styled::new(
-        content,
-        Style::new()
-            .line_pad(1)
-            .border_top(Color::parse("#7f868d").unwrap())
-            .border_right(Color::parse("#7f868d").unwrap())
-            .border_bottom(Color::parse("#7f868d").unwrap())
-            .border_left(Color::parse("#7f868d").unwrap()),
-    );
-    Constrained::new(boxed).min_height(4).max_height(4)
-}
-
-fn build_keys_widget() -> AppRoot {
-    preview_root_with_top_bottom(
-        Some("Textual Keys"),
-        Some(4),
-        help_panel(),
-        KeyLog::new(),
-        Some(3),
-        ActionBar::new(),
-    )
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-
-    let mut app = App::new()?;
-    app.set_quit_keys(vec![KeyBind::new(
-        KeyCode::Char('q'),
-        KeyModifiers::CONTROL,
-    )]);
-    if Path::new("examples/keys.tcss").exists() {
-        app.watch_stylesheet("examples/keys.tcss", std::time::Duration::from_millis(500))?;
-    }
-    let mut root = build_keys_widget();
-    app.run_widget_tree(&mut root).await
+    run_sync(KeysApp::new())
 }

@@ -196,16 +196,25 @@ impl Widget for TabbedDemo {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let mut app = App::new()?;
-    app.set_command_palette_hint(true);
-    app.add_binding_hint(KeyBind::new(KeyCode::Char('l'), KeyModifiers::NONE), "Leto");
-    app.add_binding_hint(
-        KeyBind::new(KeyCode::Char('j'), KeyModifiers::NONE),
-        "Jessica",
-    );
-    app.add_binding_hint(KeyBind::new(KeyCode::Char('p'), KeyModifiers::NONE), "Paul");
-    let mut demo = AppRoot::new().with_child(CommandPalette::new(TabbedDemo::new()));
-    app.run_widget_tree(&mut demo).await
+struct TabbedContentApp;
+
+impl TextualApp for TabbedContentApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(CommandPalette::new(TabbedDemo::new()))
+    }
+
+    fn configure(&mut self, app: &mut App) -> Result<()> {
+        app.set_command_palette_hint(true);
+        app.add_binding_hint(KeyBind::new(KeyCode::Char('l'), KeyModifiers::NONE), "Leto");
+        app.add_binding_hint(
+            KeyBind::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            "Jessica",
+        );
+        app.add_binding_hint(KeyBind::new(KeyCode::Char('p'), KeyModifiers::NONE), "Paul");
+        Ok(())
+    }
+}
+
+fn main() -> Result<()> {
+    run_sync(TabbedContentApp)
 }

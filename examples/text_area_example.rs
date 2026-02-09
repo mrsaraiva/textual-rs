@@ -8,14 +8,17 @@ def goodbye(name):
     print("goodbye" + name)
 "#;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+struct TextAreaExampleApp;
+
+impl TextualApp for TextAreaExampleApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(TextArea::code_editor(TEXT).with_language("python"))
+    }
+}
+
+fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-
-    let editor = TextArea::code_editor(TEXT).with_language("python");
-    let mut root = AppRoot::new().with_child(editor);
-    let mut app = App::new()?;
-    app.run_widget_tree(&mut root).await
+    run_sync(TextAreaExampleApp)
 }

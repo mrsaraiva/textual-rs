@@ -11,17 +11,34 @@ const JAVA_CODE: &str = r#"class HelloWorld {
 const JAVA_HIGHLIGHTS: &str =
     include_str!("../../textual/docs/examples/widgets/java_highlights.scm");
 
-#[tokio::main]
-async fn main() -> Result<()> {
+struct TextAreaCustomLanguageApp {
+    text_area: Option<TextArea>,
+}
+
+impl TextAreaCustomLanguageApp {
+    fn new() -> Result<Self> {
+        let mut text_area = TextArea::code_editor(JAVA_CODE).with_cursor_blink(false);
+        text_area.register_language("java", tree_sitter_java::LANGUAGE.into(), JAVA_HIGHLIGHTS)?;
+        text_area.set_language("java");
+        Ok(Self {
+            text_area: Some(text_area),
+        })
+    }
+}
+
+impl TextualApp for TextAreaCustomLanguageApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(
+            self.text_area
+                .take()
+                .unwrap_or_else(|| TextArea::code_editor(JAVA_CODE).with_cursor_blink(false)),
+        )
+    }
+}
+
+fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-
-    let mut text_area = TextArea::code_editor(JAVA_CODE).with_cursor_blink(false);
-    text_area.register_language("java", tree_sitter_java::LANGUAGE.into(), JAVA_HIGHLIGHTS)?;
-    text_area.set_language("java");
-
-    let mut root = AppRoot::new().with_child(text_area);
-    let mut app = App::new()?;
-    app.run_widget_tree(&mut root).await
+    run_sync(TextAreaCustomLanguageApp::new()?)
 }

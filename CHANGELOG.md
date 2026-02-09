@@ -17,6 +17,10 @@ until the API stabilizes.
     - `examples/buttons.rs` now uses top-down in-`compose` composition (doc-first readability) and sync snapshot runner (no async `main` required).
     - Added `examples/buttons_composed_pattern.rs` preserving the helper/indirection composition pattern as an alternative.
     - Updated `examples/buttons_advanced.rs` to the concise snapshot runner.
+- **Examples API migration (didactic ergonomics pass)**
+  - Migrated all remaining Rust examples to the new concise app runners and trait flow, removing direct runtime bootstrapping (`App::new` + `run_widget_tree`) from example entrypoints.
+  - Standardized examples toward top-down composition in `TextualApp::compose` for readability as learning material, while preserving advanced behaviors (keys diagnostics, tabbed content interactions, validation flows, textarea customizations).
+  - Reduced async boilerplate in examples by switching simple/demo entrypoints to sync runners (`run_sync` / `run_sync_snapshot*`) where no explicit async orchestration is needed.
 - **Lockfile refresh cleanup**
   - Updated `Cargo.lock` to reflect current dependency graph with local `rich-rs` patching and removed stale registry/unused patch lock metadata.
 
