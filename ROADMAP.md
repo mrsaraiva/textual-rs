@@ -136,6 +136,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 |--------|------|-------|
 | Partial | Tick system | 100ms tick loop with `on_tick` propagated through widget tree; used for button active-effect timer |
 | Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `Button` / `Checkbox` / `DataTable` emit messages; some widgets still use direct callbacks. |
+| Todo | Grapheme-aware text editing model | Ensure cursor movement, selection, delete/backspace, slicing, and display-width math are grapheme-safe across `Input`/`TextArea`/text-heavy widgets |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Todo | Animation framework | No easing, transitions, or frame-scheduled animations |
 | Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
@@ -153,6 +154,11 @@ Going forward we distinguish:
 
 - **Exists (MVP):** functional, typically ASCII-first, enough to run demos.
 - **First-class:** behaves and *feels* like Textual, and is implemented in a way that advances core framework fundamentals (v0.2 goals).
+
+Detailed per-widget execution planning is maintained in:
+- `docs/devel/WIDGET_PORTING_PLAN.md` (**source of truth for widget-level tracking**)
+
+`ROADMAP.md` intentionally keeps only milestone-level widget status and acceptance targets.
 
 ### First-class definition
 
@@ -424,8 +430,12 @@ Reference plan:
 
 - Core modularization pass (Phase 9.7)
   - Execute `docs/devel/MODULARIZATION_PLAN.md` in phased, behavior-preserving commits before further major parity expansions.
+- Widget-first-class execution plan (source-of-truth)
+  - Use `docs/devel/WIDGET_PORTING_PLAN.md` for detailed per-widget findings, ordering, and acceptance checklists.
 - `TabbedContent` + Footer + command palette parity (Phase 9.6)
   - Land binding-model foundation, footer auto-hints, command palette modal, and tab-strip default style parity.
+- Grapheme correctness pass (cross-cutting)
+  - Align text model semantics with grapheme-safe driver behavior (cursor/selection/editing/measurement), starting with `Input` and `TextArea`, then `DataTable`/`Tree`/`Tabs`/text wrapping.
 - Widget uplift: MVP → first-class (remaining container polish and parity hardening for newly-upgraded widgets)
   - Treat demos as integration tests that drive fundamentals (message bus, invalidation, timers/animations, and higher-quality behavioral tests).
 - Input diagnostics + key model parity (`textual keys` harness)
