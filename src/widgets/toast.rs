@@ -156,6 +156,15 @@ impl Widget for Toast {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut out = Segments::new();
+        let base_style = crate::css::resolve_component_style(self, &["toast"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+
+        // Python Textual toasts use padding: 1 1; our core style model currently only
+        // has horizontal line padding, so apply vertical padding explicitly here.
+        let blank = Segment::styled(rich_rs::set_cell_size("", width), base_style);
+        out.push(blank.clone());
+        out.push(Segment::line());
 
         // Render title line if present.
         if let Some(title) = &self.title {
@@ -168,9 +177,6 @@ impl Widget for Toast {
         }
 
         // Render message lines (always at least one line).
-        let base_style = crate::css::resolve_component_style(self, &["toast"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
         if self.message.is_empty() {
             out.push(Segment::styled(
                 rich_rs::set_cell_size("", width),
@@ -188,13 +194,17 @@ impl Widget for Toast {
             }
         }
 
+        out.push(Segment::line());
+        out.push(blank);
+
         out
     }
 
     fn layout_height(&self) -> Option<usize> {
         let title_lines = if self.title.is_some() { 1 } else { 0 };
         let message_lines = self.message.lines().count().max(1);
-        let intrinsic = title_lines + message_lines;
+        let vertical_padding = 2;
+        let intrinsic = title_lines + message_lines + vertical_padding;
         fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
     }
 

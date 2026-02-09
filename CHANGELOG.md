@@ -33,6 +33,8 @@ until the API stabilizes.
   - Added `Action::HelpQuit` and default `Ctrl+C` binding so applications can show quit guidance as an inherited app behavior rather than per-demo logic.
   - Switched default quit key semantics to `Ctrl+Q` (configurable via existing `set_quit_keys` API), matching Textual-style defaults more closely.
   - Added app-level notification state and runtime toast composition rendered in the bottom-right using existing `Toast` widget styling, with timeout-based expiry and stacking.
+  - Refined notification timing to real-time `Duration` (default 5s, matching Python `NOTIFICATION_TIMEOUT`) so toast lifetime no longer depends on render tick cadence.
+  - Aligned toast chrome closer to Python defaults: severity left accent border, `max-width: 50%`, horizontal padding (`line-pad: 1`), and explicit vertical padding in the `Toast` widget render/layout path.
 
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**

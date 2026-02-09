@@ -163,7 +163,7 @@ struct AppNotification {
     title: String,
     message: String,
     severity: ToastSeverity,
-    ticks_left: u64,
+    expires_at: Instant,
 }
 
 impl AppNotification {
@@ -171,18 +171,18 @@ impl AppNotification {
         title: impl Into<String>,
         message: impl Into<String>,
         severity: ToastSeverity,
-        ticks_left: u64,
+        timeout: Duration,
     ) -> Self {
         Self {
             title: title.into(),
             message: message.into(),
             severity,
-            ticks_left,
+            expires_at: Instant::now() + timeout,
         }
     }
 }
 
-const DEFAULT_NOTIFICATION_TIMEOUT_TICKS: u64 = 30;
+const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_NOTIFICATIONS: usize = 8;
 const MAX_VISIBLE_NOTIFICATIONS: usize = 3;
 
@@ -407,9 +407,9 @@ impl App {
         message: impl Into<String>,
         title: impl Into<String>,
         severity: ToastSeverity,
-        timeout_ticks: Option<u64>,
+        timeout: Option<Duration>,
     ) {
-        let timeout = timeout_ticks.unwrap_or(DEFAULT_NOTIFICATION_TIMEOUT_TICKS).max(1);
+        let timeout = timeout.unwrap_or(DEFAULT_NOTIFICATION_TIMEOUT);
         self.notifications
             .push(AppNotification::new(title, message, severity, timeout));
         if self.notifications.len() > MAX_NOTIFICATIONS {
@@ -433,7 +433,7 @@ impl App {
             format!("Press {key} to quit the app"),
             "Do you want to quit?",
             ToastSeverity::Information,
-            Some(DEFAULT_NOTIFICATION_TIMEOUT_TICKS),
+            Some(DEFAULT_NOTIFICATION_TIMEOUT),
         );
     }
 
@@ -626,10 +626,9 @@ impl App {
             if !note.title.is_empty() {
                 toast = toast.with_title(note.title.clone());
             }
-            toast = toast.with_timeout(note.ticks_left.max(1));
 
             let max_width = frame.width.saturating_sub(2).max(1);
-            let preferred = 60usize.min((frame.width / 2).max(24));
+            let preferred = 60usize.min((frame.width / 2).max(1));
             let toast_width = preferred.min(max_width).max(1);
             let toast_height = toast.layout_height().unwrap_or(3).max(1);
             if toast_height > frame.height {
@@ -1117,10 +1116,8 @@ impl App {
                 let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                 let notifications_before = self.notifications.len();
-                for note in &mut self.notifications {
-                    note.ticks_left = note.ticks_left.saturating_sub(1);
-                }
-                self.notifications.retain(|note| note.ticks_left > 0);
+                let now = Instant::now();
+                self.notifications.retain(|note| note.expires_at > now);
                 if self.notifications.len() != notifications_before {
                     dirty = true;
                 }

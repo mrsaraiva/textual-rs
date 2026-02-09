@@ -436,14 +436,19 @@ Link:focus { text-style: bold; }
 
 Toast {
     width: 60;
+    max-width: 50%;
     height: auto;
+    line-pad: 1;
     bg: $panel-lighten-1;
     fg: $foreground;
 }
 
 Toast > .toast--title { fg: $foreground; text-style: bold; }
+Toast.-information { border-left: tall $success; }
 Toast.-information > .toast--title { fg: $text-success; }
+Toast.-warning { border-left: tall $warning; }
 Toast.-warning > .toast--title { fg: $text-warning; }
+Toast.-error { border-left: tall $error; }
 Toast.-error > .toast--title { fg: $text-error; }
 
 LoadingIndicator {
