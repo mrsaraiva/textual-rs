@@ -130,6 +130,7 @@ pub enum Event {
 pub enum Action {
     FocusNext,
     FocusPrev,
+    HelpQuit,
     ScrollUp,
     ScrollDown,
     ScrollPageUp,
@@ -147,6 +148,7 @@ impl Action {
         match self {
             Action::FocusNext => "Focus next",
             Action::FocusPrev => "Focus previous",
+            Action::HelpQuit => "Show quit help",
             Action::ScrollUp => "Scroll up",
             Action::ScrollDown => "Scroll down",
             Action::ScrollPageUp => "Page up",

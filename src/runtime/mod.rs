@@ -10,7 +10,7 @@ use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
-use crate::widgets::{border_spacing_from_style, Widget, WidgetId};
+use crate::widgets::{border_spacing_from_style, Toast, ToastSeverity, Widget, WidgetId};
 use crate::{Error, Result};
 use crossterm::event::MouseEventKind;
 use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers};
@@ -149,6 +149,7 @@ pub struct App {
     last_binding_hints: Vec<BindingHint>,
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
+    notifications: Vec<AppNotification>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +157,34 @@ struct BindingHintEntry {
     key: KeyBind,
     hint: BindingHint,
 }
+
+#[derive(Debug, Clone)]
+struct AppNotification {
+    title: String,
+    message: String,
+    severity: ToastSeverity,
+    ticks_left: u64,
+}
+
+impl AppNotification {
+    fn new(
+        title: impl Into<String>,
+        message: impl Into<String>,
+        severity: ToastSeverity,
+        ticks_left: u64,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            message: message.into(),
+            severity,
+            ticks_left,
+        }
+    }
+}
+
+const DEFAULT_NOTIFICATION_TIMEOUT_TICKS: u64 = 30;
+const MAX_NOTIFICATIONS: usize = 8;
+const MAX_VISIBLE_NOTIFICATIONS: usize = 3;
 
 struct StylesheetWatcher {
     path: PathBuf,
@@ -192,10 +221,7 @@ impl App {
             hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
-            quit_keys: vec![
-                KeyBind::new(KeyCode::Char('q'), KeyModifiers::empty()),
-                KeyBind::new(KeyCode::Esc, KeyModifiers::empty()),
-            ],
+            quit_keys: vec![KeyBind::new(KeyCode::Char('q'), KeyModifiers::CONTROL)],
             custom_binding_hints: Vec::new(),
             command_palette_hint: Some(BindingHintEntry {
                 key: KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
@@ -222,6 +248,7 @@ impl App {
             last_binding_hints: Vec::new(),
             animator: Animator::new(60),
             animation_level: animation_level_from_env(),
+            notifications: Vec::new(),
         };
         app.last_binding_hints = app.binding_hints();
         Ok(app)
@@ -375,6 +402,41 @@ impl App {
         self.quit_keys.clear();
     }
 
+    pub fn notify(
+        &mut self,
+        message: impl Into<String>,
+        title: impl Into<String>,
+        severity: ToastSeverity,
+        timeout_ticks: Option<u64>,
+    ) {
+        let timeout = timeout_ticks.unwrap_or(DEFAULT_NOTIFICATION_TIMEOUT_TICKS).max(1);
+        self.notifications
+            .push(AppNotification::new(title, message, severity, timeout));
+        if self.notifications.len() > MAX_NOTIFICATIONS {
+            let drop = self.notifications.len().saturating_sub(MAX_NOTIFICATIONS);
+            self.notifications.drain(0..drop);
+        }
+    }
+
+    fn notify_help_quit(&mut self) {
+        let key = self
+            .quit_keys
+            .iter()
+            .find(|bind| {
+                bind.modifiers.contains(KeyModifiers::CONTROL)
+                    || bind.modifiers.contains(KeyModifiers::SUPER)
+            })
+            .or_else(|| self.quit_keys.first())
+            .map(|bind| bind.display_key())
+            .unwrap_or_else(|| "ctrl+q".to_string());
+        self.notify(
+            format!("Press {key} to quit the app"),
+            "Do you want to quit?",
+            ToastSeverity::Information,
+            Some(DEFAULT_NOTIFICATION_TIMEOUT_TICKS),
+        );
+    }
+
     pub fn set_stylesheet(&mut self, stylesheet: StyleSheet) {
         self.stylesheet = stylesheet;
     }
@@ -496,7 +558,8 @@ impl App {
         let (width, height) = self.options.size;
         let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
         let base_style = self.theme.base.to_rich();
-        let next = FrameBuffer::from_lines(&lines, width, height, base_style);
+        let mut next = FrameBuffer::from_lines(&lines, width, height, base_style);
+        self.compose_notifications(&mut next);
         let now = Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -545,6 +608,68 @@ impl App {
         self.apply_layout_info(widget);
         self.frame = next;
         Ok(())
+    }
+
+    fn compose_notifications(&mut self, frame: &mut FrameBuffer) {
+        if self.notifications.is_empty() {
+            return;
+        }
+
+        let mut cursor_bottom = frame.height.saturating_sub(2);
+        for note in self
+            .notifications
+            .iter()
+            .rev()
+            .take(MAX_VISIBLE_NOTIFICATIONS)
+        {
+            let mut toast = Toast::new(note.message.clone(), note.severity);
+            if !note.title.is_empty() {
+                toast = toast.with_title(note.title.clone());
+            }
+            toast = toast.with_timeout(note.ticks_left.max(1));
+
+            let max_width = frame.width.saturating_sub(2).max(1);
+            let preferred = 60usize.min((frame.width / 2).max(24));
+            let toast_width = preferred.min(max_width).max(1);
+            let toast_height = toast.layout_height().unwrap_or(3).max(1);
+            if toast_height > frame.height {
+                continue;
+            }
+            if cursor_bottom + 1 < toast_height {
+                break;
+            }
+
+            let mut toast_options = self.options.clone();
+            toast_options.size = (toast_width, toast_height);
+            toast_options.max_width = toast_width;
+            toast_options.max_height = toast_height;
+
+            let rendered = toast.render_styled(&self.console, &toast_options);
+            let lines = Segment::split_and_crop_lines(rendered, toast_width, None, true, false);
+            let lines = Segment::set_shape(&lines, toast_width, Some(toast_height), None, false);
+            let toast_buffer = FrameBuffer::from_lines(&lines, toast_width, toast_height, None);
+
+            let x0 = frame.width.saturating_sub(toast_width + 1);
+            let y0 = cursor_bottom + 1 - toast_height;
+            for y in 0..toast_height {
+                for x in 0..toast_width {
+                    let cell = toast_buffer.get(x, y).clone();
+                    if cell.continuation {
+                        continue;
+                    }
+                    let tx = x0 + x;
+                    let ty = y0 + y;
+                    if tx < frame.width && ty < frame.height {
+                        *frame.get_mut(tx, ty) = cell;
+                    }
+                }
+            }
+
+            cursor_bottom = y0.saturating_sub(1);
+            if cursor_bottom == 0 {
+                break;
+            }
+        }
     }
 
     fn apply_layout_info(&self, root: &mut dyn Widget) {
@@ -728,6 +853,11 @@ impl App {
                         if !key_outcome.handled {
                             if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a))
                             {
+                                if action == Action::HelpQuit {
+                                    self.notify_help_quit();
+                                    dirty = true;
+                                    continue;
+                                }
                                 debug_input(&format!(
                                     "[input] action-map {:?} -> {:?}",
                                     bind, action
@@ -986,6 +1116,14 @@ impl App {
                 self.absorb_outcome(&mut outcome, &mut dirty);
                 let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                let notifications_before = self.notifications.len();
+                for note in &mut self.notifications {
+                    note.ticks_left = note.ticks_left.saturating_sub(1);
+                }
+                self.notifications.retain(|note| note.ticks_left > 0);
+                if self.notifications.len() != notifications_before {
+                    dirty = true;
+                }
                 if outcome.stop_requested || msg_outcome.stop_requested {
                     break 'event_loop;
                 }
@@ -1569,16 +1707,13 @@ mod tests {
 
     #[test]
     fn quit_key_matches_defaults() {
-        let quit_keys = vec![
-            KeyBind::new(KeyCode::Char('q'), KeyModifiers::empty()),
-            KeyBind::new(KeyCode::Esc, KeyModifiers::empty()),
-        ];
+        let quit_keys = vec![KeyBind::new(KeyCode::Char('q'), KeyModifiers::CONTROL)];
+        let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
         let q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::empty());
-        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::empty());
         let x = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty());
 
-        assert!(should_quit_key(&q, &quit_keys));
-        assert!(should_quit_key(&esc, &quit_keys));
+        assert!(should_quit_key(&ctrl_q, &quit_keys));
+        assert!(!should_quit_key(&q, &quit_keys));
         assert!(!should_quit_key(&x, &quit_keys));
     }
 
@@ -1590,6 +1725,13 @@ mod tests {
 
         assert!(should_quit_key(&ctrl_q, &quit_keys));
         assert!(!should_quit_key(&plain_q, &quit_keys));
+    }
+
+    #[test]
+    fn default_action_map_binds_ctrl_c_to_help_quit() {
+        let map = default_action_map();
+        let ctrl_c = KeyBind::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(map.lookup(&ctrl_c), Some(Action::HelpQuit));
     }
 }
 
@@ -1626,6 +1768,10 @@ fn should_quit_key(key: &crossterm::event::KeyEvent, quit_keys: &[KeyBind]) -> b
 
 fn default_action_map() -> ActionMap {
     let mut map = ActionMap::new();
+    map.bind(
+        KeyBind::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        Action::HelpQuit,
+    );
     map.bind(
         KeyBind::new(KeyCode::Tab, KeyModifiers::empty()),
         Action::FocusNext,
