@@ -12,6 +12,7 @@ pub mod message;
 pub mod render;
 pub mod runtime;
 pub mod style;
+pub mod textual_app;
 pub mod validation;
 pub mod widgets;
 
@@ -20,6 +21,7 @@ pub use event::BindingHint;
 pub use keys::KeyEventData;
 pub use runtime::App;
 pub use style::{Color, Style, Theme};
+pub use textual_app::{TextualApp, run_textual_app};
 pub use widgets::WidgetStyles;
 
 pub mod prelude {
@@ -31,6 +33,7 @@ pub mod prelude {
     pub use crate::message::{Message, MessageEvent};
     pub use crate::runtime::App;
     pub use crate::style::{Color, Style, Theme};
+    pub use crate::textual_app::{TextualApp, run_textual_app};
     pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
     pub use crate::widgets::{
         AppRoot, BindingsTable, Button, ButtonVariant, Checkbox, Collapsible, CommandPalette,

@@ -12,6 +12,10 @@ until the API stabilizes.
   - Enforced a crate-wide no-unsafe policy with `unsafe_code = "forbid"` in `Cargo.toml`, so any `unsafe` usage now fails compilation by default.
 - **Roadmap prioritization update**
   - Added Phase 9.7 as the next priority in `ROADMAP.md`, formalizing a fundamentals-first modularization pass before further major parity expansion work.
+- **App composition API fundamentals (Phase A)**
+  - Added trait-based app authoring (`TextualApp`) and `run_textual_app()` runtime helper to reduce example/app boilerplate while preserving low-level `App::run_widget_tree` access.
+  - Added app-level lifecycle/message/action hook surface (`on_mount`, `on_message`, `on_action`) via an internal adapter, enabling Python-like minimal app structure in idiomatic Rust.
+  - Exported the new API through the crate root and prelude (`src/textual_app.rs`, `src/lib.rs`).
 
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**
