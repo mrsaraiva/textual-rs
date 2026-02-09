@@ -404,10 +404,10 @@ Reference plan:
 
 | Status | Area | Notes |
 |--------|------|-------|
-| Todo | Runtime decomposition | Split `src/runtime/mod.rs` into internal modules by concern (event loop, routing, focus, render, resize, bindings, palette, invalidation) |
-| Todo | Containers decomposition | Split `src/widgets/containers.rs` into per-widget modules plus shared helpers |
-| Todo | Default CSS ownership split | Move from monolithic `src/css/defaults.rs` to per-widget default CSS modules with deterministic aggregation |
-| Todo | Selector engine decomposition | Split selector AST/parser/matching/specificity into focused modules under `src/css/selectors/` |
+| Done | Runtime decomposition | Split `src/runtime/mod.rs` into internal modules by concern (event loop, routing, render, helpers, types) |
+| Done | Containers decomposition | Split `src/widgets/containers.rs` into per-widget modules under `src/widgets/containers/` plus shared helpers |
+| Done | Default CSS ownership split | Split `src/css/defaults.rs` into per-widget CSS modules under `src/css/defaults/` with deterministic aggregation via `mod.rs` |
+| Done | Selector engine decomposition | Split `src/css/selectors.rs` into AST/parser/matching/specificity modules under `src/css/selectors/` |
 
 ### Acceptance criteria
 

@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-09
+- **Core modularization (Phase M1 — behavior-preserving)**
+  - Split `src/runtime/mod.rs` (2509 lines) into focused submodules: `event_loop.rs`, `routing.rs`, `render.rs`, `helpers.rs`, `types.rs`; `mod.rs` retains `App` struct and orchestration.
+  - Split `src/widgets/containers.rs` (2964 lines) into per-widget modules under `src/widgets/containers/`: `container.rs`, `constrained.rs`, `styled.rs`, `node.rs`, `app_root.rs`, `frame.rs`, `panel.rs`, `scroll_view.rs`, `overlay.rs`.
+  - Split `src/css/selectors.rs` (1609 lines) into `src/css/selectors/`: `ast.rs`, `parser.rs`, `matching.rs`, `resolver.rs`, `segments.rs`, `context.rs`, `debug.rs`.
+  - Split `src/css/defaults.rs` (490 lines) into per-widget CSS fragment modules under `src/css/defaults/` with deterministic aggregator in `mod.rs`.
+  - All splits are purely mechanical — no behavior changes, all 309 tests pass.
+- **Event loop tick repaint fix**
+  - Always repaint after `on_tick` to keep tick-driven widgets (counters, cursors) in sync.
+
 - **App runner API simplification + sync entrypoints (breaking)**
   - Introduced concise runner names in `textual_app`: `run`, `run_with_output`, `run_snapshot`, `run_snapshot_with_output`, plus blocking variants `run_sync`, `run_sync_with_output`, `run_sync_snapshot`, and `run_sync_snapshot_with_output` (`src/textual_app.rs`, `src/lib.rs`).
   - Removed verbose compatibility aliases (`run_textual_app*`) to keep the public API surface minimal during alpha development.

@@ -1,0 +1,571 @@
+use std::time::Duration;
+
+use crate::style::{
+    BorderEdge, BorderType, Margin, Style, Tint, TransitionTiming, parse_auto_color_like,
+    parse_color_like,
+};
+
+use super::ast::{
+    Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet,
+};
+
+impl StyleSheet {
+    pub fn parse(input: &str) -> Self {
+        let mut sheet = StyleSheet::new();
+        let mut rest = input;
+        while let Some(start) = rest.find('{') {
+            let selector = rest[..start].trim();
+            let after = &rest[start + 1..];
+            let end = match after.find('}') {
+                Some(pos) => pos,
+                None => break,
+            };
+            let body = &after[..end];
+            let style = parse_style_body(body);
+            if !style.is_empty() {
+                for selector_chain in parse_selector_list(selector) {
+                    sheet.rules.push(StyleRule {
+                        selector_chain,
+                        style,
+                    });
+                }
+            }
+            rest = &after[end + 1..];
+        }
+        sheet
+    }
+}
+
+pub(super) fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
+    let mut groups = Vec::new();
+    for group in selector.split(',') {
+        let group = group.trim();
+        if group.is_empty() {
+            continue;
+        }
+        if let Some(chain) = parse_selector_chain(group) {
+            groups.push(chain);
+        }
+    }
+    groups
+}
+
+fn parse_selector(selector: &str) -> Option<StyleSelector> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return None;
+    }
+
+    // Split off pseudo-classes (`Button:disabled`, `.foo:focus`, etc).
+    let mut pseudo_parts = selector.split(':');
+    let base_selector = pseudo_parts.next().unwrap_or("").trim();
+    let pseudos: Vec<PseudoClass> = pseudo_parts
+        .filter_map(|part| {
+            let name = part.trim();
+            if name.is_empty() {
+                return None;
+            }
+            // Ignore any `:pseudo(...)` forms for now.
+            let name = name.split('(').next().unwrap_or(name).trim().to_lowercase();
+            match name.as_str() {
+                "disabled" => Some(PseudoClass::Disabled),
+                "focus" | "focused" => Some(PseudoClass::Focus),
+                "hover" => Some(PseudoClass::Hover),
+                "active" => Some(PseudoClass::Active),
+                _ => None,
+            }
+        })
+        .collect();
+
+    let mut type_name: Option<String> = None;
+    let mut id: Option<String> = None;
+    let mut classes: Vec<String> = Vec::new();
+
+    let mut chars = base_selector.chars().peekable();
+    let mut current = String::new();
+    let mut mode: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '#' | '.' => {
+                if mode.is_none() && !current.is_empty() {
+                    type_name = Some(current.clone());
+                } else if let Some(mode) = mode {
+                    match mode {
+                        '#' => id = Some(current.clone()),
+                        '.' => classes.push(current.clone()),
+                        _ => {}
+                    }
+                }
+                current.clear();
+                mode = Some(ch);
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        match mode {
+            None => type_name = Some(current),
+            Some('#') => id = Some(current),
+            Some('.') => classes.push(current),
+            _ => {}
+        }
+    }
+
+    let mut selector = StyleSelector::default();
+    if let Some(type_name) = type_name {
+        selector = StyleSelector::new(type_name);
+    }
+    if let Some(id) = id {
+        selector = selector.id(id);
+    }
+    for class in classes {
+        selector = selector.class(class);
+    }
+    for pseudo in pseudos {
+        selector = selector.pseudo(pseudo);
+    }
+    Some(selector)
+}
+
+fn parse_selector_chain(selector: &str) -> Option<SelectorChain> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for ch in selector.chars() {
+        match ch {
+            '>' => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                }
+                tokens.push(">".to_string());
+                buf.clear();
+            }
+            c if c.is_whitespace() => {
+                if !buf.trim().is_empty() {
+                    tokens.push(buf.trim().to_string());
+                    buf.clear();
+                }
+            }
+            _ => buf.push(ch),
+        }
+    }
+    if !buf.trim().is_empty() {
+        tokens.push(buf.trim().to_string());
+    }
+
+    let mut parts = Vec::new();
+    let mut combinators = Vec::new();
+    let mut pending: Option<Combinator> = None;
+    for token in tokens {
+        if token == ">" {
+            pending = Some(Combinator::Child);
+            continue;
+        }
+        if let Some(selector) = parse_selector(&token) {
+            if !parts.is_empty() {
+                combinators.push(pending.unwrap_or(Combinator::Descendant));
+            }
+            parts.push(selector);
+            pending = None;
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(SelectorChain { parts, combinators })
+}
+
+pub(super) fn parse_style_body(body: &str) -> Style {
+    let mut style = Style::new();
+    for decl in body.split(';') {
+        let decl = decl.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        let mut parts = decl.splitn(2, ':');
+        let key = parts.next().unwrap_or("").trim().to_lowercase();
+        let value = parts.next().unwrap_or("").trim();
+        match key.as_str() {
+            "fg" | "color" => {
+                if let Some(auto) = parse_auto_color_like(value) {
+                    style = style.fg_auto(auto);
+                } else if let Some(color) = parse_color_like(value) {
+                    style = style.fg(color);
+                }
+            }
+            "bg" | "background" => {
+                if let Some(color) = parse_color_like(value) {
+                    style = style.bg(color);
+                }
+            }
+            "width" => {
+                if value.trim().eq_ignore_ascii_case("auto") {
+                    style.width_auto = Some(true);
+                } else if let Ok(value) = value.parse() {
+                    style = style.width(value);
+                }
+            }
+            "height" => {
+                if value.trim().eq_ignore_ascii_case("auto") {
+                    style.height_auto = Some(true);
+                } else if let Ok(value) = value.parse() {
+                    style = style.height(value);
+                }
+            }
+            "min-width" => {
+                if let Ok(value) = value.parse() {
+                    style = style.min_width(value);
+                }
+            }
+            "max-width" => {
+                if let Ok(value) = value.parse() {
+                    style = style.max_width(value);
+                }
+            }
+            "min-height" => {
+                if let Ok(value) = value.parse() {
+                    style = style.min_height(value);
+                }
+            }
+            "max-height" => {
+                if let Ok(value) = value.parse() {
+                    style = style.max_height(value);
+                }
+            }
+            "margin" => {
+                if let Some(margin) = parse_margin(value) {
+                    style = style.margin(margin);
+                }
+            }
+            "bold" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.bold(val);
+                }
+            }
+            "dim" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.dim(val);
+                }
+            }
+            "italic" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.italic(val);
+                }
+            }
+            "underline" => {
+                if let Some(val) = parse_bool(value) {
+                    style = style.underline(val);
+                }
+            }
+            "tint" => {
+                if let Some(tint) = parse_tint(value) {
+                    style.tint = Some(tint);
+                }
+            }
+            "background-tint" => {
+                if let Some(tint) = parse_tint(value) {
+                    style.background_tint = Some(tint);
+                }
+            }
+            "text-opacity" => {
+                if let Some(percent) = parse_opacity_percent(value) {
+                    style = style.text_opacity(percent);
+                }
+            }
+            "opacity" => {
+                if let Some(percent) = parse_opacity_percent(value) {
+                    style = style.opacity(percent);
+                }
+            }
+            "text-style" => {
+                for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+                    let token = token.trim();
+                    if token.is_empty() {
+                        continue;
+                    }
+                    match token {
+                        "bold" => style = style.bold(true),
+                        "dim" => style = style.dim(true),
+                        "italic" => style = style.italic(true),
+                        "underline" => style = style.underline(true),
+                        "reverse" => style = style.reverse(true),
+                        "$button-focus-text-style" => style = style.reverse(true),
+                        _ => {}
+                    }
+                }
+            }
+            "line-pad" => {
+                if let Ok(value) = value.parse() {
+                    style = style.line_pad(value);
+                }
+            }
+            "transition" => {
+                if let Some((duration, delay, timing)) = parse_transition_shorthand(value) {
+                    if let Some(duration) = duration {
+                        style = style.transition_duration(duration);
+                    }
+                    if let Some(delay) = delay {
+                        style = style.transition_delay(delay);
+                    }
+                    if let Some(timing) = timing {
+                        style = style.transition_timing(timing);
+                    }
+                }
+            }
+            "transition-duration" => {
+                if let Some(duration) = parse_duration(value) {
+                    style = style.transition_duration(duration);
+                }
+            }
+            "transition-delay" => {
+                if let Some(delay) = parse_duration(value) {
+                    style = style.transition_delay(delay);
+                }
+            }
+            "transition-timing-function" => {
+                if let Some(timing) = parse_transition_timing(value) {
+                    style = style.transition_timing(timing);
+                }
+            }
+            "border-top" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_top = edge;
+                }
+            }
+            "border-right" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_right = edge;
+                }
+            }
+            "border-bottom" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_bottom = edge;
+                }
+            }
+            "border-left" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.border_left = edge;
+                }
+            }
+            "border" => {
+                if let Some(edges) = parse_border_shorthand(value) {
+                    style.border_top = edges.0;
+                    style.border_right = edges.1;
+                    style.border_bottom = edges.2;
+                    style.border_left = edges.3;
+                }
+            }
+            _ => {}
+        }
+    }
+    style
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_margin(value: &str) -> Option<Margin> {
+    let parts: Vec<&str> = value
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .collect();
+    let nums: Vec<usize> = parts.iter().filter_map(|part| part.parse().ok()).collect();
+    match nums.len() {
+        1 => Some(Margin::all(nums[0])),
+        2 => Some(Margin::vertical_horizontal(nums[0], nums[1])),
+        3 => Some(Margin::new(nums[0], nums[1], nums[2], nums[1])),
+        4 => Some(Margin::new(nums[0], nums[1], nums[2], nums[3])),
+        _ => None,
+    }
+}
+
+fn parse_border_edge(value: &str) -> Option<BorderEdge> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("none") {
+        return Some(BorderEdge::None);
+    }
+    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
+    let first = tokens.next()?;
+    let (border_type, rest_tokens): (BorderType, Vec<&str>) = match first.to_lowercase().as_str() {
+        "tall" => (BorderType::Tall, tokens.collect()),
+        "block" => (BorderType::Block, tokens.collect()),
+        "solid" => (BorderType::Solid, tokens.collect()),
+        "outer" => (BorderType::Outer, tokens.collect()),
+        // If the first token isn't a border type, treat it as a color token and default
+        // to `solid`.
+        _ => (
+            BorderType::Solid,
+            std::iter::once(first).chain(tokens).collect(),
+        ),
+    };
+    let mut color: Option<crate::style::Color> = None;
+    let mut alpha_percent: Option<u8> = None;
+    for token in rest_tokens {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                alpha_percent = Some(v.min(100));
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
+        }
+    }
+    let mut color = color?;
+    if let Some(p) = alpha_percent {
+        color = color.with_alpha(p as f32 / 100.0);
+    }
+    Some(BorderEdge::Edge { border_type, color })
+}
+
+fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("none") {
+        return Some((
+            BorderEdge::None,
+            BorderEdge::None,
+            BorderEdge::None,
+            BorderEdge::None,
+        ));
+    }
+    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
+    let kind = tokens.next()?.to_lowercase();
+    let border_type = match kind.as_str() {
+        "block" => BorderType::Block,
+        "solid" => BorderType::Solid,
+        "tall" => BorderType::Tall,
+        "outer" => BorderType::Outer,
+        _ => return None,
+    };
+    let mut color: Option<crate::style::Color> = None;
+    let mut alpha_percent: Option<u8> = None;
+    for token in tokens {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                alpha_percent = Some(v.min(100));
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
+        }
+    }
+    let mut color = color?;
+    if let Some(p) = alpha_percent {
+        color = color.with_alpha(p as f32 / 100.0);
+    }
+    let edge = BorderEdge::Edge { border_type, color };
+    Some((edge, edge, edge, edge))
+}
+
+fn parse_tint(value: &str) -> Option<Tint> {
+    // Format: "<color> <percent>%" (percent is optional, defaults to 0).
+    let mut color: Option<crate::style::Color> = None;
+    let mut percent: Option<u8> = None;
+    for token in value.split_whitespace().filter(|t| !t.is_empty()) {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.parse::<u8>() {
+                percent = Some(v);
+                continue;
+            }
+        }
+        if let Some(c) = parse_color_like(token) {
+            color = Some(c);
+        }
+    }
+    Some(Tint::new(color?, percent.unwrap_or(0)))
+}
+
+fn parse_opacity_percent(value: &str) -> Option<u8> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(raw) = value.strip_suffix('%') {
+        return raw.trim().parse::<u8>().ok().map(|v| v.min(100));
+    }
+    let value: f32 = value.parse().ok()?;
+    if value.is_sign_negative() {
+        return Some(0);
+    }
+    if value > 1.0 {
+        return Some((value.round() as i32).clamp(0, 100) as u8);
+    }
+    Some((value * 100.0).round().clamp(0.0, 100.0) as u8)
+}
+
+pub(super) fn parse_transition_shorthand(
+    value: &str,
+) -> Option<(Option<Duration>, Option<Duration>, Option<TransitionTiming>)> {
+    // Parse only the first transition item in a comma-separated declaration.
+    // Example: "offset 300ms ease-in-out 50ms".
+    let first_item = value.split(',').next()?.trim();
+    if first_item.is_empty() {
+        return None;
+    }
+    let mut duration: Option<Duration> = None;
+    let mut delay: Option<Duration> = None;
+    let mut timing: Option<TransitionTiming> = None;
+
+    for token in first_item.split_whitespace() {
+        if duration.is_none() {
+            if let Some(parsed) = parse_duration(token) {
+                duration = Some(parsed);
+                continue;
+            }
+        } else if delay.is_none() {
+            if let Some(parsed) = parse_duration(token) {
+                delay = Some(parsed);
+                continue;
+            }
+        }
+        if timing.is_none() {
+            timing = parse_transition_timing(token);
+        }
+    }
+
+    Some((duration, delay, timing))
+}
+
+pub(super) fn parse_duration(value: &str) -> Option<Duration> {
+    let token = value.trim().to_lowercase();
+    if token.is_empty() {
+        return None;
+    }
+    if let Some(raw) = token.strip_suffix("ms") {
+        let ms: f64 = raw.trim().parse().ok()?;
+        if ms.is_sign_negative() {
+            return None;
+        }
+        return Some(Duration::from_secs_f64(ms / 1000.0));
+    }
+    if let Some(raw) = token.strip_suffix('s') {
+        let secs: f64 = raw.trim().parse().ok()?;
+        if secs.is_sign_negative() {
+            return None;
+        }
+        return Some(Duration::from_secs_f64(secs));
+    }
+    None
+}
+
+pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
+    match value.trim().to_lowercase().as_str() {
+        "linear" => Some(TransitionTiming::Linear),
+        "ease" | "ease-in-out" => Some(TransitionTiming::InOutCubic),
+        "ease-out" => Some(TransitionTiming::OutCubic),
+        "none" => Some(TransitionTiming::None),
+        "round" | "step-end" | "steps(1,end)" => Some(TransitionTiming::Round),
+        "in-out-cubic" | "in_out_cubic" => Some(TransitionTiming::InOutCubic),
+        "out-cubic" | "out_cubic" => Some(TransitionTiming::OutCubic),
+        _ => None,
+    }
+}

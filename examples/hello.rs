@@ -177,7 +177,7 @@ impl TextualApp for HelloApp {
                     .with_child(TickLabel::new())
                     .with_child(MountedLabel::new())
                     .with_child(Spacer::new(1))
-                    .with_child(Label::new("press q to quit")),
+                    .with_child(Label::new("press ctrl+q to quit")),
             )
             .scroll_step(2)
             .scroll_step_x(4),
@@ -188,10 +188,6 @@ impl TextualApp for HelloApp {
         Some("demo.css")
     }
 
-    fn configure(&mut self, app: &mut App) -> Result<()> {
-        app.enable_debug_layout(true);
-        Ok(())
-    }
 }
 
 fn main() -> Result<()> {
