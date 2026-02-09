@@ -1,6 +1,9 @@
 use textual::prelude::*;
+use std::sync::{Arc, Mutex};
 
-struct ButtonsApp;
+struct ButtonsApp {
+    selected: Arc<Mutex<Option<String>>>,
+}
 
 impl TextualApp for ButtonsApp {
     fn compose(&mut self) -> AppRoot {
@@ -9,6 +12,14 @@ impl TextualApp for ButtonsApp {
 
     fn css_path(&self) -> Option<&'static str> {
         Some("examples/button.tcss")
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ButtonPressed { description } = &message.message {
+            *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = Some(description.clone());
+            ctx.request_stop();
+            ctx.set_handled();
+        }
     }
 }
 
@@ -59,5 +70,13 @@ async fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_textual_app_or_snapshot(ButtonsApp).await
+    let selected = Arc::new(Mutex::new(None));
+    let app = ButtonsApp {
+        selected: selected.clone(),
+    };
+    run_textual_app_or_snapshot(app).await?;
+    if let Some(description) = selected.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        println!("{description}");
+    }
+    Ok(())
 }

@@ -23,6 +23,12 @@ until the API stabilizes.
   - Added `run_textual_app_or_snapshot()` as an opt-in helper for examples/dev binaries; production apps can continue using `run_textual_app()` without snapshot wiring.
   - Added trait hooks `snapshot_css_path()` and `compose_for_snapshot()` with defaults, so examples can keep snapshot output aligned with runtime CSS without repeating boilerplate in `main`.
   - Updated button examples to use the new helper, reducing `main` to a minimal entry path.
+- **Buttons parity alignment (`buttons.py`)**
+  - Updated `examples/buttons.rs` so button press exits the app and prints the pressed button description to stdout (matching Python example behavior).
+  - Kept runtime auto-focus semantics enabled and aligned startup behavior by making `VerticalScroll` focusable; this matches Python’s effective behavior where initial focus lands on the first scrollable container rather than the first button.
+- **Scrollable aliases parity: visible scrollbars + focus semantics**
+  - Added visible scrollbar rendering to `VerticalScroll` and `HorizontalScroll` (track/thumb sizing and position now mirror `ScrollView` fundamentals instead of scrolling invisibly).
+  - `VerticalScroll` is now focusable and tracks focus state, aligning app startup focus behavior with Python when scroll containers are the first focus targets.
 
 ### 2026-02-08 (batch 10)
 - **Style composition fundamentals: transparent widgets inherit parent surface at render time**
