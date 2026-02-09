@@ -5,7 +5,7 @@ use crate::message::Message;
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 /// Severity level for toast notifications.
@@ -95,6 +95,72 @@ impl Toast {
         ctx.request_repaint();
         ctx.set_handled();
     }
+
+    fn strip_bold_markup(input: &str) -> String {
+        input.replace("[b]", "").replace("[/b]", "")
+    }
+
+    fn render_line_with_bold_markup(line: &str, width: usize) -> Vec<Segment> {
+        let mut segments: Vec<Segment> = Vec::new();
+        let mut remaining = line;
+        let mut bold = false;
+
+        loop {
+            let next_open = remaining.find("[b]");
+            let next_close = remaining.find("[/b]");
+            let next = match (next_open, next_close) {
+                (Some(open), Some(close)) => {
+                    if open <= close {
+                        Some((open, true))
+                    } else {
+                        Some((close, false))
+                    }
+                }
+                (Some(open), None) => Some((open, true)),
+                (None, Some(close)) => Some((close, false)),
+                (None, None) => None,
+            };
+
+            let Some((idx, is_open)) = next else {
+                if !remaining.is_empty() {
+                    if bold {
+                        segments.push(Segment::styled(
+                            remaining.to_string(),
+                            rich_rs::Style::new().with_bold(true),
+                        ));
+                    } else {
+                        segments.push(Segment::new(remaining.to_string()));
+                    }
+                }
+                break;
+            };
+
+            if idx > 0 {
+                let text = &remaining[..idx];
+                if bold {
+                    segments.push(Segment::styled(
+                        text.to_string(),
+                        rich_rs::Style::new().with_bold(true),
+                    ));
+                } else {
+                    segments.push(Segment::new(text.to_string()));
+                }
+            }
+
+            remaining = if is_open {
+                bold = true;
+                &remaining[idx + 3..]
+            } else {
+                bold = false;
+                &remaining[idx + 4..]
+            };
+        }
+
+        if segments.is_empty() {
+            segments.push(Segment::new(String::new()));
+        }
+        adjust_line_length_no_bg(&segments, width.max(1))
+    }
 }
 
 impl Widget for Toast {
@@ -122,7 +188,8 @@ impl Widget for Toast {
         let msg_width = self
             .message
             .lines()
-            .map(rich_rs::cell_len)
+            .map(Self::strip_bold_markup)
+            .map(|line| rich_rs::cell_len(&line))
             .max()
             .unwrap_or(0);
         let title_width = self
@@ -156,46 +223,39 @@ impl Widget for Toast {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut out = Segments::new();
-        let base_style = crate::css::resolve_component_style(self, &["toast"])
+        let title_style = crate::css::resolve_component_style(self, &["toast--title"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
 
         // Python Textual toasts use padding: 1 1; our core style model currently only
-        // has horizontal line padding, so apply vertical padding explicitly here.
-        let blank = Segment::styled(rich_rs::set_cell_size("", width), base_style);
-        out.push(blank.clone());
+        // has horizontal line padding (`line-pad`), so keep vertical padding explicit.
+        out.push(Segment::new(" ".repeat(width)));
         out.push(Segment::line());
 
         // Render title line if present.
         if let Some(title) = &self.title {
-            let title_style = crate::css::resolve_component_style(self, &["toast--title"])
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new);
-            let title_line = rich_rs::set_cell_size(title, width);
-            out.push(Segment::styled(title_line, title_style));
+            out.push(Segment::styled(
+                rich_rs::set_cell_size(title, width),
+                title_style,
+            ));
             out.push(Segment::line());
         }
 
         // Render message lines (always at least one line).
         if self.message.is_empty() {
-            out.push(Segment::styled(
-                rich_rs::set_cell_size("", width),
-                base_style,
-            ));
+            out.push(Segment::new(" ".repeat(width)));
         } else {
             let lines: Vec<&str> = self.message.lines().collect();
             let line_count = lines.len();
-            for (i, line) in lines.into_iter().enumerate() {
-                let content = rich_rs::set_cell_size(line, width);
-                out.push(Segment::styled(content, base_style));
-                if i + 1 < line_count {
+            for (index, line) in lines.into_iter().enumerate() {
+                out.extend(Self::render_line_with_bold_markup(line, width));
+                if index + 1 < line_count {
                     out.push(Segment::line());
                 }
             }
         }
-
         out.push(Segment::line());
-        out.push(blank);
+        out.push(Segment::new(" ".repeat(width)));
 
         out
     }

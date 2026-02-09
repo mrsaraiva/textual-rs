@@ -444,11 +444,11 @@ Toast {
 }
 
 Toast > .toast--title { fg: $foreground; text-style: bold; }
-Toast.-information { border-left: tall $success; }
+Toast.-information { border-left: outer $success; }
 Toast.-information > .toast--title { fg: $text-success; }
-Toast.-warning { border-left: tall $warning; }
+Toast.-warning { border-left: outer $warning; }
 Toast.-warning > .toast--title { fg: $text-warning; }
-Toast.-error { border-left: tall $error; }
+Toast.-error { border-left: outer $error; }
 Toast.-error > .toast--title { fg: $text-error; }
 
 LoadingIndicator {

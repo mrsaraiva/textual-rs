@@ -1207,6 +1207,7 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
         "tall" => (BorderType::Tall, tokens.collect()),
         "block" => (BorderType::Block, tokens.collect()),
         "solid" => (BorderType::Solid, tokens.collect()),
+        "outer" => (BorderType::Outer, tokens.collect()),
         // If the first token isn't a border type, treat it as a color token and default
         // to `solid`.
         _ => (
@@ -1250,6 +1251,7 @@ fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, Border
         "block" => BorderType::Block,
         "solid" => BorderType::Solid,
         "tall" => BorderType::Tall,
+        "outer" => BorderType::Outer,
         _ => return None,
     };
     let mut color: Option<crate::style::Color> = None;

@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-09
+- **Toast parity + border semantics refactor (no demo hacks)**
+  - Refactored `Toast` rendering to stop manually painting a fake left accent strip; toast now renders content-only and relies on the shared widget style/border pipeline for border composition (`src/widgets/toast.rs`).
+  - Added first-class `outer` border type support across style model, CSS parser, and border renderer (`src/style.rs`, `src/css/selectors.rs`, `src/widgets/helpers.rs`), then aligned toast defaults with Python (`border-left: outer ...`) in `src/css/defaults.rs`.
+  - Preserved Python-like toast placement/stacking behavior improvements in runtime overlay composition, including side margin and toast width clamping (`src/runtime/mod.rs`).
+  - Added inline bold support for toast message key hints (`[b]...[/b]`) and switched the app-level quit help toast to `Press [b]ctrl+q[/b] ...` formatting to match Python visual emphasis (`src/widgets/toast.rs`, `src/runtime/mod.rs`).
 - **Safety policy hardening**
   - Enforced a crate-wide no-unsafe policy with `unsafe_code = "forbid"` in `Cargo.toml`, so any `unsafe` usage now fails compilation by default.
 - **Roadmap prioritization update**

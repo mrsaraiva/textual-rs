@@ -183,6 +183,8 @@ impl AppNotification {
 }
 
 const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
+const TOAST_GAP_ROWS: usize = 1;
+const TOAST_SIDE_MARGIN: usize = 2;
 
 struct StylesheetWatcher {
     path: PathBuf,
@@ -424,7 +426,7 @@ impl App {
             .map(|bind| bind.key_name())
             .unwrap_or_else(|| "ctrl+q".to_string());
         self.notify(
-            format!("Press {key} to quit the app"),
+            format!("Press [b]{key}[/b] to quit the app"),
             "Do you want to quit?",
             ToastSeverity::Information,
             Some(DEFAULT_NOTIFICATION_TIMEOUT),
@@ -616,7 +618,10 @@ impl App {
                 toast = toast.with_title(note.title.clone());
             }
 
-            let max_width = frame.width.saturating_sub(2).max(1);
+            let max_width = frame
+                .width
+                .saturating_sub(TOAST_SIDE_MARGIN.saturating_mul(2))
+                .max(1);
             let preferred = 60usize.min((frame.width / 2).max(1));
             let toast_width = preferred.min(max_width).max(1);
             let toast_height = toast.layout_height().unwrap_or(3).max(1);
@@ -637,7 +642,9 @@ impl App {
             let lines = Segment::set_shape(&lines, toast_width, Some(toast_height), None, false);
             let toast_buffer = FrameBuffer::from_lines(&lines, toast_width, toast_height, None);
 
-            let x0 = frame.width.saturating_sub(toast_width + 1);
+            let x0 = frame
+                .width
+                .saturating_sub(toast_width.saturating_add(TOAST_SIDE_MARGIN));
             let y0 = cursor_bottom + 1 - toast_height;
             for y in 0..toast_height {
                 for x in 0..toast_width {
@@ -653,7 +660,7 @@ impl App {
                 }
             }
 
-            cursor_bottom = y0.saturating_sub(1);
+            cursor_bottom = y0.saturating_sub(1 + TOAST_GAP_ROWS);
             if cursor_bottom == 0 {
                 break;
             }

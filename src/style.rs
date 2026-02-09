@@ -526,6 +526,7 @@ pub enum BorderType {
     Solid,
     Block,
     Tall,
+    Outer,
 }
 
 impl BorderType {
@@ -534,6 +535,7 @@ impl BorderType {
             BorderType::Solid => "solid",
             BorderType::Block => "block",
             BorderType::Tall => "tall",
+            BorderType::Outer => "outer",
         }
     }
 }
