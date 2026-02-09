@@ -5,57 +5,25 @@ use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
 use textual::style::{Color, parse_color_like};
 
-struct ButtonsDemo {
-    id: WidgetId,
+struct ButtonsAdvancedApp {
     status: Arc<Mutex<String>>,
-    child: Box<dyn Widget>,
 }
 
-impl ButtonsDemo {
-    fn new(status: Arc<Mutex<String>>, child: impl Widget + 'static) -> Self {
+impl ButtonsAdvancedApp {
+    fn new() -> Self {
         Self {
-            id: WidgetId::new(),
-            status,
-            child: Box::new(child),
+            status: Arc::new(Mutex::new(String::new())),
         }
     }
 }
 
-impl Widget for ButtonsDemo {
-    fn id(&self) -> WidgetId {
-        self.id
+impl TextualApp for ButtonsAdvancedApp {
+    fn compose(&mut self) -> AppRoot {
+        build_buttons_widget(self.status.clone())
     }
 
-    fn render(&self, console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        self.child.render_styled(console, options)
-    }
-
-    fn on_mount(&mut self) {
-        self.child.on_mount();
-    }
-
-    fn on_unmount(&mut self) {
-        self.child.on_unmount();
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.child.on_layout(width, height);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
+    fn css_path(&self) -> Option<&'static str> {
+        Some("examples/button.tcss")
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
@@ -64,10 +32,6 @@ impl Widget for ButtonsDemo {
             ctx.request_repaint();
             ctx.set_handled();
         }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 
@@ -100,11 +64,7 @@ impl Widget for StatusLine {
     }
 }
 
-fn build_buttons_widget() -> AppRoot {
-    let status = Arc::new(Mutex::new(String::from("")));
-    let status_clone = status.clone();
-    let status_for_demo = status.clone();
-
+fn build_buttons_widget(status: Arc<Mutex<String>>) -> AppRoot {
     let buttons = Horizontal::new()
         .with_child(
             VerticalScroll::new()
@@ -145,7 +105,7 @@ fn build_buttons_widget() -> AppRoot {
 
     let status_bg = parse_color_like("$panel").or_else(|| parse_color_like("$surface"));
     let status = Styled::new(
-        StatusLine::new(status_clone),
+        StatusLine::new(status),
         Style::new()
             .line_pad(1)
             .bg(status_bg.unwrap_or(Color::parse("#303a43").unwrap()))
@@ -156,7 +116,7 @@ fn build_buttons_widget() -> AppRoot {
     );
     let scroll = ScrollView::new(buttons).scroll_step(2);
     let layout = Dock::new().push_fill(scroll).push_bottom(Some(3), status);
-    AppRoot::new().with_child(ButtonsDemo::new(status_for_demo, layout))
+    AppRoot::new().with_child(layout)
 }
 
 #[tokio::main]
@@ -166,7 +126,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(args) = SnapshotArgs::parse() {
-        let widget = build_buttons_widget();
+        let widget = build_buttons_widget(Arc::new(Mutex::new(String::new())));
         return snapshot_widget(
             &widget,
             &args,
@@ -174,14 +134,5 @@ async fn main() -> Result<()> {
         );
     }
 
-    let mut app = App::new()?;
-    if std::path::Path::new("examples/button.tcss").exists() {
-        app.watch_stylesheet(
-            "examples/button.tcss",
-            std::time::Duration::from_millis(500),
-        )?;
-    }
-
-    let mut scroll_root = build_buttons_widget();
-    app.run_widget_tree(&mut scroll_root).await
+    run_textual_app(ButtonsAdvancedApp::new()).await
 }

@@ -1,6 +1,18 @@
 use textual::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use textual::prelude::*;
 
+struct ButtonsApp;
+
+impl TextualApp for ButtonsApp {
+    fn compose(&mut self) -> AppRoot {
+        build_buttons_widget()
+    }
+
+    fn css_path(&self) -> Option<&'static str> {
+        Some("examples/button.tcss")
+    }
+}
+
 fn build_buttons_widget() -> AppRoot {
     let buttons = Horizontal::new()
         .with_child(
@@ -58,14 +70,5 @@ async fn main() -> Result<()> {
         );
     }
 
-    let mut app = App::new()?;
-    if std::path::Path::new("examples/button.tcss").exists() {
-        app.watch_stylesheet(
-            "examples/button.tcss",
-            std::time::Duration::from_millis(500),
-        )?;
-    }
-
-    let mut root = build_buttons_widget();
-    app.run_widget_tree(&mut root).await
+    run_textual_app(ButtonsApp).await
 }
