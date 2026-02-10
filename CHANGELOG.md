@@ -8,6 +8,9 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Roadmap PR sequencing update for widget parity closure**
+  - Updated `ROADMAP.md` to add an explicit, ordered widget PR program (shared primitives first, then Tier-A closure, then missing-widget ports), instead of relying only on a generic pointer to the widget plan.
+  - Reordered the execution checklist so widget parity closure is tracked as a first-class execution stream with concrete PR slices and exit criteria.
 - **Roadmap execution checklist for remaining Todo/Partial items**
   - Added a prioritized, concrete PR-slice checklist in `ROADMAP.md` for all open `Todo`/`Partial` fundamentals (dirty/style invalidation, message bus completion, grapheme completion, timers/async tasks, golden coverage, integration-contract closures, and compatibility/devtools follow-up).
   - Updated v0.2 next-priority wording to reflect current status (`one-shot timers + async task framework`).

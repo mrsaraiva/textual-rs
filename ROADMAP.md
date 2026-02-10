@@ -432,6 +432,8 @@ Reference plan:
   - Execute `docs/devel/MODULARIZATION_PLAN.md` in phased, behavior-preserving commits before further major parity expansions.
 - Widget-first-class execution plan (source-of-truth)
   - Use `docs/devel/WIDGET_PORTING_PLAN.md` for detailed per-widget findings, ordering, and acceptance checklists (this replaces broad, ambiguous widget-uplift tracking in this section).
+- Widget parity closure program (ordered PR slices)
+  - Execute widget work in dependency order: shared scroll primitives -> shared text-edit core completion -> toggle/option abstraction -> overlay/modal composition unification -> Tier-A widget closure (`DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`) -> missing widgets (`Log`, `Tooltip`/`HelpPanel`, `DirectoryTree`, `Welcome`).
 - Grapheme correctness pass (cross-cutting)
   - Align text model semantics with grapheme-safe driver behavior (cursor/selection/editing/measurement), starting with `Input` and `TextArea`, then `DataTable`/`Tree`/`Tabs`/text wrapping.
 - `TabbedContent` + Footer + command palette parity (Phase 9.6)
@@ -463,23 +465,32 @@ Order is prioritized for fundamentals-first execution and regression risk reduct
    - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
-4. One-shot timers + async task primitives (Phase 6)
+4. Widget first-class closure program (Phase 7 + widget plan)
+   - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`.
+   - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`.
+   - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family.
+   - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays.
+   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (IDs/disabled-hidden lifecycle/fixed headers-cursors).
+   - PR 6: Missing widget ports in order: `Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`.
+   - Exit criteria: `docs/devel/WIDGET_PORTING_PLAN.md` matrix shows no Tier-A `Partial` items and missing-widget list is reduced to explicitly deferred items only.
+
+5. One-shot timers + async task primitives (Phase 6)
    - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
    - PR 2: Introduce background-task API (`spawn` + completion message delivery + cancellation semantics).
    - PR 3: Add demo/test proving non-blocking background work + timer-driven UI updates.
    - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests.
 
-5. Terminal/golden coverage expansion (Phases 0.5 + 1)
+6. Terminal/golden coverage expansion (Phases 0.5 + 1)
    - PR 1: Add metadata golden assertions for framebuffer->diff->output invariants (beyond current snapshot coverage).
    - PR 2: Add raw terminal-output capture test harness for deterministic control-sequence checks.
    - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`.
 
-6. Rich-rs integration contract closures (Phase 0.5)
+7. Rich-rs integration contract closures (Phase 0.5)
    - PR 1: Implement/document hyperlink ID policy usage (`StyleMeta.link`/`link_id`) where links are rendered.
    - PR 2: Decide deterministic widget-id policy (explicitly keep runtime IDs non-deterministic, or add optional stable IDs for persistence/snapshots).
    - Exit criteria: both Phase 0.5 `Todo` rows move to `Done` or to explicit `Won't do (for now)` notes.
 
-7. Compatibility/doc ergonomics (Phase 8 + 9)
+8. Compatibility/doc ergonomics (Phase 8 + 9)
    - PR 1: Publish Python Textual ↔ textual-rs concept/API mapping doc (source-of-truth).
    - PR 2: Add adapter utilities for common patterns (screen push/pop helpers, message convenience wrappers).
    - PR 3: Scope/implement DevTools panel MVP (tree/focus/style inspection) or explicitly defer with rationale.
