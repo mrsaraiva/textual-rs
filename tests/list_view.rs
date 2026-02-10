@@ -68,3 +68,19 @@ fn list_view_scroll_actions_keep_selection_visible() {
     let lines = buf.as_plain_lines();
     assert!(lines.iter().any(|line| line.contains("item-7")));
 }
+
+#[test]
+fn list_view_mouse_scroll_clamps_to_bounds() {
+    let mut list = ListView::new((0..10).map(|idx| format!("item-{idx}")).collect());
+    list.on_layout(20, 3);
+
+    let mut ctx = EventCtx::default();
+    list.on_mouse_scroll(0, 100, &mut ctx);
+    assert!(ctx.handled());
+    assert_eq!(list.offset(), 7);
+
+    let mut ctx = EventCtx::default();
+    list.on_mouse_scroll(0, -100, &mut ctx);
+    assert!(ctx.handled());
+    assert_eq!(list.offset(), 0);
+}

@@ -92,3 +92,32 @@ fn tree_content_width_accounts_for_wide_labels() {
     let width = tree.content_width().expect("tree intrinsic width");
     assert!(width >= rich_rs::cell_len("👩‍🚀 Launch") + 4);
 }
+
+#[test]
+fn tree_mouse_scroll_clamps_to_bounds() {
+    let mut tree = Tree::new(
+        (0..10)
+            .map(|idx| TreeNode::new(format!("Node {idx}")))
+            .collect(),
+    );
+    tree.on_layout(24, 3);
+
+    let mut ctx = EventCtx::default();
+    tree.on_mouse_scroll(0, 100, &mut ctx);
+    assert!(ctx.handled());
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (24, 3);
+    options.max_width = 24;
+    options.max_height = 3;
+    let after_down = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    assert!(after_down.as_plain_lines()[0].contains("Node 7"));
+
+    let mut ctx = EventCtx::default();
+    tree.on_mouse_scroll(0, -100, &mut ctx);
+    assert!(ctx.handled());
+
+    let after_up = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    assert!(after_up.as_plain_lines()[0].contains("Node 0"));
+}

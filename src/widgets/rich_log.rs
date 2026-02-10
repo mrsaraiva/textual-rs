@@ -5,10 +5,9 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
-use crate::style::parse_color_like;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
-use super::{Widget, WidgetId, WidgetStyles};
+use super::{ScrollView, Widget, WidgetId, WidgetStyles};
 
 #[derive(Debug)]
 pub struct RichLog {
@@ -132,34 +131,36 @@ impl RichLog {
     }
 
     fn max_offset(&self) -> usize {
-        let content = self.content_height.load(Ordering::Relaxed).max(1);
-        let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-        content.saturating_sub(viewport)
+        ScrollView::line_max_offset(
+            self.content_height.load(Ordering::Relaxed).max(1),
+            self.viewport_height.load(Ordering::Relaxed).max(1),
+        )
     }
 
     fn clamp_offset(&mut self) {
-        let max = self.max_offset();
-        if self.offset_y > max {
-            self.offset_y = max;
-        }
+        self.offset_y = ScrollView::line_clamp_offset(
+            self.offset_y,
+            self.content_height.load(Ordering::Relaxed).max(1),
+            self.viewport_height.load(Ordering::Relaxed).max(1),
+        );
     }
 
     fn scroll_end(&mut self) {
-        let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-        let content_hint = self
-            .lines
-            .len()
-            .max(self.content_height.load(Ordering::Relaxed));
-        self.offset_y = content_hint.saturating_sub(viewport);
+        self.offset_y = ScrollView::line_scroll_end(
+            self.lines
+                .len()
+                .max(self.content_height.load(Ordering::Relaxed)),
+            self.viewport_height.load(Ordering::Relaxed).max(1),
+        );
     }
 
     fn scroll_by(&mut self, delta: i32) {
-        if delta.is_negative() {
-            self.offset_y = self.offset_y.saturating_sub(delta.unsigned_abs() as usize);
-        } else {
-            self.offset_y = self.offset_y.saturating_add(delta as usize);
-        }
-        self.clamp_offset();
+        self.offset_y = ScrollView::line_scroll_by(
+            self.offset_y,
+            delta,
+            self.content_height.load(Ordering::Relaxed).max(1),
+            self.viewport_height.load(Ordering::Relaxed).max(1),
+        );
     }
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
@@ -231,61 +232,6 @@ impl RichLog {
         }
         out
     }
-
-    fn scrollbar_thumb(
-        track_len: usize,
-        content_len: usize,
-        viewport_len: usize,
-        offset: usize,
-    ) -> (usize, usize) {
-        if track_len == 0 {
-            return (0, 0);
-        }
-        if content_len <= viewport_len {
-            return (0, track_len);
-        }
-        // Match Textual's scrollbar sizing/positioning model:
-        // thumb_size = max(1, window_size / (virtual_size / track_size))
-        // thumb_start = floor((track_size - thumb_size) * position_ratio)
-        let track_f = track_len as f64;
-        let virtual_f = content_len as f64;
-        let window_f = viewport_len as f64;
-        let bar_ratio = virtual_f / track_f;
-        let thumb_size_f = (window_f / bar_ratio).max(1.0);
-        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
-
-        let max_offset = content_len.saturating_sub(viewport_len);
-        if max_offset == 0 {
-            return (0, thumb_len);
-        }
-        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
-        let travel_f = (track_f - thumb_size_f).max(0.0);
-        let thumb_start = (travel_f * position_ratio)
-            .floor()
-            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
-            as usize;
-        (thumb_start, thumb_len)
-    }
-
-    fn scrollbar_styles() -> (rich_rs::Style, rich_rs::Style, rich_rs::Style) {
-        let track_bg = parse_color_like("$scrollbar-background")
-            .or_else(|| parse_color_like("$background-darken-1"))
-            .or_else(|| parse_color_like("$surface-darken-1"))
-            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
-        let thumb_bg = parse_color_like("$scrollbar")
-            .or_else(|| parse_color_like("$primary-muted"))
-            .or_else(|| parse_color_like("$primary"))
-            .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255));
-        let thumb_active_bg = parse_color_like("$scrollbar-active")
-            .or_else(|| parse_color_like("$primary"))
-            .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212));
-
-        let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
-        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
-        let thumb_active_style =
-            rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
-        (track_style, thumb_style, thumb_active_style)
-    }
 }
 
 impl Widget for RichLog {
@@ -333,10 +279,11 @@ impl Widget for RichLog {
         }
 
         if show_scrollbar {
-            let (track_style, thumb_style, thumb_active_style) = Self::scrollbar_styles();
+            let (track_style, thumb_style, thumb_active_style) =
+                ScrollView::line_scrollbar_styles();
             let track_len = height.max(1);
             let (thumb_start, thumb_len) =
-                Self::scrollbar_thumb(track_len, content_height, height, offset);
+                ScrollView::line_scrollbar_thumb(track_len, content_height, height, offset);
             let mut thumb_drawn = false;
             for (row, line) in rows.iter_mut().enumerate() {
                 let in_track = row < track_len;
@@ -410,8 +357,12 @@ impl Widget for RichLog {
                     && local_x >= width.saturating_sub(scrollbar_size)
                     && local_y < height
                 {
-                    let (thumb_start, thumb_len) =
-                        Self::scrollbar_thumb(height, content_height, height, self.offset_y);
+                    let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                        height,
+                        content_height,
+                        height,
+                        self.offset_y,
+                    );
                     if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len) {
                         self.drag_v = Some(local_y.saturating_sub(thumb_start));
                         ctx.set_handled();
@@ -486,18 +437,14 @@ impl Widget for RichLog {
             return false;
         }
 
-        let (_thumb_start, thumb_len) =
-            Self::scrollbar_thumb(viewport_h, content_h, viewport_h, self.offset_y);
-        let travel = viewport_h.saturating_sub(thumb_len);
-        let pointer = (y as isize) - (grab_offset as isize);
-        let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
-        let max_offset = content_h.saturating_sub(viewport_h);
-        let new_offset = if travel == 0 {
-            0
-        } else {
-            (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
-                / (travel as u128)) as usize
-        };
+        let new_offset = ScrollView::line_drag_offset(
+            y as usize,
+            grab_offset,
+            viewport_h,
+            content_h,
+            viewport_h,
+            self.offset_y,
+        );
         if new_offset != self.offset_y {
             self.offset_y = new_offset;
             return true;

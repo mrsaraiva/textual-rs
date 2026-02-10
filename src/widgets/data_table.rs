@@ -6,7 +6,7 @@ use crate::message::Message;
 use crate::style::{Color, parse_color_like};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    ScrollView, Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
@@ -152,6 +152,7 @@ impl DataTable {
         } else if self.selected >= self.offset + height {
             self.offset = self.selected + 1 - height;
         }
+        self.offset = ScrollView::line_clamp_offset(self.offset, self.rows.len(), height);
     }
 
     fn visible_rows(&self) -> usize {
@@ -162,13 +163,13 @@ impl DataTable {
         if self.rows.is_empty() || visible_rows == 0 {
             return 0;
         }
-        let mut offset = self.offset.min(self.rows.len().saturating_sub(1));
+        let mut offset = ScrollView::line_clamp_offset(self.offset, self.rows.len(), visible_rows);
         if self.selected < offset {
             offset = self.selected;
         } else if self.selected >= offset + visible_rows {
             offset = self.selected + 1 - visible_rows;
         }
-        offset
+        ScrollView::line_clamp_offset(offset, self.rows.len(), visible_rows)
     }
 }
 

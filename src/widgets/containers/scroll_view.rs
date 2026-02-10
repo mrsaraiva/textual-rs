@@ -120,16 +120,134 @@ impl ScrollView {
         self.offset_x
     }
 
+    pub(crate) fn line_max_offset(content_len: usize, viewport_len: usize) -> usize {
+        content_len.saturating_sub(viewport_len.max(1))
+    }
+
+    pub(crate) fn line_clamp_offset(
+        offset: usize,
+        content_len: usize,
+        viewport_len: usize,
+    ) -> usize {
+        offset.min(Self::line_max_offset(content_len, viewport_len))
+    }
+
+    pub(crate) fn line_scroll_by(
+        offset: usize,
+        delta: i32,
+        content_len: usize,
+        viewport_len: usize,
+    ) -> usize {
+        let next = if delta.is_negative() {
+            offset.saturating_sub(delta.unsigned_abs() as usize)
+        } else {
+            offset.saturating_add(delta as usize)
+        };
+        Self::line_clamp_offset(next, content_len, viewport_len)
+    }
+
+    pub(crate) fn line_scroll_end(content_len: usize, viewport_len: usize) -> usize {
+        content_len.saturating_sub(viewport_len.max(1))
+    }
+
+    pub(crate) fn line_scrollbar_thumb(
+        track_len: usize,
+        content_len: usize,
+        viewport_len: usize,
+        offset: usize,
+    ) -> (usize, usize) {
+        if track_len == 0 {
+            return (0, 0);
+        }
+        if content_len <= viewport_len {
+            return (0, track_len);
+        }
+        // Match Textual's scrollbar sizing/positioning model:
+        // thumb_size = max(1, window_size / (virtual_size / track_size))
+        // thumb_start = floor((track_size - thumb_size) * position_ratio)
+        let track_f = track_len as f64;
+        let virtual_f = content_len as f64;
+        let window_f = viewport_len as f64;
+        let bar_ratio = virtual_f / track_f;
+        let thumb_size_f = (window_f / bar_ratio).max(1.0);
+        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
+
+        let max_offset = content_len.saturating_sub(viewport_len);
+        if max_offset == 0 {
+            return (0, thumb_len);
+        }
+        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
+        let travel_f = (track_f - thumb_size_f).max(0.0);
+        let thumb_start = (travel_f * position_ratio)
+            .floor()
+            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
+            as usize;
+        (thumb_start, thumb_len)
+    }
+
+    pub(crate) fn line_drag_offset(
+        pointer: usize,
+        grab_offset: usize,
+        track_len: usize,
+        content_len: usize,
+        viewport_len: usize,
+        current_offset: usize,
+    ) -> usize {
+        let (_thumb_start, thumb_len) =
+            Self::line_scrollbar_thumb(track_len, content_len, viewport_len, current_offset);
+        let travel = track_len.saturating_sub(thumb_len);
+        let pointer = (pointer as isize) - (grab_offset as isize);
+        let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
+        let max_offset = Self::line_max_offset(content_len, viewport_len);
+        if travel == 0 {
+            0
+        } else {
+            (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
+                / (travel as u128)) as usize
+        }
+    }
+
+    pub(crate) fn line_scrollbar_styles() -> (rich_rs::Style, rich_rs::Style, rich_rs::Style) {
+        let track_bg = parse_color_like("$scrollbar-background")
+            .or_else(|| parse_color_like("$background-darken-1"))
+            .or_else(|| parse_color_like("$surface-darken-1"))
+            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
+        let thumb_bg = parse_color_like("$scrollbar")
+            .or_else(|| parse_color_like("$primary-muted"))
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255));
+        let thumb_active_bg = parse_color_like("$scrollbar-active")
+            .or_else(|| parse_color_like("$primary"))
+            .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212));
+
+        let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
+        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
+        let thumb_active_style =
+            rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
+        (track_style, thumb_style, thumb_active_style)
+    }
+
+    pub(crate) fn scrollbar_corner_style() -> rich_rs::Style {
+        let corner_bg = parse_color_like("$scrollbar-corner-color")
+            .or_else(|| parse_color_like("$scrollbar-background"))
+            .or_else(|| parse_color_like("$background-darken-1"))
+            .or_else(|| parse_color_like("$surface-darken-1"))
+            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
+        rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque())
+    }
+
     fn max_offset(&self) -> usize {
-        let content = self.content_height.load(Ordering::Relaxed);
-        let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-        content.saturating_sub(viewport)
+        Self::line_max_offset(
+            self.content_height.load(Ordering::Relaxed),
+            self.viewport_height.load(Ordering::Relaxed),
+        )
     }
 
     fn max_offset_x(&self) -> usize {
-        let content = self.content_width.load(Ordering::Relaxed);
-        let viewport = self.viewport_width.load(Ordering::Relaxed).max(1);
-        content.saturating_sub(viewport)
+        Self::line_max_offset(
+            self.content_width.load(Ordering::Relaxed),
+            self.viewport_width.load(Ordering::Relaxed),
+        )
     }
 
     fn clamp_offset(&mut self) {
@@ -217,70 +335,6 @@ impl ScrollView {
             self.render_offset_x = to as f32;
         }
         ctx.request_repaint();
-    }
-
-    fn scrollbar_thumb(
-        track_len: usize,
-        content_len: usize,
-        viewport_len: usize,
-        offset: usize,
-    ) -> (usize, usize) {
-        if track_len == 0 {
-            return (0, 0);
-        }
-        if content_len <= viewport_len {
-            return (0, track_len);
-        }
-        // Match Textual's scrollbar sizing/positioning model:
-        // thumb_size = max(1, window_size / (virtual_size / track_size))
-        // thumb_start = floor((track_size - thumb_size) * position_ratio)
-        let track_f = track_len as f64;
-        let virtual_f = content_len as f64;
-        let window_f = viewport_len as f64;
-        let bar_ratio = virtual_f / track_f;
-        let thumb_size_f = (window_f / bar_ratio).max(1.0);
-        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
-
-        let max_offset = content_len.saturating_sub(viewport_len);
-        if max_offset == 0 {
-            return (0, thumb_len);
-        }
-        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
-        let travel_f = (track_f - thumb_size_f).max(0.0);
-        let thumb_start = (travel_f * position_ratio)
-            .floor()
-            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
-            as usize;
-        (thumb_start, thumb_len)
-    }
-
-    fn scrollbar_styles() -> (
-        rich_rs::Style,
-        rich_rs::Style,
-        rich_rs::Style,
-        rich_rs::Style,
-    ) {
-        let track_bg = parse_color_like("$scrollbar-background")
-            .or_else(|| parse_color_like("$background-darken-1"))
-            .or_else(|| parse_color_like("$surface-darken-1"))
-            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
-        let thumb_bg = parse_color_like("$scrollbar")
-            .or_else(|| parse_color_like("$primary-muted"))
-            .or_else(|| parse_color_like("$primary"))
-            .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255));
-        let thumb_active_bg = parse_color_like("$scrollbar-active")
-            .or_else(|| parse_color_like("$primary"))
-            .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212));
-        let corner_bg = parse_color_like("$scrollbar-corner-color")
-            .or_else(|| parse_color_like("$scrollbar-background"))
-            .unwrap_or(track_bg);
-
-        let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
-        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
-        let thumb_active_style =
-            rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
-        let corner_style = rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque());
-        (track_style, thumb_style, thumb_active_style, corner_style)
     }
 }
 
@@ -425,7 +479,8 @@ impl Widget for ScrollView {
             false,
         );
 
-        let (track_style, thumb_style, thumb_active_style, corner_style) = Self::scrollbar_styles();
+        let (track_style, thumb_style, thumb_active_style) = Self::line_scrollbar_styles();
+        let corner_style = Self::scrollbar_corner_style();
         let v_scrollbar_size = if show_v {
             width.saturating_sub(content_viewport_w)
         } else {
@@ -434,7 +489,7 @@ impl Widget for ScrollView {
         if show_v {
             let track_len = content_viewport_h.max(1);
             let (thumb_start, thumb_len) =
-                Self::scrollbar_thumb(track_len, content_height, content_viewport_h, offset);
+                Self::line_scrollbar_thumb(track_len, content_height, content_viewport_h, offset);
             let mut thumb_drawn = false;
             for (row, line) in slice.iter_mut().enumerate() {
                 let in_track = row < track_len;
@@ -471,7 +526,7 @@ impl Widget for ScrollView {
             }
         }
         if show_h {
-            let (thumb_start, thumb_len) = Self::scrollbar_thumb(
+            let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
                 content_viewport_w,
                 content_width,
                 content_viewport_w,
@@ -617,8 +672,12 @@ impl Widget for ScrollView {
                     && local_x >= widget_width.saturating_sub(v_scrollbar_size)
                     && local_y < viewport_h
                 {
-                    let (thumb_start, thumb_len) =
-                        Self::scrollbar_thumb(viewport_h, content_h, viewport_h, self.offset_y);
+                    let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
+                        viewport_h,
+                        content_h,
+                        viewport_h,
+                        self.offset_y,
+                    );
                     if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len) {
                         self.drag_v = Some(local_y.saturating_sub(thumb_start));
                         self.drag_h = None;
@@ -643,8 +702,12 @@ impl Widget for ScrollView {
                     && local_y >= widget_height.saturating_sub(h_scrollbar_size)
                     && local_x < viewport_w
                 {
-                    let (thumb_start, thumb_len) =
-                        Self::scrollbar_thumb(viewport_w, content_w, viewport_w, self.offset_x);
+                    let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
+                        viewport_w,
+                        content_w,
+                        viewport_w,
+                        self.offset_x,
+                    );
                     if local_x >= thumb_start && local_x < thumb_start.saturating_add(thumb_len) {
                         self.drag_h = Some(local_x.saturating_sub(thumb_start));
                         self.drag_v = None;
@@ -835,19 +898,14 @@ impl Widget for ScrollView {
             let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
             let content_h = self.content_height.load(Ordering::Relaxed).max(1);
             if content_h > viewport_h {
-                let (thumb_start, thumb_len) =
-                    Self::scrollbar_thumb(viewport_h, content_h, viewport_h, self.offset_y);
-                let _ = thumb_start;
-                let travel = viewport_h.saturating_sub(thumb_len);
-                let pointer = (y as isize) - (grab_offset as isize);
-                let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
-                let max_offset = content_h.saturating_sub(viewport_h);
-                let new_offset = if travel == 0 {
-                    0
-                } else {
-                    (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
-                        / (travel as u128)) as usize
-                };
+                let new_offset = Self::line_drag_offset(
+                    y as usize,
+                    grab_offset,
+                    viewport_h,
+                    content_h,
+                    viewport_h,
+                    self.offset_y,
+                );
                 if new_offset != self.offset_y {
                     self.offset_y = new_offset;
                     self.render_offset_y = new_offset as f32;
@@ -858,19 +916,14 @@ impl Widget for ScrollView {
             let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
             let content_w = self.content_width.load(Ordering::Relaxed).max(1);
             if content_w > viewport_w {
-                let (thumb_start, thumb_len) =
-                    Self::scrollbar_thumb(viewport_w, content_w, viewport_w, self.offset_x);
-                let _ = thumb_start;
-                let travel = viewport_w.saturating_sub(thumb_len);
-                let pointer = (x as isize) - (grab_offset as isize);
-                let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
-                let max_offset = content_w.saturating_sub(viewport_w);
-                let new_offset = if travel == 0 {
-                    0
-                } else {
-                    (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
-                        / (travel as u128)) as usize
-                };
+                let new_offset = Self::line_drag_offset(
+                    x as usize,
+                    grab_offset,
+                    viewport_w,
+                    content_w,
+                    viewport_w,
+                    self.offset_x,
+                );
                 if new_offset != self.offset_x {
                     self.offset_x = new_offset;
                     self.render_offset_x = new_offset as f32;

@@ -5,7 +5,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    ScrollView, Widget, WidgetId, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -81,7 +81,7 @@ impl ListView {
     }
 
     fn max_offset(&self) -> usize {
-        self.items.len().saturating_sub(self.viewport_height.max(1))
+        ScrollView::line_max_offset(self.items.len(), self.viewport_height.max(1))
     }
 
     fn clamp_offsets(&mut self) {
@@ -155,12 +155,12 @@ impl ListView {
 
     fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
         let before = self.offset;
-        if delta_rows.is_negative() {
-            self.offset = self.offset.saturating_sub(delta_rows.unsigned_abs());
-        } else {
-            self.offset = self.offset.saturating_add(delta_rows as usize);
-        }
-        self.offset = self.offset.min(self.max_offset());
+        self.offset = ScrollView::line_scroll_by(
+            self.offset,
+            delta_rows as i32,
+            self.items.len(),
+            self.viewport_height.max(1),
+        );
         if self.offset != before {
             ctx.request_repaint();
             ctx.set_handled();
