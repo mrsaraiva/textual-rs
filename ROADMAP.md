@@ -135,7 +135,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Status | Task | Notes |
 |--------|------|-------|
 | Partial | Tick system | 100ms tick loop with `on_tick` propagated through widget tree; used for button active-effect timer |
-| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` emit messages; broader migration for remaining non-text widgets is ongoing. |
+| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
 | Todo | Grapheme-aware text editing model | Ensure cursor movement, selection, delete/backspace, slicing, and display-width math are grapheme-safe across `Input`/`TextArea`/text-heavy widgets |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Todo | Animation framework | No easing, transitions, or frame-scheduled animations |
@@ -356,7 +356,7 @@ This phase is intentionally split by ownership boundary:
 |------|--------|-----|
 | `TabbedContent` visuals | Done | Active/focus/underline rhythm now matches the Python default hierarchy via widget default CSS + component focus hooks |
 | Footer bindings | Done | Footer bindings are generated from active binding hints with grouping/compact behavior and right-docked command palette slot parity |
-| Command palette | Partial | First-pass modal exists (`CommandPalette` widget + priority `ctrl+p` action) with app-level provider lifecycle wiring; overlay/screen-level parity is still incomplete |
+| Command palette | Done | Command palette lifecycle is now screen/overlay-aware, preserves/restores wrapped focus across open/close, and includes provider lifecycle + transition regression coverage |
 | Markdown heading style | Done | `Markdown` now applies heading component-style hooks (`markdown--h1` … `markdown--h6`) with Textual-like defaults |
 
 ### Scope and sequence
@@ -366,7 +366,7 @@ This phase is intentionally split by ownership boundary:
 | Done | Structured binding model | Runtime now carries richer binding metadata in `BindingHint` (`show`, display, grouping, priority/system), app APIs to register visible hints, focused-path collection when widgets are focused, and app/screen lifecycle-aware rebroadcasting when binding scope changes |
 | Done | Footer from active bindings | `Footer` consumes `BindingsChanged`, renders showable bindings, groups consecutive non-command bindings by group label, applies compact spacing parity, and keeps command-palette hints docked in the right slot |
 | Done | `Tabs`/`TabbedContent` default CSS parity | Tightened default visual rhythm and focus-state parity: calmer unfocused active tabs, block-cursor-focused active tabs, and focused underline bar treatment through component class hooks, with targeted style regression tests |
-| Partial | Command palette fundamentals | Added `CommandPalette` widget (search + results + execute/dismiss), runtime priority routing for `Action::CommandPalette`, default `ctrl+p` action-map binding, message-driven command-list updates (`CommandPaletteSetCommands`), and `TextualApp` provider lifecycle hooks (open/select/close startup-shutdown wiring); screen/overlay parity remains |
+| Done | Command palette fundamentals | Added `CommandPalette` widget (search + results + execute/dismiss), runtime priority routing for `Action::CommandPalette`, default `ctrl+p` action-map binding, message-driven command-list updates (`CommandPaletteSetCommands`), provider lifecycle hooks (open/select/close startup-shutdown wiring), and overlay/screen transition-aware close + focus restoration behavior |
 | Done | Markdown heading parity pass | Added widget-level heading style hooks + default CSS component styles; no demo-level overrides required |
 | Done | Regression coverage | Tab activation + footer binding + command-palette lifecycle tests and open/closed palette snapshots are in place |
 
@@ -435,7 +435,7 @@ Reference plan:
 - Grapheme correctness pass (cross-cutting)
   - Align text model semantics with grapheme-safe driver behavior (cursor/selection/editing/measurement), starting with `Input` and `TextArea`, then `DataTable`/`Tree`/`Tabs`/text wrapping.
 - `TabbedContent` + Footer + command palette parity (Phase 9.6)
-  - Land remaining command palette overlay/screen-level parity work.
+  - Track follow-up polish only; core parity slice is complete.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.

@@ -26,6 +26,11 @@ until the API stabilizes.
   - Added `Message::HeaderToggled { tall }` when header body clicks toggle tall mode.
   - Added `Message::PlaceholderVariantChanged { variant }` when placeholder clicks rotate variant state.
   - Added widget-level regression tests validating emission and no-op paths.
+- **Message-bus interaction coverage for `Footer` + `KeyPanel` + `RichLog`**
+  - Added `Message::FooterBindingsUpdated { count }` when footer binding hints update.
+  - Added `Message::KeyPanelBindingsUpdated { count }` when key panel binding hints update.
+  - Added `Message::KeyPanelScrolled { offset, max_offset }` and `Message::RichLogScrolled { offset, max_offset }` on user-driven scroll state changes.
+  - Added targeted widget regression tests for message emission and no-op behavior.
 - **Grapheme audit follow-up for text-heavy widgets**
   - Added targeted regression coverage for wide-grapheme behavior across `DataTable` column hit-testing, `Tabs` mouse header hit-testing, `Tree` intrinsic width calculations, and markdown heading component styling with emoji content.
 - **Command palette provider plumbing (Phase 9.6)**
@@ -38,6 +43,10 @@ until the API stabilizes.
     - `CommandPaletteCommandSelected` routes selected command IDs to provider handlers.
     - `CommandPaletteClosed` (and unmount) shuts providers down and clears lifecycle state.
   - Added focused lifecycle regression coverage in `src/textual_app.rs` for open/select/close and reopen behavior.
+- **Command palette overlay/screen transition parity (Phase 9.6)**
+  - `CommandPalette` now captures and clears wrapped-child focus when opening, then restores the prior focus target (with safe fallback) on close.
+  - Palette lifecycle now reacts to transition signals: overlay visibility/toggle/dismiss message flow and app focus loss both force-close the palette through the same message-bus path.
+  - Added focused regression coverage for focus restoration, transition-triggered close, and command-selection/close message ordering (`src/widgets/command_palette.rs`, `tests/command_palette_lifecycle.rs`).
 - **Phase 9.6 binding lifecycle + footer parity pass**
   - Runtime now enriches active binding lifecycle updates with focused-path widget hints (ancestor -> focused widget), then normalizes ordering/dedup for deterministic `BindingsChanged` emissions.
   - Completed app/screen lifecycle parity for bindings: runtime now rebroadcasts `BindingsChanged` when the active binding scope source chain changes (even when hint payload text is unchanged), and no-focus states now retain single-child app/screen scope hints.
