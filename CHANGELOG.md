@@ -8,6 +8,9 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Roadmap execution checklist for remaining Todo/Partial items**
+  - Added a prioritized, concrete PR-slice checklist in `ROADMAP.md` for all open `Todo`/`Partial` fundamentals (dirty/style invalidation, message bus completion, grapheme completion, timers/async tasks, golden coverage, integration-contract closures, and compatibility/devtools follow-up).
+  - Updated v0.2 next-priority wording to reflect current status (`one-shot timers + async task framework`).
 - **CI pipeline baseline tracked as done (Phase 0)**
   - Confirmed repository CI workflow runs `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets` on push/PR.
   - Updated `ROADMAP.md` to mark the Phase 0 CI task as done and removed CI from open v0.2 next-priority backlog.

@@ -438,5 +438,49 @@ Reference plan:
   - Track follow-up polish only; core parity slice is complete.
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
-- One-shot timers + animation framework.
+- One-shot timers + async task framework.
 - Expand test coverage beyond snapshot smoke tests.
+
+## Execution Checklist (Open Todo/Partial)
+
+This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
+Order is prioritized for fundamentals-first execution and regression risk reduction.
+
+1. Dirty invalidation + style invalidation (Phases 2 + 5)
+   - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
+   - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
+   - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
+   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area.
+
+2. Message bus completion (Phase 6)
+   - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants.
+   - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers.
+   - PR 3: Add per-widget regression tests asserting message emission order/content on interaction.
+   - Exit criteria: no callback-style integration surfaces for widget interactions; roadmap row can move to `Done`.
+
+3. Grapheme model completion beyond `Input`/`TextArea` (Phase 6)
+   - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
+   - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
+   - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
+
+4. One-shot timers + async task primitives (Phase 6)
+   - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
+   - PR 2: Introduce background-task API (`spawn` + completion message delivery + cancellation semantics).
+   - PR 3: Add demo/test proving non-blocking background work + timer-driven UI updates.
+   - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests.
+
+5. Terminal/golden coverage expansion (Phases 0.5 + 1)
+   - PR 1: Add metadata golden assertions for framebuffer->diff->output invariants (beyond current snapshot coverage).
+   - PR 2: Add raw terminal-output capture test harness for deterministic control-sequence checks.
+   - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`.
+
+6. Rich-rs integration contract closures (Phase 0.5)
+   - PR 1: Implement/document hyperlink ID policy usage (`StyleMeta.link`/`link_id`) where links are rendered.
+   - PR 2: Decide deterministic widget-id policy (explicitly keep runtime IDs non-deterministic, or add optional stable IDs for persistence/snapshots).
+   - Exit criteria: both Phase 0.5 `Todo` rows move to `Done` or to explicit `Won't do (for now)` notes.
+
+7. Compatibility/doc ergonomics (Phase 8 + 9)
+   - PR 1: Publish Python Textual ↔ textual-rs concept/API mapping doc (source-of-truth).
+   - PR 2: Add adapter utilities for common patterns (screen push/pop helpers, message convenience wrappers).
+   - PR 3: Scope/implement DevTools panel MVP (tree/focus/style inspection) or explicitly defer with rationale.
+   - Exit criteria: Phase 8 rows progress to `Done`; DevTools has concrete status (Done or deferred with decision note).
