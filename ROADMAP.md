@@ -429,44 +429,39 @@ Reference plan:
 ## Execution Plan (v0.2, Single Source of Truth)
 
 - Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
-- Up next: Iterate PR6 baseline widgets toward fuller parity (`DirectoryTree` async loader/model fidelity, `Welcome` default CSS/lifecycle polish, and `Log`/`Tooltip`/`HelpPanel` follow-ups).
-- Then: infrastructure closure streams (invalidation, message bus completion, grapheme completion, timers/async, golden coverage, integration-contract closures, compatibility/docs).
+- Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
+- During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
+- Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
+- Doc checkpoint rule: after every merged widget PR, update both `ROADMAP.md` (milestone/checklist status) and `docs/devel/WIDGET_PORTING_PLAN.md` (widget-level matrix/notes) in the same work batch.
 
 ## Ordered PR Streams (Open Todo/Partial)
 
 This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
-Order is prioritized for fundamentals-first execution and regression risk reduction.
+Order is prioritized for widget-first execution while keeping fundamentals and regression risk under control.
 
-1. Dirty invalidation + style invalidation (Phases 2 + 5)
-   - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
-   - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
-   - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
-   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area.
+1. Widget first-class closure program (Phase 7 + widget plan)
+   - PR 1: Continue Tier-A closure pass after PR5/PR6 landings (`DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`), with targeted behavior + styling parity deltas per slice.
+   - PR 2: Tier-B closure slices (`ListView`/`Tree`, text-edit follow-up including clipboard hooks, `Header`/`Footer` lifecycle polish) aligned to Python semantics.
+   - PR 3: Tier-C/utility closure slices (toggle/list family polish, `Tooltip`/`HelpPanel` positioning/default CSS, `DirectoryTree` async loader fidelity, `Welcome` lifecycle/CSS parity).
+   - PR 4: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
+   - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
 
-2. Message bus completion (Phase 6)
-   - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants.
-   - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers.
+2. Message bus completion (Phase 6, widget-coupled)
+   - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants as part of widget closure slices.
+   - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers (no compatibility shims).
    - PR 3: Add per-widget regression tests asserting message emission order/content on interaction.
    - Exit criteria: no callback-style integration surfaces for widget interactions; roadmap row can move to `Done`.
 
-3. Grapheme model completion beyond `Input`/`TextArea` (Phase 6)
+3. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled)
    - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
    - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
-4. Widget first-class closure program (Phase 7 + widget plan)
-   - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`. **Done (2026-02-10)**.
-   - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`. **Done (2026-02-10)**.
-   - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family. **Done (2026-02-10)**.
-   - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays. **Done (2026-02-10)**.
-   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (IDs/disabled-hidden lifecycle/fixed headers-cursors).
-     - PR5A (2026-02-10): `DataTable` keyed row/column model baseline, fixed-row/column rendering/navigation behavior, and focused parity regressions.
-     - PR5B (2026-02-10): `Tabs`/`TabbedContent` now enforce disabled/hidden pane lifecycle semantics, skip ineligible targets during keyboard/mouse activation, and include focused transition regressions.
-   - PR 6: Missing widget baseline ports in order: `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`. **Done (2026-02-10)**.
-     - PR6A (2026-02-10): Added first-pass `Log` widget (`src/widgets/log.rs`) with Python-style plain-text `write`/`write_line`/`write_lines`, max-line pruning, shared line-scroll interactions/scrollbar behavior, and focused regressions (`tests/log.rs`).
-     - PR6B (2026-02-10): Added baseline `Tooltip`/`HelpPanel` widgets (`src/widgets/tooltip.rs`, `src/widgets/help_panel.rs`) using shared overlay composition helpers, plus focused regressions (`tests/tooltip.rs`, `tests/help_panel.rs`).
-     - PR6C (2026-02-10): Added baseline `DirectoryTree`/`Welcome` widgets (`src/widgets/directory_tree.rs`, `src/widgets/welcome.rs`) with message-bus forwarding and focused regressions (`tests/directory_tree.rs`, `tests/welcome.rs`).
-   - Exit criteria: `docs/devel/WIDGET_PORTING_PLAN.md` matrix shows no Tier-A `Partial` items and missing-widget list is reduced to explicitly deferred items only.
+4. Dirty invalidation + style invalidation (Phases 2 + 5)
+   - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
+   - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
+   - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
+   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area.
 
 5. One-shot timers + async task primitives (Phase 6)
    - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
