@@ -93,6 +93,11 @@ impl CommandPalette {
         self
     }
 
+    pub fn set_commands(&mut self, commands: Vec<PaletteCommand>) {
+        self.commands = commands;
+        self.rebuild_results();
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -804,6 +809,20 @@ impl Widget for CommandPalette {
         self.query.on_message(message, ctx);
         self.list.on_message(message, ctx);
         self.key_panel.on_message(message, ctx);
+        if let Message::CommandPaletteSetCommands { commands } = &message.message {
+            let next = commands
+                .iter()
+                .map(|command| PaletteCommand {
+                    id: command.id.clone(),
+                    title: command.title.clone(),
+                    help: command.help.clone(),
+                })
+                .collect::<Vec<_>>();
+            self.set_commands(next);
+            ctx.request_repaint();
+            ctx.set_handled();
+            return;
+        }
         if message.sender == self.query.id() {
             if let Message::InputChanged { .. } = &message.message {
                 self.rebuild_results();
@@ -859,7 +878,7 @@ mod tests {
     use super::*;
     use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
-    use crate::message::Message;
+    use crate::message::{CommandPaletteCommand, Message};
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -919,6 +938,29 @@ mod tests {
 
         assert!(!palette.is_open());
         assert!(palette.show_key_panel);
+    }
+
+    #[test]
+    fn command_palette_set_commands_message_replaces_command_list() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut ctx = EventCtx::default();
+        palette.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteSetCommands {
+                    commands: vec![CommandPaletteCommand {
+                        id: "deploy".to_string(),
+                        title: "Deploy".to_string(),
+                        help: "Ship current build".to_string(),
+                    }],
+                },
+            },
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        assert_eq!(palette.commands.len(), 1);
+        assert_eq!(palette.commands[0].id, "deploy");
     }
 
     #[test]

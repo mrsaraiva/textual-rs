@@ -366,7 +366,7 @@ This phase is intentionally split by ownership boundary:
 | Partial | Structured binding model | Runtime now carries richer binding metadata in `BindingHint` (`show`, display, grouping, priority/system) plus app APIs to register visible hints; still needs full app/screen binding lifecycle parity |
 | Partial | Footer from active bindings | `Footer` now consumes `BindingsChanged` and renders showable bindings, including grouped command-palette slot alignment; still missing full Textual grouping/compact behavior |
 | Partial | `Tabs`/`TabbedContent` default CSS parity | Added underline row/highlight mechanics and component CSS hooks plus grapheme-aware header hit-test regression coverage; still needs tighter rhythm + focus-state parity with Python defaults |
-| Partial | Command palette fundamentals | Added `CommandPalette` widget (search + results + execute/dismiss), runtime priority routing for `Action::CommandPalette`, and default `ctrl+p` action-map binding; still needs Textual-level global command provider behavior |
+| Partial | Command palette fundamentals | Added `CommandPalette` widget (search + results + execute/dismiss), runtime priority routing for `Action::CommandPalette`, default `ctrl+p` action-map binding, and message-driven command-list updates (`CommandPaletteSetCommands`); still needs full Textual-style global provider lifecycle |
 | Done | Markdown heading parity pass | Added widget-level heading style hooks + default CSS component styles; no demo-level overrides required |
 | Done | Regression coverage | Tab activation + footer binding + command-palette lifecycle tests and open/closed palette snapshots are in place |
 

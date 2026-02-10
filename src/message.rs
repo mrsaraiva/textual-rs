@@ -1,6 +1,13 @@
 use crate::validation::ValidationResult;
 use crate::widgets::WidgetId;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandPaletteCommand {
+    pub id: String,
+    pub title: String,
+    pub help: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ClearRequested,
@@ -56,6 +63,9 @@ pub enum Message {
     CommandPaletteCommandSelected {
         id: String,
         title: String,
+    },
+    CommandPaletteSetCommands {
+        commands: Vec<CommandPaletteCommand>,
     },
     DataTableCursorMoved {
         row: usize,
