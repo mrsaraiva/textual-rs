@@ -22,6 +22,8 @@ until the API stabilizes.
 - **Message-bus-only `Button` integration (breaking)**
   - Removed `Button::on_press`; button activation now integrates via `Message::ButtonPressed` only.
   - Added regression coverage for key-triggered button message emission.
+- **Grapheme audit follow-up for text-heavy widgets**
+  - Added targeted regression coverage for wide-grapheme behavior across `DataTable` column hit-testing, `Tabs` mouse header hit-testing, `Tree` intrinsic width calculations, and markdown heading component styling with emoji content.
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.

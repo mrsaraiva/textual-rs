@@ -85,3 +85,10 @@ fn tree_click_on_branch_toggles() {
     let lines = buf.as_plain_lines();
     assert!(!lines.iter().any(|line| line.contains("Child")));
 }
+
+#[test]
+fn tree_content_width_accounts_for_wide_labels() {
+    let tree = Tree::new(vec![TreeNode::new("👩‍🚀 Launch")]);
+    let width = tree.content_width().expect("tree intrinsic width");
+    assert!(width >= rich_rs::cell_len("👩‍🚀 Launch") + 4);
+}

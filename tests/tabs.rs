@@ -56,3 +56,26 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
     assert!(ctx.handled());
     assert_eq!(tabs.active(), 1);
 }
+
+#[test]
+fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
+    let mut tabs = Tabs::new()
+        .with_tab("👩‍🚀", Label::new("first"))
+        .with_tab("Deux", Label::new("second"));
+    tabs.on_layout(40, 5);
+    let id = tabs.id();
+    let first_label_cells = rich_rs::cell_len(" 👩‍🚀 ");
+    let mut ctx = EventCtx::default();
+    tabs.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: first_label_cells as u16 + 1,
+            screen_y: 0,
+            x: first_label_cells as u16 + 1,
+            y: 0,
+        }),
+        &mut ctx,
+    );
+    assert!(ctx.handled());
+    assert_eq!(tabs.active(), 1);
+}

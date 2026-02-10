@@ -47,3 +47,35 @@ fn markdown_h1_uses_default_component_style() {
     assert_eq!(style.bold, Some(true));
     assert_eq!(style.underline, Some(true));
 }
+
+#[test]
+fn markdown_heading_style_matches_emoji_heading_text() {
+    let _guard = set_style_context(default_widget_stylesheet());
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (28, 3);
+    options.max_width = 28;
+    options.max_height = 3;
+
+    let mut markdown = Markdown::new("# 👩‍🚀 Launch");
+    markdown.on_layout(28, 3);
+    let buf =
+        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+
+    let mut styled_cell = None;
+    for x in 0..buf.width {
+        let cell = buf.get(x, 0);
+        if cell.text.trim().is_empty() {
+            continue;
+        }
+        if cell.text == "L" {
+            styled_cell = Some(cell.clone());
+            break;
+        }
+    }
+    let styled_cell = styled_cell.expect("expected heading text cell");
+    let style = styled_cell.style.expect("expected heading style");
+    assert_eq!(style.bold, Some(true));
+    assert_eq!(style.underline, Some(true));
+}

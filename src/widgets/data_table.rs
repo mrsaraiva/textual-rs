@@ -771,4 +771,22 @@ mod tests {
         table.set_hovered(false);
         assert_eq!(table.hover_coordinate, None);
     }
+
+    #[test]
+    fn mouse_move_column_mapping_uses_cell_width_for_wide_graphemes() {
+        let mut table = DataTable::new(
+            vec!["👩‍🚀".into(), "B".into()],
+            vec![vec!["x".into(), "y".into()]],
+        );
+        table.set_hovered(true);
+
+        // First header uses two display cells; x=0..1 should still map to col 0.
+        table.on_mouse_move(0, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+        table.on_mouse_move(1, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+        // x=2 enters the inter-column gap, x=3 reaches second column.
+        table.on_mouse_move(3, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
+    }
 }
