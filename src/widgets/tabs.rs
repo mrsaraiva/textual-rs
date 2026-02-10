@@ -17,7 +17,7 @@ use super::{
 pub struct Tabs {
     id: WidgetId,
     tabs: Vec<Tab>,
-    active: usize,
+    active: Option<usize>,
     focused: bool,
     hovered: bool,
     hovered_tab: Option<usize>,
@@ -33,6 +33,8 @@ pub struct Tabs {
 pub struct Tab {
     title: String,
     child: Box<dyn Widget>,
+    disabled: bool,
+    hidden: bool,
 }
 
 impl Tabs {
@@ -45,7 +47,7 @@ impl Tabs {
         Self {
             id: WidgetId::new(),
             tabs: Vec::new(),
-            active: 0,
+            active: None,
             focused: false,
             hovered: false,
             hovered_tab: None,
@@ -63,7 +65,12 @@ impl Tabs {
         self.tabs.push(Tab {
             title: title.into(),
             child: Box::new(child),
+            disabled: false,
+            hidden: false,
         });
+        if self.active.is_none() {
+            self.active = Some(self.tabs.len() - 1);
+        }
         self
     }
 
@@ -71,40 +78,115 @@ impl Tabs {
         self.tabs.push(Tab {
             title: title.into(),
             child: Box::new(child),
+            disabled: false,
+            hidden: false,
         });
+        if self.active.is_none() {
+            self.active = Some(self.tabs.len() - 1);
+        }
     }
 
     pub fn active(&self) -> usize {
-        self.active
+        self.active.unwrap_or(0)
     }
 
     pub fn set_active(&mut self, index: usize) {
-        self.activate(index, None);
+        let _ = self.activate(index, None);
     }
 
-    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) {
+    pub fn set_tab_disabled(&mut self, index: usize, disabled: bool) -> bool {
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return false;
+        };
+        if tab.disabled == disabled {
+            return true;
+        }
+        tab.disabled = disabled;
+        if self.active.is_none() {
+            self.ensure_active_exists();
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    pub fn disable_tab(&mut self, index: usize) -> bool {
+        self.set_tab_disabled(index, true)
+    }
+
+    pub fn enable_tab(&mut self, index: usize) -> bool {
+        self.set_tab_disabled(index, false)
+    }
+
+    pub fn set_tab_hidden(&mut self, index: usize, hidden: bool) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        let was_hidden = self.tabs[index].hidden;
+        if was_hidden == hidden {
+            return true;
+        }
+        let replacement = if hidden && self.active == Some(index) {
+            self.replacement_after_deactivation(index)
+        } else {
+            None
+        };
+        self.tabs[index].hidden = hidden;
+        if hidden && self.active == Some(index) {
+            if let Some(next) = replacement {
+                let _ = self.activate(next, None);
+            } else {
+                self.clear_active();
+            }
+        } else if !hidden && self.active.is_none() {
+            let _ = self.activate(index, None);
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    pub fn hide_tab(&mut self, index: usize) -> bool {
+        self.set_tab_hidden(index, true)
+    }
+
+    pub fn show_tab(&mut self, index: usize) -> bool {
+        self.set_tab_hidden(index, false)
+    }
+
+    pub fn is_tab_disabled(&self, index: usize) -> bool {
+        self.tabs
+            .get(index)
+            .map(|tab| tab.disabled)
+            .unwrap_or(false)
+    }
+
+    pub fn is_tab_hidden(&self, index: usize) -> bool {
+        self.tabs.get(index).map(|tab| tab.hidden).unwrap_or(false)
+    }
+
+    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
         if self.tabs.is_empty() {
-            self.active = 0;
-            self.underline_start = 0.0;
-            self.underline_end = 0.0;
-            return;
+            self.clear_active();
+            return false;
+        }
+        let next = index.min(self.tabs.len() - 1);
+        if !self.is_activatable(next) {
+            return false;
         }
         let previous_active = self.active;
-        let next = index.min(self.tabs.len() - 1);
-        if next != self.active {
-            if let Some(tab) = self.tabs.get_mut(self.active) {
-                tab.child.set_focus(false);
+        if Some(next) != self.active {
+            if let Some(prev) = previous_active.and_then(|idx| self.tabs.get_mut(idx)) {
+                prev.child.set_focus(false);
             }
-            self.active = next;
-            if let Some(tab) = self.tabs.get_mut(self.active) {
-                tab.child.set_focus(true);
+            self.active = Some(next);
+            if let Some(tab) = self.tabs.get_mut(next) {
+                tab.child.set_focus(self.focused);
             }
-            let target_span = self.span_for_index(self.active);
+            let target_span = self.span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {
                 if let Some((target_start, target_end)) = target_span {
                     let (duration, delay, ease) = self.underline_animation_params();
-                    let fallback_source = self
-                        .span_for_index(previous_active)
+                    let fallback_source = previous_active
+                        .and_then(|prev| self.span_for_index(prev))
                         .unwrap_or((target_start, target_end));
                     let from_start = if self.underline_end > self.underline_start {
                         self.underline_start
@@ -147,8 +229,8 @@ impl Tabs {
                 ctx.post_message(
                     self.id,
                     Message::TabActivated {
-                        index: self.active,
-                        title: self.tabs[self.active].title.clone(),
+                        index: next,
+                        title: self.tabs[next].title.clone(),
                     },
                 );
                 ctx.request_repaint();
@@ -160,6 +242,7 @@ impl Tabs {
                 self.underline_end = 0.0;
             }
         }
+        true
     }
 
     pub fn activate_prev(&mut self) {
@@ -167,15 +250,7 @@ impl Tabs {
     }
 
     fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        if self.tabs.is_empty() {
-            return;
-        }
-        let prev = if self.active == 0 {
-            self.tabs.len() - 1
-        } else {
-            self.active - 1
-        };
-        self.activate(prev, ctx);
+        self.move_active(-1, ctx);
     }
 
     pub fn activate_next(&mut self) {
@@ -183,17 +258,129 @@ impl Tabs {
     }
 
     fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        if self.tabs.is_empty() {
+        self.move_active(1, ctx);
+    }
+
+    fn clear_active(&mut self) {
+        if let Some(active) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+            active.child.set_focus(false);
+        }
+        self.active = None;
+        self.underline_start = 0.0;
+        self.underline_end = 0.0;
+    }
+
+    fn ensure_active_exists(&mut self) {
+        if let Some(active) = self.active {
+            if self.is_visible(active) {
+                return;
+            }
+        }
+        if let Some(next) = self.first_activatable() {
+            self.active = Some(next);
+        } else {
+            self.active = None;
+        }
+    }
+
+    fn is_visible(&self, index: usize) -> bool {
+        self.tabs.get(index).map(|tab| !tab.hidden).unwrap_or(false)
+    }
+
+    fn is_activatable(&self, index: usize) -> bool {
+        self.tabs
+            .get(index)
+            .map(|tab| !tab.hidden && !tab.disabled)
+            .unwrap_or(false)
+    }
+
+    fn potential_active_indices(&self) -> Vec<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                if tab.hidden {
+                    return None;
+                }
+                if tab.disabled && Some(index) != self.active {
+                    return None;
+                }
+                Some(index)
+            })
+            .collect()
+    }
+
+    fn first_activatable(&self) -> Option<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .find(|(_, tab)| !tab.hidden && !tab.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn last_activatable(&self) -> Option<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, tab)| !tab.hidden && !tab.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn replacement_after_deactivation(&self, index: usize) -> Option<usize> {
+        let mut candidates = self.potential_active_indices();
+        let position = candidates
+            .iter()
+            .position(|candidate| *candidate == index)?;
+        candidates.remove(position);
+        if candidates.is_empty() {
+            None
+        } else if position < candidates.len() {
+            Some(candidates[position])
+        } else {
+            candidates.last().copied()
+        }
+    }
+
+    fn move_active(&mut self, direction: i32, ctx: Option<&mut EventCtx>) {
+        let candidates = self.potential_active_indices();
+        if candidates.is_empty() {
             return;
         }
-        let next = (self.active + 1) % self.tabs.len();
-        self.activate(next, ctx);
+        let target = match self.active {
+            Some(active) => match candidates.iter().position(|index| *index == active) {
+                Some(position) => {
+                    let len = candidates.len() as i32;
+                    let next = (position as i32 + direction).rem_euclid(len) as usize;
+                    candidates[next]
+                }
+                None => {
+                    if direction >= 0 {
+                        candidates[0]
+                    } else {
+                        *candidates.last().unwrap_or(&candidates[0])
+                    }
+                }
+            },
+            None => {
+                if direction >= 0 {
+                    self.first_activatable().unwrap_or(candidates[0])
+                } else {
+                    self.last_activatable()
+                        .unwrap_or(*candidates.last().unwrap_or(&candidates[0]))
+                }
+            }
+        };
+        let _ = self.activate(target, ctx);
     }
 
     fn tab_spans(&self, width: usize) -> Vec<(usize, usize, usize)> {
         let mut spans = Vec::new();
         let mut cursor = 0usize;
         for (index, tab) in self.tabs.iter().enumerate() {
+            if tab.hidden {
+                continue;
+            }
             if cursor >= width {
                 break;
             }
@@ -218,7 +405,9 @@ impl Tabs {
     }
 
     fn sync_underline_to_active(&mut self) {
-        if let Some((start, end)) = self.span_for_index(self.active) {
+        if let Some(active) = self.active
+            && let Some((start, end)) = self.span_for_index(active)
+        {
             self.underline_start = start;
             self.underline_end = end;
         } else {
@@ -345,7 +534,7 @@ impl Widget for Tabs {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.set_focus(focused);
         }
     }
@@ -366,6 +555,7 @@ impl Widget for Tabs {
     }
 
     fn on_mount(&mut self) {
+        self.ensure_active_exists();
         for tab in &mut self.tabs {
             tab.child.on_mount();
         }
@@ -379,13 +569,13 @@ impl Widget for Tabs {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child
                 .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
         }
@@ -399,14 +589,14 @@ impl Widget for Tabs {
         } else {
             self.layout_width = next_layout_width;
         }
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child
                 .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_event_capture(event, ctx);
         }
     }
@@ -464,19 +654,20 @@ impl Widget for Tabs {
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.id {
                 if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
-                    self.activate(index, Some(ctx));
-                    ctx.set_handled();
-                    return;
+                    if self.activate(index, Some(ctx)) {
+                        ctx.set_handled();
+                        return;
+                    }
                 }
             }
         }
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_message(message, ctx);
         }
     }
@@ -529,8 +720,14 @@ impl Widget for Tabs {
             header_line.push(Segment::styled(" no tabs ".to_string(), bar_style));
         } else {
             for (idx, tab) in self.tabs.iter().enumerate() {
+                if tab.hidden {
+                    continue;
+                }
                 let mut classes = vec!["tabs--tab"];
-                if idx == self.active {
+                if tab.disabled {
+                    classes.push("-disabled");
+                }
+                if self.active == Some(idx) {
                     classes.push("-active");
                     if self.focused {
                         classes.push("-focus");
@@ -572,7 +769,7 @@ impl Widget for Tabs {
         let mut lines = vec![header_line, underline_line];
 
         if height > self.tab_row_height {
-            if let Some(tab) = self.tabs.get(self.active) {
+            if let Some(tab) = self.active.and_then(|idx| self.tabs.get(idx)) {
                 let mut child_options = options.clone();
                 child_options.size = (width, height - self.tab_row_height);
                 child_options.max_width = width;
@@ -607,8 +804,8 @@ impl Widget for Tabs {
             return Some(fixed);
         }
         let child_height = self
-            .tabs
-            .get(self.active)
+            .active
+            .and_then(|idx| self.tabs.get(idx))
             .and_then(|tab| tab.child.layout_height());
         child_height.map(|height| height + self.tab_row_height)
     }

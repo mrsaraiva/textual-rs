@@ -132,3 +132,81 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
     assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
 }
+
+#[test]
+fn tabbed_content_keyboard_navigation_skips_disabled_and_hidden_panes() {
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
+        .with_pane(TabPane::new("Three", Label::new("third")).id("three"))
+        .with_pane(TabPane::new("Four", Label::new("fourth")).id("four"));
+    assert!(tabs.disable_pane("two"));
+    assert!(tabs.hide_pane("three"));
+    tabs.set_focus(true);
+
+    let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Right,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+    let mut ctx = EventCtx::default();
+    tabs.on_event(&Event::Key(right.clone()), &mut ctx);
+    assert!(ctx.handled());
+    assert_eq!(tabs.active_id(), Some("four"));
+
+    let mut wrap_ctx = EventCtx::default();
+    tabs.on_event(&Event::Key(right), &mut wrap_ctx);
+    assert!(wrap_ctx.handled());
+    assert_eq!(tabs.active_id(), Some("one"));
+}
+
+#[test]
+fn tabbed_content_set_active_id_rejects_disabled_or_hidden_panes() {
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
+        .with_pane(TabPane::new("Three", Label::new("third")).id("three"));
+    assert!(tabs.disable_pane("two"));
+    assert!(tabs.hide_pane("three"));
+
+    assert!(!tabs.set_active_id("two"));
+    assert!(!tabs.set_active_id("three"));
+    assert_eq!(tabs.active_id(), Some("one"));
+}
+
+#[test]
+fn tabbed_content_hiding_active_pane_promotes_next_available() {
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
+        .with_pane(TabPane::new("Three", Label::new("third")).id("three"));
+    assert!(tabs.set_active_id("two"));
+    assert_eq!(tabs.active_id(), Some("two"));
+
+    assert!(tabs.hide_pane("two"));
+    assert_eq!(tabs.active_id(), Some("three"));
+    assert!(tabs.hide_pane("three"));
+    assert_eq!(tabs.active_id(), Some("one"));
+}
+
+#[test]
+fn tabbed_content_mouse_click_disabled_pane_tab_does_not_activate() {
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+    assert!(tabs.disable_pane("two"));
+    tabs.on_layout(40, 5);
+    let id = tabs.id();
+    let mut ctx = EventCtx::default();
+    tabs.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: 6,
+            screen_y: 0,
+            x: 6,
+            y: 0,
+        }),
+        &mut ctx,
+    );
+    assert!(!ctx.handled());
+    assert_eq!(tabs.active_id(), Some("one"));
+}

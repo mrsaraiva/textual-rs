@@ -126,3 +126,67 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
     assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
 }
+
+#[test]
+fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
+    let mut tabs = Tabs::new()
+        .with_tab("One", Label::new("first"))
+        .with_tab("Two", Label::new("second"))
+        .with_tab("Three", Label::new("third"))
+        .with_tab("Four", Label::new("fourth"));
+    assert!(tabs.disable_tab(1));
+    assert!(tabs.hide_tab(2));
+    tabs.set_focus(true);
+
+    let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Right,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+    let mut ctx = EventCtx::default();
+    tabs.on_event(&Event::Key(right.clone()), &mut ctx);
+    assert!(ctx.handled());
+    assert_eq!(tabs.active(), 3);
+
+    let mut wrap_ctx = EventCtx::default();
+    tabs.on_event(&Event::Key(right), &mut wrap_ctx);
+    assert!(wrap_ctx.handled());
+    assert_eq!(tabs.active(), 0);
+}
+
+#[test]
+fn tabs_mouse_click_disabled_tab_does_not_activate() {
+    let mut tabs = Tabs::new()
+        .with_tab("One", Label::new("first"))
+        .with_tab("Two", Label::new("second"));
+    assert!(tabs.disable_tab(1));
+    tabs.on_layout(40, 5);
+    let id = tabs.id();
+    let mut ctx = EventCtx::default();
+    tabs.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: 6,
+            screen_y: 0,
+            x: 6,
+            y: 0,
+        }),
+        &mut ctx,
+    );
+    assert!(!ctx.handled());
+    assert_eq!(tabs.active(), 0);
+}
+
+#[test]
+fn tabs_hiding_active_tab_promotes_next_available() {
+    let mut tabs = Tabs::new()
+        .with_tab("One", Label::new("first"))
+        .with_tab("Two", Label::new("second"))
+        .with_tab("Three", Label::new("third"));
+    tabs.set_active(1);
+    assert_eq!(tabs.active(), 1);
+
+    assert!(tabs.hide_tab(1));
+    assert_eq!(tabs.active(), 2);
+    assert!(tabs.hide_tab(2));
+    assert_eq!(tabs.active(), 0);
+}

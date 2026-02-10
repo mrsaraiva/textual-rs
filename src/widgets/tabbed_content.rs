@@ -18,6 +18,8 @@ pub struct TabPane {
     title: String,
     pane_id: Option<String>,
     child: Box<dyn Widget>,
+    disabled: bool,
+    hidden: bool,
 }
 
 impl TabPane {
@@ -26,6 +28,8 @@ impl TabPane {
             title: title.into(),
             pane_id: None,
             child: Box::new(child),
+            disabled: false,
+            hidden: false,
         }
     }
 
@@ -44,7 +48,7 @@ impl TabPane {
 pub struct TabbedContent {
     id: WidgetId,
     panes: Vec<TabPane>,
-    active: usize,
+    active: Option<usize>,
     initial: Option<String>,
     focused: bool,
     hovered: bool,
@@ -68,7 +72,7 @@ impl TabbedContent {
         Self {
             id: WidgetId::new(),
             panes: Vec::new(),
-            active: 0,
+            active: None,
             initial: None,
             focused: false,
             hovered: false,
@@ -90,25 +94,31 @@ impl TabbedContent {
 
     pub fn with_pane(mut self, pane: TabPane) -> Self {
         self.panes.push(pane);
+        if self.active.is_none() {
+            self.active = Some(self.panes.len() - 1);
+        }
         self
     }
 
     pub fn add_pane(&mut self, pane: TabPane) {
         self.panes.push(pane);
+        if self.active.is_none() {
+            self.active = Some(self.panes.len() - 1);
+        }
     }
 
     pub fn active(&self) -> usize {
-        self.active
+        self.active.unwrap_or(0)
     }
 
     pub fn active_id(&self) -> Option<&str> {
         self.panes
-            .get(self.active)
+            .get(self.active?)
             .and_then(|pane| pane.pane_id.as_deref())
     }
 
     pub fn set_active(&mut self, index: usize) {
-        self.activate(index, None);
+        let _ = self.activate(index, None);
     }
 
     pub fn set_active_id(&mut self, pane_id: &str) -> bool {
@@ -117,35 +127,131 @@ impl TabbedContent {
             .iter()
             .position(|pane| pane.pane_id.as_deref() == Some(pane_id));
         if let Some(index) = target {
-            self.activate(index, None);
-            return true;
+            return self.activate(index, None);
         }
         false
     }
 
-    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) {
+    pub fn set_pane_disabled(&mut self, pane_id: &str, disabled: bool) -> bool {
+        let Some(index) = self
+            .panes
+            .iter()
+            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
+        else {
+            return false;
+        };
+        self.set_pane_disabled_index(index, disabled)
+    }
+
+    pub fn disable_pane(&mut self, pane_id: &str) -> bool {
+        self.set_pane_disabled(pane_id, true)
+    }
+
+    pub fn enable_pane(&mut self, pane_id: &str) -> bool {
+        self.set_pane_disabled(pane_id, false)
+    }
+
+    pub fn set_pane_hidden(&mut self, pane_id: &str, hidden: bool) -> bool {
+        let Some(index) = self
+            .panes
+            .iter()
+            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
+        else {
+            return false;
+        };
+        self.set_pane_hidden_index(index, hidden)
+    }
+
+    pub fn hide_pane(&mut self, pane_id: &str) -> bool {
+        self.set_pane_hidden(pane_id, true)
+    }
+
+    pub fn show_pane(&mut self, pane_id: &str) -> bool {
+        self.set_pane_hidden(pane_id, false)
+    }
+
+    pub fn is_pane_disabled(&self, pane_id: &str) -> bool {
+        self.panes
+            .iter()
+            .find(|pane| pane.pane_id.as_deref() == Some(pane_id))
+            .map(|pane| pane.disabled)
+            .unwrap_or(false)
+    }
+
+    pub fn is_pane_hidden(&self, pane_id: &str) -> bool {
+        self.panes
+            .iter()
+            .find(|pane| pane.pane_id.as_deref() == Some(pane_id))
+            .map(|pane| pane.hidden)
+            .unwrap_or(false)
+    }
+
+    fn set_pane_disabled_index(&mut self, index: usize, disabled: bool) -> bool {
+        let Some(pane) = self.panes.get_mut(index) else {
+            return false;
+        };
+        if pane.disabled == disabled {
+            return true;
+        }
+        pane.disabled = disabled;
+        if self.active.is_none() {
+            self.ensure_active_exists();
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    fn set_pane_hidden_index(&mut self, index: usize, hidden: bool) -> bool {
+        if index >= self.panes.len() {
+            return false;
+        }
+        let was_hidden = self.panes[index].hidden;
+        if was_hidden == hidden {
+            return true;
+        }
+        let replacement = if hidden && self.active == Some(index) {
+            self.replacement_after_deactivation(index)
+        } else {
+            None
+        };
+        self.panes[index].hidden = hidden;
+        if hidden && self.active == Some(index) {
+            if let Some(next) = replacement {
+                let _ = self.activate(next, None);
+            } else {
+                self.clear_active();
+            }
+        } else if !hidden && self.active.is_none() {
+            let _ = self.activate(index, None);
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
         if self.panes.is_empty() {
-            self.active = 0;
-            self.underline_start = 0.0;
-            self.underline_end = 0.0;
-            return;
+            self.clear_active();
+            return false;
+        }
+        let next = index.min(self.panes.len() - 1);
+        if !self.is_activatable(next) {
+            return false;
         }
         let previous_active = self.active;
-        let next = index.min(self.panes.len() - 1);
-        if next != self.active {
-            if let Some(pane) = self.panes.get_mut(self.active) {
-                pane.child.set_focus(false);
+        if Some(next) != self.active {
+            if let Some(prev) = previous_active.and_then(|idx| self.panes.get_mut(idx)) {
+                prev.child.set_focus(false);
             }
-            self.active = next;
-            if let Some(pane) = self.panes.get_mut(self.active) {
-                pane.child.set_focus(true);
+            self.active = Some(next);
+            if let Some(pane) = self.panes.get_mut(next) {
+                pane.child.set_focus(self.focused);
             }
-            let target_span = self.span_for_index(self.active);
+            let target_span = self.span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {
                 if let Some((target_start, target_end)) = target_span {
                     let (duration, delay, ease) = self.underline_animation_params();
-                    let fallback_source = self
-                        .span_for_index(previous_active)
+                    let fallback_source = previous_active
+                        .and_then(|prev| self.span_for_index(prev))
                         .unwrap_or((target_start, target_end));
                     let from_start = if self.underline_end > self.underline_start {
                         self.underline_start
@@ -185,14 +291,8 @@ impl TabbedContent {
                     self.underline_start = 0.0;
                     self.underline_end = 0.0;
                 }
-                let title = self.panes[self.active].title.clone();
-                ctx.post_message(
-                    self.id,
-                    Message::TabActivated {
-                        index: self.active,
-                        title,
-                    },
-                );
+                let title = self.panes[next].title.clone();
+                ctx.post_message(self.id, Message::TabActivated { index: next, title });
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;
@@ -202,32 +302,140 @@ impl TabbedContent {
                 self.underline_end = 0.0;
             }
         }
+        true
     }
 
     fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        if self.panes.is_empty() {
-            return;
-        }
-        let prev = if self.active == 0 {
-            self.panes.len() - 1
-        } else {
-            self.active - 1
-        };
-        self.activate(prev, ctx);
+        self.move_active(-1, ctx);
     }
 
     fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        if self.panes.is_empty() {
+        self.move_active(1, ctx);
+    }
+
+    fn clear_active(&mut self) {
+        if let Some(active) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+            active.child.set_focus(false);
+        }
+        self.active = None;
+        self.underline_start = 0.0;
+        self.underline_end = 0.0;
+    }
+
+    fn ensure_active_exists(&mut self) {
+        if let Some(active) = self.active {
+            if self.is_visible(active) {
+                return;
+            }
+        }
+        if let Some(next) = self.first_activatable() {
+            self.active = Some(next);
+        } else {
+            self.active = None;
+        }
+    }
+
+    fn is_visible(&self, index: usize) -> bool {
+        self.panes
+            .get(index)
+            .map(|pane| !pane.hidden)
+            .unwrap_or(false)
+    }
+
+    fn is_activatable(&self, index: usize) -> bool {
+        self.panes
+            .get(index)
+            .map(|pane| !pane.hidden && !pane.disabled)
+            .unwrap_or(false)
+    }
+
+    fn potential_active_indices(&self) -> Vec<usize> {
+        self.panes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pane)| {
+                if pane.hidden {
+                    return None;
+                }
+                if pane.disabled && Some(index) != self.active {
+                    return None;
+                }
+                Some(index)
+            })
+            .collect()
+    }
+
+    fn first_activatable(&self) -> Option<usize> {
+        self.panes
+            .iter()
+            .enumerate()
+            .find(|(_, pane)| !pane.hidden && !pane.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn last_activatable(&self) -> Option<usize> {
+        self.panes
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, pane)| !pane.hidden && !pane.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn replacement_after_deactivation(&self, index: usize) -> Option<usize> {
+        let mut candidates = self.potential_active_indices();
+        let position = candidates
+            .iter()
+            .position(|candidate| *candidate == index)?;
+        candidates.remove(position);
+        if candidates.is_empty() {
+            None
+        } else if position < candidates.len() {
+            Some(candidates[position])
+        } else {
+            candidates.last().copied()
+        }
+    }
+
+    fn move_active(&mut self, direction: i32, ctx: Option<&mut EventCtx>) {
+        let candidates = self.potential_active_indices();
+        if candidates.is_empty() {
             return;
         }
-        let next = (self.active + 1) % self.panes.len();
-        self.activate(next, ctx);
+        let target = match self.active {
+            Some(active) => match candidates.iter().position(|index| *index == active) {
+                Some(position) => {
+                    let len = candidates.len() as i32;
+                    let next = (position as i32 + direction).rem_euclid(len) as usize;
+                    candidates[next]
+                }
+                None => {
+                    if direction >= 0 {
+                        candidates[0]
+                    } else {
+                        *candidates.last().unwrap_or(&candidates[0])
+                    }
+                }
+            },
+            None => {
+                if direction >= 0 {
+                    self.first_activatable().unwrap_or(candidates[0])
+                } else {
+                    self.last_activatable()
+                        .unwrap_or(*candidates.last().unwrap_or(&candidates[0]))
+                }
+            }
+        };
+        let _ = self.activate(target, ctx);
     }
 
     fn tab_spans(&self, width: usize) -> Vec<(usize, usize, usize)> {
         let mut spans = Vec::new();
         let mut cursor = 0usize;
         for (index, pane) in self.panes.iter().enumerate() {
+            if pane.hidden {
+                continue;
+            }
             if cursor >= width {
                 break;
             }
@@ -252,7 +460,9 @@ impl TabbedContent {
     }
 
     fn sync_underline_to_active(&mut self) {
-        if let Some((start, end)) = self.span_for_index(self.active) {
+        if let Some(active) = self.active
+            && let Some((start, end)) = self.span_for_index(active)
+        {
             self.underline_start = start;
             self.underline_end = end;
         } else {
@@ -380,7 +590,7 @@ impl Widget for TabbedContent {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.set_focus(focused);
         }
     }
@@ -401,6 +611,7 @@ impl Widget for TabbedContent {
     }
 
     fn on_mount(&mut self) {
+        self.ensure_active_exists();
         if let Some(initial) = self.initial.clone() {
             let _ = self.set_active_id(&initial);
         }
@@ -417,13 +628,13 @@ impl Widget for TabbedContent {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.on_resize(width, height);
         }
     }
@@ -436,14 +647,14 @@ impl Widget for TabbedContent {
         } else {
             self.layout_width = next_layout_width;
         }
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child
                 .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.on_event_capture(event, ctx);
         }
     }
@@ -491,19 +702,20 @@ impl Widget for TabbedContent {
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.id {
                 if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
-                    self.activate(index, Some(ctx));
-                    ctx.set_handled();
-                    return;
+                    if self.activate(index, Some(ctx)) {
+                        ctx.set_handled();
+                        return;
+                    }
                 }
             }
         }
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Some(pane) = self.panes.get_mut(self.active) {
+        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
             pane.child.on_message(message, ctx);
         }
     }
@@ -556,8 +768,14 @@ impl Widget for TabbedContent {
             header_line.push(Segment::styled(" no panes ".to_string(), bar_style));
         } else {
             for (idx, pane) in self.panes.iter().enumerate() {
+                if pane.hidden {
+                    continue;
+                }
                 let mut classes = vec!["tabbed-content--tab"];
-                if idx == self.active {
+                if pane.disabled {
+                    classes.push("-disabled");
+                }
+                if self.active == Some(idx) {
                     classes.push("-active");
                     if self.focused {
                         classes.push("-focus");
@@ -605,7 +823,7 @@ impl Widget for TabbedContent {
         let mut lines = vec![header_line, underline_line];
 
         if height > self.tab_row_height {
-            if let Some(pane) = self.panes.get(self.active) {
+            if let Some(pane) = self.active.and_then(|idx| self.panes.get(idx)) {
                 let mut child_options = options.clone();
                 child_options.size = (width, height - self.tab_row_height);
                 child_options.max_width = width;
@@ -640,8 +858,8 @@ impl Widget for TabbedContent {
             return Some(fixed);
         }
         let child_height = self
-            .panes
-            .get(self.active)
+            .active
+            .and_then(|idx| self.panes.get(idx))
             .and_then(|pane| pane.child.layout_height());
         child_height.map(|height| height + self.tab_row_height)
     }
