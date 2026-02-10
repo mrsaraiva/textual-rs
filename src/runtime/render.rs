@@ -1,7 +1,7 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::debug_render;
 use crate::render::FrameBuffer;
-use crate::widgets::{Toast, Widget, border_spacing_from_style};
+use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
 use super::App;
@@ -170,19 +170,7 @@ impl App {
                 .width
                 .saturating_sub(toast_width.saturating_add(TOAST_SIDE_MARGIN));
             let y0 = cursor_bottom + 1 - toast_height;
-            for y in 0..toast_height {
-                for x in 0..toast_width {
-                    let cell = toast_buffer.get(x, y).clone();
-                    if cell.continuation {
-                        continue;
-                    }
-                    let tx = x0 + x;
-                    let ty = y0 + y;
-                    if tx < frame.width && ty < frame.height {
-                        *frame.get_mut(tx, ty) = cell;
-                    }
-                }
-            }
+            Overlay::compose_overlay_at(frame, &toast_buffer, x0, y0);
 
             cursor_bottom = y0.saturating_sub(1 + TOAST_GAP_ROWS);
             if cursor_bottom == 0 {

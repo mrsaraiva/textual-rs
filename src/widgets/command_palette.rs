@@ -9,8 +9,8 @@ use crate::render::{Cell, FrameBuffer};
 use crate::style::TransitionTiming;
 
 use super::{
+    Input, KeyPanel, ListView, Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     helpers::{collect_focus_ids, set_focus_by_id},
-    Input, KeyPanel, ListView, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -431,18 +431,8 @@ impl Widget for CommandPalette {
             );
 
             let mut merged = FrameBuffer::new(width, height, None);
-            for y in 0..height {
-                for x in 0..body_buffer.width.min(width) {
-                    *merged.get_mut(x, y) = body_buffer.get(x, y).clone();
-                }
-                for x in 0..panel_buffer.width.min(width.saturating_sub(body_width)) {
-                    let tx = body_width.saturating_add(x);
-                    if tx >= width {
-                        break;
-                    }
-                    *merged.get_mut(tx, y) = panel_buffer.get(x, y).clone();
-                }
-            }
+            Overlay::compose_overlay_at(&mut merged, &body_buffer, 0, 0);
+            Overlay::compose_overlay_at(&mut merged, &panel_buffer, body_width, 0);
             return merged.to_segments();
         }
 
@@ -452,7 +442,7 @@ impl Widget for CommandPalette {
             &WidgetRenderable::new(self.child.as_ref()),
             None,
         );
-        let mut merged = base.clone();
+        let mut overlay = FrameBuffer::new(width, height, None);
         let (panel_x, target_panel_y, panel_width, panel_height) =
             self.palette_geometry(width, height);
         let panel_y = self
@@ -480,7 +470,7 @@ impl Widget for CommandPalette {
 
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                *merged.get_mut(x, y) = Cell::blank(Some(panel_style));
+                *overlay.get_mut(x, y) = Cell::blank(Some(panel_style));
             }
         }
 
@@ -497,7 +487,7 @@ impl Widget for CommandPalette {
         let search_y = panel_y;
         let search_icon_x = panel_x.saturating_add(1);
         if search_y < height && search_icon_x < width {
-            *merged.get_mut(search_icon_x, search_y) = Cell {
+            *overlay.get_mut(search_icon_x, search_y) = Cell {
                 text: "🔎".to_string(),
                 style: Some(search_icon_style),
                 meta: None,
@@ -510,7 +500,7 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *merged.get_mut(tx, search_y) = search_buffer.get(sx, 0).clone();
+                *overlay.get_mut(tx, search_y) = search_buffer.get(sx, 0).clone();
             }
         }
 
@@ -544,7 +534,7 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *merged.get_mut(tx, ty_title) = Cell {
+                *overlay.get_mut(tx, ty_title) = Cell {
                     text: ch.to_string(),
                     style: Some(title_cell_style),
                     meta: None,
@@ -557,7 +547,7 @@ impl Widget for CommandPalette {
                     if tx >= width {
                         break;
                     }
-                    *merged.get_mut(tx, ty_help) = Cell {
+                    *overlay.get_mut(tx, ty_help) = Cell {
                         text: ch.to_string(),
                         style: Some(help_cell_style),
                         meta: None,
@@ -568,8 +558,12 @@ impl Widget for CommandPalette {
         }
         for ty in results_y..results_y.saturating_add(results_h).min(height) {
             for tx in results_x..results_x.saturating_add(results_w).min(width) {
-                if merged.get(tx, ty).text.is_empty() {
-                    *merged.get_mut(tx, ty) = Cell::blank(Some(panel_style));
+                let cell = overlay.get(tx, ty);
+                if (cell.text.is_empty() || cell.text == " ")
+                    && cell.style.is_none()
+                    && cell.meta.is_none()
+                {
+                    *overlay.get_mut(tx, ty) = Cell::blank(Some(panel_style));
                 }
             }
         }
@@ -581,7 +575,7 @@ impl Widget for CommandPalette {
                     .unwrap_or(panel_style);
             let border_y = panel_y.saturating_add(panel_height);
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                *merged.get_mut(x, border_y) = Cell {
+                *overlay.get_mut(x, border_y) = Cell {
                     text: "─".to_string(),
                     style: Some(border_style),
                     meta: None,
@@ -603,12 +597,12 @@ impl Widget for CommandPalette {
                 }
                 let cell = search_buffer.get(sx, sy).clone();
                 if cell.meta.is_some() {
-                    *merged.get_mut(tx, ty) = cell;
+                    *overlay.get_mut(tx, ty) = cell;
                 }
             }
         }
 
-        merged.to_segments()
+        Overlay::compose_overlay(&base, &overlay).to_segments()
     }
 
     fn on_mount(&mut self) {
@@ -948,13 +942,13 @@ impl Renderable for CommandPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::css::{set_style_context, StyleSheet};
+    use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::{CommandPaletteCommand, Message};
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct FocusProbe {
         id: WidgetId,
@@ -1023,9 +1017,12 @@ mod tests {
         palette.on_event(&Event::Key(key), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected { .. })));
+        assert!(
+            messages.iter().any(|event| matches!(
+                event.message,
+                Message::CommandPaletteCommandSelected { .. }
+            ))
+        );
         assert!(!palette.is_open());
     }
 
@@ -1214,9 +1211,11 @@ mod tests {
         );
         assert!(!palette.is_open());
         let messages = transition_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
     }
 
     #[test]
@@ -1230,9 +1229,11 @@ mod tests {
         palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
         assert!(!palette.is_open());
         let messages = focus_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
     }
 
     #[test]

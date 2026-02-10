@@ -1,8 +1,9 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
+use crate::render::{Cell, FrameBuffer};
 
 use crate::widgets::{
     Widget, WidgetId, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
@@ -48,6 +49,67 @@ impl Overlay {
 
     pub fn is_visible(&self) -> bool {
         self.visible
+    }
+
+    fn cell_overwrites_base(cell: &Cell) -> bool {
+        if cell.continuation {
+            return false;
+        }
+        let has_text = !cell.text.is_empty() && cell.text != " ";
+        has_text || cell.style.is_some() || cell.meta.is_some()
+    }
+
+    /// Compose a full-screen top layer over a base frame.
+    pub(crate) fn compose_overlay(base: &FrameBuffer, top: &FrameBuffer) -> FrameBuffer {
+        let mut merged = base.clone();
+        Self::compose_overlay_at(&mut merged, top, 0, 0);
+        merged
+    }
+
+    /// Compose a top layer at an origin over a base frame.
+    pub(crate) fn compose_overlay_at(
+        base: &mut FrameBuffer,
+        top: &FrameBuffer,
+        x0: usize,
+        y0: usize,
+    ) {
+        for y in 0..top.height {
+            let ty = y0.saturating_add(y);
+            if ty >= base.height {
+                break;
+            }
+
+            let mut copied_lead = false;
+            for x in 0..top.width {
+                let tx = x0.saturating_add(x);
+                if tx >= base.width {
+                    break;
+                }
+
+                let cell = top.get(x, y);
+                if cell.continuation {
+                    if copied_lead {
+                        *base.get_mut(tx, ty) = cell.clone();
+                    }
+                    continue;
+                }
+
+                copied_lead = false;
+                if !Self::cell_overwrites_base(cell) {
+                    continue;
+                }
+
+                *base.get_mut(tx, ty) = cell.clone();
+                copied_lead = cell.width() > 1;
+
+                if cell.width().max(1) == 1
+                    && tx + 1 < base.width
+                    && base.get(tx + 1, ty).continuation
+                {
+                    *base.get_mut(tx + 1, ty) = Cell::blank(base.get(tx + 1, ty).style);
+                }
+            }
+        }
     }
 
     fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
@@ -104,22 +166,9 @@ impl Widget for Overlay {
         }
         let base_renderable = WidgetRenderable::new(self.base.as_ref());
         let modal_renderable = WidgetRenderable::new(self.modal.as_ref());
-        let base =
-            crate::render::FrameBuffer::from_renderable(console, options, &base_renderable, None);
-        let top =
-            crate::render::FrameBuffer::from_renderable(console, options, &modal_renderable, None);
-        let mut merged = base.clone();
-        for y in 0..base.height {
-            for x in 0..base.width {
-                let cell = top.get(x, y);
-                if !cell.continuation && !cell.text.is_empty() && cell.text != " " {
-                    let out = merged.get_mut(x, y);
-                    *out = cell.clone();
-                }
-            }
-        }
-        let lines = merged.as_plain_lines().join("\n");
-        Text::plain(lines).render(console, options)
+        let base = FrameBuffer::from_renderable(console, options, &base_renderable, None);
+        let top = FrameBuffer::from_renderable(console, options, &modal_renderable, None);
+        Self::compose_overlay(&base, &top).to_segments()
     }
 
     fn on_mount(&mut self) {
@@ -248,5 +297,35 @@ impl Widget for Overlay {
 impl Renderable for Overlay {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rich_rs::Segment;
+
+    #[test]
+    fn compose_overlay_keeps_base_for_blank_unstyled_top_cells() {
+        let base = FrameBuffer::from_lines(&[vec![Segment::new("abc")]], 3, 1, None);
+        let top = FrameBuffer::from_lines(&[vec![Segment::new("   ")]], 3, 1, None);
+
+        let merged = Overlay::compose_overlay(&base, &top);
+        assert_eq!(merged.as_plain_lines()[0], "abc");
+    }
+
+    #[test]
+    fn compose_overlay_applies_styled_space_cells() {
+        let base = FrameBuffer::from_lines(&[vec![Segment::new("abc")]], 3, 1, None);
+        let mut styled_space = Segment::new(" ");
+        styled_space.style = Some(
+            rich_rs::Style::new().with_bgcolor(rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 255 }),
+        );
+        let top = FrameBuffer::from_lines(&[vec![styled_space]], 3, 1, None);
+
+        let merged = Overlay::compose_overlay(&base, &top);
+        assert_eq!(merged.get(0, 0).text, " ");
+        assert!(merged.get(0, 0).style.is_some());
+        assert_eq!(merged.get(1, 0).text, "b");
     }
 }
