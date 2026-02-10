@@ -176,7 +176,7 @@ A widget is considered **first-class** when it meets *all* of the following:
 |--------|--------------|-------------|-------|
 | Label / Static | Done | Done | Wrap-aware intrinsic sizing + default CSS parity baseline |
 | Button | Done | Done | Press/cancel semantics, pseudo-states, default CSS, variants |
-| DataTable | Done | Done | Hit-testing, hover/selection semantics, cached widths, offset/state correctness |
+| DataTable | Done | Done | Hit-testing, hover/selection semantics, cached widths, offset/state correctness; PR5A adds keyed row/column APIs, fixed-row/column baseline behavior, and richer keyboard navigation |
 | Input | Done | Done | Cursor/mouse groundwork, selection baseline, message emission (`InputChanged`/`InputSubmitted`), validation classes, and placeholder/cursor component styling |
 | Checkbox | Done | Done | Mouse + keyboard toggle parity, pseudo-state styling, disabled semantics, and behavior tests |
 | ListView | Done | Done | Mouse selection/hover + wheel scroll + ensure-visible keyboard navigation + selection messages/tests |
@@ -426,24 +426,13 @@ Reference plan:
 - [x] Layout + styling MVP sufficient to build a multi-pane interactive app.
 - [x] Snapshot tests that prevent regressions.
 
-## Next priorities (v0.2)
+## Execution Plan (v0.2, Single Source of Truth)
 
-- Core modularization pass (Phase 9.7)
-  - Execute `docs/devel/MODULARIZATION_PLAN.md` in phased, behavior-preserving commits before further major parity expansions.
-- Widget-first-class execution plan (source-of-truth)
-  - Use `docs/devel/WIDGET_PORTING_PLAN.md` for detailed per-widget findings, ordering, and acceptance checklists (this replaces broad, ambiguous widget-uplift tracking in this section).
-- Widget parity closure program (ordered PR slices)
-  - Execute widget work in dependency order: shared scroll primitives -> shared text-edit core completion -> toggle/option abstraction -> overlay/modal composition unification -> Tier-A widget closure (`DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`) -> missing widgets (`Log`, `Tooltip`/`HelpPanel`, `DirectoryTree`, `Welcome`).
-- Grapheme correctness pass (cross-cutting)
-  - Align text model semantics with grapheme-safe driver behavior (cursor/selection/editing/measurement), starting with `Input` and `TextArea`, then `DataTable`/`Tree`/`Tabs`/text wrapping.
-- `TabbedContent` + Footer + command palette parity (Phase 9.6)
-  - Track follow-up polish only; core parity slice is complete.
-- Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
-- Message bus — decouple widget events from direct callbacks.
-- One-shot timers + async task framework.
-- Expand test coverage beyond snapshot smoke tests.
+- Now: Widget PR5 Tier-A closure (`DataTable`, `Tabs`/`TabbedContent`) in progress.
+- Up next: Widget PR6 missing-widget ports (`Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`).
+- Then: infrastructure closure streams (invalidation, message bus completion, grapheme completion, timers/async, golden coverage, integration-contract closures, compatibility/docs).
 
-## Execution Checklist (Open Todo/Partial)
+## Ordered PR Streams (Open Todo/Partial)
 
 This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
 Order is prioritized for fundamentals-first execution and regression risk reduction.
@@ -466,12 +455,15 @@ Order is prioritized for fundamentals-first execution and regression risk reduct
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
 4. Widget first-class closure program (Phase 7 + widget plan)
+   - Canonical details live in `docs/devel/WIDGET_PORTING_PLAN.md` (Core Abstraction Backlog, Current Widget State Matrix, Missing Widgets to Port).
    - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`. **Done (2026-02-10)**.
    - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`. **Done (2026-02-10)**.
    - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family. **Done (2026-02-10)**.
    - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays. **Done (2026-02-10)**.
-   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (IDs/disabled-hidden lifecycle/fixed headers-cursors).
-   - PR 6: Missing widget ports in order: `Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`.
+   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (see Tier A section in `docs/devel/WIDGET_PORTING_PLAN.md`).
+     - PR5A (2026-02-10): `DataTable` keyed row/column model baseline, fixed-row/column rendering/navigation behavior, and focused parity regressions.
+     - PR5B (2026-02-10): `Tabs`/`TabbedContent` now enforce disabled/hidden pane lifecycle semantics, skip ineligible targets during keyboard/mouse activation, and include focused transition regressions.
+   - PR 6: Missing widget ports in order: `Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome` (see Missing Widgets to Port in `docs/devel/WIDGET_PORTING_PLAN.md`).
    - Exit criteria: `docs/devel/WIDGET_PORTING_PLAN.md` matrix shows no Tier-A `Partial` items and missing-widget list is reduced to explicitly deferred items only.
 
 5. One-shot timers + async task primitives (Phase 6)

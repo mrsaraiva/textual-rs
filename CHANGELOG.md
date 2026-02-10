@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Roadmap planning structure consolidation**
+  - Consolidated overlapping `ROADMAP.md` sections (`Next priorities` + `Execution checklist`) into a single execution source of truth (`Execution Plan` + ordered PR streams) to reduce drift during active development.
+- **DataTable Tier-A closure slice PR5A**
+  - Added typed keyed row/column model primitives in `DataTable` (`RowKey`, `ColumnKey`) with keyed add/look-up APIs and cursor cell-key resolution.
+  - Added fixed-row/fixed-column baseline behavior in `DataTable` rendering and hit-testing paths, including fixed-row-aware scroll/visibility logic.
+  - Expanded keyboard/navigation semantics (`Home`/`End`, `Ctrl+Home`/`Ctrl+End`, viewport-sized paging, page-left/page-right actions) while preserving existing DataTable message bus events.
+  - Added focused parity regressions in `src/widgets/data_table.rs` and `tests/data_table.rs` for keyed model, fixed-row mapping/visibility, and cursor navigation semantics.
 - **Scrolling primitive unification for data/text-heavy widgets (Phase 7 widget PR1)**
   - Added shared line-scrolling utilities and scrollbar math in `src/widgets/containers/scroll_view.rs`.
   - Migrated `RichLog`, `KeyPanel`, `ListView`, `Tree`, and `DataTable` to the shared scrolling path.
@@ -29,6 +36,10 @@ until the API stabilizes.
   - Rebases `Overlay` rendering to shared composition and preserves style/meta in composed segment output.
   - Rebases `CommandPalette` layer composition (key panel split + open panel overlay) and runtime toast stacking (`src/runtime/render.rs`) to the same helper path.
   - Added focused composition regressions in `src/widgets/containers/overlay.rs`; overlay and command palette focused suites remain green.
+- **Tier-A Tabs/TabbedContent lifecycle closure (Phase 7 widget PR5B)**
+  - Added explicit disabled/hidden state semantics for `Tabs` and `TabbedContent` entries, with activation filtering that skips ineligible tabs/panes for keyboard, mouse, and programmatic activation.
+  - Strengthened activation/focus transitions so focus delegation only follows valid active targets and hidden-active transitions select the next available target deterministically.
+  - Added focused regressions in `tests/tabs.rs` and `tests/tabbed_content.rs` for keyboard/mouse/state-transition behavior under disabled/hidden lifecycle changes.
 - **Roadmap PR sequencing update for widget parity closure**
   - Updated `ROADMAP.md` to add an explicit, ordered widget PR program (shared primitives first, then Tier-A closure, then missing-widget ports), instead of relying only on a generic pointer to the widget plan.
   - Reordered the execution checklist so widget parity closure is tracked as a first-class execution stream with concrete PR slices and exit criteria.
