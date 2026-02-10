@@ -16,6 +16,7 @@ pub struct Header {
     title: String,
     subtitle: Option<String>,
     tall: bool,
+    hovered: bool,
     icon: String,
     icon_hover: bool,
     icon_width: usize,
@@ -34,6 +35,7 @@ impl Header {
             title: "textual-rs".to_string(),
             subtitle: None,
             tall: false,
+            hovered: false,
             icon: "⭘".to_string(),
             icon_hover: false,
             icon_width: 8,
@@ -143,6 +145,9 @@ impl Widget for Header {
     }
 
     fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
+        if !self.hovered {
+            return false;
+        }
         let new_hover = (x as usize) < self.icon_width;
         if new_hover != self.icon_hover {
             self.icon_hover = new_hover;
@@ -169,13 +174,19 @@ impl Widget for Header {
                 ctx.set_handled();
             }
             Event::AppFocus(false) => {
-                if self.icon_hover {
+                if self.hovered || self.icon_hover {
+                    self.hovered = false;
                     self.icon_hover = false;
                     ctx.request_repaint();
                 }
             }
             _ => {}
         }
+    }
+
+    fn on_unmount(&mut self) {
+        self.hovered = false;
+        self.icon_hover = false;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -279,6 +290,17 @@ impl Widget for Header {
         Some(&mut self.styles)
     }
 
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+        if !hovered {
+            self.icon_hover = false;
+        }
+    }
+
     fn is_active(&self) -> bool {
         if !self.show_clock {
             return false;
@@ -344,5 +366,30 @@ mod tests {
 
         assert!(ctx.handled());
         assert!(ctx.take_messages().is_empty());
+    }
+
+    #[test]
+    fn header_hover_leave_clears_icon_hover_state() {
+        let mut header = Header::new();
+        header.set_hovered(true);
+        assert!(header.on_mouse_move(0, 0));
+        assert!(header.icon_hover);
+
+        header.set_hovered(false);
+        assert!(!header.is_hovered());
+        assert!(!header.icon_hover);
+    }
+
+    #[test]
+    fn header_unmount_clears_hover_state() {
+        let mut header = Header::new();
+        header.set_hovered(true);
+        header.on_mouse_move(0, 0);
+        assert!(header.hovered);
+        assert!(header.icon_hover);
+
+        header.on_unmount();
+        assert!(!header.hovered);
+        assert!(!header.icon_hover);
     }
 }

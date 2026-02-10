@@ -1,6 +1,7 @@
-// Miscellaneous widget defaults: Markdown, Pretty, RichLog, KeyPanel, BindingsTable,
-// Switch, RadioButton, RadioSet, Placeholder, Rule, ProgressBar, Collapsible,
-// ContentSwitcher, Link, Toast, LoadingIndicator, Sparkline, Digits, CommandPalette
+// Miscellaneous widget defaults: Markdown, Pretty, RichLog, HelpPanel, KeyPanel,
+// BindingsTable, Tooltip, Switch, RadioButton, RadioSet, Placeholder, Rule,
+// ProgressBar, Collapsible, ContentSwitcher, Link, Toast, LoadingIndicator,
+// Sparkline, Digits, CommandPalette
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Markdown { fg: $foreground; }
@@ -26,6 +27,40 @@ KeyPanel {
     bg: $panel;
     fg: $foreground;
     border-left: tall $border-blurred;
+}
+
+HelpPanel {
+    width: 33;
+    min-width: 30;
+    max-width: 60;
+    height: 1fr;
+    line-pad: 1;
+    bg: $panel;
+    fg: $foreground;
+    border-left: tall $border-blurred;
+}
+
+HelpPanel > Markdown {
+    width: 1fr;
+    height: auto;
+    bg: $panel;
+    fg: $foreground;
+}
+
+HelpPanel > KeyPanel {
+    width: 1fr;
+    height: 1fr;
+    border-left: none;
+    bg: $panel;
+}
+
+Tooltip > .tooltip--bubble {
+    bg: $panel;
+    fg: $foreground;
+}
+
+Tooltip > .tooltip--text {
+    fg: $foreground;
 }
 
 BindingsTable {

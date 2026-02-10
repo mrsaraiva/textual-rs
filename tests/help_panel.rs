@@ -55,3 +55,26 @@ fn help_panel_updates_bindings_from_binding_hints_event() {
     assert!(lines.iter().any(|line| line.contains("f1")));
     assert!(lines.iter().any(|line| line.contains("Toggle help")));
 }
+
+#[test]
+fn help_panel_clear_help_hides_help_state() {
+    let mut panel = HelpPanel::new().with_help("## Widget help\nUse arrows to move.");
+    assert!(panel.showing_help());
+    panel.clear_help();
+    assert!(!panel.showing_help());
+}
+
+#[test]
+fn help_panel_keeps_bindings_visible_with_help_in_short_layouts() {
+    let console = Console::new();
+    let options = options_for(&console, 40, 2);
+    let panel = HelpPanel::new()
+        .with_help("## Widget help")
+        .with_bindings(vec![FooterBinding::new("^q", "Quit")]);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &panel, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(lines.iter().any(|line| line.contains("Widget help")));
+    assert!(lines.iter().any(|line| line.contains("Keys")));
+}

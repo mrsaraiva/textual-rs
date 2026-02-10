@@ -13,6 +13,7 @@ use super::{
 pub struct TreeNode {
     label: String,
     expanded: bool,
+    allow_expand: bool,
     disabled: bool,
     children: Vec<TreeNode>,
 }
@@ -22,6 +23,7 @@ impl TreeNode {
         Self {
             label: label.into(),
             expanded: true,
+            allow_expand: false,
             disabled: false,
             children: Vec::new(),
         }
@@ -34,6 +36,11 @@ impl TreeNode {
 
     pub fn with_child(mut self, child: TreeNode) -> Self {
         self.children.push(child);
+        self
+    }
+
+    pub fn allow_expand(mut self, value: bool) -> Self {
+        self.allow_expand = value;
         self
     }
 
@@ -66,7 +73,7 @@ struct VisibleNode {
     label: String,
     expanded: bool,
     disabled: bool,
-    has_children: bool,
+    expandable: bool,
 }
 
 impl Tree {
@@ -117,7 +124,7 @@ impl Tree {
                     label: node.label.clone(),
                     expanded: node.expanded,
                     disabled: node.disabled,
-                    has_children: !node.children.is_empty(),
+                    expandable: node.allow_expand || !node.children.is_empty(),
                 });
                 if node.expanded {
                     walk(&node.children, depth + 1, path, out);
@@ -273,7 +280,7 @@ impl Tree {
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
-        if info.disabled || !info.has_children {
+        if info.disabled || !info.expandable {
             return;
         }
         let mut expanded = info.expanded;
@@ -294,7 +301,7 @@ impl Tree {
         if info.disabled {
             return;
         }
-        if info.has_children && info.expanded {
+        if info.expandable && info.expanded {
             self.toggle_selected(ctx);
             return;
         }
@@ -315,7 +322,7 @@ impl Tree {
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
-        if info.disabled || !info.has_children {
+        if info.disabled || !info.expandable {
             return;
         }
         if !info.expanded {
@@ -428,7 +435,7 @@ impl Widget for Tree {
                     }
                     self.select_index(index, ctx);
                     let twist_col = node.depth.saturating_mul(2) + 2;
-                    if node.has_children && (mouse.x as usize) <= twist_col {
+                    if node.expandable && (mouse.x as usize) <= twist_col {
                         self.toggle_selected(ctx);
                     }
                     ctx.set_handled();
@@ -545,7 +552,7 @@ impl Widget for Tree {
             if let Some(node) = nodes.get(index) {
                 let selected = index == self.selected;
                 let hovered = self.hovered_index == Some(index);
-                let twist = if !node.has_children {
+                let twist = if !node.expandable {
                     " "
                 } else if node.expanded {
                     "▾"
@@ -562,7 +569,7 @@ impl Widget for Tree {
                 if selected && self.focused {
                     classes.push("-focus");
                 }
-                if node.has_children {
+                if node.expandable {
                     classes.push("-branch");
                 } else {
                     classes.push("-leaf");

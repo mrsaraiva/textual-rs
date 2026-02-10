@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -40,7 +41,9 @@ impl DirectoryNode {
     }
 
     fn to_tree_node(&self) -> TreeNode {
-        let mut node = TreeNode::new(self.label.clone()).expanded(self.expanded);
+        let mut node = TreeNode::new(self.label.clone())
+            .expanded(self.expanded)
+            .allow_expand(self.is_dir);
         for child in &self.children {
             node = node.with_child(child.to_tree_node());
         }
@@ -73,12 +76,8 @@ pub struct DirectoryTree {
 impl DirectoryTree {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let root_path = path.into();
-        let mut root = DirectoryNode::from_path(root_path.clone());
         let show_hidden = false;
-        if root.is_dir {
-            root.children = read_children(&root.path, show_hidden);
-            root.loaded = true;
-        }
+        let root = build_root(root_path.clone(), show_hidden, true, &HashSet::new());
 
         let mut tree = Tree::new(vec![root.to_tree_node()]);
         tree.on_layout(1, 1);
@@ -136,11 +135,14 @@ impl DirectoryTree {
 
     pub fn refresh(&mut self) {
         let selected = self.selected_path().map(Path::to_path_buf);
-        let mut root = DirectoryNode::from_path(self.root_path.clone());
-        if root.is_dir {
-            root.children = read_children(&root.path, self.show_hidden);
-            root.loaded = true;
-        }
+        let mut expanded_paths = HashSet::new();
+        collect_expanded_paths(&self.root, &mut expanded_paths);
+        let root = build_root(
+            self.root_path.clone(),
+            self.show_hidden,
+            self.root.expanded,
+            &expanded_paths,
+        );
         self.root = root;
         self.rebuild_tree(selected);
     }
@@ -360,6 +362,56 @@ fn read_children(path: &Path, show_hidden: bool) -> Vec<DirectoryNode> {
     });
 
     entries
+}
+
+fn build_root(
+    root_path: PathBuf,
+    show_hidden: bool,
+    expanded: bool,
+    expanded_paths: &HashSet<PathBuf>,
+) -> DirectoryNode {
+    let mut root = DirectoryNode::from_path(root_path);
+    if !root.is_dir {
+        return root;
+    }
+    root.expanded = expanded;
+    populate_expanded_children(&mut root, show_hidden, expanded_paths);
+    root
+}
+
+fn populate_expanded_children(
+    node: &mut DirectoryNode,
+    show_hidden: bool,
+    expanded_paths: &HashSet<PathBuf>,
+) {
+    if !node.is_dir {
+        return;
+    }
+
+    if !node.expanded {
+        node.loaded = false;
+        node.children.clear();
+        return;
+    }
+
+    node.children = read_children(&node.path, show_hidden);
+    node.loaded = true;
+    for child in &mut node.children {
+        if child.is_dir {
+            child.expanded = expanded_paths.contains(&child.path);
+            populate_expanded_children(child, show_hidden, expanded_paths);
+        }
+    }
+}
+
+fn collect_expanded_paths(node: &DirectoryNode, out: &mut HashSet<PathBuf>) {
+    if !node.is_dir || !node.expanded {
+        return;
+    }
+    out.insert(node.path.clone());
+    for child in &node.children {
+        collect_expanded_paths(child, out);
+    }
 }
 
 fn collect_visible_entries(node: &DirectoryNode, out: &mut Vec<VisibleEntry>) {

@@ -61,3 +61,40 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
     let lines = buf.as_plain_lines();
     assert!(lines.iter().all(|line| !line.contains("tip")));
 }
+
+#[test]
+fn tooltip_positions_above_anchor_when_bottom_space_is_insufficient() {
+    let console = Console::new();
+    let options = options_for(&console, 28, 6);
+    let tooltip = Tooltip::new(Label::new("base"), "anchored")
+        .visible(true)
+        .with_anchor(14, 5);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let lines = buf.as_plain_lines();
+    let line_idx = lines
+        .iter()
+        .position(|line| line.contains("anchored"))
+        .expect("tooltip line");
+
+    assert_eq!(line_idx, 2);
+}
+
+#[test]
+fn tooltip_clamps_horizontally_when_anchor_is_left_of_viewport() {
+    let console = Console::new();
+    let options = options_for(&console, 20, 6);
+    let tooltip = Tooltip::new(Label::new("base"), "left-edge")
+        .visible(true)
+        .with_anchor(0, 1);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let lines = buf.as_plain_lines();
+    let line = lines
+        .iter()
+        .find(|line| line.contains("left-edge"))
+        .expect("tooltip line");
+    let x = line.find("left-edge").expect("x position");
+
+    assert_eq!(x, 2);
+}

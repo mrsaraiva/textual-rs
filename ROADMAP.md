@@ -430,6 +430,7 @@ Reference plan:
 
 - Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
 - Landed (2026-02-10): widget follow-up slices for `RichLog` + `CommandPalette` interaction hardening, `ListView`/`Tree` disabled-navigation semantics, and shared text-edit clipboard message hooks across `Input`/`MaskedInput`/`TextArea`.
+- Landed (2026-02-10): widget follow-up slices for `Header`/`Footer` lifecycle polish, tooltip/help-panel positioning and default CSS parity pass, and `DirectoryTree` lazy-loader fidelity improvements.
 - Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
@@ -445,7 +446,10 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
      - PR7A (2026-02-10): `RichLog` now preserves scroll-anchor behavior when max-line trimming drops head rows and keeps explicit multi-line styled writes intact; `CommandPalette` now emits `CommandPaletteCommandSelected` for built-ins (`keys`, `quit`) before close, with focused regressions.
    - PR 2: Tier-B closure slices (`ListView`/`Tree`, text-edit follow-up including clipboard hooks, `Header`/`Footer` lifecycle polish) aligned to Python semantics.
      - PR7B (2026-02-10): `ListView`/`Tree` now support disabled-item/node navigation semantics (keyboard + mouse skip/ignore + disabled classes); shared text-edit clipboard hooks are message-bus-first via `TextEditClipboard*` messages with focused regressions for `Input`/`MaskedInput`/`TextArea`.
+     - PR7C (2026-02-10): `Header`/`Footer` lifecycle polish landed: hover state cleanup on focus/unmount for `Header`, and deferred `BindingsChanged` handling in `Footer` while app is unfocused with focused replay on regain.
    - PR 3: Tier-C/utility closure slices (toggle/list family polish, `Tooltip`/`HelpPanel` positioning/default CSS, `DirectoryTree` async loader fidelity, `Welcome` lifecycle/CSS parity).
+     - PR7D (2026-02-10): `Tooltip`/`HelpPanel` parity pass landed with anchor-aware tooltip positioning (clamp + inflection), help-panel split/lifecycle fixes, and default CSS component updates.
+     - PR7E (2026-02-10): `DirectoryTree` lazy-loader fidelity landed with expandable-directory support in `Tree`, message-driven lazy child loading, and refresh behavior that preserves expanded paths.
    - PR 4: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
    - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
 

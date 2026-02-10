@@ -161,3 +161,33 @@ fn tree_mouse_click_ignores_disabled_nodes() {
     );
     assert!(!ctx.handled());
 }
+
+#[test]
+fn tree_allows_expansion_without_preloaded_children() {
+    let mut tree = Tree::new(vec![
+        TreeNode::new("Lazy Root")
+            .expanded(false)
+            .allow_expand(true),
+    ]);
+    tree.set_focus(true);
+    tree.on_layout(24, 5);
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (24, 5);
+    options.max_width = 24;
+    options.max_height = 5;
+
+    let before = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let before_lines = before.as_plain_lines();
+    assert!(before_lines.iter().any(|line| line.contains("▸ Lazy Root")));
+
+    let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let mut ctx = EventCtx::default();
+    tree.on_event(&Event::Key(key), &mut ctx);
+    assert!(ctx.handled());
+
+    let after = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let after_lines = after.as_plain_lines();
+    assert!(after_lines.iter().any(|line| line.contains("▾ Lazy Root")));
+}

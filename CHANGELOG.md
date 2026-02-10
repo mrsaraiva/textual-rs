@@ -8,6 +8,22 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Widget closure follow-up slices: Header/Footer + Tooltip/HelpPanel + DirectoryTree**
+  - `Header` lifecycle polish:
+    - explicit hover state cleanup on leave, app focus loss, and unmount transitions.
+  - `Footer` lifecycle polish:
+    - defers `BindingsChanged` updates while app is unfocused,
+    - applies latest deferred bindings once on focus regain while preserving message-bus updates.
+  - `Tooltip` parity pass:
+    - added anchor-aware overlay positioning with horizontal clamp and vertical inflection,
+    - added component-style-driven tooltip bubble/text defaults.
+  - `HelpPanel` parity pass:
+    - fixed split resize propagation so markdown/key-panel children receive correct layout heights,
+    - added lifecycle and short-layout behavior regressions.
+  - `DirectoryTree` async/lazy fidelity:
+    - added lazy-expand support for unloaded directory branches,
+    - improved refresh to preserve expanded paths while reloading expanded directories lazily,
+    - added focused `DirectoryTree`/`Tree` regressions for lazy expansion and refresh behavior.
 - **Widget closure follow-up slices: RichLog + CommandPalette + ListView/Tree + clipboard hooks**
   - `RichLog` parity hardening:
     - preserves viewport anchor semantics when `max_lines` trimming removes head lines while manually scrolled,

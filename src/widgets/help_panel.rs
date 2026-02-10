@@ -152,8 +152,11 @@ impl Widget for HelpPanel {
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.markdown.on_resize(width, height);
-        self.key_panel.on_resize(width, height);
+        let width_usize = usize::from(width).max(1);
+        let height_usize = usize::from(height).max(1);
+        let (help_height, keys_height) = self.split_heights(width_usize, height_usize);
+        self.markdown.on_resize(width, help_height as u16);
+        self.key_panel.on_resize(width, keys_height as u16);
     }
 
     fn on_mount(&mut self) {
@@ -258,5 +261,42 @@ mod tests {
                 .iter()
                 .any(|class| class == "-show-help")
         );
+    }
+
+    #[test]
+    fn help_panel_clear_help_removes_show_help_class() {
+        let mut panel = HelpPanel::new().with_help("## Help\nbody");
+        assert!(panel.showing_help());
+        assert!(
+            panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
+
+        panel.clear_help();
+        assert!(!panel.showing_help());
+        assert!(
+            !panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
+    }
+
+    #[test]
+    fn help_panel_split_caps_help_to_half_height() {
+        let panel = HelpPanel::new().with_help("line1\nline2\nline3\nline4");
+        let (help_height, keys_height) = panel.split_heights(40, 6);
+        assert_eq!(help_height, 3);
+        assert_eq!(keys_height, 3);
+    }
+
+    #[test]
+    fn help_panel_split_keeps_key_panel_visible_in_short_heights() {
+        let panel = HelpPanel::new().with_help("line1\nline2");
+        let (help_height, keys_height) = panel.split_heights(40, 2);
+        assert_eq!(help_height, 1);
+        assert_eq!(keys_height, 1);
     }
 }

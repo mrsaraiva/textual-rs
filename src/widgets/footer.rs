@@ -33,6 +33,8 @@ pub struct Footer {
     id: WidgetId,
     bindings: Vec<FooterBinding>,
     compact: bool,
+    app_focused: bool,
+    deferred_bindings: Option<Vec<FooterBinding>>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -43,6 +45,8 @@ impl Footer {
             id: WidgetId::new(),
             bindings: Vec::new(),
             compact: false,
+            app_focused: true,
+            deferred_bindings: None,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
@@ -197,6 +201,20 @@ impl Footer {
             })
             .collect()
     }
+
+    fn apply_bindings(&mut self, next: Vec<FooterBinding>, ctx: &mut EventCtx) {
+        if next == self.bindings {
+            return;
+        }
+        self.bindings = next;
+        ctx.post_message(
+            self.id,
+            Message::FooterBindingsUpdated {
+                count: self.bindings.len(),
+            },
+        );
+        ctx.request_repaint();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -294,19 +312,31 @@ impl Widget for Footer {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Event::BindingsChanged(bindings) = event {
-            let next = Self::bindings_from_hints(bindings);
-            if next != self.bindings {
-                self.bindings = next;
-                ctx.post_message(
-                    self.id,
-                    Message::FooterBindingsUpdated {
-                        count: self.bindings.len(),
-                    },
-                );
-                ctx.request_repaint();
+        match event {
+            Event::AppFocus(active) => {
+                self.app_focused = *active;
+                if *active {
+                    if let Some(next) = self.deferred_bindings.take() {
+                        self.apply_bindings(next, ctx);
+                    }
+                } else {
+                    self.deferred_bindings = None;
+                }
             }
+            Event::BindingsChanged(bindings) => {
+                let next = Self::bindings_from_hints(bindings);
+                if self.app_focused {
+                    self.apply_bindings(next, ctx);
+                } else {
+                    self.deferred_bindings = Some(next);
+                }
+            }
+            _ => {}
         }
+    }
+
+    fn on_unmount(&mut self) {
+        self.deferred_bindings = None;
     }
 
     fn style_classes(&self) -> &[String] {
@@ -366,5 +396,56 @@ mod tests {
         let mut second_ctx = EventCtx::default();
         footer.on_event(&Event::BindingsChanged(hints), &mut second_ctx);
         assert!(second_ctx.take_messages().is_empty());
+    }
+
+    #[test]
+    fn bindings_changed_defers_while_app_unfocused() {
+        let mut footer = Footer::new();
+        let mut unfocus_ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+        assert!(unfocus_ctx.take_messages().is_empty());
+        assert!(!unfocus_ctx.repaint_requested());
+
+        let mut bindings_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
+            &mut bindings_ctx,
+        );
+        assert!(bindings_ctx.take_messages().is_empty());
+        assert!(!bindings_ctx.repaint_requested());
+    }
+
+    #[test]
+    fn focus_gain_applies_latest_deferred_bindings_once() {
+        let mut footer = Footer::new();
+        let mut unfocus_ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+
+        let mut first_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("a", "alpha")]),
+            &mut first_ctx,
+        );
+        assert!(first_ctx.take_messages().is_empty());
+
+        let mut second_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("a", "alpha"),
+                BindingHint::new("b", "bravo"),
+            ]),
+            &mut second_ctx,
+        );
+        assert!(second_ctx.take_messages().is_empty());
+
+        let mut focus_ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
+        let messages = focus_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::FooterBindingsUpdated { count: 2 }
+        ));
+        assert!(focus_ctx.repaint_requested());
     }
 }

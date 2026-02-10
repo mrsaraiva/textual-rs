@@ -4,6 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
+use crate::style::parse_color_like;
 
 use super::{
     Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
@@ -21,6 +22,7 @@ pub struct Tooltip {
     visible: bool,
     max_width: usize,
     y_offset: usize,
+    anchor: Option<(usize, usize)>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -34,6 +36,7 @@ impl Tooltip {
             visible: false,
             max_width: 40,
             y_offset: 1,
+            anchor: None,
             classes: vec!["tooltip".to_string(), "-textual-system".to_string()],
             styles: WidgetStyles::default(),
         }
@@ -60,6 +63,19 @@ impl Tooltip {
     pub fn with_y_offset(mut self, y_offset: usize) -> Self {
         self.y_offset = y_offset;
         self
+    }
+
+    pub fn with_anchor(mut self, x: usize, y: usize) -> Self {
+        self.anchor = Some((x, y));
+        self
+    }
+
+    pub fn set_anchor(&mut self, x: usize, y: usize) {
+        self.anchor = Some((x, y));
+    }
+
+    pub fn clear_anchor(&mut self) {
+        self.anchor = None;
     }
 
     pub fn is_visible(&self) -> bool {
@@ -146,12 +162,42 @@ impl Tooltip {
         out
     }
 
+    fn tooltip_styles(&self) -> (rich_rs::Style, rich_rs::Style) {
+        let bubble = crate::css::resolve_component_style(self, &["tooltip--bubble"])
+            .to_rich()
+            .unwrap_or_else(|| {
+                let mut fallback = rich_rs::Style::new();
+                if let Some(bg) = parse_color_like("$panel") {
+                    fallback = fallback.with_bgcolor(bg.to_simple_opaque());
+                }
+                if let Some(fg) = parse_color_like("$foreground") {
+                    fallback = fallback.with_color(fg.to_simple_opaque());
+                }
+                fallback
+            });
+        let text = crate::css::resolve_component_style(self, &["tooltip--text"])
+            .to_rich()
+            .unwrap_or_else(|| {
+                if let Some(fg) = parse_color_like("$foreground") {
+                    rich_rs::Style::new().with_color(fg.to_simple_opaque())
+                } else {
+                    rich_rs::Style::new()
+                }
+            });
+        (bubble, text)
+    }
+
     fn tooltip_frame(&self, width_limit: usize, height_limit: usize) -> Option<FrameBuffer> {
         if self.text.trim().is_empty() || width_limit == 0 || height_limit == 0 {
             return None;
         }
 
-        let inner_limit = self.max_width.min(width_limit.saturating_sub(2)).max(1);
+        let pad_x = 2usize;
+        let pad_y = 1usize;
+        let max_frame_width = self.max_width.min(width_limit).max(1);
+        let inner_limit = max_frame_width
+            .saturating_sub(pad_x.saturating_mul(2))
+            .max(1);
         let wrapped = Self::wrap_text(&self.text, inner_limit);
         let inner_width = wrapped
             .iter()
@@ -160,70 +206,92 @@ impl Tooltip {
             .unwrap_or(1)
             .max(1)
             .min(inner_limit);
-        let frame_width = inner_width.saturating_add(2).min(width_limit).max(1);
+        let frame_width = inner_width
+            .saturating_add(pad_x.saturating_mul(2))
+            .min(width_limit)
+            .max(1);
 
         let mut body_lines = wrapped;
-        let max_body_lines = height_limit.saturating_sub(2).max(1);
+        let max_body_lines = height_limit.saturating_sub(pad_y.saturating_mul(2)).max(1);
         if body_lines.len() > max_body_lines {
             body_lines.truncate(max_body_lines);
         }
-        let frame_height = body_lines.len().saturating_add(2).min(height_limit).max(1);
+        let frame_height = body_lines
+            .len()
+            .saturating_add(pad_y.saturating_mul(2))
+            .min(height_limit)
+            .max(1);
 
-        let style = rich_rs::Style::new();
-        let box_chars = rich_rs::r#box::SQUARE;
+        let (bubble_style, text_style) = self.tooltip_styles();
+        let text_on_bubble = bubble_style.combine(&text_style);
         let mut lines: Vec<Vec<Segment>> = Vec::with_capacity(frame_height);
 
-        if frame_height == 1 {
-            lines.push(vec![Segment::styled(" ".repeat(frame_width), style)]);
-            return Some(FrameBuffer::from_lines(
-                &lines,
-                frame_width,
-                frame_height,
-                Some(style),
-            ));
+        let top_rows = pad_y.min(frame_height);
+        for _ in 0..top_rows {
+            lines.push(vec![Segment::styled(" ".repeat(frame_width), bubble_style)]);
         }
 
-        let mut top = String::new();
-        top.push(box_chars.top_left);
-        top.push_str(
-            &box_chars
-                .top
-                .to_string()
-                .repeat(frame_width.saturating_sub(2)),
-        );
-        top.push(box_chars.top_right);
-        lines.push(vec![Segment::styled(top, style)]);
-
-        let middle_count = frame_height.saturating_sub(2);
-        for index in 0..middle_count {
-            let mut row = String::new();
-            row.push(box_chars.mid_left);
+        let content_rows = frame_height.saturating_sub(top_rows + pad_y);
+        for index in 0..content_rows {
             let content = body_lines.get(index).cloned().unwrap_or_default();
-            row.push_str(&rich_rs::set_cell_size(
-                &content,
-                frame_width.saturating_sub(2),
-            ));
-            row.push(box_chars.mid_right);
-            lines.push(vec![Segment::styled(row, style)]);
+            let inner_available = frame_width.saturating_sub(pad_x.saturating_mul(2));
+            if inner_available == 0 {
+                lines.push(vec![Segment::styled(" ".repeat(frame_width), bubble_style)]);
+                continue;
+            }
+            let left = " ".repeat(pad_x.min(frame_width));
+            let right_width = frame_width.saturating_sub(left.len() + inner_available);
+            let right = " ".repeat(right_width);
+            lines.push(vec![
+                Segment::styled(left, bubble_style),
+                Segment::styled(
+                    rich_rs::set_cell_size(&content, inner_available),
+                    text_on_bubble,
+                ),
+                Segment::styled(right, bubble_style),
+            ]);
         }
 
-        let mut bottom = String::new();
-        bottom.push(box_chars.bottom_left);
-        bottom.push_str(
-            &box_chars
-                .bottom
-                .to_string()
-                .repeat(frame_width.saturating_sub(2)),
-        );
-        bottom.push(box_chars.bottom_right);
-        lines.push(vec![Segment::styled(bottom, style)]);
+        while lines.len() < frame_height {
+            lines.push(vec![Segment::styled(" ".repeat(frame_width), bubble_style)]);
+        }
 
         Some(FrameBuffer::from_lines(
             &lines,
             frame_width,
             frame_height,
-            Some(style),
+            Some(bubble_style),
         ))
+    }
+
+    fn overlay_origin(
+        &self,
+        base_width: usize,
+        base_height: usize,
+        overlay_width: usize,
+        overlay_height: usize,
+    ) -> (usize, usize) {
+        let max_x = base_width.saturating_sub(overlay_width);
+        let max_y = base_height.saturating_sub(overlay_height);
+        let (anchor_x, anchor_y) = self.anchor.unwrap_or((base_width.saturating_sub(1) / 2, 0));
+        let anchor_x = anchor_x.min(base_width.saturating_sub(1));
+        let anchor_y = anchor_y.min(base_height.saturating_sub(1));
+
+        let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
+
+        let preferred_below = anchor_y.saturating_add(self.y_offset);
+        let fits_below = preferred_below.saturating_add(overlay_height) <= base_height;
+        let y0 = if fits_below {
+            preferred_below.min(max_y)
+        } else {
+            let needed_above = overlay_height.saturating_add(self.y_offset);
+            if anchor_y >= needed_above {
+                anchor_y.saturating_sub(needed_above).min(max_y)
+            } else {
+                max_y
+            }
+        };
+        (x0, y0)
     }
 }
 
@@ -239,10 +307,8 @@ impl Widget for Tooltip {
         if self.visible {
             if let Some(tooltip) = self.tooltip_frame(options.size.0.max(1), options.size.1.max(1))
             {
-                let x0 = merged.width.saturating_sub(tooltip.width) / 2;
-                let y0 = self
-                    .y_offset
-                    .min(merged.height.saturating_sub(tooltip.height.max(1)));
+                let (x0, y0) =
+                    self.overlay_origin(merged.width, merged.height, tooltip.width, tooltip.height);
                 Overlay::compose_overlay_at(&mut merged, &tooltip, x0, y0);
             }
         }
@@ -411,5 +477,46 @@ mod tests {
                 } if overlay == tooltip.id()
             )
         }));
+    }
+
+    #[test]
+    fn tooltip_inflects_above_anchor_when_no_room_below() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (28, 6);
+        options.max_width = 28;
+        options.max_height = 6;
+
+        let tooltip = Tooltip::new(super::super::Label::new("base"), "anchor-tip")
+            .visible(true)
+            .with_anchor(14, 5);
+        let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+        let lines = buf.as_plain_lines();
+        let line_idx = lines
+            .iter()
+            .position(|line| line.contains("anchor-tip"))
+            .expect("tooltip text line");
+        assert_eq!(line_idx, 2);
+    }
+
+    #[test]
+    fn tooltip_clamps_horizontally_inside_viewport() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (20, 6);
+        options.max_width = 20;
+        options.max_height = 6;
+
+        let tooltip = Tooltip::new(super::super::Label::new("base"), "left-edge")
+            .visible(true)
+            .with_anchor(0, 0);
+        let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+        let lines = buf.as_plain_lines();
+        let line = lines
+            .iter()
+            .find(|line| line.contains("left-edge"))
+            .expect("tooltip text line");
+        let x = line.find("left-edge").expect("tooltip x position");
+        assert_eq!(x, 2);
     }
 }

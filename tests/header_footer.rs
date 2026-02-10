@@ -113,6 +113,39 @@ fn footer_groups_consecutive_bindings_with_same_group() {
 }
 
 #[test]
+fn footer_applies_deferred_bindings_on_focus_gain() {
+    let console = Console::new();
+    let options = options_for(&console, 60, 1);
+    let mut footer = Footer::new();
+
+    let mut unfocus_ctx = EventCtx::default();
+    footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+
+    let mut bindings_ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("ctrl+p", "palette").with_key_display("^p"),
+        ]),
+        &mut bindings_ctx,
+    );
+    assert!(!bindings_ctx.repaint_requested());
+
+    let before_focus = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let before_focus_line = &before_focus.as_plain_lines()[0];
+    assert!(!before_focus_line.contains("^p"));
+    assert!(!before_focus_line.contains("palette"));
+
+    let mut focus_ctx = EventCtx::default();
+    footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
+    assert!(focus_ctx.repaint_requested());
+
+    let after_focus = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let after_focus_line = &after_focus.as_plain_lines()[0];
+    assert!(after_focus_line.contains("^p"));
+    assert!(after_focus_line.contains("palette"));
+}
+
+#[test]
 fn footer_compact_mode_tightens_spacing() {
     let console = Console::new();
     let options = options_for(&console, 60, 1);

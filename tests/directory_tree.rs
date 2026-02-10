@@ -92,6 +92,40 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
 }
 
 #[test]
+fn directory_tree_refresh_preserves_expanded_paths() {
+    let temp = TempTreeDir::new("directory-tree-refresh-expanded");
+    let nested_dir = temp.path.join("nested");
+    fs::create_dir_all(&nested_dir).expect("create nested dir");
+    fs::write(nested_dir.join("leaf.txt"), "leaf").expect("write nested file");
+
+    let mut tree = DirectoryTree::new(&temp.path);
+    tree.on_layout(60, 8);
+
+    let mut message_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent {
+            sender: tree.tree_id(),
+            message: Message::TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: true,
+            },
+        },
+        &mut message_ctx,
+    );
+    assert!(message_ctx.handled());
+
+    tree.refresh();
+
+    let console = Console::new();
+    let options = options_for(&console, 60, 8);
+    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(lines.iter().any(|line| line.contains("leaf.txt")));
+}
+
+#[test]
 fn directory_tree_handles_forwarded_selection_messages() {
     let temp = TempTreeDir::new("directory-tree-message");
     fs::write(temp.path.join("alpha.txt"), "alpha").expect("write file");
