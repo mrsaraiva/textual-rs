@@ -1338,3 +1338,30 @@ fn cursor_le(a: Cursor, b: Cursor) -> bool {
 fn cursor_lt(a: Cursor, b: Cursor) -> bool {
     a.row < b.row || (a.row == b.row && a.col < b.col)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn typing_emits_text_area_changed_message() {
+        let mut text_area = TextArea::new("");
+        text_area.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        text_area.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, crate::message::Message::TextAreaChanged { ref value } if value == "x")));
+    }
+}

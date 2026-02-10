@@ -16,6 +16,9 @@ until the API stabilizes.
   - Removed callback hooks from text widgets: `Input::on_change`, `TextArea::on_change`, and `TextArea::on_key`.
   - Added `Message::TextAreaChanged { value }` and now emit it on text edits from key-driven interactions.
   - Updated `examples/text_area_extended.rs` to implement key customization via a wrapper widget/event handling, instead of per-widget callback hooks.
+- **Message-bus-only `MaskedInput` integration (breaking)**
+  - Removed `MaskedInput::on_change`; `MaskedInput` now follows the same message-only integration model as `Input`/`TextArea`.
+  - Kept `Message::InputChanged` / `Message::InputSubmitted` as the supported integration surface and added regression coverage for change message emission.
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.

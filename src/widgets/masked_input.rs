@@ -1,7 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Instant;
 
 use crate::event::{Event, EventCtx};
@@ -476,7 +475,6 @@ pub struct MaskedInput {
     placeholder: String,
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
-    on_change: Option<Arc<dyn Fn(&mut MaskedInput) + Send + Sync>>,
     chrome: InputChrome,
     styles: WidgetStyles,
 }
@@ -495,7 +493,6 @@ impl MaskedInput {
             placeholder: String::new(),
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
-            on_change: None,
             chrome: InputChrome::new(),
             styles: WidgetStyles::default(),
         };
@@ -522,11 +519,6 @@ impl MaskedInput {
     pub fn with_validators(mut self, validators: Vec<ValidatorRef>) -> Self {
         self.validators = validators;
         self.revalidate();
-        self
-    }
-
-    pub fn on_change(mut self, handler: impl Fn(&mut MaskedInput) + Send + Sync + 'static) -> Self {
-        self.on_change = Some(Arc::new(handler));
         self
     }
 
@@ -572,12 +564,6 @@ impl MaskedInput {
         self.value.iter().collect()
     }
 
-    fn notify_changed(&mut self) {
-        if let Some(handler) = self.on_change.clone() {
-            handler(self);
-        }
-    }
-
     fn post_changed(&mut self, ctx: &mut EventCtx) {
         ctx.post_message(
             self.id,
@@ -586,7 +572,6 @@ impl MaskedInput {
                 validation: self.validation_result.clone(),
             },
         );
-        self.notify_changed();
     }
 
     fn revalidate(&mut self) {
@@ -1081,6 +1066,8 @@ impl Renderable for MaskedInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::KeyEvent;
 
     #[test]
     fn template_parse_phone() {
@@ -1268,5 +1255,26 @@ mod tests {
     fn masked_input_style_type() {
         let mi = MaskedInput::new("999");
         assert_eq!(mi.style_type(), "MaskedInput");
+    }
+
+    #[test]
+    fn masked_input_typing_emits_input_changed_message() {
+        let mut input = MaskedInput::new("999");
+        input.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('1'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::InputChanged { ref value, .. } if value.starts_with('1')
+        )));
     }
 }
