@@ -509,11 +509,18 @@ impl Widget for Tabs {
         let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let base_underline_style = crate::css::resolve_component_style(self, &["tabs--underline"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+        let mut base_underline_classes = vec!["tabs--underline"];
+        let mut active_underline_classes = vec!["tabs--underline", "-active"];
+        if self.focused {
+            base_underline_classes.push("-focus");
+            active_underline_classes.push("-focus");
+        }
+        let base_underline_style =
+            crate::css::resolve_component_style(self, &base_underline_classes)
+                .to_rich()
+                .unwrap_or_else(rich_rs::Style::new);
         let active_underline_style =
-            crate::css::resolve_component_style(self, &["tabs--underline", "-active"])
+            crate::css::resolve_component_style(self, &active_underline_classes)
                 .to_rich()
                 .unwrap_or(base_underline_style);
 

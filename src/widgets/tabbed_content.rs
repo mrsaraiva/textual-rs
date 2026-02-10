@@ -536,12 +536,18 @@ impl Widget for TabbedContent {
         let bar_style = crate::css::resolve_component_style(self, &["tabbed-content--bar"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
+        let mut base_underline_classes = vec!["tabbed-content--underline"];
+        let mut active_underline_classes = vec!["tabbed-content--underline", "-active"];
+        if self.focused {
+            base_underline_classes.push("-focus");
+            active_underline_classes.push("-focus");
+        }
         let base_underline_style =
-            crate::css::resolve_component_style(self, &["tabbed-content--underline"])
+            crate::css::resolve_component_style(self, &base_underline_classes)
                 .to_rich()
                 .unwrap_or_else(rich_rs::Style::new);
         let active_underline_style =
-            crate::css::resolve_component_style(self, &["tabbed-content--underline", "-active"])
+            crate::css::resolve_component_style(self, &active_underline_classes)
                 .to_rich()
                 .unwrap_or(base_underline_style);
 
