@@ -8,6 +8,9 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **CI pipeline baseline tracked as done (Phase 0)**
+  - Confirmed repository CI workflow runs `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets` on push/PR.
+  - Updated `ROADMAP.md` to mark the Phase 0 CI task as done and removed CI from open v0.2 next-priority backlog.
 - **Grapheme-safe text editing core (Input/TextArea foundation)**
   - Added shared grapheme-aware text indexing helpers in `src/widgets/text_edit.rs` (boundary clamping, left/right navigation, and cell/byte mapping).
   - Migrated `Input` and `TextArea` cursor movement, backspace/delete behavior, mouse hit-testing, and width-aware rendering loops to use grapheme boundaries.

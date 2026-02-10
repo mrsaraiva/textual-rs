@@ -17,7 +17,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Status | Task | Notes |
 |--------|------|-------|
 | Done | Create crate layout | `textual` crate with `src/` modules and `examples/` |
-| Todo | Add CI (fmt, clippy, tests) | Keep toolchain stable |
+| Done | Add CI (fmt, clippy, tests) | GitHub Actions workflow runs `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --all-targets` on push/PR |
 | Done | Add snapshot testing harness | SVG demo snapshot harness + shared helper (`tests/snapshots.rs`) |
 | Done | Add minimal example app | Multiple examples: `buttons`, `hello`, stylesheet hot-reload, etc. |
 | Done | Async runtime decision | **Tokio** core runtime (with sync/blocking convenience runners for simple apps/examples) |
@@ -439,5 +439,4 @@ Reference plan:
 - Dirty invalidation — avoid full re-render every tick. (**MVP done**; next: selective relayout / dirty regions)
 - Message bus — decouple widget events from direct callbacks.
 - One-shot timers + animation framework.
-- CI pipeline (fmt, clippy, tests).
 - Expand test coverage beyond snapshot smoke tests.
