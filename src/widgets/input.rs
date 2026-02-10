@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::sync::Arc;
 use std::time::Instant;
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
@@ -13,6 +13,10 @@ use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
+    text_edit::{
+        byte_index_from_cell_x, clamp_grapheme_boundary, grapheme_cell_width,
+        next_grapheme_boundary, prev_grapheme_boundary,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +124,7 @@ impl Input {
         if self.cursor > self.text.len() {
             self.cursor = self.text.len();
         }
+        self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
         self.selection = Selection::cursor(self.cursor);
         self.revalidate();
     }
@@ -127,22 +132,7 @@ impl Input {
     fn cursor_from_x(&self, x: u16) -> usize {
         // Mouse coordinates are content-local, so `x` maps to the rendered value text
         // (without borders / line-pad).
-        let mut cell_x: u16 = 0;
-        let mut last_boundary: usize = 0;
-        for (byte_idx, ch) in self.text.char_indices() {
-            let w = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
-            let w = w.max(1);
-            let mid = cell_x.saturating_add(w / 2);
-            if x <= mid {
-                return byte_idx;
-            }
-            cell_x = cell_x.saturating_add(w);
-            last_boundary = byte_idx + ch.len_utf8();
-            if x < cell_x {
-                return last_boundary;
-            }
-        }
-        last_boundary
+        byte_index_from_cell_x(&self.text, x as usize)
     }
 
     fn is_allowed_char(&self, ch: char) -> bool {
@@ -301,6 +291,7 @@ impl Widget for Input {
                         if self.is_allowed_char(ch) {
                             self.text.insert(self.cursor, ch);
                             self.cursor += ch.len_utf8();
+                            self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
                             self.selection = Selection::cursor(self.cursor);
                             self.revalidate();
                             self.post_changed(ctx);
@@ -321,12 +312,7 @@ impl Widget for Input {
                 }
                 KeyCode::Backspace => {
                     if self.cursor > 0 {
-                        // Move to previous UTF-8 boundary.
-                        let prev = self.text[..self.cursor]
-                            .char_indices()
-                            .last()
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
+                        let prev = prev_grapheme_boundary(&self.text, self.cursor);
                         self.text.drain(prev..self.cursor);
                         self.cursor = prev;
                         self.selection = Selection::cursor(self.cursor);
@@ -339,11 +325,7 @@ impl Widget for Input {
                 }
                 KeyCode::Delete => {
                     if self.cursor < self.text.len() {
-                        let next = self.text[self.cursor..]
-                            .char_indices()
-                            .nth(1)
-                            .map(|(i, _)| self.cursor + i)
-                            .unwrap_or(self.text.len());
+                        let next = next_grapheme_boundary(&self.text, self.cursor);
                         self.text.drain(self.cursor..next);
                         self.selection = Selection::cursor(self.cursor);
                         self.revalidate();
@@ -355,11 +337,7 @@ impl Widget for Input {
                 }
                 KeyCode::Left => {
                     if self.cursor > 0 {
-                        self.cursor = self.text[..self.cursor]
-                            .char_indices()
-                            .last()
-                            .map(|(i, _)| i)
-                            .unwrap_or(0);
+                        self.cursor = prev_grapheme_boundary(&self.text, self.cursor);
                         self.selection = Selection::cursor(self.cursor);
                         self.chrome.reset_blink();
                         ctx.request_repaint();
@@ -368,11 +346,7 @@ impl Widget for Input {
                 }
                 KeyCode::Right => {
                     if self.cursor < self.text.len() {
-                        self.cursor = self.text[self.cursor..]
-                            .char_indices()
-                            .nth(1)
-                            .map(|(i, _)| self.cursor + i)
-                            .unwrap_or(self.text.len());
+                        self.cursor = next_grapheme_boundary(&self.text, self.cursor);
                         self.selection = Selection::cursor(self.cursor);
                         self.chrome.reset_blink();
                         ctx.request_repaint();
@@ -487,8 +461,8 @@ impl Widget for Input {
             ));
         };
 
-        for (byte_idx, ch) in self.text.char_indices() {
-            let w = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+        for (byte_idx, grapheme) in self.text.grapheme_indices(true) {
+            let w = grapheme_cell_width(grapheme);
             if cells_used.saturating_add(w) > width {
                 break;
             }
@@ -513,7 +487,7 @@ impl Widget for Input {
                 flush(&mut out, &mut pending_style, &mut pending_text);
                 pending_style = style;
             }
-            pending_text.push(ch);
+            pending_text.push_str(grapheme);
             cells_used = cells_used.saturating_add(w);
         }
 
@@ -671,5 +645,35 @@ mod tests {
             messages[0].message,
             Message::InputSubmitted { ref value } if value == "done"
         ));
+    }
+
+    #[test]
+    fn left_and_backspace_respect_grapheme_clusters() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("a\u{0301}👩‍🚀z");
+        input.cursor = input.text.len();
+        input.selection = Selection::cursor(input.cursor);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Left,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        let cursor_after_left = input.cursor;
+        assert_eq!(&input.text[cursor_after_left..], "z");
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Backspace,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text, "a\u{0301}z");
     }
 }

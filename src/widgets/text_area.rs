@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::keys::KeyEventData;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
-use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
 use crate::style::{Color, Style, parse_color_like};
@@ -17,6 +17,11 @@ use crate::{Error, Result};
 use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    text_edit::{
+        byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
+        cell_len_prefix as grapheme_cell_len_prefix, clamp_grapheme_boundary,
+        grapheme_cell_width as grapheme_width, next_grapheme_boundary, prev_grapheme_boundary,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -487,7 +492,7 @@ impl TextArea {
         self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
         let line_len = self.lines[self.cursor.row].len();
         self.cursor.col = self.cursor.col.min(line_len);
-        self.cursor.col = prev_char_boundary(&self.lines[self.cursor.row], self.cursor.col);
+        self.cursor.col = clamp_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
         self.selection = Selection::cursor(self.cursor);
     }
 
@@ -498,7 +503,7 @@ impl TextArea {
         let row = cursor.row.min(self.lines.len().saturating_sub(1));
         let line = self.lines.get(row).map(String::as_str).unwrap_or("");
         let mut col = cursor.col.min(line.len());
-        col = prev_char_boundary(line, col);
+        col = clamp_grapheme_boundary(line, col);
         Cursor { row, col }
     }
 
@@ -517,12 +522,12 @@ impl TextArea {
             .get(self.cursor.row)
             .map(String::as_str)
             .unwrap_or("");
-        cell_len_prefix(line, self.cursor.col)
+        grapheme_cell_len_prefix(line, self.cursor.col)
     }
 
     fn cursor_from_cell_x(&self, row: usize, cell_x: usize) -> usize {
         let line = self.lines.get(row).map(String::as_str).unwrap_or("");
-        byte_index_from_cell_x(line, cell_x)
+        grapheme_byte_index_from_cell_x(line, cell_x)
     }
 
     fn cursor_left_pos(&self, from: Cursor) -> Cursor {
@@ -532,7 +537,7 @@ impl TextArea {
         let row = from.row.min(self.lines.len().saturating_sub(1));
         if from.col > 0 {
             let line = &self.lines[row];
-            let col = prev_char_boundary(line, from.col);
+            let col = prev_grapheme_boundary(line, from.col);
             Cursor { row, col }
         } else if row > 0 {
             let row = row - 1;
@@ -550,7 +555,7 @@ impl TextArea {
         let row = from.row.min(self.lines.len().saturating_sub(1));
         let line_len = self.lines[row].len();
         if from.col < line_len {
-            let next = next_char_boundary(&self.lines[row], from.col);
+            let next = next_grapheme_boundary(&self.lines[row], from.col);
             Cursor { row, col: next }
         } else if row + 1 < self.lines.len() {
             Cursor {
@@ -640,7 +645,7 @@ impl TextArea {
         let line = &mut self.lines[row];
         line.insert_str(col, text);
         self.cursor.col += text.len();
-        self.cursor.col = prev_char_boundary(line, self.cursor.col);
+        self.cursor.col = clamp_grapheme_boundary(line, self.cursor.col);
         self.selection = Selection::cursor(self.cursor);
         self.doc_revision = self.doc_revision.wrapping_add(1);
     }
@@ -668,7 +673,7 @@ impl TextArea {
         if self.cursor.col > 0 {
             let row = self.cursor.row;
             let line = &mut self.lines[row];
-            let prev = prev_char_boundary(line, self.cursor.col);
+            let prev = prev_grapheme_boundary(line, self.cursor.col);
             line.drain(prev..self.cursor.col);
             self.cursor.col = prev;
             self.selection = Selection::cursor(self.cursor);
@@ -694,7 +699,7 @@ impl TextArea {
         let col = self.cursor.col;
         let line_len = self.lines[row].len();
         if col < line_len {
-            let next = next_char_boundary(&self.lines[row], col);
+            let next = next_grapheme_boundary(&self.lines[row], col);
             self.lines[row].drain(col..next);
             self.doc_revision = self.doc_revision.wrapping_add(1);
         } else if row + 1 < self.lines.len() {
@@ -709,7 +714,7 @@ impl TextArea {
         self.cursor.row = row.min(self.lines.len().saturating_sub(1));
         let line_len = self.lines[self.cursor.row].len();
         self.cursor.col = col.min(line_len);
-        self.cursor.col = prev_char_boundary(&self.lines[self.cursor.row], self.cursor.col);
+        self.cursor.col = clamp_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
         self.selection = Selection::cursor(self.cursor);
     }
 
@@ -721,7 +726,7 @@ impl TextArea {
         }
         if self.cursor.col > 0 {
             let line = &self.lines[self.cursor.row];
-            self.cursor.col = prev_char_boundary(line, self.cursor.col);
+            self.cursor.col = prev_grapheme_boundary(line, self.cursor.col);
         } else if self.cursor.row > 0 {
             self.cursor.row -= 1;
             self.cursor.col = self.lines[self.cursor.row].len();
@@ -737,7 +742,7 @@ impl TextArea {
         }
         let line_len = self.lines[self.cursor.row].len();
         if self.cursor.col < line_len {
-            let next = next_char_boundary(&self.lines[self.cursor.row], self.cursor.col);
+            let next = next_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
             self.cursor.col = next;
         } else if self.cursor.row + 1 < self.lines.len() {
             self.cursor.row += 1;
@@ -1189,10 +1194,10 @@ impl Widget for TextArea {
             };
 
             let mut idx = 0usize;
-            for (byte_idx, ch) in line.char_indices() {
+            for (byte_idx, grapheme) in line.grapheme_indices(true) {
                 idx = byte_idx;
-                let w = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
-                let ch_cell_start = cell_len_prefix(line, byte_idx);
+                let w = grapheme_width(grapheme);
+                let ch_cell_start = grapheme_cell_len_prefix(line, byte_idx);
                 let ch_cell_end = ch_cell_start + w;
 
                 if ch_cell_end <= start_cell {
@@ -1202,7 +1207,6 @@ impl Widget for TextArea {
                     break;
                 }
 
-                let visible_ch = ch;
                 let is_cursor = self.focused
                     && self.cursor_visible
                     && row == self.cursor.row
@@ -1250,7 +1254,7 @@ impl Widget for TextArea {
                     continue;
                 }
 
-                pending_text.push(visible_ch);
+                pending_text.push_str(grapheme);
                 cell_x += w;
             }
             let _ = idx;
@@ -1258,7 +1262,7 @@ impl Widget for TextArea {
 
             // Cursor at end of line: paint a single cell with cursor style.
             if self.focused && self.cursor_visible && row == self.cursor.row {
-                let end_cell = cell_len_prefix(line, line.len());
+                let end_cell = grapheme_cell_len_prefix(line, line.len());
                 if self.cursor.col == line.len() && end_cell >= start_cell && cell_x < text_w {
                     out.push(Segment::styled(" ".to_string(), cursor_rich));
                     cell_x += 1;
@@ -1343,53 +1347,6 @@ fn split_lines(text: String) -> Vec<String> {
         lines.push(String::new());
     }
     lines
-}
-
-fn prev_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    while idx > 0 && !s.is_char_boundary(idx) {
-        idx -= 1;
-    }
-    idx
-}
-
-fn next_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    if idx >= s.len() {
-        return s.len();
-    }
-    idx += 1;
-    while idx < s.len() && !s.is_char_boundary(idx) {
-        idx += 1;
-    }
-    idx.min(s.len())
-}
-
-fn cell_len_prefix(s: &str, byte_end: usize) -> usize {
-    let mut cells = 0usize;
-    let end = byte_end.min(s.len());
-    for (_idx, ch) in s[..end].char_indices() {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
-        cells = cells.saturating_add(w);
-    }
-    cells
-}
-
-fn byte_index_from_cell_x(s: &str, target_cell: usize) -> usize {
-    let mut cells = 0usize;
-    let mut last = 0usize;
-    for (idx, ch) in s.char_indices() {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
-        if cells + w / 2 >= target_cell {
-            return idx;
-        }
-        cells += w;
-        last = idx + ch.len_utf8();
-        if cells >= target_cell {
-            return last;
-        }
-    }
-    last
 }
 
 fn normalized_selection(sel: Selection) -> (Cursor, Cursor) {

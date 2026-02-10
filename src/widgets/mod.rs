@@ -37,6 +37,7 @@ mod tabbed_content;
 mod tabs;
 mod text;
 mod text_area;
+mod text_edit;
 mod toast;
 mod tree;
 

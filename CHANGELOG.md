@@ -8,6 +8,10 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Grapheme-safe text editing core (Input/TextArea foundation)**
+  - Added shared grapheme-aware text indexing helpers in `src/widgets/text_edit.rs` (boundary clamping, left/right navigation, and cell/byte mapping).
+  - Migrated `Input` and `TextArea` cursor movement, backspace/delete behavior, mouse hit-testing, and width-aware rendering loops to use grapheme boundaries.
+  - Added targeted regression coverage for combining-mark and ZWJ emoji editing semantics (`src/widgets/input.rs` tests and `tests/text_area_widget.rs`).
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.
