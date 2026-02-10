@@ -8,7 +8,10 @@ use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 use crate::style::TransitionTiming;
 
-use super::{Input, KeyPanel, ListView, Widget, WidgetId, WidgetRenderable, WidgetStyles};
+use super::{
+    helpers::{collect_focus_ids, set_focus_by_id},
+    Input, KeyPanel, ListView, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+};
 
 #[derive(Debug, Clone)]
 pub struct PaletteCommand {
@@ -40,6 +43,7 @@ pub struct CommandPalette {
     key_panel_render_width: f32,
     panel_visible: bool,
     panel_render_y: f32,
+    previously_focused_child: Option<WidgetId>,
     layout_width: usize,
     layout_height: usize,
     styles: WidgetStyles,
@@ -79,6 +83,7 @@ impl CommandPalette {
             key_panel_render_width: 0.0,
             panel_visible: false,
             panel_render_y: 0.0,
+            previously_focused_child: None,
             layout_width: 1,
             layout_height: 1,
             styles: WidgetStyles::default(),
@@ -265,6 +270,44 @@ impl CommandPalette {
         self.list.set_selected(0);
     }
 
+    fn focused_widget_id(widget: &mut dyn Widget) -> Option<WidgetId> {
+        if widget.has_focus() {
+            return Some(widget.id());
+        }
+        let mut out = None;
+        widget.visit_children_mut(&mut |child| {
+            if out.is_none() {
+                out = Self::focused_widget_id(child);
+            }
+        });
+        out
+    }
+
+    fn child_contains_id(widget: &mut dyn Widget, target: WidgetId) -> bool {
+        if widget.id() == target {
+            return true;
+        }
+        let mut found = false;
+        widget.visit_children_mut(&mut |child| {
+            if !found {
+                found = Self::child_contains_id(child, target);
+            }
+        });
+        found
+    }
+
+    fn restore_child_focus(&mut self) {
+        if let Some(target) = self.previously_focused_child.take() {
+            if Self::child_contains_id(self.child.as_mut(), target) {
+                set_focus_by_id(self.child.as_mut(), Some(target));
+                return;
+            }
+        }
+        let mut ids = Vec::new();
+        collect_focus_ids(self.child.as_mut(), &mut ids);
+        set_focus_by_id(self.child.as_mut(), ids.first().copied());
+    }
+
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
         if self.open == open
             && ((self.open && self.panel_visible) || (!self.open && !self.panel_visible))
@@ -276,6 +319,8 @@ impl CommandPalette {
         self.open = open;
         if self.open {
             self.panel_visible = true;
+            self.previously_focused_child = Self::focused_widget_id(self.child.as_mut());
+            set_focus_by_id(self.child.as_mut(), None);
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
@@ -291,6 +336,7 @@ impl CommandPalette {
         } else {
             self.query.set_focus(false);
             self.list.set_focus(false);
+            self.restore_child_focus();
             let start_y = self.panel_render_y;
             if was_visible {
                 self.animate_panel_y(start_y, Self::CLOSED_PANEL_Y, ctx);
@@ -659,6 +705,12 @@ impl Widget for CommandPalette {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if matches!(event, Event::AppFocus(..)) {
+            self.child.on_event_capture(event, ctx);
+            self.query.on_event_capture(event, ctx);
+            self.list.on_event_capture(event, ctx);
+            return;
+        }
         if self.open {
             self.query.on_event_capture(event, ctx);
             if !ctx.handled() {
@@ -702,6 +754,15 @@ impl Widget for CommandPalette {
         }
         if matches!(event, Event::BindingsChanged(_)) {
             self.key_panel.on_event(event, ctx);
+        }
+        if let Event::AppFocus(active) = event {
+            self.query.on_event(event, ctx);
+            self.list.on_event(event, ctx);
+            self.child.on_event(event, ctx);
+            if self.open && !*active {
+                self.set_open(false, ctx);
+            }
+            return;
         }
 
         if let Event::Action(Action::CommandPalette) = event {
@@ -806,6 +867,17 @@ impl Widget for CommandPalette {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if self.open
+            && matches!(
+                message.message,
+                Message::OverlaySetVisible { .. }
+                    | Message::OverlayToggle { .. }
+                    | Message::OverlayDismissRequested { .. }
+                    | Message::OverlayVisibilityChanged { .. }
+            )
+        {
+            self.set_open(false, ctx);
+        }
         self.query.on_message(message, ctx);
         self.list.on_message(message, ctx);
         self.key_panel.on_message(message, ctx);
@@ -876,11 +948,49 @@ impl Renderable for CommandPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::css::{StyleSheet, set_style_context};
+    use crate::css::{set_style_context, StyleSheet};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::{CommandPaletteCommand, Message};
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    struct FocusProbe {
+        id: WidgetId,
+        focused: Arc<AtomicBool>,
+    }
+
+    impl FocusProbe {
+        fn new(focused: Arc<AtomicBool>) -> Self {
+            Self {
+                id: WidgetId::new(),
+                focused,
+            }
+        }
+    }
+
+    impl Widget for FocusProbe {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused.store(focused, Ordering::Relaxed);
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused.load(Ordering::Relaxed)
+        }
+    }
 
     #[test]
     fn command_palette_toggles_from_action() {
@@ -913,12 +1023,9 @@ mod tests {
         palette.on_event(&Event::Key(key), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
-        assert!(
-            messages.iter().any(|event| matches!(
-                event.message,
-                Message::CommandPaletteCommandSelected { .. }
-            ))
-        );
+        assert!(messages
+            .iter()
+            .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected { .. })));
         assert!(!palette.is_open());
     }
 
@@ -1068,5 +1175,96 @@ mod tests {
         assert_eq!(close_requests.len(), 1);
         assert_eq!(close_requests[0].attribute, CommandPalette::PANEL_Y_ATTR);
         assert!(close_requests[0].end <= close_requests[0].start);
+    }
+
+    #[test]
+    fn command_palette_restores_child_focus_on_close() {
+        let child_focus = Arc::new(AtomicBool::new(true));
+        let child = FocusProbe::new(child_focus.clone());
+        let mut palette = CommandPalette::new(child);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+        assert!(!child_focus.load(Ordering::Relaxed));
+
+        let mut close_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        assert!(!palette.is_open());
+        assert!(child_focus.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn command_palette_closes_on_overlay_visibility_change_message() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let mut transition_ctx = EventCtx::default();
+        palette.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::OverlayVisibilityChanged {
+                    overlay: WidgetId::new(),
+                    visible: true,
+                },
+            },
+            &mut transition_ctx,
+        );
+        assert!(!palette.is_open());
+        let messages = transition_ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+    }
+
+    #[test]
+    fn command_palette_closes_on_app_focus_loss() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let mut focus_ctx = EventCtx::default();
+        palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
+        assert!(!palette.is_open());
+        let messages = focus_ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+    }
+
+    #[test]
+    fn command_palette_selection_message_emits_before_close_message() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let down = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        ));
+        let mut nav_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(down), &mut nav_ctx);
+
+        let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+        let mut execute_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        let messages = execute_ctx.take_messages();
+        let selected_idx = messages.iter().position(|event| {
+            matches!(event.message, Message::CommandPaletteCommandSelected { .. })
+        });
+        let close_idx = messages
+            .iter()
+            .position(|event| matches!(event.message, Message::CommandPaletteClosed));
+
+        assert!(selected_idx.is_some());
+        assert!(close_idx.is_some());
+        assert!(selected_idx < close_idx);
     }
 }
