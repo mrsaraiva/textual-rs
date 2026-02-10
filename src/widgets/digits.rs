@@ -351,7 +351,12 @@ impl Digits {
     }
 
     /// Apply text alignment to rendered rows within the given width.
-    fn align_rows(rows: [String; 3], content_width: usize, available_width: usize, align: DigitsAlign) -> [String; 3] {
+    fn align_rows(
+        rows: [String; 3],
+        content_width: usize,
+        available_width: usize,
+        align: DigitsAlign,
+    ) -> [String; 3] {
         if available_width <= content_width {
             return rows;
         }

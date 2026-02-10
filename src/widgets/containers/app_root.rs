@@ -10,8 +10,8 @@ use crate::event::{Action, Event, EventCtx};
 use crate::widgets::{
     Widget, WidgetId, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
-        collect_focus_ids, dispatch_event_to_focus, fixed_height_from_constraints,
+        apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
+        constraints_from_style, dispatch_event_to_focus, fixed_height_from_constraints,
         margin_from_style, merge_constraints, pad_lines_to_width, set_focus_by_id,
     },
 };
@@ -503,10 +503,10 @@ impl Renderable for AppRoot {
 mod focus_tests {
     use super::*;
     use crate::css::{StyleSheet, set_style_context};
+    use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{
         Button, Horizontal, Input, ListView, VerticalScroll, collect_focus_ids, set_focus_by_id,
     };
-    use crate::widgets::containers::{Container, Panel, ScrollView};
     use rich_rs::Console;
 
     #[test]

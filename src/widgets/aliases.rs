@@ -38,8 +38,7 @@ fn scrollbar_thumb(
     let travel_f = (track_f - thumb_size_f).max(0.0);
     let thumb_start = (travel_f * position_ratio)
         .floor()
-        .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
-        as usize;
+        .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64) as usize;
     (thumb_start, thumb_len)
 }
 
@@ -295,9 +294,8 @@ impl Widget for VerticalScroll {
                     0
                 })
                 .max(1);
-            let target_height = child_layout_height.unwrap_or_else(|| {
-                viewport_height.saturating_add(viewport_height).max(1)
-            });
+            let target_height = child_layout_height
+                .unwrap_or_else(|| viewport_height.saturating_add(viewport_height).max(1));
             let render_width = clamp_with_constraints(
                 viewport_w,
                 constraints.min_width,
@@ -322,8 +320,13 @@ impl Widget for VerticalScroll {
             let raw_lines_height = candidate.len();
             if let Some(height) = child_layout_height {
                 let effective_height = height.max(raw_lines_height).max(1);
-                candidate =
-                    Segment::set_shape(&candidate, render_width, Some(effective_height), None, false);
+                candidate = Segment::set_shape(
+                    &candidate,
+                    render_width,
+                    Some(effective_height),
+                    None,
+                    false,
+                );
             }
             candidate = pad_lines_to_width(candidate, render_width);
 
@@ -352,7 +355,13 @@ impl Widget for VerticalScroll {
                 adjust_line_length_no_bg(&cropped, content_viewport_w)
             })
             .collect::<Vec<_>>();
-        slice = Segment::set_shape(&slice, content_viewport_w, Some(viewport_height), None, false);
+        slice = Segment::set_shape(
+            &slice,
+            content_viewport_w,
+            Some(viewport_height),
+            None,
+            false,
+        );
 
         if show_v {
             let track_len = viewport_height.max(1);
@@ -360,12 +369,12 @@ impl Widget for VerticalScroll {
                 scrollbar_thumb(track_len, content_height, viewport_height, offset);
             let bar_width = width.saturating_sub(content_viewport_w).max(1);
             for (row, line) in slice.iter_mut().enumerate() {
-                let style = if row < track_len && row >= thumb_start && row < thumb_start + thumb_len
-                {
-                    thumb_style
-                } else {
-                    track_style
-                };
+                let style =
+                    if row < track_len && row >= thumb_start && row < thumb_start + thumb_len {
+                        thumb_style
+                    } else {
+                        track_style
+                    };
                 for _ in 0..bar_width {
                     line.push(Segment::styled(" ".to_string(), style));
                 }
@@ -550,7 +559,9 @@ impl Widget for HorizontalScroll {
         let mut content_width = viewport_width;
 
         for _ in 0..2 {
-            let viewport_h = viewport_height.saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 }).max(1);
+            let viewport_h = viewport_height
+                .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                .max(1);
             let target_width = self
                 .child
                 .content_width()
@@ -613,8 +624,13 @@ impl Widget for HorizontalScroll {
                 adjust_line_length_no_bg(&cropped, viewport_width)
             })
             .collect::<Vec<_>>();
-        let mut slice =
-            Segment::set_shape(&slice, viewport_width, Some(content_viewport_h), None, false);
+        let mut slice = Segment::set_shape(
+            &slice,
+            viewport_width,
+            Some(content_viewport_h),
+            None,
+            false,
+        );
 
         if show_h {
             let (thumb_start, thumb_len) =

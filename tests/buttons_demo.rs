@@ -154,7 +154,10 @@ fn disabled_non_flat_primary_text_is_dimmer_than_enabled() {
     let buf = textual::render::FrameBuffer::from_renderable(&console, &options, &renderable, None);
     let plain = buf.as_plain_lines().join("\n");
 
-    let line = plain.lines().find(|line| line.contains("Primary!")).expect("line");
+    let line = plain
+        .lines()
+        .find(|line| line.contains("Primary!"))
+        .expect("line");
     let first = line.find("Primary!").expect("first primary");
     let second = line[first + "Primary!".len()..]
         .find("Primary!")

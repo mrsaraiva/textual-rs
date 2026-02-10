@@ -5,8 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    LayoutConstraints, Widget, WidgetId, WidgetStyles,
-    helpers::merge_constraints,
+    LayoutConstraints, Widget, WidgetId, WidgetStyles, helpers::merge_constraints,
 };
 
 pub struct Constrained {

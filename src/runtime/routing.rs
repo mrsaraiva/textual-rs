@@ -329,13 +329,13 @@ fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mu
 mod message_tests {
     use super::*;
     use crate::event::{MouseDownEvent, MouseUpEvent};
+    use crate::keys::KeyEventData;
     use crate::message::Message;
     use crate::widgets::{AppRoot, Button, ScrollView};
     use crossterm::event::{KeyCode, KeyModifiers};
-    use crate::keys::KeyEventData;
     use rich_rs::{Console, ConsoleOptions};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Child {
         id: WidgetId,

@@ -1,7 +1,7 @@
 use crate::event::{AnimationRequest, BindingHint};
 use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
-use crate::widgets::{border_spacing_from_style, ToastSeverity, Widget, WidgetId};
+use crate::widgets::{ToastSeverity, Widget, WidgetId, border_spacing_from_style};
 use rich_rs::MetaValue;
 use std::collections::HashMap;
 use std::path::PathBuf;

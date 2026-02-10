@@ -24,7 +24,11 @@ fn pretty_switches_to_multiline_when_narrow() {
     let buffer = FrameBuffer::from_renderable(&console, &options, &pretty, None);
     let lines = buffer.as_plain_lines();
     // With rich_rs::Pretty, the output should expand to multiple lines when narrow
-    assert!(lines.len() > 1, "Expected multi-line output, got: {:?}", lines);
+    assert!(
+        lines.len() > 1,
+        "Expected multi-line output, got: {:?}",
+        lines
+    );
 }
 
 #[test]

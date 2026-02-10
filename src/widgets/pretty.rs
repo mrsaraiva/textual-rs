@@ -136,7 +136,6 @@ impl Pretty {
     fn rich_pretty(&self) -> rich_rs::pretty::Pretty {
         rich_rs::pretty::Pretty::from_str(self.debug_str())
     }
-
 }
 
 impl Debug for Pretty {
@@ -172,13 +171,8 @@ impl Widget for Pretty {
 
         // Collect into lines for width adjustment
         let raw: Vec<Segment> = segments.into_iter().collect();
-        let lines = Segment::split_and_crop_lines(
-            Segments::from_iter(raw),
-            width,
-            None,
-            true,
-            false,
-        );
+        let lines =
+            Segment::split_and_crop_lines(Segments::from_iter(raw), width, None, true, false);
 
         let mut out = Segments::new();
         let line_count = lines.len();
@@ -212,7 +206,8 @@ impl Widget for Pretty {
         if debug_str.is_empty() {
             return Some(1);
         }
-        let text = rich_rs::pretty::pretty_repr(&debug_str, self.layout_width, 4, None, None, None, false);
+        let text =
+            rich_rs::pretty::pretty_repr(&debug_str, self.layout_width, 4, None, None, None, false);
         Some(text.lines().count().max(1))
     }
 

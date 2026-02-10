@@ -9,13 +9,13 @@ use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKi
 use rich_rs::Renderable;
 use std::time::{Duration, Instant};
 
+use super::App;
 use super::helpers::{any_widget_active, mouse_scroll_deltas, should_quit_key};
 use super::routing::{
     dispatch_event, dispatch_event_to_target, dispatch_message_queue, dispatch_mouse_scroll,
     dispatch_mouse_scroll_to_target, dispatch_scroll_action, is_priority_action, is_scroll_action,
 };
 use super::types::DispatchOutcome;
-use super::App;
 use crate::widgets::Widget;
 
 impl App {
@@ -39,7 +39,10 @@ impl App {
             if event::poll(timeout)? {
                 match event::read()? {
                     CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
-                        if matches!(key.code, crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ')) {
+                        if matches!(
+                            key.code,
+                            crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ')
+                        ) {
                             debug_input(&format!("[input] key {:?}", key.code));
                         }
                         if should_quit_key(&key, &self.quit_keys) {
@@ -493,10 +496,7 @@ impl App {
         self.enqueue_animation_requests(requests);
     }
 
-    pub(super) fn dispatch_animation_frame(
-        &mut self,
-        root: &mut dyn Widget,
-    ) -> DispatchOutcome {
+    pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         let updates = self.animator.step(Instant::now(), self.animation_level);
         if updates.is_empty() {
             return DispatchOutcome::default();

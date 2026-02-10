@@ -62,9 +62,7 @@ impl Eta {
         }
         let prune_time = self.samples.last().map(|s| s.0).unwrap_or(0.0) - self.estimation_period;
         // Binary search for the first sample at or after prune_time.
-        let index = self
-            .samples
-            .partition_point(|&(t, _)| t < prune_time);
+        let index = self.samples.partition_point(|&(t, _)| t < prune_time);
         if index > 0 {
             self.samples.drain(..index);
         }
@@ -451,7 +449,11 @@ impl Widget for ProgressBar {
         }
 
         // Compute bar width (leave room for suffix with a space separator).
-        let suffix_width = if suffix.is_empty() { 0 } else { suffix.len() + 1 };
+        let suffix_width = if suffix.is_empty() {
+            0
+        } else {
+            suffix.len() + 1
+        };
         let bar_width = if self.show_bar {
             total_width.saturating_sub(suffix_width)
         } else {

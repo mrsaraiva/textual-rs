@@ -324,7 +324,10 @@ mod tests {
         let ph = Placeholder::new("test").with_variant(PlaceholderVariant::Text);
         let text = ph.render_text(80, 24);
         // Python uses "\n\n".join() — check for paragraph breaks.
-        assert!(text.contains("\n\n"), "text variant should contain paragraph breaks");
+        assert!(
+            text.contains("\n\n"),
+            "text variant should contain paragraph breaks"
+        );
         // Should repeat LOREM_IPSUM 5 times.
         assert_eq!(text.matches(LOREM_IPSUM).count(), 5);
     }

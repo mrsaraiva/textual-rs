@@ -328,7 +328,11 @@ mod tests {
         ];
         for s in styles {
             let ch = s.horizontal_char();
-            assert!(!ch.is_empty(), "horizontal_char for {:?} should not be empty", s);
+            assert!(
+                !ch.is_empty(),
+                "horizontal_char for {:?} should not be empty",
+                s
+            );
         }
     }
 
@@ -347,7 +351,11 @@ mod tests {
         ];
         for s in styles {
             let ch = s.vertical_char();
-            assert!(!ch.is_empty(), "vertical_char for {:?} should not be empty", s);
+            assert!(
+                !ch.is_empty(),
+                "vertical_char for {:?} should not be empty",
+                s
+            );
         }
     }
 

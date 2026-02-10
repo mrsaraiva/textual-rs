@@ -5,8 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 
 use crate::widgets::{
-    Widget, WidgetId, WidgetRenderable, WidgetStyles,
-    helpers::fixed_height_from_constraints,
+    Widget, WidgetId, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
 };
 
 pub struct Overlay {

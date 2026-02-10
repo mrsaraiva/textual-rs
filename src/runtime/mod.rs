@@ -4,9 +4,9 @@ mod render;
 mod routing;
 mod types;
 
-use crate::animation::{animation_level_from_env, Animator};
-use crate::css::{default_widget_stylesheet, StyleSheet};
-use crate::debug::{debug_render, DebugLayout};
+use crate::animation::{Animator, animation_level_from_env};
+use crate::css::{StyleSheet, default_widget_stylesheet};
+use crate::debug::{DebugLayout, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
 use crate::event::{ActionMap, BindingHint, KeyBind};
 use crate::render::FrameBuffer;
@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use types::{
-    AppNotification, BindingHintEntry, HitTestMap, StylesheetWatcher, DEFAULT_NOTIFICATION_TIMEOUT,
+    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetWatcher,
 };
 
 use helpers::{apply_size, default_action_map};

@@ -187,7 +187,6 @@ impl TextualApp for HelloApp {
     fn css_path(&self) -> Option<&'static str> {
         Some("demo.css")
     }
-
 }
 
 fn main() -> Result<()> {

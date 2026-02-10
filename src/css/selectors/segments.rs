@@ -190,9 +190,10 @@ pub(crate) fn apply_widget_opacity_to_segments(
                 let mut fg = fg;
                 fg.a = ((fg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
                 let mut flat_fg = fg.flatten_over(parent_bg);
-                if let (Some(src_bg), Some(dst_bg)) =
-                    (original_bg, style.bgcolor.map(crate::style::color_from_simple))
-                {
+                if let (Some(src_bg), Some(dst_bg)) = (
+                    original_bg,
+                    style.bgcolor.map(crate::style::color_from_simple),
+                ) {
                     if src_bg == fg_source {
                         flat_fg = dst_bg;
                     }

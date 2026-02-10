@@ -106,12 +106,7 @@ pub(crate) fn default_action_map() -> ActionMap {
     map
 }
 
-pub(crate) fn call_on_mouse_move(
-    root: &mut dyn Widget,
-    target: WidgetId,
-    x: u16,
-    y: u16,
-) -> bool {
+pub(crate) fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) -> bool {
     fn visit(w: &mut dyn Widget, id: WidgetId, x: u16, y: u16, out: &mut Option<bool>) {
         if out.is_some() {
             return;

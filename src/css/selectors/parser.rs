@@ -5,9 +5,7 @@ use crate::style::{
     parse_color_like,
 };
 
-use super::ast::{
-    Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet,
-};
+use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
 
 impl StyleSheet {
     pub fn parse(input: &str) -> Self {

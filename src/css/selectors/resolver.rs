@@ -2,7 +2,7 @@ use crate::style::Style;
 use crate::widgets::Widget;
 
 use super::ast::{SelectorMeta, SelectorStates, StyleSheet};
-use super::context::{app_is_active, SELECTOR_STACK, STYLE_CONTEXT, STYLE_STACK};
+use super::context::{SELECTOR_STACK, STYLE_CONTEXT, STYLE_STACK, app_is_active};
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
 

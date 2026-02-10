@@ -199,9 +199,7 @@ pub async fn run_snapshot<T: TextualApp>(definition: T) -> Result<()> {
 }
 
 /// Variant of `run_snapshot` that returns optional app output.
-pub async fn run_snapshot_with_output<T: TextualApp>(
-    mut definition: T,
-) -> Result<Option<String>> {
+pub async fn run_snapshot_with_output<T: TextualApp>(mut definition: T) -> Result<Option<String>> {
     if let Some(args) = SnapshotArgs::parse() {
         let widget = definition.compose_for_snapshot();
         let css_path = definition.snapshot_css_path().map(Path::new);

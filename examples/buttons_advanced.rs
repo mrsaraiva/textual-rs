@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use rich_rs::{Segment, Segments};
 use textual::prelude::*;
-use textual::style::{parse_color_like, Color};
+use textual::style::{Color, parse_color_like};
 
 struct ButtonsAdvancedApp {
     status: Arc<Mutex<String>>,

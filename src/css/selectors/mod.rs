@@ -19,7 +19,9 @@ pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segme
 
 #[cfg(test)]
 mod tests {
-    use super::parser::{parse_duration, parse_style_body, parse_transition_shorthand, parse_transition_timing};
+    use super::parser::{
+        parse_duration, parse_style_body, parse_transition_shorthand, parse_transition_timing,
+    };
     use super::resolver::{resolve_style, selector_meta_generic};
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
     use crate::css::default_widget_stylesheet;
@@ -77,7 +79,10 @@ mod tests {
     #[test]
     fn parses_auto_foreground_styles() {
         let style = parse_style_body("fg: auto 87%;");
-        assert!(style.fg.is_none(), "auto fg should not set a concrete color");
+        assert!(
+            style.fg.is_none(),
+            "auto fg should not set a concrete color"
+        );
         assert_eq!(
             style.fg_auto.map(|auto| auto.alpha_percent),
             Some(87),
@@ -88,7 +93,10 @@ mod tests {
     #[test]
     fn parses_auto_foreground_from_text_token() {
         let style = parse_style_body("fg: $button-color-foreground;");
-        assert!(style.fg.is_none(), "token should resolve to auto fg semantics");
+        assert!(
+            style.fg.is_none(),
+            "token should resolve to auto fg semantics"
+        );
         assert_eq!(
             style.fg_auto.map(|auto| auto.alpha_percent),
             Some(87),
@@ -146,8 +154,8 @@ mod tests {
     #[test]
     fn text_opacity_applies_to_existing_foreground() {
         let mut segments = Segments::new();
-        let rich_style =
-            rich_rs::Style::new().with_color(crate::style::Color::rgb(255, 255, 255).to_simple_opaque());
+        let rich_style = rich_rs::Style::new()
+            .with_color(crate::style::Color::rgb(255, 255, 255).to_simple_opaque());
         segments.push(Segment::styled("x", rich_style));
 
         let style = parse_style_body("bg: #000000; text-opacity: 50%;");
@@ -197,7 +205,10 @@ mod tests {
         let enabled_style = resolve_style(&enabled, &selector_meta_generic(&enabled));
         let disabled_style = resolve_style(&disabled, &selector_meta_generic(&disabled));
 
-        assert_eq!(enabled_style.fg_auto.map(|value| value.alpha_percent), Some(87));
+        assert_eq!(
+            enabled_style.fg_auto.map(|value| value.alpha_percent),
+            Some(87)
+        );
         assert_eq!(
             disabled_style.fg_auto.map(|value| value.alpha_percent),
             Some(87),

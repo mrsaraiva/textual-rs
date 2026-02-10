@@ -1,14 +1,14 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::debug_render;
 use crate::render::FrameBuffer;
-use crate::widgets::{border_spacing_from_style, Toast, Widget};
+use crate::widgets::{Toast, Widget, border_spacing_from_style};
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
-use super::types::{
-    resize_trace_enabled, HitTestMap, SegmentStreamStats, SYNC_END, SYNC_START, TOAST_GAP_ROWS,
-    TOAST_SIDE_MARGIN,
-};
 use super::App;
+use super::types::{
+    HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS, TOAST_SIDE_MARGIN,
+    resize_trace_enabled,
+};
 
 impl App {
     pub fn render(&mut self, renderable: &dyn Renderable) -> crate::Result<()> {
@@ -250,10 +250,7 @@ pub(crate) fn prepend_clear_if_needed(diff: Segments, clear_before_draw: bool) -
     out
 }
 
-pub(crate) fn analyze_segment_stream(
-    segments: &Segments,
-    width: usize,
-) -> SegmentStreamStats {
+pub(crate) fn analyze_segment_stream(segments: &Segments, width: usize) -> SegmentStreamStats {
     let mut stats = SegmentStreamStats::default();
     let mut cursor_x = 0usize;
     let mut cursor_y = 0usize;
@@ -361,8 +358,8 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::types::{SYNC_END, SYNC_START};
+    use super::*;
 
     #[test]
     fn sync_output_wraps_payload_when_enabled() {
@@ -417,8 +414,8 @@ mod tests {
 
     #[test]
     fn hit_test_translates_screen_to_widget_local_coords() {
-        use crate::widgets::{AppRoot, DataTable, Panel, WidgetRenderable};
         use super::super::types::HitTestMap;
+        use crate::widgets::{AppRoot, DataTable, Panel, WidgetRenderable};
 
         let console = rich_rs::Console::new();
         let mut options = console.options().clone();

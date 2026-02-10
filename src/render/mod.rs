@@ -259,11 +259,7 @@ impl FrameBuffer {
             0
         } else {
             let w = cell.width();
-            if w == 0 {
-                1
-            } else {
-                w
-            }
+            if w == 0 { 1 } else { w }
         }
     }
 

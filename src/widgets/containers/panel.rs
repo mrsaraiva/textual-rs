@@ -3,10 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{
-    Widget, WidgetId, WidgetStyles,
-    helpers::fixed_height_from_constraints,
-};
+use crate::widgets::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
 
 pub struct Panel {
     id: WidgetId,
