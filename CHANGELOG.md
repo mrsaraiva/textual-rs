@@ -7,6 +7,12 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-10
+- **Windows safe-borders policy (workaround, explicit opt-in)**
+  - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
+  - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.
+  - Added parser regression tests and documentation for the opt-in behavior.
+
 ### 2026-02-09
 - **Tier C widget parity uplift (8 widgets)**
   - **Pretty (breaking):** redesigned to delegate to `rich_rs::Pretty` — now accepts `impl Debug` instead of `Arc<Mutex<Vec<String>>>`. Added `update()` method, static/shared modes.

@@ -77,6 +77,18 @@ This is an early draft project skeleton: the initial docs and roadmap exist, but
 
 See `ROADMAP.md`.
 
+## Windows border workaround
+
+Some terminal/renderer combinations on Windows can mispaint certain decorative border styles.
+`textual-rs` keeps the workaround conservative by default and lets apps opt in explicitly:
+
+```bash
+TEXTUAL_WINDOWS_SAFE_BORDERS=on cargo run --example buttons
+```
+
+Accepted values are `on|off|auto` (plus boolean aliases like `1/0`, `true/false`).
+Current default is `auto`, which resolves to `off` unless explicitly enabled.
+
 ## Open questions (to decide early)
 
 - Runtime: **Tokio** (chosen). We may revisit runtime-agnostic execution later if it becomes a strong requirement.

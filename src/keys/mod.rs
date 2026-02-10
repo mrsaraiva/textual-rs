@@ -42,9 +42,9 @@
 //!
 //! - **Off** (default): legacy terminal input.  Tab and Ctrl+I are
 //!   indistinguishable at the crossterm level.
-//! - **Auto**: detect support via heuristics (`TERM`, `KITTY_WINDOW_ID`,
-//!   `WEZTERM_*`, `foot`, `ghostty`).  Override with
-//!   `TEXTUAL_KEYBOARD_PROTOCOL=on|off` (only applies in Auto mode).
+//! - **Auto**: probe-first behavior. The driver attempts to enable keyboard
+//!   enhancements and falls back if unsupported. Override with
+//!   `TEXTUAL_KEYBOARD_PROTOCOL=on|off`.
 //! - **On**: unconditionally push the enhancement flag.
 //!
 //! When the protocol is active, crossterm reports distinct key codes for

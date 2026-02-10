@@ -1,5 +1,7 @@
 use rich_rs::{Renderable, Segment, Segments};
+use std::sync::OnceLock;
 
+use crate::debug::{border_debug_matches, debug_border};
 use crate::event::{Event, EventCtx};
 
 use crate::style::{BorderEdge, Margin, Style, parse_color_like};
@@ -276,6 +278,7 @@ pub(crate) fn apply_border_edges(
     parent_style: Option<Style>,
     full_width: usize,
     full_height: usize,
+    debug_widget_label: &str,
 ) -> Segments {
     let border_top = style.border_top;
     let border_right = style.border_right;
@@ -298,6 +301,27 @@ pub(crate) fn apply_border_edges(
         .map(|c| c.flatten_over(parent_bg))
         .unwrap_or(parent_bg);
     let outer_bg = parent_bg;
+    let border_debug = border_debug_matches(debug_widget_label);
+    if border_debug {
+        debug_border(&format!(
+            "[border] widget={} size={}x{} inner_width={} edges=top:{} right:{} bottom:{} left:{} edge_colors=top:{:?} right:{:?} bottom:{:?} left:{:?} parent_bg={:?} inner_bg={:?} outer_bg={:?}",
+            debug_widget_label,
+            full_width,
+            full_height,
+            inner_width,
+            border_top.edge_type(),
+            border_right.edge_type(),
+            border_bottom.edge_type(),
+            border_left.edge_type(),
+            border_top.color(),
+            border_right.color(),
+            border_bottom.color(),
+            border_left.color(),
+            parent_bg,
+            inner_bg,
+            outer_bg,
+        ));
+    }
 
     let mut lines = Segment::split_and_crop_lines(segments, inner_width.max(1), None, false, false);
     // Ensure the widget interior is fully painted with the widget style (at least background).
@@ -339,21 +363,26 @@ pub(crate) fn apply_border_edges(
 
     // Add top/bottom borders (if any).
     if border_top.is_set() {
-        edged.insert(
-            0,
-            border_horizontal_row(
-                border_top,
-                Some(inner_bg),
-                Some(outer_bg),
-                full_width.max(1),
-                has_left,
-                has_right,
-                true,
-            ),
+        let top_row = border_horizontal_row(
+            border_top,
+            Some(inner_bg),
+            Some(outer_bg),
+            full_width.max(1),
+            has_left,
+            has_right,
+            true,
         );
+        if border_debug {
+            debug_border(&format!(
+                "[border_row] widget={} row=top segments={}",
+                debug_widget_label,
+                debug_border_row_segments(&top_row)
+            ));
+        }
+        edged.insert(0, top_row);
     }
     if border_bottom.is_set() {
-        edged.push(border_horizontal_row(
+        let bottom_row = border_horizontal_row(
             border_bottom,
             Some(inner_bg),
             Some(outer_bg),
@@ -361,7 +390,15 @@ pub(crate) fn apply_border_edges(
             has_left,
             has_right,
             false,
-        ));
+        );
+        if border_debug {
+            debug_border(&format!(
+                "[border_row] widget={} row=bottom segments={}",
+                debug_widget_label,
+                debug_border_row_segments(&bottom_row)
+            ));
+        }
+        edged.push(bottom_row);
     }
 
     // Clamp/pad to requested height.
@@ -384,6 +421,24 @@ pub(crate) fn apply_border_edges(
     out
 }
 
+fn debug_border_row_segments(row: &[Segment]) -> String {
+    row.iter()
+        .enumerate()
+        .map(|(idx, seg)| {
+            let style = seg.style.unwrap_or_default();
+            format!(
+                "#{idx} text={:?} len={} fg={:?} bg={:?} rev={:?}",
+                seg.text,
+                seg.cell_len(),
+                style.color,
+                style.bgcolor,
+                style.reverse
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Side {
     Left,
@@ -391,6 +446,7 @@ enum Side {
 }
 
 fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
+    let edge_type = effective_border_edge_type(edge_type);
     match edge_type {
         "solid" => (
             [['┌', '─', '┐'], ['│', ' ', '│'], ['└', '─', '┘']],
@@ -413,6 +469,47 @@ fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
             [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
         ),
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsSafeBordersMode {
+    Off,
+    On,
+    Auto,
+}
+
+fn parse_windows_safe_borders_mode(value: Option<&str>) -> WindowsSafeBordersMode {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("1") | Some("true") | Some("yes") | Some("on") => WindowsSafeBordersMode::On,
+        Some("0") | Some("false") | Some("no") | Some("off") => WindowsSafeBordersMode::Off,
+        Some("auto") | None => WindowsSafeBordersMode::Auto,
+        _ => WindowsSafeBordersMode::Auto,
+    }
+}
+
+fn windows_safe_border_fallback_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        let mode = parse_windows_safe_borders_mode(
+            std::env::var("TEXTUAL_WINDOWS_SAFE_BORDERS")
+                .ok()
+                .as_deref(),
+        );
+        match mode {
+            WindowsSafeBordersMode::On => true,
+            WindowsSafeBordersMode::Off => false,
+            // Keep auto conservative for now; enable explicitly in known-problematic terminals.
+            WindowsSafeBordersMode::Auto => false,
+        }
+    })
+}
+
+fn effective_border_edge_type(edge_type: &str) -> &str {
+    if cfg!(target_os = "windows") && windows_safe_border_fallback_enabled() && edge_type == "block"
+    {
+        return "solid";
+    }
+    edge_type
 }
 
 fn resolve_border_char_style(
@@ -588,4 +685,45 @@ pub(crate) fn apply_margin(
         out.push(pad_line.clone());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WindowsSafeBordersMode, parse_windows_safe_borders_mode};
+
+    #[test]
+    fn windows_safe_borders_mode_parses_on_values() {
+        for value in ["1", "true", "TRUE", "yes", "on"] {
+            assert_eq!(
+                parse_windows_safe_borders_mode(Some(value)),
+                WindowsSafeBordersMode::On
+            );
+        }
+    }
+
+    #[test]
+    fn windows_safe_borders_mode_parses_off_values() {
+        for value in ["0", "false", "FALSE", "no", "off"] {
+            assert_eq!(
+                parse_windows_safe_borders_mode(Some(value)),
+                WindowsSafeBordersMode::Off
+            );
+        }
+    }
+
+    #[test]
+    fn windows_safe_borders_mode_defaults_to_auto() {
+        assert_eq!(
+            parse_windows_safe_borders_mode(None),
+            WindowsSafeBordersMode::Auto
+        );
+        assert_eq!(
+            parse_windows_safe_borders_mode(Some("auto")),
+            WindowsSafeBordersMode::Auto
+        );
+        assert_eq!(
+            parse_windows_safe_borders_mode(Some("unexpected")),
+            WindowsSafeBordersMode::Auto
+        );
+    }
 }
