@@ -1,4 +1,3 @@
-use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::collections::HashSet;
 use std::time::Instant;
@@ -12,6 +11,7 @@ use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
+    text_edit::{EditCommand, MoveUnit, edit_command_from_key},
 };
 
 // ---------------------------------------------------------------------------
@@ -822,107 +822,83 @@ impl Widget for MaskedInput {
                 }
             }
             Event::Key(key) if self.chrome.has_focus() => {
-                let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                match key.code {
-                    KeyCode::Char('u') if has_ctrl => {
+                let Some(cmd) = edit_command_from_key(key, false) else {
+                    return;
+                };
+                let mut changed = false;
+                let mut value_changed = false;
+                match cmd {
+                    EditCommand::DeleteToStart => {
                         self.action_delete_left_all();
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                        changed = true;
+                        value_changed = true;
                     }
-                    KeyCode::Char(_) if !has_ctrl => {
-                        if let Some(ch) = key.character.filter(|_| key.is_printable) {
-                            let s = ch.to_string();
-                            if self.action_insert_text(&s) {
-                                self.revalidate();
-                                self.post_changed(ctx);
-                                self.chrome.reset_blink();
-                                ctx.request_repaint();
-                            }
+                    EditCommand::InsertChar(ch) => {
+                        if self.action_insert_text(&ch.to_string()) {
+                            changed = true;
+                            value_changed = true;
                         }
-                        ctx.set_handled();
                     }
-                    KeyCode::Enter => {
+                    EditCommand::Submit => {
                         ctx.post_message(
                             self.id,
                             Message::InputSubmitted {
                                 value: self.value_str(),
                             },
                         );
-                        ctx.set_handled();
                     }
-                    KeyCode::Backspace if has_ctrl => {
-                        self.action_delete_left_word();
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Backspace { unit } => {
+                        match unit {
+                            MoveUnit::Grapheme => self.action_delete_left(),
+                            MoveUnit::Word => self.action_delete_left_word(),
+                        }
+                        changed = true;
+                        value_changed = true;
                     }
-                    KeyCode::Backspace => {
-                        self.action_delete_left();
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Delete { unit } => {
+                        match unit {
+                            MoveUnit::Grapheme => self.action_delete_right(),
+                            MoveUnit::Word => self.action_delete_right_word(),
+                        }
+                        changed = true;
+                        value_changed = true;
                     }
-                    KeyCode::Delete if has_ctrl => {
-                        self.action_delete_right_word();
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveLeft { unit, .. } => {
+                        match unit {
+                            MoveUnit::Grapheme => self.action_cursor_left(),
+                            MoveUnit::Word => self.action_cursor_left_word(),
+                        }
+                        changed = true;
                     }
-                    KeyCode::Delete => {
-                        self.action_delete_right();
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveRight { unit, .. } => {
+                        match unit {
+                            MoveUnit::Grapheme => self.action_cursor_right(),
+                            MoveUnit::Word => self.action_cursor_right_word(),
+                        }
+                        changed = true;
                     }
-                    KeyCode::Left if has_ctrl => {
-                        self.action_cursor_left_word();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Left => {
-                        self.action_cursor_left();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Right if has_ctrl => {
-                        self.action_cursor_right_word();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Right => {
-                        self.action_cursor_right();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Home => {
+                    EditCommand::MoveHome { .. } => {
                         self.action_home();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                        changed = true;
                     }
-                    KeyCode::End => {
+                    EditCommand::MoveEnd { .. } => {
                         self.action_end();
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                        changed = true;
                     }
-                    _ => {}
+                    EditCommand::InsertNewline
+                    | EditCommand::MoveUp { .. }
+                    | EditCommand::MoveDown { .. } => {}
                 }
+
+                if value_changed {
+                    self.revalidate();
+                    self.post_changed(ctx);
+                }
+                if changed || value_changed {
+                    self.chrome.reset_blink();
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
             }
             _ => {}
         }
@@ -1067,7 +1043,7 @@ impl Renderable for MaskedInput {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
-    use crossterm::event::KeyEvent;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn template_parse_phone() {
@@ -1276,5 +1252,25 @@ mod tests {
             m.message,
             Message::InputChanged { ref value, .. } if value.starts_with('1')
         )));
+    }
+
+    #[test]
+    fn ctrl_u_clears_to_start_via_shared_command_map() {
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+        input.set_text("1234");
+        input.cursor = 4;
+        let mut ctx = EventCtx::default();
+
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('u'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+
+        assert_eq!(input.text(), "");
+        assert!(ctx.handled());
     }
 }

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
-use crossterm::event::KeyModifiers;
 use unicode_segmentation::UnicodeSegmentation;
 
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
@@ -16,9 +15,10 @@ use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     text_edit::{
-        byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
+        EditCommand, MoveUnit, byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
         cell_len_prefix as grapheme_cell_len_prefix, clamp_grapheme_boundary,
-        grapheme_cell_width as grapheme_width, next_grapheme_boundary, prev_grapheme_boundary,
+        edit_command_from_key, grapheme_cell_width as grapheme_width, next_grapheme_boundary,
+        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     },
 };
 
@@ -691,71 +691,104 @@ impl TextArea {
         self.selection = Selection::cursor(self.cursor);
     }
 
-    fn move_cursor_to(&mut self, row: usize, col: usize) {
-        self.cursor.row = row.min(self.lines.len().saturating_sub(1));
-        let line_len = self.lines[self.cursor.row].len();
-        self.cursor.col = col.min(line_len);
-        self.cursor.col = clamp_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
-        self.selection = Selection::cursor(self.cursor);
+    fn cursor_word_left_pos(&self, from: Cursor) -> Cursor {
+        if self.lines.is_empty() {
+            return from;
+        }
+        let row = from.row.min(self.lines.len().saturating_sub(1));
+        if from.col > 0 {
+            let line = &self.lines[row];
+            let col = prev_word_boundary(line, from.col);
+            Cursor { row, col }
+        } else if row > 0 {
+            let row = row - 1;
+            let col = prev_word_boundary(&self.lines[row], self.lines[row].len());
+            Cursor { row, col }
+        } else {
+            Cursor { row: 0, col: 0 }
+        }
     }
 
-    fn move_left(&mut self) {
-        if !self.selection.is_empty() {
-            let (a, _b) = normalized_selection(self.selection);
-            self.move_cursor_to(a.row, a.col);
-            return;
+    fn cursor_word_right_pos(&self, from: Cursor) -> Cursor {
+        if self.lines.is_empty() {
+            return from;
         }
-        if self.cursor.col > 0 {
-            let line = &self.lines[self.cursor.row];
-            self.cursor.col = prev_grapheme_boundary(line, self.cursor.col);
-        } else if self.cursor.row > 0 {
-            self.cursor.row -= 1;
-            self.cursor.col = self.lines[self.cursor.row].len();
+        let row = from.row.min(self.lines.len().saturating_sub(1));
+        let line = &self.lines[row];
+        if from.col < line.len() {
+            let col = next_word_boundary(line, from.col);
+            Cursor { row, col }
+        } else if row + 1 < self.lines.len() {
+            let row = row + 1;
+            let col = next_word_boundary(&self.lines[row], 0);
+            Cursor { row, col }
+        } else {
+            Cursor {
+                row,
+                col: line.len(),
+            }
         }
-        self.selection = Selection::cursor(self.cursor);
     }
 
-    fn move_right(&mut self) {
-        if !self.selection.is_empty() {
-            let (_a, b) = normalized_selection(self.selection);
-            self.move_cursor_to(b.row, b.col);
-            return;
+    fn move_cursor_with_selection(&mut self, next: Cursor, select: bool) -> bool {
+        let old_cursor = self.cursor;
+        let old_selection = self.selection;
+        let next = self.clamp_cursor_pos(next);
+        if select {
+            if self.selection.is_empty() {
+                self.selection = Selection {
+                    start: self.cursor,
+                    end: next,
+                };
+            } else {
+                self.selection.end = next;
+            }
+        } else {
+            self.selection = Selection::cursor(next);
         }
-        let line_len = self.lines[self.cursor.row].len();
-        if self.cursor.col < line_len {
-            let next = next_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
-            self.cursor.col = next;
-        } else if self.cursor.row + 1 < self.lines.len() {
-            self.cursor.row += 1;
-            self.cursor.col = 0;
-        }
-        self.selection = Selection::cursor(self.cursor);
+        self.cursor = next;
+        self.cursor != old_cursor || self.selection != old_selection
     }
 
-    fn move_up(&mut self) {
-        if self.cursor.row == 0 {
+    fn backspace_word(&mut self) {
+        if self.delete_selection_if_any() {
             return;
         }
-        let desired = self
-            .preferred_col_cells
-            .unwrap_or_else(|| self.cursor_cell_x());
-        self.cursor.row -= 1;
-        let new_col = self.cursor_from_cell_x(self.cursor.row, desired);
-        self.cursor.col = new_col;
+        let start = self.cursor_word_left_pos(self.cursor);
+        if start == self.cursor {
+            return;
+        }
+        if start.row == self.cursor.row {
+            self.lines[self.cursor.row].drain(start.col..self.cursor.col);
+        } else {
+            let right = self.lines[self.cursor.row][self.cursor.col..].to_string();
+            self.lines[start.row].truncate(start.col);
+            self.lines[start.row].push_str(&right);
+            self.lines.drain(start.row + 1..=self.cursor.row);
+        }
+        self.cursor = start;
         self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
     }
 
-    fn move_down(&mut self) {
-        if self.cursor.row + 1 >= self.lines.len() {
+    fn delete_word(&mut self) {
+        if self.delete_selection_if_any() {
             return;
         }
-        let desired = self
-            .preferred_col_cells
-            .unwrap_or_else(|| self.cursor_cell_x());
-        self.cursor.row += 1;
-        let new_col = self.cursor_from_cell_x(self.cursor.row, desired);
-        self.cursor.col = new_col;
+        let end = self.cursor_word_right_pos(self.cursor);
+        if end == self.cursor {
+            return;
+        }
+        if end.row == self.cursor.row {
+            self.lines[self.cursor.row].drain(self.cursor.col..end.col);
+        } else {
+            let suffix = self.lines[end.row][end.col..].to_string();
+            self.lines[self.cursor.row].truncate(self.cursor.col);
+            self.lines[self.cursor.row].push_str(&suffix);
+            self.lines.drain(self.cursor.row + 1..=end.row);
+        }
         self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
     }
 }
 
@@ -856,182 +889,132 @@ impl Widget for TextArea {
                 }
             }
             Event::Key(key) if self.focused => {
-                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    let old = self.cursor;
-                    let mut next = old;
-                    let mut desired_vertical: Option<usize> = None;
-                    match key.code {
-                        KeyCode::Left => {
-                            next = self.cursor_left_pos(old);
-                        }
-                        KeyCode::Right => {
-                            next = self.cursor_right_pos(old);
-                        }
-                        KeyCode::Up => {
-                            if old.row > 0 {
-                                let desired = self
-                                    .preferred_col_cells
-                                    .unwrap_or_else(|| self.cursor_cell_x());
-                                let row = old.row - 1;
-                                let col = self.cursor_from_cell_x(row, desired);
-                                next = Cursor { row, col };
-                                desired_vertical = Some(desired);
-                            }
-                        }
-                        KeyCode::Down => {
-                            if old.row + 1 < self.lines.len() {
-                                let desired = self
-                                    .preferred_col_cells
-                                    .unwrap_or_else(|| self.cursor_cell_x());
-                                let row = old.row + 1;
-                                let col = self.cursor_from_cell_x(row, desired);
-                                next = Cursor { row, col };
-                                desired_vertical = Some(desired);
-                            }
-                        }
-                        KeyCode::Home => {
-                            next = Cursor {
-                                row: old.row,
-                                col: 0,
-                            };
-                            self.preferred_col_cells = Some(0);
-                        }
-                        KeyCode::End => {
-                            let end = self.lines.get(old.row).map(|s| s.len()).unwrap_or(0);
-                            next = Cursor {
-                                row: old.row,
-                                col: end,
-                            };
-                        }
-                        _ => {}
-                    }
-
-                    if next != old {
-                        if self.selection.is_empty() {
-                            self.selection = Selection {
-                                start: old,
-                                end: next,
-                            };
-                        } else {
-                            self.selection.end = next;
-                        }
-                        self.cursor = next;
-                        if matches!(key.code, KeyCode::Up | KeyCode::Down) {
-                            if let Some(desired) = desired_vertical {
-                                self.preferred_col_cells = Some(desired);
-                            }
-                        } else if matches!(key.code, KeyCode::Home) {
-                            self.preferred_col_cells = Some(0);
-                        } else {
-                            self.preferred_col_cells = Some(self.cursor_cell_x());
-                        }
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                        return;
-                    }
+                if matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
+                    self.backspace();
+                    self.post_changed(ctx);
+                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.adjust_scroll_to_cursor();
+                    self.reset_blink();
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
                 }
-                match key.code {
-                    KeyCode::Char(ch) => {
-                        // Some terminals encode Backspace as a control character rather than
-                        // `KeyCode::Backspace` (notably DEL `\u{7f}` and BS `\u{08}`).
-                        if ch == '\u{7f}' || ch == '\u{08}' {
-                            self.backspace();
-                            self.post_changed(ctx);
-                            self.preferred_col_cells = Some(self.cursor_cell_x());
-                            self.adjust_scroll_to_cursor();
-                            self.reset_blink();
-                            ctx.request_repaint();
-                            ctx.set_handled();
-                            return;
-                        }
+
+                let Some(cmd) = edit_command_from_key(key, true) else {
+                    return;
+                };
+
+                let mut changed = false;
+                let mut value_changed = false;
+                let mut next_preferred = self.preferred_col_cells;
+
+                match cmd {
+                    EditCommand::InsertChar(ch) => {
                         if ch != '\t' {
                             self.insert_str(&ch.to_string());
-                            self.post_changed(ctx);
-                            self.preferred_col_cells = Some(self.cursor_cell_x());
-                            self.adjust_scroll_to_cursor();
-                            self.reset_blink();
-                            ctx.request_repaint();
+                            changed = true;
+                            value_changed = true;
+                            next_preferred = Some(self.cursor_cell_x());
                         }
-                        ctx.set_handled();
                     }
-                    KeyCode::Enter => {
+                    EditCommand::InsertNewline => {
                         self.insert_newline();
-                        self.post_changed(ctx);
-                        self.preferred_col_cells = Some(0);
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                        changed = true;
+                        value_changed = true;
+                        next_preferred = Some(0);
                     }
-                    KeyCode::Backspace => {
-                        self.backspace();
-                        self.post_changed(ctx);
-                        self.preferred_col_cells = Some(self.cursor_cell_x());
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Backspace { unit } => {
+                        let before = self.text();
+                        match unit {
+                            MoveUnit::Grapheme => self.backspace(),
+                            MoveUnit::Word => self.backspace_word(),
+                        }
+                        changed = before != self.text();
+                        value_changed = changed;
+                        next_preferred = Some(self.cursor_cell_x());
                     }
-                    KeyCode::Delete => {
-                        self.delete();
-                        self.post_changed(ctx);
-                        self.preferred_col_cells = Some(self.cursor_cell_x());
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Delete { unit } => {
+                        let before = self.text();
+                        match unit {
+                            MoveUnit::Grapheme => self.delete(),
+                            MoveUnit::Word => self.delete_word(),
+                        }
+                        changed = before != self.text();
+                        value_changed = changed;
+                        next_preferred = Some(self.cursor_cell_x());
                     }
-                    KeyCode::Left => {
-                        self.move_left();
-                        self.preferred_col_cells = Some(self.cursor_cell_x());
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveLeft { select, unit } => {
+                        let next = match unit {
+                            MoveUnit::Grapheme => self.cursor_left_pos(self.cursor),
+                            MoveUnit::Word => self.cursor_word_left_pos(self.cursor),
+                        };
+                        changed = self.move_cursor_with_selection(next, select);
+                        next_preferred = Some(self.cursor_cell_x());
                     }
-                    KeyCode::Right => {
-                        self.move_right();
-                        self.preferred_col_cells = Some(self.cursor_cell_x());
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveRight { select, unit } => {
+                        let next = match unit {
+                            MoveUnit::Grapheme => self.cursor_right_pos(self.cursor),
+                            MoveUnit::Word => self.cursor_word_right_pos(self.cursor),
+                        };
+                        changed = self.move_cursor_with_selection(next, select);
+                        next_preferred = Some(self.cursor_cell_x());
                     }
-                    KeyCode::Up => {
-                        self.move_up();
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveUp { select } => {
+                        if self.cursor.row > 0 {
+                            let desired = self
+                                .preferred_col_cells
+                                .unwrap_or_else(|| self.cursor_cell_x());
+                            let row = self.cursor.row - 1;
+                            let col = self.cursor_from_cell_x(row, desired);
+                            changed = self.move_cursor_with_selection(Cursor { row, col }, select);
+                            next_preferred = Some(desired);
+                        }
                     }
-                    KeyCode::Down => {
-                        self.move_down();
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveDown { select } => {
+                        if self.cursor.row + 1 < self.lines.len() {
+                            let desired = self
+                                .preferred_col_cells
+                                .unwrap_or_else(|| self.cursor_cell_x());
+                            let row = self.cursor.row + 1;
+                            let col = self.cursor_from_cell_x(row, desired);
+                            changed = self.move_cursor_with_selection(Cursor { row, col }, select);
+                            next_preferred = Some(desired);
+                        }
                     }
-                    KeyCode::Home => {
-                        self.move_cursor_to(self.cursor.row, 0);
-                        self.preferred_col_cells = Some(0);
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::MoveHome { select } => {
+                        changed = self.move_cursor_with_selection(
+                            Cursor {
+                                row: self.cursor.row,
+                                col: 0,
+                            },
+                            select,
+                        );
+                        next_preferred = Some(0);
                     }
-                    KeyCode::End => {
+                    EditCommand::MoveEnd { select } => {
                         let end = self.lines[self.cursor.row].len();
-                        self.move_cursor_to(self.cursor.row, end);
-                        self.preferred_col_cells = Some(self.cursor_cell_x());
-                        self.adjust_scroll_to_cursor();
-                        self.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                        changed = self.move_cursor_with_selection(
+                            Cursor {
+                                row: self.cursor.row,
+                                col: end,
+                            },
+                            select,
+                        );
+                        next_preferred = Some(self.cursor_cell_x());
                     }
-                    _ => {}
+                    EditCommand::DeleteToStart | EditCommand::Submit => {}
                 }
+
+                if value_changed {
+                    self.post_changed(ctx);
+                }
+                if changed || value_changed {
+                    self.preferred_col_cells = next_preferred;
+                    self.adjust_scroll_to_cursor();
+                    self.reset_blink();
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
             }
             _ => {}
         }

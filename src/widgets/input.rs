@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
@@ -13,8 +12,9 @@ use super::{
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
-        byte_index_from_cell_x, clamp_grapheme_boundary, grapheme_cell_width,
-        next_grapheme_boundary, prev_grapheme_boundary,
+        EditCommand, MoveUnit, byte_index_from_cell_x, clamp_grapheme_boundary,
+        edit_command_from_key, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
+        prev_grapheme_boundary, prev_word_boundary,
     },
 };
 
@@ -167,6 +167,42 @@ impl Input {
         );
     }
 
+    fn delete_selection_if_any(&mut self) -> bool {
+        if self.selection.start == self.selection.end {
+            return false;
+        }
+        let (start, end) = if self.selection.start <= self.selection.end {
+            (self.selection.start, self.selection.end)
+        } else {
+            (self.selection.end, self.selection.start)
+        };
+        self.text.drain(start..end);
+        self.cursor = start;
+        self.selection = Selection::cursor(start);
+        true
+    }
+
+    fn move_cursor_to(&mut self, next: usize, select: bool) -> bool {
+        let next = clamp_grapheme_boundary(&self.text, next);
+        if select {
+            if self.selection.start == self.selection.end {
+                self.selection.start = self.cursor;
+            }
+            if next == self.cursor {
+                return false;
+            }
+            self.cursor = next;
+            self.selection.end = next;
+            return true;
+        }
+        if next == self.cursor && self.selection.start == self.selection.end {
+            return false;
+        }
+        self.cursor = next;
+        self.selection = Selection::cursor(next);
+        true
+    }
+
     fn revalidate(&mut self) {
         if self.validators.is_empty() {
             self.validation_result = ValidationResult::success();
@@ -270,90 +306,126 @@ impl Widget for Input {
                     ctx.request_repaint();
                 }
             }
-            Event::Key(key) if self.chrome.has_focus() => match key.code {
-                KeyCode::Char(_) => {
-                    if let Some(ch) = key.character.filter(|_| key.is_printable) {
+            Event::Key(key) if self.chrome.has_focus() => {
+                let Some(cmd) = edit_command_from_key(key, false) else {
+                    return;
+                };
+                let mut changed = false;
+                let mut value_changed = false;
+                match cmd {
+                    EditCommand::InsertChar(ch) => {
                         if self.is_allowed_char(ch) {
+                            self.delete_selection_if_any();
                             self.text.insert(self.cursor, ch);
                             self.cursor += ch.len_utf8();
                             self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
                             self.selection = Selection::cursor(self.cursor);
-                            self.revalidate();
-                            self.post_changed(ctx);
-                            self.chrome.reset_blink();
-                            ctx.request_repaint();
+                            changed = true;
+                            value_changed = true;
                         }
                     }
-                    ctx.set_handled();
-                }
-                KeyCode::Enter => {
-                    ctx.post_message(
-                        self.id,
-                        Message::InputSubmitted {
-                            value: self.text.clone(),
-                        },
-                    );
-                    ctx.set_handled();
-                }
-                KeyCode::Backspace => {
-                    if self.cursor > 0 {
-                        let prev = prev_grapheme_boundary(&self.text, self.cursor);
-                        self.text.drain(prev..self.cursor);
-                        self.cursor = prev;
-                        self.selection = Selection::cursor(self.cursor);
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Submit => {
+                        ctx.post_message(
+                            self.id,
+                            Message::InputSubmitted {
+                                value: self.text.clone(),
+                            },
+                        );
                     }
-                }
-                KeyCode::Delete => {
-                    if self.cursor < self.text.len() {
-                        let next = next_grapheme_boundary(&self.text, self.cursor);
-                        self.text.drain(self.cursor..next);
-                        self.selection = Selection::cursor(self.cursor);
-                        self.revalidate();
-                        self.post_changed(ctx);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Backspace { unit } => {
+                        if self.delete_selection_if_any() {
+                            changed = true;
+                            value_changed = true;
+                        } else if self.cursor > 0 {
+                            let start = match unit {
+                                MoveUnit::Grapheme => {
+                                    prev_grapheme_boundary(&self.text, self.cursor)
+                                }
+                                MoveUnit::Word => prev_word_boundary(&self.text, self.cursor),
+                            };
+                            self.text.drain(start..self.cursor);
+                            self.cursor = start;
+                            self.selection = Selection::cursor(self.cursor);
+                            changed = true;
+                            value_changed = true;
+                        }
                     }
-                }
-                KeyCode::Left => {
-                    if self.cursor > 0 {
-                        self.cursor = prev_grapheme_boundary(&self.text, self.cursor);
-                        self.selection = Selection::cursor(self.cursor);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::Delete { unit } => {
+                        if self.delete_selection_if_any() {
+                            changed = true;
+                            value_changed = true;
+                        } else if self.cursor < self.text.len() {
+                            let end = match unit {
+                                MoveUnit::Grapheme => {
+                                    next_grapheme_boundary(&self.text, self.cursor)
+                                }
+                                MoveUnit::Word => next_word_boundary(&self.text, self.cursor),
+                            };
+                            self.text.drain(self.cursor..end);
+                            self.selection = Selection::cursor(self.cursor);
+                            changed = true;
+                            value_changed = true;
+                        }
                     }
-                }
-                KeyCode::Right => {
-                    if self.cursor < self.text.len() {
-                        self.cursor = next_grapheme_boundary(&self.text, self.cursor);
-                        self.selection = Selection::cursor(self.cursor);
-                        self.chrome.reset_blink();
-                        ctx.request_repaint();
-                        ctx.set_handled();
+                    EditCommand::DeleteToStart => {
+                        if self.delete_selection_if_any() {
+                            changed = true;
+                            value_changed = true;
+                        } else if self.cursor > 0 {
+                            self.text.drain(0..self.cursor);
+                            self.cursor = 0;
+                            self.selection = Selection::cursor(0);
+                            changed = true;
+                            value_changed = true;
+                        }
                     }
+                    EditCommand::MoveLeft { select, unit } => {
+                        let next = if self.selection.start != self.selection.end && !select {
+                            self.selection.start.min(self.selection.end)
+                        } else {
+                            match unit {
+                                MoveUnit::Grapheme => {
+                                    prev_grapheme_boundary(&self.text, self.cursor)
+                                }
+                                MoveUnit::Word => prev_word_boundary(&self.text, self.cursor),
+                            }
+                        };
+                        changed = self.move_cursor_to(next, select);
+                    }
+                    EditCommand::MoveRight { select, unit } => {
+                        let next = if self.selection.start != self.selection.end && !select {
+                            self.selection.start.max(self.selection.end)
+                        } else {
+                            match unit {
+                                MoveUnit::Grapheme => {
+                                    next_grapheme_boundary(&self.text, self.cursor)
+                                }
+                                MoveUnit::Word => next_word_boundary(&self.text, self.cursor),
+                            }
+                        };
+                        changed = self.move_cursor_to(next, select);
+                    }
+                    EditCommand::MoveHome { select } => {
+                        changed = self.move_cursor_to(0, select);
+                    }
+                    EditCommand::MoveEnd { select } => {
+                        changed = self.move_cursor_to(self.text.len(), select);
+                    }
+                    EditCommand::InsertNewline
+                    | EditCommand::MoveUp { .. }
+                    | EditCommand::MoveDown { .. } => {}
                 }
-                KeyCode::Home => {
-                    self.cursor = 0;
-                    self.selection = Selection::cursor(self.cursor);
+
+                if value_changed {
+                    self.revalidate();
+                    self.post_changed(ctx);
+                }
+                if changed || value_changed {
                     self.chrome.reset_blink();
                     ctx.request_repaint();
-                    ctx.set_handled();
                 }
-                KeyCode::End => {
-                    self.cursor = self.text.len();
-                    self.selection = Selection::cursor(self.cursor);
-                    self.chrome.reset_blink();
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                _ => {}
-            },
+                ctx.set_handled();
+            }
             _ => {}
         }
     }
@@ -411,18 +483,18 @@ impl Widget for Input {
             return out;
         }
 
-        let (sel_start, sel_end) = if self.chrome.has_focus() && self.chrome.is_mouse_down() {
-            // Selection only exists while dragging for now.
-            (
-                self.selection.start.min(self.text.len()),
-                self.selection.end.min(self.text.len()),
-            )
-        } else {
-            (
-                self.cursor.min(self.text.len()),
-                self.cursor.min(self.text.len()),
-            )
-        };
+        let (sel_start, sel_end) =
+            if self.chrome.has_focus() && self.selection.start != self.selection.end {
+                (
+                    self.selection.start.min(self.text.len()),
+                    self.selection.end.min(self.text.len()),
+                )
+            } else {
+                (
+                    self.cursor.min(self.text.len()),
+                    self.cursor.min(self.text.len()),
+                )
+            };
         let (sel_lo, sel_hi) = if sel_start <= sel_end {
             (sel_start, sel_end)
         } else {
@@ -660,5 +732,55 @@ mod tests {
             &mut ctx,
         );
         assert_eq!(input.text, "a\u{0301}z");
+    }
+
+    #[test]
+    fn shift_navigation_expands_selection_and_backspace_deletes_it() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("hello world");
+        input.cursor = 5;
+        input.selection = Selection::cursor(5);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::SHIFT,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.selection.normalized(), (5, 6));
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Backspace,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text, "helloworld");
+        assert_eq!(input.cursor, 5);
+    }
+
+    #[test]
+    fn ctrl_backspace_deletes_previous_word() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("alpha beta");
+        input.cursor = input.text.len();
+        input.selection = Selection::cursor(input.cursor);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Backspace,
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+
+        assert_eq!(input.text, "alpha ");
     }
 }

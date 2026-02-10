@@ -1,5 +1,78 @@
+use crossterm::event::{KeyCode, KeyModifiers};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use crate::keys::KeyEventData;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MoveUnit {
+    Grapheme,
+    Word,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditCommand {
+    InsertChar(char),
+    InsertNewline,
+    Submit,
+    MoveLeft { select: bool, unit: MoveUnit },
+    MoveRight { select: bool, unit: MoveUnit },
+    MoveUp { select: bool },
+    MoveDown { select: bool },
+    MoveHome { select: bool },
+    MoveEnd { select: bool },
+    Backspace { unit: MoveUnit },
+    Delete { unit: MoveUnit },
+    DeleteToStart,
+}
+
+pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Option<EditCommand> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+
+    match key.code {
+        KeyCode::Char('u') if ctrl && !multiline => Some(EditCommand::DeleteToStart),
+        KeyCode::Char(_) if !ctrl => key
+            .character
+            .filter(|_| key.is_printable)
+            .map(EditCommand::InsertChar),
+        KeyCode::Enter if multiline => Some(EditCommand::InsertNewline),
+        KeyCode::Enter => Some(EditCommand::Submit),
+        KeyCode::Backspace if ctrl => Some(EditCommand::Backspace {
+            unit: MoveUnit::Word,
+        }),
+        KeyCode::Backspace => Some(EditCommand::Backspace {
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Delete if ctrl => Some(EditCommand::Delete {
+            unit: MoveUnit::Word,
+        }),
+        KeyCode::Delete => Some(EditCommand::Delete {
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Left if ctrl => Some(EditCommand::MoveLeft {
+            select: shift,
+            unit: MoveUnit::Word,
+        }),
+        KeyCode::Left => Some(EditCommand::MoveLeft {
+            select: shift,
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Right if ctrl => Some(EditCommand::MoveRight {
+            select: shift,
+            unit: MoveUnit::Word,
+        }),
+        KeyCode::Right => Some(EditCommand::MoveRight {
+            select: shift,
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Up => Some(EditCommand::MoveUp { select: shift }),
+        KeyCode::Down => Some(EditCommand::MoveDown { select: shift }),
+        KeyCode::Home => Some(EditCommand::MoveHome { select: shift }),
+        KeyCode::End => Some(EditCommand::MoveEnd { select: shift }),
+        _ => None,
+    }
+}
 
 pub(crate) fn prev_grapheme_boundary(s: &str, idx: usize) -> usize {
     let idx = idx.min(s.len());
@@ -89,6 +162,50 @@ pub(crate) fn grapheme_cell_width(grapheme: &str) -> usize {
     UnicodeWidthStr::width(grapheme).max(1)
 }
 
+pub(crate) fn prev_word_boundary(s: &str, idx: usize) -> usize {
+    if s.is_empty() {
+        return 0;
+    }
+    let mut cursor = clamp_grapheme_boundary(s, idx);
+    while cursor > 0 {
+        let prev = prev_grapheme_boundary(s, cursor);
+        if !s[prev..cursor].chars().all(char::is_whitespace) {
+            break;
+        }
+        cursor = prev;
+    }
+    while cursor > 0 {
+        let prev = prev_grapheme_boundary(s, cursor);
+        if s[prev..cursor].chars().all(char::is_whitespace) {
+            break;
+        }
+        cursor = prev;
+    }
+    cursor
+}
+
+pub(crate) fn next_word_boundary(s: &str, idx: usize) -> usize {
+    if s.is_empty() {
+        return 0;
+    }
+    let mut cursor = clamp_grapheme_boundary(s, idx);
+    while cursor < s.len() {
+        let next = next_grapheme_boundary(s, cursor);
+        if !s[cursor..next].chars().all(char::is_whitespace) {
+            break;
+        }
+        cursor = next;
+    }
+    while cursor < s.len() {
+        let next = next_grapheme_boundary(s, cursor);
+        if s[cursor..next].chars().all(char::is_whitespace) {
+            break;
+        }
+        cursor = next;
+    }
+    cursor
+}
+
 fn prev_char_boundary(s: &str, mut idx: usize) -> usize {
     idx = idx.min(s.len());
     while idx > 0 && !s.is_char_boundary(idx) {
@@ -118,6 +235,7 @@ fn grapheme_boundaries(s: &str) -> impl Iterator<Item = usize> + '_ {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn boundaries_follow_grapheme_clusters() {
@@ -141,5 +259,40 @@ mod tests {
         assert_eq!(byte_index_from_cell_x(s, 1), astr_start);
         assert_eq!(byte_index_from_cell_x(s, 2), astr_start);
         assert_eq!(byte_index_from_cell_x(s, 3), astr_end);
+    }
+
+    #[test]
+    fn word_boundaries_skip_whitespace_and_clusters() {
+        let s = "go  a\u{0301} 👩‍🚀 end";
+        let end_word_start = s.find("end").unwrap();
+        assert_eq!(prev_word_boundary(s, s.len()), end_word_start);
+        assert_eq!(next_word_boundary(s, 0), 2);
+        assert_eq!(next_word_boundary(s, 2), 7);
+    }
+
+    #[test]
+    fn key_mapping_handles_word_and_selection_commands() {
+        let left_word = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Left,
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            )),
+            false,
+        );
+        assert_eq!(
+            left_word,
+            Some(EditCommand::MoveLeft {
+                select: true,
+                unit: MoveUnit::Word
+            })
+        );
+        let ctrl_u = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('u'),
+                KeyModifiers::CONTROL,
+            )),
+            false,
+        );
+        assert_eq!(ctrl_u, Some(EditCommand::DeleteToStart));
     }
 }
