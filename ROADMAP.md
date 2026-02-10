@@ -135,7 +135,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Status | Task | Notes |
 |--------|------|-------|
 | Partial | Tick system | 100ms tick loop with `on_tick` propagated through widget tree; used for button active-effect timer |
-| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` emit messages; callback-driven APIs remain in some non-text widgets. |
+| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` emit messages; callback-driven APIs remain in a smaller set of non-text widgets. |
 | Todo | Grapheme-aware text editing model | Ensure cursor movement, selection, delete/backspace, slicing, and display-width math are grapheme-safe across `Input`/`TextArea`/text-heavy widgets |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Todo | Animation framework | No easing, transitions, or frame-scheduled animations |

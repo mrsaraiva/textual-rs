@@ -19,6 +19,9 @@ until the API stabilizes.
 - **Message-bus-only `MaskedInput` integration (breaking)**
   - Removed `MaskedInput::on_change`; `MaskedInput` now follows the same message-only integration model as `Input`/`TextArea`.
   - Kept `Message::InputChanged` / `Message::InputSubmitted` as the supported integration surface and added regression coverage for change message emission.
+- **Message-bus-only `Button` integration (breaking)**
+  - Removed `Button::on_press`; button activation now integrates via `Message::ButtonPressed` only.
+  - Added regression coverage for key-triggered button message emission.
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.

@@ -1,6 +1,5 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
-use std::sync::Arc;
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
@@ -30,7 +29,6 @@ pub struct Button {
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
-    on_press: Option<Arc<dyn Fn(&Button) + Send + Sync>>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -72,7 +70,6 @@ impl Button {
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
-            on_press: None,
             classes: Vec::new(),
             focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -113,11 +110,6 @@ impl Button {
     pub fn flat(mut self, flat: bool) -> Self {
         self.flat = flat;
         self.rebuild_classes()
-    }
-
-    pub fn on_press(mut self, handler: impl Fn(&Button) + Send + Sync + 'static) -> Self {
-        self.on_press = Some(Arc::new(handler));
-        self
     }
 
     pub fn describe(&self) -> String {
@@ -260,9 +252,6 @@ impl Widget for Button {
                                 description: self.describe(),
                             },
                         );
-                        if let Some(handler) = &self.on_press {
-                            handler(self);
-                        }
                         ctx.set_handled();
                     } else {
                         debug_message(&format!(
@@ -287,9 +276,6 @@ impl Widget for Button {
                         description: self.describe(),
                     },
                 );
-                if let Some(handler) = &self.on_press {
-                    handler(self);
-                }
                 debug_input(&format!(
                     "[button] toggle id={} label=\"{}\"",
                     self.id.as_u64(),
@@ -312,9 +298,6 @@ impl Widget for Button {
                             description: self.describe(),
                         },
                     );
-                    if let Some(handler) = &self.on_press {
-                        handler(self);
-                    }
                     debug_input(&format!(
                         "[button] key id={} label=\"{}\"",
                         self.id.as_u64(),
@@ -386,5 +369,34 @@ impl Widget for Button {
 impl Renderable for Button {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn enter_posts_button_pressed_message() {
+        let mut button = Button::new("Run");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        button.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ButtonPressed { .. }))
+        );
     }
 }
