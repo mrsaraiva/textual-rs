@@ -31,10 +31,23 @@ until the API stabilizes.
 - **Command palette provider plumbing (Phase 9.6)**
   - Added message-driven command updates: `Message::CommandPaletteSetCommands { commands }`.
   - `CommandPalette` now accepts runtime/app command list refreshes through the message bus and rebuilds results immediately.
+- **Command palette provider lifecycle parity (Phase 9.6)**
+  - Added `TextualApp` provider lifecycle hooks (`command_palette_providers`) with a new `CommandPaletteProvider` trait for startup, command enumeration, selection handling, and shutdown.
+  - `TextualApp` adapter now wires provider lifecycle from palette message flow:
+    - `CommandPaletteOpened` initializes providers and emits `CommandPaletteSetCommands`.
+    - `CommandPaletteCommandSelected` routes selected command IDs to provider handlers.
+    - `CommandPaletteClosed` (and unmount) shuts providers down and clears lifecycle state.
+  - Added focused lifecycle regression coverage in `src/textual_app.rs` for open/select/close and reopen behavior.
 - **Phase 9.6 binding lifecycle + footer parity pass**
   - Runtime now enriches active binding lifecycle updates with focused-path widget hints (ancestor -> focused widget), then normalizes ordering/dedup for deterministic `BindingsChanged` emissions.
+  - Completed app/screen lifecycle parity for bindings: runtime now rebroadcasts `BindingsChanged` when the active binding scope source chain changes (even when hint payload text is unchanged), and no-focus states now retain single-child app/screen scope hints.
   - `Tabs` and `TabbedContent` now expose focused binding hints for tab switching (`←/→`), so Footer/KeyPanel can reflect active tab-navigation affordances.
-  - Added regression coverage for focused-path binding hint collection and footer right-docked command-palette slot behavior.
+  - Footer now groups consecutive non-command bindings sharing the same group into compact key clusters with one trailing group label, and compact mode now tightens key/description spacing (including right-docked command-palette separator behavior).
+  - Added regression coverage for focused-path binding hint collection, grouped footer rendering, compact spacing behavior, and footer right-docked command-palette slot behavior.
+- **Phase 9.6 tab-strip default CSS parity tightening**
+  - Tuned `Tabs` and `TabbedContent` defaults to match Python visual rhythm more closely: unfocused active tabs now keep panel rhythm, focused active tabs use block-cursor foreground/background + focus text style, and underline bars get focused-state treatment.
+  - Added explicit focused underline component hooks in widget render paths (`-focus` class on underline components) so default CSS can style focus contrast without demo-specific logic.
+  - Added targeted regression tests in `tests/tabs.rs` and `tests/tabbed_content.rs` that assert focused active-tab and underline styles from the default stylesheet.
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.
