@@ -135,7 +135,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Status | Task | Notes |
 |--------|------|-------|
 | Done | Tick system | Adaptive tick cadence (idle 100ms / active ~16ms) with `on_tick` propagation and event-loop repaint scheduling |
-| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
+| Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` / `Log` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
 | Partial | Grapheme-aware text editing model | Shared text-edit command core now drives `Input` / `MaskedInput` / `TextArea` (grapheme-safe movement, word ops, and keyboard selection baseline) with targeted regressions; broader cross-widget text-model migration remains open |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
@@ -428,8 +428,8 @@ Reference plan:
 
 ## Execution Plan (v0.2, Single Source of Truth)
 
-- Now: Widget PR5 Tier-A closure (`DataTable`, `Tabs`/`TabbedContent`) in progress.
-- Up next: Widget PR6 missing-widget ports (`Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`).
+- Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
+- Up next: Iterate PR6 baseline widgets toward fuller parity (`DirectoryTree` async loader/model fidelity, `Welcome` default CSS/lifecycle polish, and `Log`/`Tooltip`/`HelpPanel` follow-ups).
 - Then: infrastructure closure streams (invalidation, message bus completion, grapheme completion, timers/async, golden coverage, integration-contract closures, compatibility/docs).
 
 ## Ordered PR Streams (Open Todo/Partial)
@@ -455,15 +455,17 @@ Order is prioritized for fundamentals-first execution and regression risk reduct
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
 4. Widget first-class closure program (Phase 7 + widget plan)
-   - Canonical details live in `docs/devel/WIDGET_PORTING_PLAN.md` (Core Abstraction Backlog, Current Widget State Matrix, Missing Widgets to Port).
    - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`. **Done (2026-02-10)**.
    - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`. **Done (2026-02-10)**.
    - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family. **Done (2026-02-10)**.
    - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays. **Done (2026-02-10)**.
-   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (see Tier A section in `docs/devel/WIDGET_PORTING_PLAN.md`).
+   - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (IDs/disabled-hidden lifecycle/fixed headers-cursors).
      - PR5A (2026-02-10): `DataTable` keyed row/column model baseline, fixed-row/column rendering/navigation behavior, and focused parity regressions.
      - PR5B (2026-02-10): `Tabs`/`TabbedContent` now enforce disabled/hidden pane lifecycle semantics, skip ineligible targets during keyboard/mouse activation, and include focused transition regressions.
-   - PR 6: Missing widget ports in order: `Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome` (see Missing Widgets to Port in `docs/devel/WIDGET_PORTING_PLAN.md`).
+   - PR 6: Missing widget baseline ports in order: `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`. **Done (2026-02-10)**.
+     - PR6A (2026-02-10): Added first-pass `Log` widget (`src/widgets/log.rs`) with Python-style plain-text `write`/`write_line`/`write_lines`, max-line pruning, shared line-scroll interactions/scrollbar behavior, and focused regressions (`tests/log.rs`).
+     - PR6B (2026-02-10): Added baseline `Tooltip`/`HelpPanel` widgets (`src/widgets/tooltip.rs`, `src/widgets/help_panel.rs`) using shared overlay composition helpers, plus focused regressions (`tests/tooltip.rs`, `tests/help_panel.rs`).
+     - PR6C (2026-02-10): Added baseline `DirectoryTree`/`Welcome` widgets (`src/widgets/directory_tree.rs`, `src/widgets/welcome.rs`) with message-bus forwarding and focused regressions (`tests/directory_tree.rs`, `tests/welcome.rs`).
    - Exit criteria: `docs/devel/WIDGET_PORTING_PLAN.md` matrix shows no Tier-A `Partial` items and missing-widget list is reduced to explicitly deferred items only.
 
 5. One-shot timers + async task primitives (Phase 6)

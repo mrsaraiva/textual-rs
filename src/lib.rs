@@ -43,17 +43,17 @@ pub mod prelude {
     pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
     pub use crate::widgets::{
         AppRoot, BindingsTable, Button, ButtonVariant, Checkbox, Collapsible, CommandPalette,
-        Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits, DigitsAlign, Dock,
-        Footer, FooterBinding, Frame, Grid, Header, Horizontal, HorizontalScroll, Input, InputType,
-        KeyPanel, Label, LayoutConstraints, LineStyle, Link, ListView, LoadingIndicator, Markdown,
-        MaskedInput, Node, OptionItem, OptionList, Overlay, PaletteCommand, Panel, Placeholder,
-        PlaceholderVariant, Pretty, ProgressBar, RadioButton, RadioSet, RichLog, Row, RowAlign,
-        Rule, RuleOrientation, ScrollView, Select, Selection, SelectionList, Spacer, Sparkline,
-        Static, Styled, SummaryFunction, Switch, TabPane, TabbedContent, Tabs, TextArea,
-        TextAreaCursor, TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tree, TreeNode,
-        VerticalScroll, Widget, WidgetId, WidgetRenderable, WidgetStyles, preview_root,
-        preview_root_with_bottom, preview_root_with_top_bottom, summary_max, summary_mean,
-        summary_min,
+        Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits, DigitsAlign,
+        DirectoryTree, Dock, Footer, FooterBinding, Frame, Grid, Header, HelpPanel, Horizontal,
+        HorizontalScroll, Input, InputType, KeyPanel, Label, LayoutConstraints, LineStyle, Link,
+        ListView, LoadingIndicator, Log, Markdown, MaskedInput, Node, OptionItem, OptionList,
+        Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty, ProgressBar,
+        RadioButton, RadioSet, RichLog, Row, RowAlign, Rule, RuleOrientation, ScrollView, Select,
+        Selection, SelectionList, Spacer, Sparkline, Static, Styled, SummaryFunction, Switch,
+        TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme,
+        Toast, ToastSeverity, Tooltip, Tree, TreeNode, VerticalScroll, Welcome, Widget, WidgetId,
+        WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
+        preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::{Error, Result};
 }

@@ -8,6 +8,19 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Missing widget port PR6C: baseline `DirectoryTree` + `Welcome`**
+  - Added `DirectoryTree` (`src/widgets/directory_tree.rs`) as a first-pass filesystem tree widget built on `Tree`, with directory scan/loading, lazy expand-on-toggle behavior, and message-bus forwarding via `on_message`.
+  - Added `Welcome` (`src/widgets/welcome.rs`) as a baseline welcome surface with markdown body + bottom action button, routed through widget message flow.
+  - Wired exports in `src/widgets/mod.rs` and `src/lib.rs`, and added focused tests in `tests/directory_tree.rs` and `tests/welcome.rs`.
+- **Missing widget port PR6A: first-pass `Log`**
+  - Added new `Log` widget (`src/widgets/log.rs`) with Python-style plain-text write APIs (`write`, `write_line`, `write_lines`), max-line pruning, and clear behavior.
+  - Reused shared line-scroll primitives and scrollbar interactions from `ScrollView` (action/mouse-wheel/drag + clamp semantics) and emits scroll state changes via the message bus.
+  - Wired public exports in `src/widgets/mod.rs` and `src/lib.rs`, and added focused behavior regressions in `tests/log.rs`.
+- **Missing widget port PR6B: baseline `Tooltip` + `HelpPanel`**
+  - Added new `Tooltip` wrapper widget (`src/widgets/tooltip.rs`) that overlays tooltip content using shared PR4 composition (`Overlay::compose_overlay_at`) over a wrapped child.
+  - Added message-driven tooltip visibility control via existing overlay messages (`OverlaySetVisible`, `OverlayToggle`, `OverlayDismissRequested`) and emits `OverlayVisibilityChanged` on visibility transitions.
+  - Added new `HelpPanel` widget (`src/widgets/help_panel.rs`) that composes markdown help content with `KeyPanel` bindings in a reusable framework-level container.
+  - Wired public exports in `src/widgets/mod.rs` and `src/lib.rs`, and added focused regressions in `tests/tooltip.rs` and `tests/help_panel.rs`.
 - **Roadmap planning structure consolidation**
   - Consolidated overlapping `ROADMAP.md` sections (`Next priorities` + `Execution checklist`) into a single execution source of truth (`Execution Plan` + ordered PR streams) to reduce drift during active development.
 - **DataTable Tier-A closure slice PR5A**
