@@ -3,7 +3,7 @@ use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::{Message, MessageEvent};
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -182,6 +182,39 @@ impl Input {
         true
     }
 
+    fn selected_text(&self) -> Option<String> {
+        if self.selection.start == self.selection.end {
+            return None;
+        }
+        let (start, end) = if self.selection.start <= self.selection.end {
+            (self.selection.start, self.selection.end)
+        } else {
+            (self.selection.end, self.selection.start)
+        };
+        Some(self.text[start..end].to_string())
+    }
+
+    fn insert_text_from_clipboard(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        let mut inserted = String::new();
+        for ch in text.chars() {
+            if self.is_allowed_char(ch) {
+                inserted.push(ch);
+            }
+        }
+        if inserted.is_empty() {
+            return false;
+        }
+        self.delete_selection_if_any();
+        self.text.insert_str(self.cursor, &inserted);
+        self.cursor += inserted.len();
+        self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
+        self.selection = Selection::cursor(self.cursor);
+        true
+    }
+
     fn move_cursor_to(&mut self, next: usize, select: bool) -> bool {
         let next = clamp_grapheme_boundary(&self.text, next);
         if select {
@@ -332,6 +365,32 @@ impl Widget for Input {
                             },
                         );
                     }
+                    EditCommand::Copy => {
+                        if let Some(text) = self.selected_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: false },
+                            );
+                        }
+                    }
+                    EditCommand::Cut => {
+                        if let Some(text) = self.selected_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: true },
+                            );
+                            if self.delete_selection_if_any() {
+                                changed = true;
+                                value_changed = true;
+                            }
+                        }
+                    }
+                    EditCommand::Paste => {
+                        ctx.post_message(
+                            self.id,
+                            Message::TextEditClipboardPasteRequested { target: self.id },
+                        );
+                    }
                     EditCommand::Backspace { unit } => {
                         if self.delete_selection_if_any() {
                             changed = true;
@@ -427,6 +486,21 @@ impl Widget for Input {
                 ctx.set_handled();
             }
             _ => {}
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+            if *target != self.id {
+                return;
+            }
+            if self.insert_text_from_clipboard(text) {
+                self.revalidate();
+                self.post_changed(ctx);
+                self.chrome.reset_blink();
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
         }
     }
 
@@ -782,5 +856,82 @@ mod tests {
         );
 
         assert_eq!(input.text, "alpha ");
+    }
+
+    #[test]
+    fn copy_and_cut_emit_clipboard_messages() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("hello world");
+        input.cursor = 5;
+        input.selection = Selection { start: 0, end: 5 };
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let copy_messages = ctx.take_messages();
+        assert!(matches!(
+            copy_messages.first().map(|m| &m.message),
+            Some(Message::TextEditClipboardCopyRequested { text, cut }) if text == "hello" && !cut
+        ));
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let cut_messages = ctx.take_messages();
+        assert!(cut_messages.iter().any(|m| {
+            matches!(
+                m.message,
+                Message::TextEditClipboardCopyRequested { ref text, cut: true } if text == "hello"
+            )
+        }));
+        assert_eq!(input.text(), " world");
+    }
+
+    #[test]
+    fn paste_request_and_message_updates_input_value() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("abc");
+        input.cursor = 1;
+        input.selection = Selection::cursor(1);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert!(matches!(
+            messages.first().map(|m| &m.message),
+            Some(Message::TextEditClipboardPasteRequested { target }) if *target == input.id()
+        ));
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &MessageEvent {
+                sender: input.id(),
+                message: Message::TextEditClipboardPaste {
+                    target: input.id(),
+                    text: "XYZ".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "aXYZbc");
+        assert!(ctx.handled());
     }
 }

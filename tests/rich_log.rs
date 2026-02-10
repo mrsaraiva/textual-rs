@@ -61,3 +61,39 @@ fn rich_log_scrolls_via_actions() {
     let after = FrameBuffer::from_renderable(&console, &options, &log, None);
     assert!(after.as_plain_lines()[0].starts_with("line 2"));
 }
+
+#[test]
+fn rich_log_preserves_view_anchor_when_trimming_max_lines() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new().max_lines(3).auto_scroll(false);
+    log.write("line 1");
+    log.write("line 2");
+    log.write("line 3");
+    let _ = FrameBuffer::from_renderable(&console, &options, &log, None);
+    log.on_event(&Event::Action(Action::ScrollDown), &mut EventCtx::default());
+
+    let before = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(before.as_plain_lines()[0].starts_with("line 2"));
+    assert!(before.as_plain_lines()[1].starts_with("line 3"));
+
+    log.write("line 4");
+    let after = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(after.as_plain_lines()[0].starts_with("line 2"));
+    assert!(after.as_plain_lines()[1].starts_with("line 3"));
+}
+
+#[test]
+fn rich_log_renders_all_explicit_lines_from_styled_segments() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new();
+    log.write_segments(vec![rich_rs::Segment::new("line 1\nline 2")]);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("line 1"));
+    assert!(lines[1].starts_with("line 2"));
+}

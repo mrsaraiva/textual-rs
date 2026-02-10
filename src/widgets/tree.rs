@@ -13,6 +13,7 @@ use super::{
 pub struct TreeNode {
     label: String,
     expanded: bool,
+    disabled: bool,
     children: Vec<TreeNode>,
 }
 
@@ -21,6 +22,7 @@ impl TreeNode {
         Self {
             label: label.into(),
             expanded: true,
+            disabled: false,
             children: Vec::new(),
         }
     }
@@ -32,6 +34,11 @@ impl TreeNode {
 
     pub fn with_child(mut self, child: TreeNode) -> Self {
         self.children.push(child);
+        self
+    }
+
+    pub fn disabled(mut self, value: bool) -> Self {
+        self.disabled = value;
         self
     }
 }
@@ -58,6 +65,7 @@ struct VisibleNode {
     depth: usize,
     label: String,
     expanded: bool,
+    disabled: bool,
     has_children: bool,
 }
 
@@ -108,6 +116,7 @@ impl Tree {
                     depth,
                     label: node.label.clone(),
                     expanded: node.expanded,
+                    disabled: node.disabled,
                     has_children: !node.children.is_empty(),
                 });
                 if node.expanded {
@@ -127,12 +136,20 @@ impl Tree {
         self.visible_nodes().len()
     }
 
+    fn selectable_count(&self) -> usize {
+        self.visible_nodes()
+            .iter()
+            .filter(|node| !node.disabled)
+            .count()
+    }
+
     fn max_offset(&self) -> usize {
         ScrollView::line_max_offset(self.visible_count(), self.viewport_height.max(1))
     }
 
     fn clamp_offsets(&mut self) {
-        let total = self.visible_count();
+        let nodes = self.visible_nodes();
+        let total = nodes.len();
         if total == 0 {
             self.selected = 0;
             self.offset = 0;
@@ -140,6 +157,13 @@ impl Tree {
             return;
         }
         self.selected = self.selected.min(total - 1);
+        if nodes.get(self.selected).is_some_and(|node| node.disabled) {
+            if let Some(next) = self.closest_selectable(self.selected, 1, &nodes) {
+                self.selected = next;
+            } else if let Some(prev) = self.closest_selectable(self.selected, -1, &nodes) {
+                self.selected = prev;
+            }
+        }
         self.offset = self.offset.min(self.max_offset());
         if let Some(index) = self.hovered_index {
             if index >= total {
@@ -178,6 +202,9 @@ impl Tree {
 
     fn emit_selected(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
+            if node.disabled {
+                return;
+            }
             ctx.post_message(
                 self.id,
                 Message::TreeNodeSelected {
@@ -200,28 +227,40 @@ impl Tree {
     }
 
     fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
-        let total = self.visible_count();
+        let nodes = self.visible_nodes();
+        let total = nodes.len();
         if total == 0 {
             return;
         }
-        let next = index.min(total - 1);
+        let next = self
+            .closest_selectable(index, 1, &nodes)
+            .or_else(|| self.closest_selectable(index, -1, &nodes))
+            .unwrap_or(self.selected.min(total - 1));
         if next != self.selected {
             self.selected = next;
             self.ensure_visible();
-            let nodes = self.visible_nodes();
             self.emit_selected(ctx, &nodes);
             ctx.request_repaint();
         }
     }
 
     fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
-        let total = self.visible_count();
-        if total == 0 {
+        let nodes = self.visible_nodes();
+        let total = nodes.len();
+        if total == 0 || self.selectable_count() == 0 {
             return;
         }
         let current = self.selected as isize;
         let max = (total - 1) as isize;
-        let next = (current + delta).clamp(0, max) as usize;
+        let mut next = (current + delta).clamp(0, max) as usize;
+        let step = if delta >= 0 { 1 } else { -1 };
+        while next < total && nodes[next].disabled {
+            let probe = next as isize + step;
+            if probe < 0 || probe > max {
+                return;
+            }
+            next = probe as usize;
+        }
         self.select_index(next, ctx);
     }
 
@@ -234,7 +273,7 @@ impl Tree {
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
-        if !info.has_children {
+        if info.disabled || !info.has_children {
             return;
         }
         let mut expanded = info.expanded;
@@ -252,6 +291,9 @@ impl Tree {
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
+        if info.disabled {
+            return;
+        }
         if info.has_children && info.expanded {
             self.toggle_selected(ctx);
             return;
@@ -273,7 +315,7 @@ impl Tree {
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
-        if !info.has_children {
+        if info.disabled || !info.has_children {
             return;
         }
         if !info.expanded {
@@ -312,6 +354,33 @@ impl Tree {
             max_width = max_width.max(width);
         }
         max_width
+    }
+
+    fn closest_selectable(
+        &self,
+        index: usize,
+        direction: isize,
+        nodes: &[VisibleNode],
+    ) -> Option<usize> {
+        if nodes.is_empty() {
+            return None;
+        }
+        let max = nodes.len().saturating_sub(1) as isize;
+        let mut idx = (index as isize).clamp(0, max) as usize;
+        if !nodes[idx].disabled {
+            return Some(idx);
+        }
+        let step = if direction >= 0 { 1 } else { -1 };
+        loop {
+            let next = idx as isize + step;
+            if next < 0 || next > max {
+                return None;
+            }
+            idx = next as usize;
+            if !nodes[idx].disabled {
+                return Some(idx);
+            }
+        }
     }
 }
 
@@ -354,6 +423,9 @@ impl Widget for Tree {
                 let nodes = self.visible_nodes();
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if let Some(node) = nodes.get(index) {
+                    if node.disabled {
+                        return;
+                    }
                     self.select_index(index, ctx);
                     let twist_col = node.depth.saturating_mul(2) + 2;
                     if node.has_children && (mouse.x as usize) <= twist_col {
@@ -433,8 +505,13 @@ impl Widget for Tree {
 
     fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
         let index = self.offset.saturating_add(y as usize);
-        let total = self.visible_count();
-        let hovered = (index < total).then_some(index);
+        let nodes = self.visible_nodes();
+        let total = nodes.len();
+        let hovered = if index < total && !nodes[index].disabled {
+            Some(index)
+        } else {
+            None
+        };
         if hovered != self.hovered_index {
             self.hovered_index = hovered;
             return true;
@@ -494,6 +571,9 @@ impl Widget for Tree {
                     classes.push("-expanded");
                 } else {
                     classes.push("-collapsed");
+                }
+                if node.disabled {
+                    classes.push("-disabled");
                 }
                 style = crate::css::resolve_component_style(self, &classes)
                     .to_rich()

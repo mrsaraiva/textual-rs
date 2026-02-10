@@ -15,6 +15,9 @@ pub(crate) enum EditCommand {
     InsertChar(char),
     InsertNewline,
     Submit,
+    Copy,
+    Cut,
+    Paste,
     MoveLeft { select: bool, unit: MoveUnit },
     MoveRight { select: bool, unit: MoveUnit },
     MoveUp { select: bool },
@@ -28,10 +31,16 @@ pub(crate) enum EditCommand {
 
 pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Option<EditCommand> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let super_key = key.modifiers.contains(KeyModifiers::SUPER);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
     match key.code {
         KeyCode::Char('u') if ctrl && !multiline => Some(EditCommand::DeleteToStart),
+        KeyCode::Char(ch) if ctrl && ch.eq_ignore_ascii_case(&'x') => Some(EditCommand::Cut),
+        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'c') => {
+            Some(EditCommand::Copy)
+        }
+        KeyCode::Char(ch) if ctrl && ch.eq_ignore_ascii_case(&'v') => Some(EditCommand::Paste),
         KeyCode::Char(_) if !ctrl => key
             .character
             .filter(|_| key.is_printable)
@@ -294,5 +303,35 @@ mod tests {
             false,
         );
         assert_eq!(ctrl_u, Some(EditCommand::DeleteToStart));
+    }
+
+    #[test]
+    fn key_mapping_includes_clipboard_commands() {
+        let copy = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            )),
+            false,
+        );
+        assert_eq!(copy, Some(EditCommand::Copy));
+
+        let cut = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::CONTROL,
+            )),
+            false,
+        );
+        assert_eq!(cut, Some(EditCommand::Cut));
+
+        let paste = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL,
+            )),
+            false,
+        );
+        assert_eq!(paste, Some(EditCommand::Paste));
     }
 }

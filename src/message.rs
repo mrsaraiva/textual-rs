@@ -21,6 +21,17 @@ pub enum Message {
     TextAreaChanged {
         value: String,
     },
+    TextEditClipboardCopyRequested {
+        text: String,
+        cut: bool,
+    },
+    TextEditClipboardPasteRequested {
+        target: WidgetId,
+    },
+    TextEditClipboardPaste {
+        target: WidgetId,
+        text: String,
+    },
     ButtonPressed {
         description: String,
     },

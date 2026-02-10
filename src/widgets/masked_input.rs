@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::{Message, MessageEvent};
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -574,6 +574,15 @@ impl MaskedInput {
         );
     }
 
+    fn copy_text(&self) -> Option<String> {
+        let text = self.value_str();
+        if text.trim().is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+
     fn revalidate(&mut self) {
         let value_str = self.value_str();
 
@@ -847,6 +856,31 @@ impl Widget for MaskedInput {
                             },
                         );
                     }
+                    EditCommand::Copy => {
+                        if let Some(text) = self.copy_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: false },
+                            );
+                        }
+                    }
+                    EditCommand::Cut => {
+                        if let Some(text) = self.copy_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: true },
+                            );
+                            self.clear();
+                            changed = true;
+                            value_changed = true;
+                        }
+                    }
+                    EditCommand::Paste => {
+                        ctx.post_message(
+                            self.id,
+                            Message::TextEditClipboardPasteRequested { target: self.id },
+                        );
+                    }
                     EditCommand::Backspace { unit } => {
                         match unit {
                             MoveUnit::Grapheme => self.action_delete_left(),
@@ -901,6 +935,21 @@ impl Widget for MaskedInput {
                 ctx.set_handled();
             }
             _ => {}
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+            if *target != self.id {
+                return;
+            }
+            if self.action_insert_text(text) {
+                self.revalidate();
+                self.post_changed(ctx);
+                self.chrome.reset_blink();
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
         }
     }
 
@@ -1271,6 +1320,60 @@ mod tests {
         );
 
         assert_eq!(input.text(), "");
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn masked_input_copy_cut_and_paste_hooks() {
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+        input.set_text("1234");
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let copy_messages = ctx.take_messages();
+        assert!(copy_messages.iter().any(|m| {
+            matches!(
+                m.message,
+                Message::TextEditClipboardCopyRequested { ref text, cut: false } if text == "1234"
+            )
+        }));
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let cut_messages = ctx.take_messages();
+        assert!(cut_messages.iter().any(|m| {
+            matches!(
+                m.message,
+                Message::TextEditClipboardCopyRequested { ref text, cut: true } if text == "1234"
+            )
+        }));
+        assert_eq!(input.text(), "");
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &MessageEvent {
+                sender: input.id(),
+                message: Message::TextEditClipboardPaste {
+                    target: input.id(),
+                    text: "9876".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "9876");
         assert!(ctx.handled());
     }
 }

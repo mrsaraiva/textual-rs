@@ -8,6 +8,20 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Widget closure follow-up slices: RichLog + CommandPalette + ListView/Tree + clipboard hooks**
+  - `RichLog` parity hardening:
+    - preserves viewport anchor semantics when `max_lines` trimming removes head lines while manually scrolled,
+    - preserves all explicit newline-separated styled output from `write_segments(...)`.
+  - `CommandPalette` now emits `Message::CommandPaletteCommandSelected` for built-in commands (`keys`, `quit`) before close, with regression coverage for ordering and quit behavior.
+  - `ListView` and `Tree` now support disabled-item/node interaction semantics:
+    - keyboard navigation skips disabled entries,
+    - mouse selection/hover ignores disabled entries,
+    - default CSS now includes disabled row/node styles.
+  - Added shared text-edit clipboard command hooks (`Copy`/`Cut`/`Paste`) and message-bus clipboard events:
+    - `Message::TextEditClipboardCopyRequested { text, cut }`
+    - `Message::TextEditClipboardPasteRequested { target }`
+    - `Message::TextEditClipboardPaste { target, text }`
+  - Wired clipboard message flow for `Input`, `MaskedInput`, and `TextArea` with focused regression tests.
 - **Missing widget port PR6C: baseline `DirectoryTree` + `Welcome`**
   - Added `DirectoryTree` (`src/widgets/directory_tree.rs`) as a first-pass filesystem tree widget built on `Tree`, with directory scan/loading, lazy expand-on-toggle behavior, and message-bus forwarding via `on_message`.
   - Added `Welcome` (`src/widgets/welcome.rs`) as a baseline welcome surface with markdown body + bottom action button, routed through widget message flow.

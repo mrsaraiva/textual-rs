@@ -84,3 +84,46 @@ fn list_view_mouse_scroll_clamps_to_bounds() {
     assert!(ctx.handled());
     assert_eq!(list.offset(), 0);
 }
+
+#[test]
+fn list_view_navigation_skips_disabled_items() {
+    let mut list = ListView::new(vec![
+        "one".to_string(),
+        "two".to_string(),
+        "three".to_string(),
+    ]);
+    list.set_item_disabled(1, true);
+    list.set_focus(true);
+    list.on_layout(20, 3);
+
+    let mut ctx = EventCtx::default();
+    list.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+    assert_eq!(list.selected(), 2);
+}
+
+#[test]
+fn list_view_mouse_click_ignores_disabled_items() {
+    let mut list = ListView::new(vec![
+        "one".to_string(),
+        "two".to_string(),
+        "three".to_string(),
+    ]);
+    list.set_item_disabled(1, true);
+    list.on_layout(20, 3);
+
+    let id = list.id();
+    let mut ctx = EventCtx::default();
+    list.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: 0,
+            screen_y: 1,
+            x: 0,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(!ctx.handled());
+    assert_eq!(list.selected(), 0);
+}

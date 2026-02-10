@@ -126,6 +126,7 @@ impl RichLog {
             if self.lines.len() > max_lines {
                 let excess = self.lines.len() - max_lines;
                 self.lines.drain(0..excess);
+                self.offset_y = self.offset_y.saturating_sub(excess);
             }
         }
     }
@@ -212,16 +213,10 @@ impl RichLog {
                 LogLine::Styled(segments) => {
                     let split =
                         Segment::split_and_crop_lines(segments.clone(), width, None, true, false);
-                    if self.wrap {
-                        if split.is_empty() {
-                            out.push(vec![Segment::new(String::new())]);
-                        } else {
-                            out.extend(split);
-                        }
-                    } else if let Some(first) = split.first() {
-                        out.push(first.clone());
-                    } else {
+                    if split.is_empty() {
                         out.push(vec![Segment::new(String::new())]);
+                    } else {
+                        out.extend(split);
                     }
                 }
             }

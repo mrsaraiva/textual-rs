@@ -121,3 +121,43 @@ fn tree_mouse_scroll_clamps_to_bounds() {
     let after_up = FrameBuffer::from_renderable(&console, &options, &tree, None);
     assert!(after_up.as_plain_lines()[0].contains("Node 0"));
 }
+
+#[test]
+fn tree_navigation_skips_disabled_nodes() {
+    let mut tree = Tree::new(vec![
+        TreeNode::new("Root")
+            .with_child(TreeNode::new("Disabled Child").disabled(true))
+            .with_child(TreeNode::new("Enabled Child")),
+    ]);
+    tree.set_focus(true);
+    tree.on_layout(24, 5);
+    tree.set_selected(0);
+
+    let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    let mut ctx = EventCtx::default();
+    tree.on_event(&Event::Key(key), &mut ctx);
+    assert!(ctx.handled());
+    assert_eq!(tree.selected(), 2);
+}
+
+#[test]
+fn tree_mouse_click_ignores_disabled_nodes() {
+    let mut tree = Tree::new(vec![
+        TreeNode::new("Root").with_child(TreeNode::new("Child").disabled(true)),
+    ]);
+    tree.on_layout(24, 5);
+
+    let id = tree.id();
+    let mut ctx = EventCtx::default();
+    tree.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: 0,
+            screen_y: 1,
+            x: 0,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    assert!(!ctx.handled());
+}

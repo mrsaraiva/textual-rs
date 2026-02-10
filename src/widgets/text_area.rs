@@ -8,6 +8,7 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::event::{Event, EventCtx};
+use crate::message::{Message, MessageEvent};
 use crate::style::{Color, Style, parse_color_like};
 use crate::{Error, Result};
 
@@ -336,10 +337,7 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            self.id,
-            crate::message::Message::TextAreaChanged { value: self.text() },
-        );
+        ctx.post_message(self.id, Message::TextAreaChanged { value: self.text() });
     }
 
     fn register_builtin_languages(&mut self) {
@@ -790,6 +788,72 @@ impl TextArea {
         self.selection = Selection::cursor(self.cursor);
         self.doc_revision = self.doc_revision.wrapping_add(1);
     }
+
+    fn selected_text(&self) -> Option<String> {
+        if self.selection.is_empty() {
+            return None;
+        }
+        let (a, b) = normalized_selection(self.selection);
+        if a.row == b.row {
+            return Some(self.lines[a.row][a.col..b.col].to_string());
+        }
+        let mut out = String::new();
+        out.push_str(&self.lines[a.row][a.col..]);
+        out.push('\n');
+        for row in a.row + 1..b.row {
+            out.push_str(&self.lines[row]);
+            out.push('\n');
+        }
+        out.push_str(&self.lines[b.row][..b.col]);
+        Some(out)
+    }
+
+    fn cut_current_line(&mut self) -> Option<String> {
+        if self.lines.is_empty() {
+            return None;
+        }
+        let row = self.cursor.row.min(self.lines.len().saturating_sub(1));
+        let mut copied = self.lines[row].clone();
+        if self.lines.len() > 1 {
+            self.lines.remove(row);
+            if row < self.lines.len() {
+                copied.push('\n');
+            }
+        } else {
+            self.lines[0].clear();
+        }
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
+        self.cursor.col = self.cursor.col.min(self.lines[self.cursor.row].len());
+        self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+        Some(copied)
+    }
+
+    fn insert_clipboard_text(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        if normalized.is_empty() {
+            return false;
+        }
+        if self.delete_selection_if_any() {
+            // Insert replacement text at cursor.
+        }
+        let mut parts = normalized.split('\n').peekable();
+        while let Some(part) = parts.next() {
+            if !part.is_empty() {
+                self.insert_str(part);
+            }
+            if parts.peek().is_some() {
+                self.insert_newline();
+            }
+        }
+        true
+    }
 }
 
 impl Widget for TextArea {
@@ -1002,6 +1066,40 @@ impl Widget for TextArea {
                         );
                         next_preferred = Some(self.cursor_cell_x());
                     }
+                    EditCommand::Copy => {
+                        if let Some(text) = self.selected_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: false },
+                            );
+                        }
+                    }
+                    EditCommand::Cut => {
+                        if let Some(text) = self.selected_text() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: true },
+                            );
+                            if self.delete_selection_if_any() {
+                                changed = true;
+                                value_changed = true;
+                            }
+                        } else if let Some(text) = self.cut_current_line() {
+                            ctx.post_message(
+                                self.id,
+                                Message::TextEditClipboardCopyRequested { text, cut: true },
+                            );
+                            changed = true;
+                            value_changed = true;
+                            next_preferred = Some(self.cursor_cell_x());
+                        }
+                    }
+                    EditCommand::Paste => {
+                        ctx.post_message(
+                            self.id,
+                            Message::TextEditClipboardPasteRequested { target: self.id },
+                        );
+                    }
                     EditCommand::DeleteToStart | EditCommand::Submit => {}
                 }
 
@@ -1017,6 +1115,22 @@ impl Widget for TextArea {
                 ctx.set_handled();
             }
             _ => {}
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+            if *target != self.id {
+                return;
+            }
+            if self.insert_clipboard_text(text) {
+                self.post_changed(ctx);
+                self.preferred_col_cells = Some(self.cursor_cell_x());
+                self.adjust_scroll_to_cursor();
+                self.reset_blink();
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
         }
     }
 
@@ -1326,6 +1440,7 @@ fn cursor_lt(a: Cursor, b: Cursor) -> bool {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
+    use crate::message::{Message, MessageEvent};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1343,8 +1458,74 @@ mod tests {
         );
 
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, crate::message::Message::TextAreaChanged { ref value } if value == "x")));
+        assert!(
+            messages.iter().any(
+                |m| matches!(m.message, Message::TextAreaChanged { ref value } if value == "x")
+            )
+        );
+    }
+
+    #[test]
+    fn clipboard_commands_emit_messages() {
+        let mut text_area = TextArea::new("hello\nworld");
+        text_area.set_focus(true);
+        text_area.set_selection(Selection {
+            start: Cursor { row: 0, col: 0 },
+            end: Cursor { row: 0, col: 5 },
+        });
+
+        let mut ctx = EventCtx::default();
+        text_area.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let copy_messages = ctx.take_messages();
+        assert!(copy_messages.iter().any(|m| {
+            matches!(
+                m.message,
+                Message::TextEditClipboardCopyRequested { ref text, cut: false } if text == "hello"
+            )
+        }));
+
+        let mut ctx = EventCtx::default();
+        text_area.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        let paste_messages = ctx.take_messages();
+        assert!(paste_messages.iter().any(|m| {
+            matches!(
+                m.message,
+                Message::TextEditClipboardPasteRequested { target } if target == text_area.id()
+            )
+        }));
+    }
+
+    #[test]
+    fn paste_message_inserts_multiline_text() {
+        let mut text_area = TextArea::new("abc");
+        text_area.set_focus(true);
+        text_area.set_selection(Selection::cursor(Cursor { row: 0, col: 1 }));
+
+        let mut ctx = EventCtx::default();
+        text_area.on_message(
+            &MessageEvent {
+                sender: text_area.id(),
+                message: Message::TextEditClipboardPaste {
+                    target: text_area.id(),
+                    text: "X\nY".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+
+        assert_eq!(text_area.text(), "aX\nYbc");
+        assert!(ctx.handled());
     }
 }

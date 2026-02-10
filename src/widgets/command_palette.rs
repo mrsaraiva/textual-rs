@@ -358,6 +358,13 @@ impl CommandPalette {
         }
         let selected = self.list.selected().min(self.filtered.len() - 1);
         let command = &self.commands[self.filtered[selected]];
+        ctx.post_message(
+            self.id,
+            Message::CommandPaletteCommandSelected {
+                id: command.id.clone(),
+                title: command.title.clone(),
+            },
+        );
         match command.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
@@ -374,15 +381,7 @@ impl CommandPalette {
                 self.animate_key_panel_width(before, target, ctx);
                 ctx.request_repaint();
             }
-            _ => {
-                ctx.post_message(
-                    self.id,
-                    Message::CommandPaletteCommandSelected {
-                        id: command.id.clone(),
-                        title: command.title.clone(),
-                    },
-                );
-            }
+            _ => {}
         }
         self.set_open(false, ctx);
     }
@@ -1023,6 +1022,67 @@ mod tests {
                 Message::CommandPaletteCommandSelected { .. }
             ))
         );
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn command_palette_emits_selection_message_for_keys_builtin() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+
+        let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+        let mut execute_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+
+        let messages = execute_ctx.take_messages();
+        assert!(messages.iter().any(|event| {
+            matches!(
+                event.message,
+                Message::CommandPaletteCommandSelected { ref id, .. } if id == "keys"
+            )
+        }));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn command_palette_quit_builtin_emits_selection_and_requests_stop() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.set_commands(vec![PaletteCommand::new("quit", "Quit", "Quit app")]);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        ));
+        let mut execute_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+
+        assert!(execute_ctx.stop_requested());
+        let messages = execute_ctx.take_messages();
+        let selected_idx = messages.iter().position(|event| {
+            matches!(
+                event.message,
+                Message::CommandPaletteCommandSelected { ref id, .. } if id == "quit"
+            )
+        });
+        let close_idx = messages
+            .iter()
+            .position(|event| matches!(event.message, Message::CommandPaletteClosed));
+        assert!(selected_idx.is_some());
+        assert!(close_idx.is_some());
+        assert!(selected_idx < close_idx);
         assert!(!palette.is_open());
     }
 

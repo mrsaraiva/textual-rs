@@ -13,6 +13,7 @@ use super::{
 pub struct ListView {
     id: WidgetId,
     items: Vec<String>,
+    disabled: Vec<bool>,
     selected: usize,
     offset: usize,
     focused: bool,
@@ -27,9 +28,11 @@ pub struct ListView {
 
 impl ListView {
     pub fn new(items: Vec<String>) -> Self {
+        let len = items.len();
         Self {
             id: WidgetId::new(),
             items,
+            disabled: vec![false; len],
             selected: 0,
             offset: 0,
             focused: false,
@@ -60,19 +63,38 @@ impl ListView {
     }
 
     pub fn set_selected(&mut self, index: usize) {
-        if self.items.is_empty() {
+        if self.selectable_count() == 0 {
             self.selected = 0;
             self.offset = 0;
             return;
         }
-        self.selected = index.min(self.items.len() - 1);
+        if let Some(next) = self.closest_selectable(index, 1) {
+            self.selected = next;
+        }
         self.ensure_visible();
     }
 
     pub fn set_items(&mut self, items: Vec<String>) {
+        self.disabled = vec![false; items.len()];
         self.items = items;
         self.clamp_offsets();
         self.ensure_visible();
+    }
+
+    pub fn set_item_disabled(&mut self, index: usize, disabled: bool) {
+        if index >= self.items.len() {
+            return;
+        }
+        if index >= self.disabled.len() {
+            self.disabled.resize(self.items.len(), false);
+        }
+        self.disabled[index] = disabled;
+        self.clamp_offsets();
+        self.ensure_visible();
+    }
+
+    pub fn is_item_disabled(&self, index: usize) -> bool {
+        self.disabled.get(index).copied().unwrap_or(false)
     }
 
     pub fn scroll_step(mut self, step: usize) -> Self {
@@ -84,6 +106,50 @@ impl ListView {
         ScrollView::line_max_offset(self.items.len(), self.viewport_height.max(1))
     }
 
+    fn is_selectable(&self, index: usize) -> bool {
+        index < self.items.len() && !self.is_item_disabled(index)
+    }
+
+    fn selectable_count(&self) -> usize {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| self.is_selectable(*idx))
+            .count()
+    }
+
+    fn first_selectable(&self) -> Option<usize> {
+        (0..self.items.len()).find(|idx| self.is_selectable(*idx))
+    }
+
+    fn last_selectable(&self) -> Option<usize> {
+        (0..self.items.len())
+            .rev()
+            .find(|idx| self.is_selectable(*idx))
+    }
+
+    fn closest_selectable(&self, from: usize, direction: isize) -> Option<usize> {
+        if self.selectable_count() == 0 {
+            return None;
+        }
+        let max = self.items.len().saturating_sub(1) as isize;
+        let mut idx = (from as isize).clamp(0, max) as usize;
+        if self.is_selectable(idx) {
+            return Some(idx);
+        }
+        let step = if direction >= 0 { 1 } else { -1 };
+        loop {
+            let next = idx as isize + step;
+            if next < 0 || next > max {
+                return None;
+            }
+            idx = next as usize;
+            if self.is_selectable(idx) {
+                return Some(idx);
+            }
+        }
+    }
+
     fn clamp_offsets(&mut self) {
         if self.items.is_empty() {
             self.selected = 0;
@@ -92,6 +158,13 @@ impl ListView {
             return;
         }
         self.selected = self.selected.min(self.items.len() - 1);
+        if !self.is_selectable(self.selected) {
+            self.selected = self
+                .closest_selectable(self.selected, 1)
+                .or_else(|| self.closest_selectable(self.selected, -1))
+                .or_else(|| self.first_selectable())
+                .unwrap_or(0);
+        }
         self.offset = self.offset.min(self.max_offset());
         if let Some(index) = self.hovered_index {
             if index >= self.items.len() {
@@ -115,7 +188,9 @@ impl ListView {
     }
 
     fn emit_selection_changed(&self, ctx: &mut EventCtx) {
-        if let Some(item) = self.items.get(self.selected) {
+        if self.is_selectable(self.selected)
+            && let Some(item) = self.items.get(self.selected)
+        {
             ctx.post_message(
                 self.id,
                 Message::ListViewSelectionChanged {
@@ -127,10 +202,13 @@ impl ListView {
     }
 
     fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
-        if self.items.is_empty() {
+        if self.selectable_count() == 0 {
             return;
         }
-        let next = index.min(self.items.len() - 1);
+        let next = self
+            .closest_selectable(index, 1)
+            .or_else(|| self.closest_selectable(index, -1))
+            .unwrap_or(self.selected);
         if next != self.selected {
             self.selected = next;
             self.ensure_visible();
@@ -140,12 +218,20 @@ impl ListView {
     }
 
     fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
-        if self.items.is_empty() {
+        if self.selectable_count() == 0 {
             return;
         }
         let current = self.selected as isize;
         let max = (self.items.len() - 1) as isize;
-        let next = (current + delta).clamp(0, max) as usize;
+        let mut next = (current + delta).clamp(0, max) as usize;
+        let step = if delta >= 0 { 1 } else { -1 };
+        while next < self.items.len() && !self.is_selectable(next) {
+            let probe = next as isize + step;
+            if probe < 0 || probe > max {
+                return;
+            }
+            next = probe as usize;
+        }
         self.select_index(next, ctx);
     }
 
@@ -205,7 +291,7 @@ impl Widget for ListView {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 let index = self.offset.saturating_add(mouse.y as usize);
-                if index < self.items.len() {
+                if self.is_selectable(index) {
                     self.select_index(index, ctx);
                     ctx.set_handled();
                 }
@@ -247,12 +333,14 @@ impl Widget for ListView {
                     ctx.set_handled();
                 }
                 KeyCode::Home => {
-                    self.select_index(0, ctx);
+                    if let Some(first) = self.first_selectable() {
+                        self.select_index(first, ctx);
+                    }
                     ctx.set_handled();
                 }
                 KeyCode::End => {
-                    if !self.items.is_empty() {
-                        self.select_index(self.items.len() - 1, ctx);
+                    if let Some(last) = self.last_selectable() {
+                        self.select_index(last, ctx);
                     }
                     ctx.set_handled();
                 }
@@ -267,7 +355,7 @@ impl Widget for ListView {
             return false;
         }
         let index = self.offset.saturating_add(y as usize);
-        let hovered = (index < self.items.len()).then_some(index);
+        let hovered = self.is_selectable(index).then_some(index);
         if hovered != self.hovered_index {
             self.hovered_index = hovered;
             return true;
@@ -310,6 +398,9 @@ impl Widget for ListView {
                 }
                 if selected && self.focused {
                     classes.push("-focus");
+                }
+                if self.is_item_disabled(index) {
+                    classes.push("-disabled");
                 }
                 style = crate::css::resolve_component_style(self, &classes)
                     .to_rich()

@@ -429,6 +429,7 @@ Reference plan:
 ## Execution Plan (v0.2, Single Source of Truth)
 
 - Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
+- Landed (2026-02-10): widget follow-up slices for `RichLog` + `CommandPalette` interaction hardening, `ListView`/`Tree` disabled-navigation semantics, and shared text-edit clipboard message hooks across `Input`/`MaskedInput`/`TextArea`.
 - Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
@@ -441,7 +442,9 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
 
 1. Widget first-class closure program (Phase 7 + widget plan)
    - PR 1: Continue Tier-A closure pass after PR5/PR6 landings (`DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`), with targeted behavior + styling parity deltas per slice.
+     - PR7A (2026-02-10): `RichLog` now preserves scroll-anchor behavior when max-line trimming drops head rows and keeps explicit multi-line styled writes intact; `CommandPalette` now emits `CommandPaletteCommandSelected` for built-ins (`keys`, `quit`) before close, with focused regressions.
    - PR 2: Tier-B closure slices (`ListView`/`Tree`, text-edit follow-up including clipboard hooks, `Header`/`Footer` lifecycle polish) aligned to Python semantics.
+     - PR7B (2026-02-10): `ListView`/`Tree` now support disabled-item/node navigation semantics (keyboard + mouse skip/ignore + disabled classes); shared text-edit clipboard hooks are message-bus-first via `TextEditClipboard*` messages with focused regressions for `Input`/`MaskedInput`/`TextArea`.
    - PR 3: Tier-C/utility closure slices (toggle/list family polish, `Tooltip`/`HelpPanel` positioning/default CSS, `DirectoryTree` async loader fidelity, `Welcome` lifecycle/CSS parity).
    - PR 4: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
    - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
