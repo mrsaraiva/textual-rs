@@ -3,7 +3,8 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use std::time::Duration;
 
 use crate::event::{
-    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, BindingHint, Event,
+    EventCtx,
 };
 use crate::message::Message;
 use crate::style::TransitionTiming;
@@ -478,6 +479,13 @@ impl Widget for Tabs {
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.child.on_message(message, ctx);
         }
+    }
+
+    fn binding_hints(&self) -> Vec<BindingHint> {
+        if self.tabs.len() <= 1 {
+            return Vec::new();
+        }
+        vec![BindingHint::new("left/right", "Switch tab").with_key_display("←/→")]
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {

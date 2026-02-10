@@ -27,6 +27,10 @@ until the API stabilizes.
 - **Command palette provider plumbing (Phase 9.6)**
   - Added message-driven command updates: `Message::CommandPaletteSetCommands { commands }`.
   - `CommandPalette` now accepts runtime/app command list refreshes through the message bus and rebuilds results immediately.
+- **Phase 9.6 binding lifecycle + footer parity pass**
+  - Runtime now enriches active binding lifecycle updates with focused-path widget hints (ancestor -> focused widget), then normalizes ordering/dedup for deterministic `BindingsChanged` emissions.
+  - `Tabs` and `TabbedContent` now expose focused binding hints for tab switching (`←/→`), so Footer/KeyPanel can reflect active tab-navigation affordances.
+  - Added regression coverage for focused-path binding hint collection and footer right-docked command-palette slot behavior.
 - **Windows safe-borders policy (workaround, explicit opt-in)**
   - Kept Windows safe-borders as a workaround for terminal-specific block-border artifacts, but not enabled globally by default.
   - Standardized `TEXTUAL_WINDOWS_SAFE_BORDERS` parsing to support `on|off|auto` (plus boolean aliases), with `auto` currently resolving conservatively to off.

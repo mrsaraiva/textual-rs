@@ -64,6 +64,29 @@ fn footer_updates_from_bindings_changed_event() {
 }
 
 #[test]
+fn footer_docks_command_palette_binding_to_right_slot() {
+    let console = Console::new();
+    let options = options_for(&console, 48, 1);
+    let mut footer = Footer::new();
+    let mut ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("j", "Jessica"),
+            BindingHint::new("ctrl+p", "palette")
+                .with_key_display("^p")
+                .with_group("command_palette"),
+        ]),
+        &mut ctx,
+    );
+    assert!(ctx.repaint_requested());
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &buf.as_plain_lines()[0];
+    assert!(line.contains("Jessica"));
+    assert!(line.trim_end().ends_with("^p palette"));
+}
+
+#[test]
 fn header_mouse_up_toggles_tall_outside_icon() {
     let mut header = Header::new().title("Textual Keys");
     let mut ctx = EventCtx::default();

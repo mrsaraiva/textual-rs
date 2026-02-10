@@ -67,3 +67,21 @@ fn tabbed_content_component_id_css_selector_is_supported() {
         .with_pane(TabPane::new("Green", Label::new("green")).id("green"));
     let _ = FrameBuffer::from_renderable(&console, &options, &tabs, None);
 }
+
+#[test]
+fn tabbed_content_exposes_switch_tab_binding_hint_when_multiple_panes() {
+    let tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+    let hints = tabs.binding_hints();
+    assert_eq!(
+        hints,
+        vec![BindingHint::new("left/right", "Switch tab").with_key_display("←/→")]
+    );
+}
+
+#[test]
+fn tabbed_content_hides_switch_tab_binding_hint_for_single_pane() {
+    let tabs = TabbedContent::new().with_pane(TabPane::new("One", Label::new("first")).id("one"));
+    assert!(tabs.binding_hints().is_empty());
+}

@@ -1,5 +1,5 @@
 use crate::debug::debug_message;
-use crate::event::{Action, AnimationRequest, Event, EventCtx};
+use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::widgets::{Widget, WidgetId};
 
@@ -61,6 +61,37 @@ pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
 
     let mut out = None;
     visit(root, &mut out);
+    out
+}
+
+pub(crate) fn focused_path_binding_hints(root: &mut dyn Widget) -> Vec<BindingHint> {
+    fn walk(widget: &mut dyn Widget, out: &mut Vec<BindingHint>) -> bool {
+        let mut child_hints = Vec::new();
+        let mut found_in_child = false;
+        widget.visit_children_mut(&mut |child| {
+            if found_in_child {
+                return;
+            }
+            if walk(child, &mut child_hints) {
+                found_in_child = true;
+            }
+        });
+        if found_in_child {
+            out.extend(widget.binding_hints());
+            out.extend(child_hints);
+            return true;
+        }
+
+        if widget.has_focus() {
+            out.extend(widget.binding_hints());
+            return true;
+        }
+
+        false
+    }
+
+    let mut out = Vec::new();
+    let _ = walk(root, &mut out);
     out
 }
 
@@ -333,9 +364,60 @@ mod message_tests {
     use crate::message::Message;
     use crate::widgets::{AppRoot, Button, ScrollView};
     use crossterm::event::{KeyCode, KeyModifiers};
-    use rich_rs::{Console, ConsoleOptions};
+    use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct HintNode {
+        id: WidgetId,
+        focused: bool,
+        hints: Vec<BindingHint>,
+        child: Option<Box<HintNode>>,
+    }
+
+    impl HintNode {
+        fn new(focused: bool, hints: Vec<BindingHint>) -> Self {
+            Self {
+                id: WidgetId::new(),
+                focused,
+                hints,
+                child: None,
+            }
+        }
+
+        fn with_child(mut self, child: HintNode) -> Self {
+            self.child = Some(Box::new(child));
+            self
+        }
+    }
+
+    impl Widget for HintNode {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn binding_hints(&self) -> Vec<BindingHint> {
+            self.hints.clone()
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            if let Some(child) = self.child.as_mut() {
+                f(child.as_mut());
+            }
+        }
+    }
 
     struct Child {
         id: WidgetId,
@@ -677,5 +759,55 @@ mod message_tests {
         assert!(outcome.handled);
         assert_eq!(first_hits.load(Ordering::Relaxed), 1);
         assert_eq!(second_hits.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn focused_path_binding_hints_collects_ancestor_chain() {
+        let leaf = HintNode::new(true, vec![BindingHint::new("enter", "activate")]);
+        let mid = HintNode::new(false, vec![BindingHint::new("left", "back")]).with_child(leaf);
+        let mut root =
+            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(mid);
+
+        let hints = focused_path_binding_hints(&mut root);
+        assert_eq!(
+            hints,
+            vec![
+                BindingHint::new("tab", "next focus"),
+                BindingHint::new("left", "back"),
+                BindingHint::new("enter", "activate")
+            ]
+        );
+    }
+
+    #[test]
+    fn focused_path_binding_hints_returns_empty_without_focus() {
+        let leaf = HintNode::new(false, vec![BindingHint::new("enter", "activate")]);
+        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next")]).with_child(leaf);
+
+        assert!(focused_path_binding_hints(&mut root).is_empty());
+    }
+
+    #[test]
+    fn focused_path_binding_hints_tracks_focus_transitions() {
+        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(
+            HintNode::new(true, vec![BindingHint::new("left/right", "switch tab")]),
+        );
+
+        let first = focused_path_binding_hints(&mut root);
+        assert_eq!(
+            first,
+            vec![
+                BindingHint::new("tab", "next focus"),
+                BindingHint::new("left/right", "switch tab"),
+            ]
+        );
+
+        if let Some(child) = root.child.as_mut() {
+            child.set_focus(false);
+        }
+        root.set_focus(true);
+
+        let second = focused_path_binding_hints(&mut root);
+        assert_eq!(second, vec![BindingHint::new("tab", "next focus")]);
     }
 }

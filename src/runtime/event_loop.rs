@@ -13,7 +13,8 @@ use super::App;
 use super::helpers::{any_widget_active, mouse_scroll_deltas, should_quit_key};
 use super::routing::{
     dispatch_event, dispatch_event_to_target, dispatch_message_queue, dispatch_mouse_scroll,
-    dispatch_mouse_scroll_to_target, dispatch_scroll_action, is_priority_action, is_scroll_action,
+    dispatch_mouse_scroll_to_target, dispatch_scroll_action, focused_path_binding_hints,
+    is_priority_action, is_scroll_action,
 };
 use super::types::DispatchOutcome;
 use crate::widgets::Widget;
@@ -463,7 +464,9 @@ impl App {
         &mut self,
         root: &mut dyn Widget,
     ) -> DispatchOutcome {
-        let current = self.binding_hints();
+        let mut current = self.binding_hints();
+        current.extend(focused_path_binding_hints(root));
+        let current = self.normalize_binding_hints(current);
         if current == self.last_binding_hints {
             return DispatchOutcome::default();
         }

@@ -15,7 +15,7 @@ use crate::widgets::{ToastSeverity, Widget, WidgetId};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -79,7 +79,7 @@ impl App {
             .ok()
             .map(|s| s != "0" && s.to_lowercase() != "false")
             .unwrap_or(true);
-        let mut app = Self {
+        let app = Self {
             driver,
             console,
             options,
@@ -116,7 +116,6 @@ impl App {
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
         };
-        app.last_binding_hints = app.binding_hints();
         Ok(app)
     }
 
@@ -153,6 +152,11 @@ impl App {
                     .with_system(true),
             );
         }
+        out.sort_by(|left, right| {
+            left.key
+                .cmp(&right.key)
+                .then_with(|| left.description.cmp(&right.description))
+        });
         out.extend(
             self.custom_binding_hints
                 .iter()
@@ -162,9 +166,14 @@ impl App {
             out.push(entry.hint.clone());
         }
 
-        let mut unique = HashSet::new();
-        out.retain(|entry| {
-            unique.insert((
+        self.normalize_binding_hints(out)
+    }
+
+    pub(super) fn normalize_binding_hints(&self, out: Vec<BindingHint>) -> Vec<BindingHint> {
+        let mut unique = BTreeSet::new();
+        let mut deduped = Vec::new();
+        for entry in out {
+            let key = (
                 entry.key.clone(),
                 entry.description.clone(),
                 entry.show,
@@ -172,11 +181,15 @@ impl App {
                 entry.group.clone(),
                 entry.priority,
                 entry.system,
-            ))
-        });
+            );
+            if unique.insert(key) {
+                deduped.push(entry);
+            }
+        }
+
         let mut prioritized = Vec::new();
         let mut regular = Vec::new();
-        for entry in out {
+        for entry in deduped {
             if entry.priority {
                 prioritized.push(entry);
             } else {
