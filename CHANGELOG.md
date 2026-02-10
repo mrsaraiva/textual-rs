@@ -22,6 +22,10 @@ until the API stabilizes.
 - **Message-bus-only `Button` integration (breaking)**
   - Removed `Button::on_press`; button activation now integrates via `Message::ButtonPressed` only.
   - Added regression coverage for key-triggered button message emission.
+- **Message-bus interaction coverage for `Header` + `Placeholder`**
+  - Added `Message::HeaderToggled { tall }` when header body clicks toggle tall mode.
+  - Added `Message::PlaceholderVariantChanged { variant }` when placeholder clicks rotate variant state.
+  - Added widget-level regression tests validating emission and no-op paths.
 - **Grapheme audit follow-up for text-heavy widgets**
   - Added targeted regression coverage for wide-grapheme behavior across `DataTable` column hit-testing, `Tabs` mouse header hit-testing, `Tree` intrinsic width calculations, and markdown heading component styling with emoji content.
 - **Command palette provider plumbing (Phase 9.6)**

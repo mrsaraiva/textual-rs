@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
+use crate::message::Message;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetId, WidgetStyles};
@@ -163,6 +164,7 @@ impl Widget for Header {
                     return;
                 }
                 self.tall = !self.tall;
+                ctx.post_message(self.id, Message::HeaderToggled { tall: self.tall });
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -289,5 +291,58 @@ impl Widget for Header {
 impl Renderable for Header {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::MouseUpEvent;
+
+    #[test]
+    fn header_body_click_toggles_tall_and_emits_message() {
+        let mut header = Header::new();
+        let mut ctx = EventCtx::default();
+        let id = header.id();
+        header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 9,
+                y: 0,
+                screen_x: 9,
+                screen_y: 0,
+                target: Some(id),
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sender, id);
+        assert!(matches!(
+            messages[0].message,
+            Message::HeaderToggled { tall: true }
+        ));
+    }
+
+    #[test]
+    fn header_icon_click_does_not_emit_toggle_message() {
+        let mut header = Header::new();
+        let mut ctx = EventCtx::default();
+        let id = header.id();
+        header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 0,
+                y: 0,
+                screen_x: 0,
+                screen_y: 0,
+                target: Some(id),
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(ctx.take_messages().is_empty());
     }
 }

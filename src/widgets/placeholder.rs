@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
+use crate::message::Message;
 use crate::style::Color;
 
 use super::{
@@ -35,6 +36,14 @@ impl PlaceholderVariant {
             PlaceholderVariant::Default => "-default",
             PlaceholderVariant::Size => "-size",
             PlaceholderVariant::Text => "-text",
+        }
+    }
+
+    fn message_name(self) -> &'static str {
+        match self {
+            PlaceholderVariant::Default => "default",
+            PlaceholderVariant::Size => "size",
+            PlaceholderVariant::Text => "text",
         }
     }
 }
@@ -189,6 +198,12 @@ impl Widget for Placeholder {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 self.cycle_variant();
+                ctx.post_message(
+                    self.id,
+                    Message::PlaceholderVariantChanged {
+                        variant: self.variant.message_name().to_string(),
+                    },
+                );
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -282,6 +297,7 @@ impl Renderable for Placeholder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::Message;
 
     #[test]
     fn variant_cycles_on_click() {
@@ -382,6 +398,7 @@ mod tests {
         // Should remain Default because disabled blocks event handling.
         assert_eq!(ph.variant(), PlaceholderVariant::Default);
         assert!(!ctx.handled());
+        assert!(ctx.take_messages().is_empty());
     }
 
     #[test]
@@ -399,6 +416,12 @@ mod tests {
         ph.on_event(&event, &mut ctx);
         assert_eq!(ph.variant(), PlaceholderVariant::Size);
         assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::PlaceholderVariantChanged { ref variant } if variant == "size"
+        ));
     }
 
     #[test]

@@ -35,6 +35,12 @@ pub enum Message {
         index: usize,
         title: String,
     },
+    HeaderToggled {
+        tall: bool,
+    },
+    PlaceholderVariantChanged {
+        variant: String,
+    },
     TreeNodeSelected {
         index: usize,
         label: String,
