@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
@@ -18,16 +18,48 @@ pub enum CursorType {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RowKey(String);
+
+impl RowKey {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ColumnKey(String);
+
+impl ColumnKey {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DataTable {
     id: WidgetId,
+    column_keys: Vec<ColumnKey>,
     headers: Vec<String>,
+    row_keys: Vec<RowKey>,
     rows: Vec<Vec<String>>,
     column_widths: Vec<usize>,
     selected: usize,
     offset: usize,
     cursor_column: usize,
     cursor_type: CursorType,
+    fixed_rows: usize,
+    fixed_columns: usize,
+    next_row_key: usize,
+    next_column_key: usize,
     content_width: u16,
     content_height: u16,
     focused: bool,
@@ -40,13 +72,19 @@ impl DataTable {
     pub fn new(headers: Vec<String>, rows: Vec<Vec<String>>) -> Self {
         let mut out = Self {
             id: WidgetId::new(),
-            headers,
-            rows,
+            column_keys: Vec::new(),
+            headers: Vec::new(),
+            row_keys: Vec::new(),
+            rows: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
             cursor_column: 0,
             cursor_type: CursorType::Cell,
+            fixed_rows: 0,
+            fixed_columns: 0,
+            next_row_key: 0,
+            next_column_key: 0,
             content_width: 0,
             content_height: 0,
             focused: false,
@@ -54,7 +92,12 @@ impl DataTable {
             hover_coordinate: None,
             styles: WidgetStyles::default(),
         };
-        out.recompute_column_widths();
+        for header in headers {
+            let _ = out.add_column(header);
+        }
+        for row in rows {
+            let _ = out.add_row(row);
+        }
         out
     }
 
@@ -69,9 +112,8 @@ impl DataTable {
         S: ToString,
     {
         for col in columns {
-            self.headers.push(col.to_string());
+            let _ = self.add_column(col);
         }
-        self.recompute_column_widths();
     }
 
     pub fn add_rows<I, R, S>(&mut self, rows: I)
@@ -81,17 +123,105 @@ impl DataTable {
         S: ToString,
     {
         for row in rows {
-            self.rows
-                .push(row.as_ref().iter().map(|s| s.to_string()).collect());
+            let row_values = row.as_ref().iter().map(|s| s.to_string()).collect();
+            let _ = self.add_row(row_values);
         }
-        if self.selected >= self.rows.len() {
-            self.selected = self.rows.len().saturating_sub(1);
-        }
+    }
+
+    pub fn add_column<S>(&mut self, column: S) -> ColumnKey
+    where
+        S: ToString,
+    {
+        let key = self.generate_column_key();
+        self.column_keys.push(key.clone());
+        self.headers.push(column.to_string());
+        self.clamp_indices();
         self.recompute_column_widths();
+        key
+    }
+
+    pub fn add_column_with_key<K, S>(&mut self, key: K, column: S) -> Option<ColumnKey>
+    where
+        K: Into<String>,
+        S: ToString,
+    {
+        let key = ColumnKey::new(key);
+        if self.column_keys.iter().any(|existing| existing == &key) {
+            return None;
+        }
+        self.column_keys.push(key.clone());
+        self.headers.push(column.to_string());
+        self.clamp_indices();
+        self.recompute_column_widths();
+        Some(key)
+    }
+
+    pub fn add_row<S>(&mut self, row: Vec<S>) -> RowKey
+    where
+        S: ToString,
+    {
+        let key = self.generate_row_key();
+        self.row_keys.push(key.clone());
+        self.rows
+            .push(row.into_iter().map(|value| value.to_string()).collect());
+        self.clamp_indices();
+        self.recompute_column_widths();
+        key
+    }
+
+    pub fn add_row_with_key<K, S>(&mut self, key: K, row: Vec<S>) -> Option<RowKey>
+    where
+        K: Into<String>,
+        S: ToString,
+    {
+        let key = RowKey::new(key);
+        if self.row_keys.iter().any(|existing| existing == &key) {
+            return None;
+        }
+        self.row_keys.push(key.clone());
+        self.rows
+            .push(row.into_iter().map(|value| value.to_string()).collect());
+        self.clamp_indices();
+        self.recompute_column_widths();
+        Some(key)
+    }
+
+    pub fn row_key_at(&self, row: usize) -> Option<&RowKey> {
+        self.row_keys.get(row)
+    }
+
+    pub fn column_key_at(&self, column: usize) -> Option<&ColumnKey> {
+        self.column_keys.get(column)
+    }
+
+    pub fn row_index_of(&self, key: &RowKey) -> Option<usize> {
+        self.row_keys.iter().position(|existing| existing == key)
+    }
+
+    pub fn column_index_of(&self, key: &ColumnKey) -> Option<usize> {
+        self.column_keys.iter().position(|existing| existing == key)
+    }
+
+    pub fn cell_key_at(&self, row: usize, column: usize) -> Option<(RowKey, ColumnKey)> {
+        let row_key = self.row_key_at(row)?;
+        let column_key = self.column_key_at(column)?;
+        Some((row_key.clone(), column_key.clone()))
+    }
+
+    pub fn cursor_cell_key(&self) -> Option<(RowKey, ColumnKey)> {
+        self.cell_key_at(self.selected, self.cursor_column)
     }
 
     pub fn selected(&self) -> usize {
         self.selected
+    }
+
+    pub fn selected_column(&self) -> usize {
+        self.cursor_column
+    }
+
+    pub fn cursor(&self) -> (usize, usize) {
+        (self.selected, self.cursor_column)
     }
 
     pub fn set_selected(&mut self, index: usize) {
@@ -101,11 +231,92 @@ impl DataTable {
             return;
         }
         self.selected = index.min(self.rows.len() - 1);
+        self.ensure_visible(self.visible_rows());
+    }
+
+    pub fn set_cursor(&mut self, row: usize, column: usize) {
+        self.set_selected(row);
+        if self.headers.is_empty() {
+            self.cursor_column = 0;
+        } else {
+            self.cursor_column = column.min(self.headers.len() - 1);
+        }
+    }
+
+    pub fn set_cursor_type(&mut self, ct: CursorType) {
+        self.cursor_type = ct;
+    }
+
+    pub fn set_fixed_rows(&mut self, count: usize) {
+        self.fixed_rows = count;
+        self.ensure_visible(self.visible_rows());
+    }
+
+    pub fn set_fixed_columns(&mut self, count: usize) {
+        self.fixed_columns = count;
+    }
+
+    pub fn fixed_rows(&self) -> usize {
+        self.fixed_rows
+    }
+
+    pub fn fixed_columns(&self) -> usize {
+        self.fixed_columns
     }
 
     pub fn cursor_type(mut self, ct: CursorType) -> Self {
         self.cursor_type = ct;
         self
+    }
+
+    fn generate_row_key(&mut self) -> RowKey {
+        loop {
+            let candidate = RowKey::new(format!("row-{}", self.next_row_key));
+            self.next_row_key = self.next_row_key.saturating_add(1);
+            if !self.row_keys.iter().any(|key| key == &candidate) {
+                return candidate;
+            }
+        }
+    }
+
+    fn generate_column_key(&mut self) -> ColumnKey {
+        loop {
+            let candidate = ColumnKey::new(format!("column-{}", self.next_column_key));
+            self.next_column_key = self.next_column_key.saturating_add(1);
+            if !self.column_keys.iter().any(|key| key == &candidate) {
+                return candidate;
+            }
+        }
+    }
+
+    fn clamp_indices(&mut self) {
+        if self.rows.is_empty() {
+            self.selected = 0;
+            self.offset = 0;
+        } else if self.selected >= self.rows.len() {
+            self.selected = self.rows.len().saturating_sub(1);
+        }
+        if self.headers.is_empty() {
+            self.cursor_column = 0;
+        } else if self.cursor_column >= self.headers.len() {
+            self.cursor_column = self.headers.len().saturating_sub(1);
+        }
+    }
+
+    fn fixed_data_rows(&self) -> usize {
+        self.fixed_rows.min(self.rows.len())
+    }
+
+    fn visible_fixed_rows(&self, visible_rows: usize) -> usize {
+        self.fixed_data_rows().min(visible_rows)
+    }
+
+    fn scrollable_visible_rows(&self, visible_rows: usize) -> usize {
+        visible_rows.saturating_sub(self.visible_fixed_rows(visible_rows))
+    }
+
+    fn scrollable_row_count(&self) -> usize {
+        self.rows.len().saturating_sub(self.fixed_data_rows())
     }
 
     fn recompute_column_widths(&mut self) {
@@ -147,12 +358,27 @@ impl DataTable {
             self.offset = 0;
             return;
         }
-        if self.selected < self.offset {
-            self.offset = self.selected;
-        } else if self.selected >= self.offset + height {
-            self.offset = self.selected + 1 - height;
+        let fixed_rows = self.fixed_data_rows();
+        if self.selected < fixed_rows {
+            self.offset = 0;
+            return;
         }
-        self.offset = ScrollView::line_clamp_offset(self.offset, self.rows.len(), height);
+        let scrollable_visible = self.scrollable_visible_rows(height);
+        if scrollable_visible == 0 {
+            self.offset = 0;
+            return;
+        }
+        let selected_scroll_index = self.selected.saturating_sub(fixed_rows);
+        if selected_scroll_index < self.offset {
+            self.offset = selected_scroll_index;
+        } else if selected_scroll_index >= self.offset + scrollable_visible {
+            self.offset = selected_scroll_index + 1 - scrollable_visible;
+        }
+        self.offset = ScrollView::line_clamp_offset(
+            self.offset,
+            self.scrollable_row_count(),
+            scrollable_visible,
+        );
     }
 
     fn visible_rows(&self) -> usize {
@@ -163,13 +389,45 @@ impl DataTable {
         if self.rows.is_empty() || visible_rows == 0 {
             return 0;
         }
-        let mut offset = ScrollView::line_clamp_offset(self.offset, self.rows.len(), visible_rows);
-        if self.selected < offset {
-            offset = self.selected;
-        } else if self.selected >= offset + visible_rows {
-            offset = self.selected + 1 - visible_rows;
+        let fixed_rows = self.fixed_data_rows();
+        let scrollable_visible = self.scrollable_visible_rows(visible_rows);
+        if scrollable_visible == 0 {
+            return 0;
         }
-        ScrollView::line_clamp_offset(offset, self.rows.len(), visible_rows)
+        let mut offset = ScrollView::line_clamp_offset(
+            self.offset,
+            self.scrollable_row_count(),
+            scrollable_visible,
+        );
+        if self.selected < fixed_rows {
+            return offset;
+        }
+        let selected_scroll_index = self.selected.saturating_sub(fixed_rows);
+        if selected_scroll_index < offset {
+            offset = selected_scroll_index;
+        } else if selected_scroll_index >= offset + scrollable_visible {
+            offset = selected_scroll_index + 1 - scrollable_visible;
+        }
+        ScrollView::line_clamp_offset(offset, self.scrollable_row_count(), scrollable_visible)
+    }
+
+    fn row_index_from_y(&self, y: usize, visible_rows: usize) -> Option<usize> {
+        if y == 0 {
+            return None;
+        }
+        let data_y = y - 1;
+        let fixed_visible = self.visible_fixed_rows(visible_rows);
+        if data_y < fixed_visible {
+            return Some(data_y);
+        }
+        let scroll_slot = data_y.saturating_sub(fixed_visible);
+        let scrollable_visible = self.scrollable_visible_rows(visible_rows);
+        if scroll_slot >= scrollable_visible {
+            return None;
+        }
+        let fixed_rows = self.fixed_data_rows();
+        let row_index = fixed_rows + self.effective_offset(visible_rows) + scroll_slot;
+        (row_index < self.rows.len()).then_some(row_index)
     }
 }
 
@@ -177,13 +435,19 @@ impl Default for DataTable {
     fn default() -> Self {
         let mut out = Self {
             id: WidgetId::new(),
+            column_keys: Vec::new(),
             headers: Vec::new(),
+            row_keys: Vec::new(),
             rows: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
             cursor_column: 0,
             cursor_type: CursorType::Cell,
+            fixed_rows: 0,
+            fixed_columns: 0,
+            next_row_key: 0,
+            next_column_key: 0,
             content_width: 0,
             content_height: 0,
             focused: false,
@@ -237,17 +501,13 @@ impl Widget for DataTable {
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let widths = self.column_widths();
         let col_idx = self.column_at_x(x as usize, widths);
+        let visible_rows = self.visible_rows();
         let next = if y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
             Some((usize::MAX, col_idx))
         } else {
-            let offset = self.effective_offset(self.visible_rows());
-            let row_idx = (y as usize - 1) + offset;
-            if row_idx < self.rows.len() {
-                Some((row_idx, col_idx))
-            } else {
-                None
-            }
+            self.row_index_from_y(y as usize, visible_rows)
+                .map(|row_idx| (row_idx, col_idx))
         };
         let changed = next != self.hover_coordinate;
         self.hover_coordinate = next;
@@ -273,10 +533,8 @@ impl Widget for DataTable {
                 }
 
                 if mouse.y > 0 {
-                    let offset = self.effective_offset(visible_rows);
-                    let row_y = (mouse.y as usize) - 1;
-                    let clicked_row = row_y + offset;
-                    if clicked_row < self.rows.len() {
+                    if let Some(clicked_row) = self.row_index_from_y(mouse.y as usize, visible_rows)
+                    {
                         if self.selected != clicked_row {
                             self.selected = clicked_row;
                             selection_changed = true;
@@ -349,7 +607,7 @@ impl Widget for DataTable {
             Event::Action(Action::ScrollPageUp) => {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected > 0 {
-                        let step = 5.min(self.selected);
+                        let step = visible_rows.max(1).min(self.selected);
                         self.selected -= step;
                         selection_changed = true;
                     }
@@ -359,9 +617,31 @@ impl Widget for DataTable {
             Event::Action(Action::ScrollPageDown) => {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                     if self.selected + 1 < self.rows.len() {
-                        let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
+                        let step = visible_rows
+                            .max(1)
+                            .min(self.rows.len().saturating_sub(1) - self.selected);
                         self.selected += step;
                         selection_changed = true;
+                    }
+                    handled = true;
+                }
+            }
+            Event::Action(Action::ScrollPageLeft) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                    if self.cursor_column > 0 {
+                        let step = 5.min(self.cursor_column);
+                        self.cursor_column -= step;
+                        cursor_changed = true;
+                    }
+                    handled = true;
+                }
+            }
+            Event::Action(Action::ScrollPageRight) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
+                    if self.cursor_column + 1 < self.headers.len() {
+                        let step = 5.min(self.headers.len().saturating_sub(1) - self.cursor_column);
+                        self.cursor_column += step;
+                        cursor_changed = true;
                     }
                     handled = true;
                 }
@@ -406,7 +686,7 @@ impl Widget for DataTable {
                 KeyCode::PageUp => {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                         if self.selected > 0 {
-                            let step = 5.min(self.selected);
+                            let step = visible_rows.max(1).min(self.selected);
                             self.selected -= step;
                             selection_changed = true;
                         }
@@ -416,12 +696,52 @@ impl Widget for DataTable {
                 KeyCode::PageDown => {
                     if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
                         if self.selected + 1 < self.rows.len() {
-                            let step = 5.min(self.rows.len().saturating_sub(1) - self.selected);
+                            let step = visible_rows
+                                .max(1)
+                                .min(self.rows.len().saturating_sub(1) - self.selected);
                             self.selected += step;
                             selection_changed = true;
                         }
                         handled = true;
                     }
+                }
+                KeyCode::Home => {
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                            && self.selected != 0
+                        {
+                            self.selected = 0;
+                            selection_changed = true;
+                        }
+                    } else if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                        && self.cursor_column != 0
+                    {
+                        self.cursor_column = 0;
+                        cursor_changed = true;
+                    }
+                    handled = true;
+                }
+                KeyCode::End => {
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                            && !self.rows.is_empty()
+                        {
+                            let row = self.rows.len() - 1;
+                            if self.selected != row {
+                                self.selected = row;
+                                selection_changed = true;
+                            }
+                        }
+                    } else if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                        && !self.headers.is_empty()
+                    {
+                        let col = self.headers.len() - 1;
+                        if self.cursor_column != col {
+                            self.cursor_column = col;
+                            cursor_changed = true;
+                        }
+                    }
+                    handled = true;
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if !self.rows.is_empty() && !self.headers.is_empty() {
@@ -479,17 +799,22 @@ impl Widget for DataTable {
         let cursor_bg = parse_color_like("$primary");
         let hover_bg = parse_color_like("$block-hover-background");
         let header_hover_bg = parse_color_like("$header-hover-background");
+        let fixed_bg = parse_color_like("$secondary-muted");
 
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
         let header_base = header_bg.unwrap_or(fallback_bg);
         let row_base = row_bg.unwrap_or(fallback_bg);
         let hover_bg = hover_bg.map(|c| c.flatten_over(row_base));
         let header_hover_bg = header_hover_bg.map(|c| c.flatten_over(header_base));
+        let fixed_base = fixed_bg
+            .map(|c| c.flatten_over(row_base))
+            .unwrap_or(row_base);
 
         let header_style = rich_rs::Style::new()
             .with_bold(true)
             .with_bgcolor(header_base.to_simple_opaque());
         let normal_style = rich_rs::Style::new().with_bgcolor(row_base.to_simple_opaque());
+        let fixed_style = rich_rs::Style::new().with_bgcolor(fixed_base.to_simple_opaque());
         let mut selected_style = rich_rs::Style::new().with_bold(true);
         if let Some(bg) = cursor_bg {
             selected_style = selected_style.with_bgcolor(bg.to_simple_opaque());
@@ -505,21 +830,6 @@ impl Widget for DataTable {
 
         let mut out = Segments::new();
 
-        // Helper: join column values with 2-space padding, pad to full width.
-        let format_row_uniform =
-            |values: &[String], widths: &[usize], total_width: usize| -> String {
-                let parts: Vec<String> = values
-                    .iter()
-                    .enumerate()
-                    .map(|(i, val)| {
-                        let col_w = *widths.get(i).unwrap_or(&3);
-                        rich_rs::set_cell_size(val, col_w)
-                    })
-                    .collect();
-                let joined = parts.join("  ");
-                rich_rs::set_cell_size(&joined, total_width)
-            };
-
         // Mirrors Textual's _should_highlight: does `target` match `cursor` given the type?
         let should_highlight =
             |cursor: (usize, usize), target: (usize, usize), ct: CursorType| -> bool {
@@ -531,109 +841,78 @@ impl Widget for DataTable {
                 }
             };
 
-        // Header line.
-        // Headers use usize::MAX as their row sentinel (mirroring Textual's row=-1).
-        // Per-cell rendering is needed when cursor or hover could highlight individual
-        // header cells (Column cursor always, Cell/Column hover when on the header row).
-        let header_needs_per_cell = (show_cursor && matches!(cursor_type, CursorType::Column))
-            || (hover_coord.is_some() && cursor_type != CursorType::None);
+        let fixed_data_rows = self.fixed_data_rows();
+        let fixed_visible = self.visible_fixed_rows(visible_rows);
 
-        if header_needs_per_cell {
+        // Header line (headers use usize::MAX as their row sentinel).
+        emit_row_per_cell(
+            &self.headers,
+            column_widths,
+            width,
+            |col_idx| {
+                let target = (usize::MAX, col_idx);
+                if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
+                    return selected_style.with_bold(true);
+                }
+                if let Some(hc) = hover_coord
+                    && should_highlight(hc, target, cursor_type)
+                {
+                    return header_hover_style;
+                }
+                if col_idx < self.fixed_columns {
+                    return fixed_style.with_bold(true);
+                }
+                header_style
+            },
+            header_style,
+            &mut out,
+        );
+        out.push(Segment::line());
+        let mut rendered_rows = 0usize;
+
+        let mut emit_data_row = |row_idx: usize, out: &mut Segments| {
+            if rendered_rows >= visible_rows as usize {
+                return;
+            }
+            let Some(row) = self.rows.get(row_idx) else {
+                return;
+            };
             emit_row_per_cell(
-                &self.headers,
+                row,
                 column_widths,
                 width,
                 |col_idx| {
-                    let target = (usize::MAX, col_idx);
-                    if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
-                        return selected_style.with_bold(true);
-                    }
-                    if let Some(hc) = hover_coord {
-                        if should_highlight(hc, target, cursor_type) {
-                            return header_hover_style;
-                        }
-                    }
-                    header_style
-                },
-                header_style,
-                &mut out,
-            );
-        } else {
-            let header_text = format_row_uniform(&self.headers, column_widths, width);
-            out.push(Segment::styled(header_text, header_style));
-        }
-        out.push(Segment::line());
-        let mut lines_used = 1usize;
-
-        // Data rows.
-        for (idx, row) in self.rows.iter().enumerate() {
-            if idx < offset {
-                continue;
-            }
-            if lines_used >= height {
-                break;
-            }
-
-            // Check if any cell in this row needs per-cell styling.
-            let row_has_cursor = show_cursor
-                && match cursor_type {
-                    CursorType::Row => idx == cursor_coord.0,
-                    CursorType::Cell => idx == cursor_coord.0,
-                    CursorType::Column => true, // every row has the highlighted column
-                    CursorType::None => false,
-                };
-            let row_has_hover = hover_coord.is_some()
-                && match cursor_type {
-                    CursorType::Row => hover_coord.map(|h| h.0) == Some(idx),
-                    CursorType::Cell => hover_coord.map(|h| h.0) == Some(idx),
-                    CursorType::Column => true,
-                    CursorType::None => false,
-                };
-
-            let needs_per_cell = (row_has_cursor
-                && matches!(cursor_type, CursorType::Cell | CursorType::Column))
-                || (row_has_hover && matches!(cursor_type, CursorType::Cell | CursorType::Column));
-
-            if needs_per_cell {
-                emit_row_per_cell(
-                    row,
-                    column_widths,
-                    width,
-                    |col_idx| {
-                        let target = (idx, col_idx);
-                        if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
-                            return selected_style;
-                        }
-                        if let Some(hc) = hover_coord {
-                            if should_highlight(hc, target, cursor_type) {
-                                return hover_style;
-                            }
-                        }
-                        normal_style
-                    },
-                    normal_style,
-                    &mut out,
-                );
-            } else {
-                // Uniform style for the whole row.
-                let style = if show_cursor && should_highlight(cursor_coord, (idx, 0), cursor_type)
-                {
-                    selected_style
-                } else if let Some(hc) = hover_coord {
-                    if should_highlight(hc, (idx, 0), cursor_type) {
-                        hover_style
+                    let target = (row_idx, col_idx);
+                    let is_fixed_target = row_idx < fixed_data_rows || col_idx < self.fixed_columns;
+                    let base = if is_fixed_target {
+                        fixed_style
                     } else {
                         normal_style
+                    };
+                    if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
+                        return selected_style;
                     }
-                } else {
-                    normal_style
-                };
-                let row_text = format_row_uniform(row, column_widths, width);
-                out.push(Segment::styled(row_text, style));
-            }
-
+                    if let Some(hc) = hover_coord
+                        && should_highlight(hc, target, cursor_type)
+                    {
+                        return hover_style;
+                    }
+                    base
+                },
+                normal_style,
+                out,
+            );
             out.push(Segment::line());
-            lines_used += 1;
+            rendered_rows += 1;
+        };
+
+        for fixed_row_idx in 0..fixed_visible {
+            emit_data_row(fixed_row_idx, &mut out);
+        }
+        let scroll_start = fixed_data_rows + offset;
+        let scrollable_slots = (visible_rows as usize).saturating_sub(fixed_visible);
+        for row_offset in 0..scrollable_slots {
+            emit_data_row(scroll_start + row_offset, &mut out);
         }
 
         out
@@ -685,12 +964,12 @@ fn emit_row_per_cell(
     out: &mut Segments,
 ) {
     let mut used = 0usize;
-    for (i, val) in values.iter().enumerate() {
+    for (i, col_w) in column_widths.iter().copied().enumerate() {
         if i > 0 {
             out.push(Segment::styled("  ", gap_style));
             used += 2;
         }
-        let col_w = *column_widths.get(i).unwrap_or(&3);
+        let val = values.get(i).map(String::as_str).unwrap_or("");
         let cell_text = rich_rs::set_cell_size(val, col_w);
         out.push(Segment::styled(cell_text, style_for_col(i)));
         used += col_w;
@@ -705,6 +984,8 @@ fn emit_row_per_cell(
 mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn header_click_does_not_change_selected_row() {
@@ -789,5 +1070,87 @@ mod tests {
         // x=2 enters the inter-column gap, x=3 reaches second column.
         table.on_mouse_move(3, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
+    }
+
+    #[test]
+    fn supports_keyed_rows_and_columns_lookup() {
+        let mut table = DataTable::empty();
+        let col = table
+            .add_column_with_key("lane", "Lane")
+            .expect("new column key");
+        assert_eq!(table.add_column_with_key("lane", "Lane 2"), None);
+        let row = table
+            .add_row_with_key("heat-1", vec!["1"])
+            .expect("new row key");
+        assert_eq!(table.add_row_with_key("heat-1", vec!["2"]), None);
+
+        assert_eq!(table.column_index_of(&col), Some(0));
+        assert_eq!(table.row_index_of(&row), Some(0));
+        assert_eq!(table.cell_key_at(0, 0), Some((row, col)));
+    }
+
+    #[test]
+    fn fixed_rows_are_mapped_before_scrolled_rows() {
+        let mut table = DataTable::new(
+            vec!["A".into()],
+            (0..5).map(|n| vec![format!("row{n}")]).collect(),
+        );
+        table.set_fixed_rows(1);
+        table.content_height = 3; // header + 2 visible rows
+        table.set_selected(4);
+
+        // y=1 is fixed row 0, y=2 is the first scrolled row.
+        assert_eq!(table.row_index_from_y(1, table.visible_rows()), Some(0));
+        assert_eq!(table.row_index_from_y(2, table.visible_rows()), Some(4));
+    }
+
+    #[test]
+    fn home_end_navigation_matches_cursor_and_control_semantics() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into(), "C".into()],
+            (0..5)
+                .map(|n| vec![format!("row{n}"), "x".into(), "y".into()])
+                .collect(),
+        );
+        table.set_focus(true);
+        table.content_height = 4;
+        table.set_cursor(3, 2);
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Home,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(table.cursor(), (3, 0));
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::End,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(table.cursor(), (3, 2));
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Home,
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(table.cursor(), (0, 2));
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::End,
+                KeyModifiers::CONTROL,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(table.cursor(), (4, 2));
     }
 }
