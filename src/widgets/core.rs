@@ -39,6 +39,30 @@ pub trait Widget: Send + Sync {
         debug: Option<&DebugLayout>,
     ) -> Segments {
         let meta = crate::css::selector_meta_generic(self);
+        let debug_widget_label = {
+            let mut label = self.style_type().to_string();
+            if let Some(id) = self.style_id() {
+                label.push('#');
+                label.push_str(id);
+            }
+            for class in self.style_classes() {
+                label.push('.');
+                label.push_str(class);
+            }
+            if self.is_disabled() {
+                label.push_str(":disabled");
+            }
+            if self.has_focus() {
+                label.push_str(":focus");
+            }
+            if self.is_hovered() {
+                label.push_str(":hover");
+            }
+            if self.is_active() {
+                label.push_str(":active");
+            }
+            label
+        };
         let resolved = crate::css::resolve_style(self, &meta);
         let parent_style = crate::css::current_parent_style();
         let line_pad = resolved.line_pad.unwrap_or(0);
@@ -87,6 +111,7 @@ pub trait Widget: Send + Sync {
             parent_style,
             full_width,
             full_height,
+            &debug_widget_label,
         );
         let segments = if let Some(opacity) = resolved.opacity {
             crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)

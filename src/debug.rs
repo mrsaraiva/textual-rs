@@ -92,3 +92,38 @@ pub(crate) fn debug_message(line: &str) {
         let _ = writeln!(file, "{line}");
     }
 }
+
+pub(crate) fn debug_border(line: &str) {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    let path = PATH.get_or_init(|| std::env::var("TEXTUAL_DEBUG_BORDER_FILE").ok());
+    let Some(path) = path.as_ref() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+pub(crate) fn border_debug_matches(label: &str) -> bool {
+    if std::env::var("TEXTUAL_DEBUG_BORDER_FILE").is_err() {
+        return false;
+    }
+    static FILTERS: OnceLock<Vec<String>> = OnceLock::new();
+    let filters = FILTERS.get_or_init(|| {
+        std::env::var("TEXTUAL_DEBUG_BORDER_FILTER")
+            .ok()
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|part| part.trim().to_ascii_lowercase())
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
+    if filters.is_empty() {
+        return true;
+    }
+    let label = label.to_ascii_lowercase();
+    filters.iter().all(|filter| label.contains(filter))
+}
