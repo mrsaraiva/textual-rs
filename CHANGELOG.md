@@ -8,6 +8,9 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Widget porting source-of-truth refresh**
+  - Rewrote `docs/devel/WIDGET_PORTING_PLAN.md` to match current implementation reality: corrected stale missing-widget entries (including `Markdown`), updated first-class status matrix, and aligned Tier A/B/C parity priorities with current code/test state.
+  - Updated core abstraction backlog references to current module layout and added a concrete execution order for parity and missing-widget work.
 - **Roadmap execution checklist for remaining Todo/Partial items**
   - Added a prioritized, concrete PR-slice checklist in `ROADMAP.md` for all open `Todo`/`Partial` fundamentals (dirty/style invalidation, message bus completion, grapheme completion, timers/async tasks, golden coverage, integration-contract closures, and compatibility/devtools follow-up).
   - Updated v0.2 next-priority wording to reflect current status (`one-shot timers + async task framework`).
