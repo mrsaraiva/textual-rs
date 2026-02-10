@@ -136,7 +136,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 |--------|------|-------|
 | Done | Tick system | Adaptive tick cadence (idle 100ms / active ~16ms) with `on_tick` propagation and event-loop repaint scheduling |
 | Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
-| Partial | Grapheme-aware text editing model | `Input` / `TextArea` now use grapheme-aware editing/movement with targeted regressions; broader cross-widget text-model migration remains open |
+| Partial | Grapheme-aware text editing model | Shared text-edit command core now drives `Input` / `MaskedInput` / `TextArea` (grapheme-safe movement, word ops, and keyboard selection baseline) with targeted regressions; broader cross-widget text-model migration remains open |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
 | Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
@@ -466,10 +466,10 @@ Order is prioritized for fundamentals-first execution and regression risk reduct
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
 4. Widget first-class closure program (Phase 7 + widget plan)
-   - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`.
-   - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`.
-   - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family.
-   - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays.
+   - PR 1: Scrolling primitive unification and migration for `RichLog`/`KeyPanel`/`ListView`/`Tree`/`DataTable`. **Done (2026-02-10)**.
+   - PR 2: Shared text-edit core completion and migration of `Input`/`MaskedInput`/`TextArea`. **Done (2026-02-10)**.
+   - PR 3: Shared toggle/option abstraction and migration of `Select`/`OptionList`/`SelectionList` + switch/radio family. **Done (2026-02-10)**.
+   - PR 4: Overlay/modal composition unification for `CommandPalette`, toast rack, and future tooltip/help overlays. **Done (2026-02-10)**.
    - PR 5: Tier-A closure pass for `DataTable` and `Tabs`/`TabbedContent` (IDs/disabled-hidden lifecycle/fixed headers-cursors).
    - PR 6: Missing widget ports in order: `Log` -> `Tooltip`/`HelpPanel` -> `DirectoryTree` -> `Welcome`.
    - Exit criteria: `docs/devel/WIDGET_PORTING_PLAN.md` matrix shows no Tier-A `Partial` items and missing-widget list is reduced to explicitly deferred items only.

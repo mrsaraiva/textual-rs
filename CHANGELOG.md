@@ -8,6 +8,27 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Scrolling primitive unification for data/text-heavy widgets (Phase 7 widget PR1)**
+  - Added shared line-scrolling utilities and scrollbar math in `src/widgets/containers/scroll_view.rs`.
+  - Migrated `RichLog`, `KeyPanel`, `ListView`, `Tree`, and `DataTable` to the shared scrolling path.
+  - Added focused regressions for mouse-scroll clamping and visibility/offset behavior in `tests/list_view.rs`, `tests/tree.rs`, and `tests/data_table.rs`.
+- **Shared toggle/option abstraction + widget migrations (Phase 7 widget PR3)**
+  - Added shared toggle/option primitives in `src/widgets/toggle_option.rs`: typed `OptionId`,
+    shared option row model (`OptionItem`), highlight-vs-selected cursor state
+    (`OptionCursorState`), and binary toggle interaction state (`BinaryToggleState`).
+  - Migrated `OptionList`/`Select`/`SelectionList` to shared option/cursor semantics, including
+    typed option IDs, consistent disabled behavior checks, and explicit highlighted-vs-selected
+    separation.
+  - Migrated `Checkbox`, `Switch`, and `RadioButton` to shared binary toggle event semantics
+    (mouse press/release, keyboard toggle, disabled no-op) while preserving existing message types.
+  - Updated `RadioSet` to shared cursor state for highlighted vs active button tracking.
+  - Added focused regressions across migrated widgets (`OptionList`, `Select`, `SelectionList`,
+    `Checkbox`, `Switch`, `RadioButton`, `RadioSet`) and shared helper tests.
+- **Overlay/modal composition unification (Phase 7 widget PR4)**
+  - Added shared overlay composition helpers in `src/widgets/containers/overlay.rs` (`compose_overlay`, `compose_overlay_at`) with style-aware overlay semantics used across widgets/runtime.
+  - Rebases `Overlay` rendering to shared composition and preserves style/meta in composed segment output.
+  - Rebases `CommandPalette` layer composition (key panel split + open panel overlay) and runtime toast stacking (`src/runtime/render.rs`) to the same helper path.
+  - Added focused composition regressions in `src/widgets/containers/overlay.rs`; overlay and command palette focused suites remain green.
 - **Roadmap PR sequencing update for widget parity closure**
   - Updated `ROADMAP.md` to add an explicit, ordered widget PR program (shared primitives first, then Tier-A closure, then missing-widget ports), instead of relying only on a generic pointer to the widget plan.
   - Reordered the execution checklist so widget parity closure is tracked as a first-class execution stream with concrete PR slices and exit criteria.
@@ -21,6 +42,10 @@ until the API stabilizes.
   - Added shared grapheme-aware text indexing helpers in `src/widgets/text_edit.rs` (boundary clamping, left/right navigation, and cell/byte mapping).
   - Migrated `Input` and `TextArea` cursor movement, backspace/delete behavior, mouse hit-testing, and width-aware rendering loops to use grapheme boundaries.
   - Added targeted regression coverage for combining-mark and ZWJ emoji editing semantics (`src/widgets/input.rs` tests and `tests/text_area_widget.rs`).
+- **Shared text-edit command core completion (`Input`/`MaskedInput`/`TextArea`)**
+  - Expanded `src/widgets/text_edit.rs` with a reusable key-to-edit-command layer plus shared word-boundary helpers.
+  - Migrated `Input`, `MaskedInput`, and `TextArea` key handling to shared command semantics for grapheme/word navigation and deletion.
+  - Added keyboard selection baseline parity for `Input` and `TextArea` (`Shift+arrow/Home/End`) with focused regressions in `tests/input_widget.rs`, `tests/text_area_widget.rs`, and widget unit tests.
 - **Message-bus-only text widget integration (breaking)**
   - Removed callback hooks from text widgets: `Input::on_change`, `TextArea::on_change`, and `TextArea::on_key`.
   - Added `Message::TextAreaChanged { value }` and now emit it on text edits from key-driven interactions.
