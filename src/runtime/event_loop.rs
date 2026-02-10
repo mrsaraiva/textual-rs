@@ -12,12 +12,21 @@ use std::time::{Duration, Instant};
 use super::App;
 use super::helpers::{any_widget_active, mouse_scroll_deltas, should_quit_key};
 use super::routing::{
-    dispatch_event, dispatch_event_to_target, dispatch_message_queue, dispatch_mouse_scroll,
-    dispatch_mouse_scroll_to_target, dispatch_scroll_action, focused_path_binding_hints,
+    active_binding_hints, dispatch_event, dispatch_event_to_target, dispatch_message_queue,
+    dispatch_mouse_scroll, dispatch_mouse_scroll_to_target, dispatch_scroll_action,
     is_priority_action, is_scroll_action,
 };
 use super::types::DispatchOutcome;
 use crate::widgets::Widget;
+
+fn should_dispatch_binding_hints(
+    last_hints: &[crate::event::BindingHint],
+    last_sources: &[crate::widgets::WidgetId],
+    current_hints: &[crate::event::BindingHint],
+    current_sources: &[crate::widgets::WidgetId],
+) -> bool {
+    last_hints != current_hints || last_sources != current_sources
+}
 
 impl App {
     pub async fn run_with<F, R>(&mut self, mut render: F) -> crate::Result<()>
@@ -464,13 +473,20 @@ impl App {
         &mut self,
         root: &mut dyn Widget,
     ) -> DispatchOutcome {
+        let (widget_hints, current_sources) = active_binding_hints(root);
         let mut current = self.binding_hints();
-        current.extend(focused_path_binding_hints(root));
+        current.extend(widget_hints);
         let current = self.normalize_binding_hints(current);
-        if current == self.last_binding_hints {
+        if !should_dispatch_binding_hints(
+            &self.last_binding_hints,
+            &self.last_binding_hint_sources,
+            &current,
+            &current_sources,
+        ) {
             return DispatchOutcome::default();
         }
         self.last_binding_hints = current.clone();
+        self.last_binding_hint_sources = current_sources;
         let outcome = dispatch_event(root, Event::BindingsChanged(current));
         let msg_outcome = dispatch_message_queue(root, outcome.messages);
         DispatchOutcome {
@@ -527,5 +543,54 @@ impl App {
         }
         aggregate.repaint_requested = true;
         aggregate
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_dispatch_binding_hints;
+    use crate::event::BindingHint;
+    use crate::widgets::WidgetId;
+
+    #[test]
+    fn binding_hints_dispatch_when_hint_payload_changes() {
+        let last_hints = vec![BindingHint::new("tab", "next")];
+        let current_hints = vec![
+            BindingHint::new("tab", "next"),
+            BindingHint::new("q", "quit"),
+        ];
+        let last_sources = vec![WidgetId::from_u64(1)];
+        let current_sources = vec![WidgetId::from_u64(1)];
+
+        assert!(should_dispatch_binding_hints(
+            &last_hints,
+            &last_sources,
+            &current_hints,
+            &current_sources,
+        ));
+    }
+
+    #[test]
+    fn binding_hints_dispatch_when_sources_change_with_same_hints() {
+        let hints = vec![BindingHint::new("tab", "next")];
+        let last_sources = vec![WidgetId::from_u64(1)];
+        let current_sources = vec![WidgetId::from_u64(2)];
+
+        assert!(should_dispatch_binding_hints(
+            &hints,
+            &last_sources,
+            &hints,
+            &current_sources,
+        ));
+    }
+
+    #[test]
+    fn binding_hints_skip_when_hints_and_sources_are_stable() {
+        let hints = vec![BindingHint::new("tab", "next")];
+        let sources = vec![WidgetId::from_u64(1)];
+
+        assert!(!should_dispatch_binding_hints(
+            &hints, &sources, &hints, &sources,
+        ));
     }
 }

@@ -54,6 +54,7 @@ pub struct App {
     pointer_shape: PointerShape,
     app_active: bool,
     last_binding_hints: Vec<BindingHint>,
+    last_binding_hint_sources: Vec<WidgetId>,
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
     notifications: Vec<AppNotification>,
@@ -112,6 +113,7 @@ impl App {
             pointer_shape: PointerShape::Default,
             app_active: true,
             last_binding_hints: Vec::new(),
+            last_binding_hint_sources: Vec::new(),
             animator: Animator::new(60),
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
@@ -350,6 +352,8 @@ impl App {
     }
 
     pub fn start(&mut self) -> Result<()> {
+        self.last_binding_hints.clear();
+        self.last_binding_hint_sources.clear();
         self.driver.start()?;
         self.refresh_size()?;
         debug_render(&format!("[app] sync_output={}", self.sync_output));

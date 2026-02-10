@@ -64,6 +64,7 @@ pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
     out
 }
 
+#[cfg(test)]
 pub(crate) fn focused_path_binding_hints(root: &mut dyn Widget) -> Vec<BindingHint> {
     fn walk(widget: &mut dyn Widget, out: &mut Vec<BindingHint>) -> bool {
         let mut child_hints = Vec::new();
@@ -93,6 +94,77 @@ pub(crate) fn focused_path_binding_hints(root: &mut dyn Widget) -> Vec<BindingHi
     let mut out = Vec::new();
     let _ = walk(root, &mut out);
     out
+}
+
+pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, Vec<WidgetId>) {
+    fn walk(
+        widget: &mut dyn Widget,
+        hints_out: &mut Vec<BindingHint>,
+        sources_out: &mut Vec<WidgetId>,
+    ) -> bool {
+        let mut child_hints = Vec::new();
+        let mut child_sources = Vec::new();
+        let mut found_in_child = false;
+        widget.visit_children_mut(&mut |child| {
+            if found_in_child {
+                return;
+            }
+            if walk(child, &mut child_hints, &mut child_sources) {
+                found_in_child = true;
+            }
+        });
+
+        if found_in_child {
+            sources_out.push(widget.id());
+            hints_out.extend(widget.binding_hints());
+            sources_out.extend(child_sources);
+            hints_out.extend(child_hints);
+            return true;
+        }
+
+        if widget.has_focus() {
+            sources_out.push(widget.id());
+            hints_out.extend(widget.binding_hints());
+            return true;
+        }
+
+        false
+    }
+
+    fn collect_no_focus_scope(
+        widget: &mut dyn Widget,
+        hints_out: &mut Vec<BindingHint>,
+        sources_out: &mut Vec<WidgetId>,
+    ) {
+        sources_out.push(widget.id());
+        hints_out.extend(widget.binding_hints());
+
+        let mut child_count = 0usize;
+        widget.visit_children_mut(&mut |_| {
+            child_count += 1;
+        });
+        if child_count != 1 {
+            return;
+        }
+
+        let mut descended = false;
+        widget.visit_children_mut(&mut |child| {
+            if descended {
+                return;
+            }
+            descended = true;
+            collect_no_focus_scope(child, hints_out, sources_out);
+        });
+    }
+
+    let mut hints = Vec::new();
+    let mut sources = Vec::new();
+    if walk(root, &mut hints, &mut sources) {
+        return (hints, sources);
+    }
+
+    collect_no_focus_scope(root, &mut hints, &mut sources);
+    (hints, sources)
 }
 
 pub(crate) fn dispatch_event_to_target(
@@ -789,9 +861,10 @@ mod message_tests {
 
     #[test]
     fn focused_path_binding_hints_tracks_focus_transitions() {
-        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(
-            HintNode::new(true, vec![BindingHint::new("left/right", "switch tab")]),
-        );
+        let mut root =
+            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(
+                HintNode::new(true, vec![BindingHint::new("left/right", "switch tab")]),
+            );
 
         let first = focused_path_binding_hints(&mut root);
         assert_eq!(
@@ -809,5 +882,40 @@ mod message_tests {
 
         let second = focused_path_binding_hints(&mut root);
         assert_eq!(second, vec![BindingHint::new("tab", "next focus")]);
+    }
+
+    #[test]
+    fn active_binding_hints_returns_focused_chain_and_sources() {
+        let leaf = HintNode::new(true, vec![BindingHint::new("enter", "activate")]);
+        let mid = HintNode::new(false, vec![BindingHint::new("left", "back")]).with_child(leaf);
+        let mut root =
+            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(mid);
+
+        let (hints, sources) = active_binding_hints(&mut root);
+        assert_eq!(
+            hints,
+            vec![
+                BindingHint::new("tab", "next focus"),
+                BindingHint::new("left", "back"),
+                BindingHint::new("enter", "activate")
+            ]
+        );
+        assert_eq!(sources.len(), 3);
+    }
+
+    #[test]
+    fn active_binding_hints_falls_back_to_single_child_scope_without_focus() {
+        let child = HintNode::new(false, vec![BindingHint::new("f1", "help")]);
+        let mut root = HintNode::new(false, vec![BindingHint::new("q", "quit")]).with_child(child);
+
+        let (hints, sources) = active_binding_hints(&mut root);
+        assert_eq!(
+            hints,
+            vec![
+                BindingHint::new("q", "quit"),
+                BindingHint::new("f1", "help")
+            ]
+        );
+        assert_eq!(sources.len(), 2);
     }
 }
