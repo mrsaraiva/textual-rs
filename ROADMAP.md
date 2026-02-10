@@ -35,7 +35,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Done | Preserve metadata through rendering | Metadata survives clipping/diffing; verified by `tests/render_metadata.rs` |
 | Todo | Hyperlink id policy | For OSC8: rely on `rich-rs` per-Console URL→id registry when `link_id` is omitted |
 | Todo | Deterministic ids (open) | Widget IDs are random (`WidgetId::new()`); consider hash-based IDs if needed for persistence/snapshots |
-| Todo | Integration golden tests | Metadata-specific golden tests (current snapshots cover rendering but not metadata assertions) |
+| Done | Integration golden tests | Metadata-specific coverage now includes direct assertions and snapshots for metadata preservation across framebuffer + diff (`tests/render_metadata.rs`) |
 
 ---
 
@@ -121,8 +121,8 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 | Done | Stylesheet hot reload | File watch with configurable interval |
 | Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
 | Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
-| Todo | Computed styles | No full "resolve inherited + cascaded → computed" pipeline yet |
-| Partial | Style invalidation | Stylesheet watch reload marks the app dirty; still no selective style updates / dirty regions |
+| Partial | Computed styles | On-demand style resolution (selector match + cascade + inline + inheritance) exists in render path; no cached per-widget computed-style tree yet |
+| Partial | Style invalidation | Stylesheet watch reload is applied in the runtime tick loop; app still uses full-frame dirty redraw (no selective style invalidation / dirty regions) |
 
 Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**
 
@@ -134,11 +134,11 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Partial | Tick system | 100ms tick loop with `on_tick` propagated through widget tree; used for button active-effect timer |
+| Done | Tick system | Adaptive tick cadence (idle 100ms / active ~16ms) with `on_tick` propagation and event-loop repaint scheduling |
 | Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
-| Todo | Grapheme-aware text editing model | Ensure cursor movement, selection, delete/backspace, slicing, and display-width math are grapheme-safe across `Input`/`TextArea`/text-heavy widgets |
+| Partial | Grapheme-aware text editing model | `Input` / `TextArea` now use grapheme-aware editing/movement with targeted regressions; broader cross-widget text-model migration remains open |
 | Todo | One-shot timers | No timer API beyond the tick counter |
-| Todo | Animation framework | No easing, transitions, or frame-scheduled animations |
+| Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
 | Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
 
 Deliverable: progress/spinner + animated UI element without blocking input.
@@ -259,8 +259,8 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 | Status | Task | Notes |
 |--------|------|-------|
 | Partial | Textual-like naming | CSS class conventions (`-style-default`, `-primary`, etc.) and property names mirror Textual where practical |
-| Todo | API mapping notes | Document conceptual mapping between Python Textual and textual-rs |
-| Todo | Adapter utilities | Shortcuts for common Textual app patterns |
+| Partial | API mapping notes | App composition/messaging mapping notes exist; broader Python Textual ↔ textual-rs conceptual mapping is still incomplete |
+| Partial | Adapter utilities | `TextualApp` trait plus async/sync/snapshot runners cover core app wiring; broader compatibility shortcut layer is still limited |
 
 ---
 
