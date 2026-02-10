@@ -5,9 +5,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
+    Widget, WidgetId, WidgetStyles,
 };
 
 /// A container widget that groups `RadioButton` children for mutual exclusion.
@@ -20,10 +21,7 @@ use super::{
 pub struct RadioSet {
     id: WidgetId,
     buttons: Vec<RadioButton>,
-    /// The index of the currently highlighted (navigable) button.
-    selected: usize,
-    /// The index of the currently pressed (value=true) button, if any.
-    pressed: Option<usize>,
+    cursor: OptionCursorState,
     focused: bool,
     hovered: bool,
     hovered_index: Option<usize>,
@@ -38,8 +36,7 @@ impl RadioSet {
         Self {
             id: WidgetId::new(),
             buttons: Vec::new(),
-            selected: 0,
-            pressed: None,
+            cursor: OptionCursorState::default(),
             focused: false,
             hovered: false,
             hovered_index: None,
@@ -57,7 +54,7 @@ impl RadioSet {
         }
         // Select the first button by default if any exist.
         if !set.buttons.is_empty() {
-            set.selected = 0;
+            set.cursor.set_highlighted(Some(0));
         }
         set
     }
@@ -77,24 +74,27 @@ impl RadioSet {
         let index = self.buttons.len();
         if button.value() {
             // Enforce mutual exclusion: deselect any previously pressed button.
-            if let Some(prev) = self.pressed {
+            if let Some(prev) = self.cursor.selected() {
                 if let Some(btn) = self.buttons.get_mut(prev) {
                     btn.set_value_silent(false);
                 }
             }
-            self.pressed = Some(index);
+            self.cursor.set_selected(Some(index));
         }
         self.buttons.push(button);
+        if self.cursor.highlighted().is_none() {
+            self.cursor.set_highlighted(Some(0));
+        }
     }
 
     /// Returns the index of the currently pressed (on) button, or `None`.
     pub fn pressed_index(&self) -> Option<usize> {
-        self.pressed
+        self.cursor.selected()
     }
 
     /// Returns the currently selected (highlighted) index.
     pub fn selected_index(&self) -> usize {
-        self.selected
+        self.cursor.highlighted().unwrap_or(0)
     }
 
     /// Returns a reference to the button at `index`, if it exists.
@@ -123,9 +123,9 @@ impl RadioSet {
             return;
         }
         let len = self.buttons.len() as isize;
-        let current = self.selected as isize;
+        let current = self.cursor.highlighted().unwrap_or(0) as isize;
         let next = ((current + delta) % len + len) % len;
-        self.selected = next as usize;
+        self.cursor.set_highlighted(Some(next as usize));
     }
 
     /// Toggle the currently selected button. Enforces mutual exclusion:
@@ -134,8 +134,8 @@ impl RadioSet {
         if self.buttons.is_empty() {
             return;
         }
-        let index = self.selected;
-        let already_pressed = self.pressed == Some(index);
+        let index = self.cursor.highlighted().unwrap_or(0);
+        let already_pressed = self.cursor.selected() == Some(index);
 
         if already_pressed {
             // In a radio set, clicking the already-on button should keep it on
@@ -145,7 +145,7 @@ impl RadioSet {
         }
 
         // Turn off the previously pressed button.
-        if let Some(prev) = self.pressed {
+        if let Some(prev) = self.cursor.selected() {
             if let Some(btn) = self.buttons.get_mut(prev) {
                 btn.set_value_silent(false);
             }
@@ -155,7 +155,7 @@ impl RadioSet {
         if let Some(btn) = self.buttons.get_mut(index) {
             btn.set_value_silent(true);
         }
-        self.pressed = Some(index);
+        self.cursor.set_selected(Some(index));
 
         let button_id = self.buttons[index].id();
         ctx.post_message(self.id, Message::RadioSetChanged { index, button_id });
@@ -201,7 +201,7 @@ impl Widget for RadioSet {
                 // Determine which button was clicked by y coordinate.
                 let index = mouse.y as usize;
                 if index < self.buttons.len() {
-                    self.selected = index;
+                    self.cursor.set_highlighted(Some(index));
                     self.toggle_selected(ctx);
                 }
             }
@@ -234,15 +234,15 @@ impl Widget for RadioSet {
             if let Some(index) = self.buttons.iter().position(|b| b.id() == message.sender) {
                 if *value {
                     // A button was turned on — enforce mutual exclusion.
-                    if let Some(prev) = self.pressed {
+                    if let Some(prev) = self.cursor.selected() {
                         if prev != index {
                             if let Some(btn) = self.buttons.get_mut(prev) {
                                 btn.set_value_silent(false);
                             }
                         }
                     }
-                    self.pressed = Some(index);
-                    self.selected = index;
+                    self.cursor.set_selected(Some(index));
+                    self.cursor.set_highlighted(Some(index));
 
                     let button_id = self.buttons[index].id();
                     ctx.post_message(self.id, Message::RadioSetChanged { index, button_id });
@@ -291,8 +291,8 @@ impl Widget for RadioSet {
                 out.push(Segment::styled(" ".repeat(width), base_style));
             } else {
                 let button = &self.buttons[row];
-                let is_selected = row == self.selected;
-                let is_pressed = self.pressed == Some(row);
+                let is_selected = self.cursor.highlighted() == Some(row);
+                let is_pressed = self.cursor.selected() == Some(row);
                 let is_hovered_row = self.hovered_index == Some(row);
 
                 let glyph = if is_pressed || button.value() {
@@ -400,5 +400,43 @@ impl Widget for RadioSet {
 impl Renderable for RadioSet {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn radio_set_space_changes_selection_and_emits_message() {
+        let mut set = RadioSet::from_labels(&["A", "B", "C"]);
+        set.set_focus(true);
+        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let mut ctx1 = EventCtx::default();
+        set.on_event(&Event::Key(down), &mut ctx1);
+        assert_eq!(set.selected_index(), 1);
+
+        let space =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        set.on_event(&Event::Key(space), &mut ctx2);
+        assert_eq!(set.pressed_index(), Some(1));
+        let messages = ctx2.take_messages();
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::RadioSetChanged { index: 1, .. })));
+    }
+
+    #[test]
+    fn radio_set_cannot_deselect_active_button() {
+        let mut set = RadioSet::new().with_button(RadioButton::new("A").with_value(true));
+        set.set_focus(true);
+        let space =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        set.on_event(&Event::Key(space), &mut ctx);
+        assert_eq!(set.pressed_index(), Some(0));
     }
 }

@@ -1,23 +1,19 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    option_list::toggle_option::BinaryToggleState,
+    Widget, WidgetId, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
     id: WidgetId,
     label: String,
-    checked: bool,
-    focused: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
+    state: BinaryToggleState,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -28,11 +24,7 @@ impl Checkbox {
         Self {
             id: WidgetId::new(),
             label: label.into(),
-            checked: false,
-            focused: false,
-            hovered: false,
-            pressed: false,
-            disabled: false,
+            state: BinaryToggleState::new(false),
             classes: vec!["checkbox".to_string()],
             focused_classes: vec!["checkbox".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
@@ -40,28 +32,25 @@ impl Checkbox {
     }
 
     pub fn checked(&self) -> bool {
-        self.checked
+        self.state.value()
     }
 
     pub fn set_checked(&mut self, checked: bool) {
-        self.checked = checked;
+        self.state.set_value(checked);
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.state.set_disabled(disabled);
         self
     }
 
-    fn toggle(&mut self, ctx: &mut EventCtx) {
-        self.checked = !self.checked;
+    fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
             self.id,
             Message::CheckboxChanged {
-                checked: self.checked,
+                checked: self.state.value(),
             },
         );
-        ctx.request_repaint();
-        ctx.set_handled();
     }
 }
 
@@ -71,31 +60,31 @@ impl Widget for Checkbox {
     }
 
     fn focusable(&self) -> bool {
-        !self.disabled
+        self.state.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.state.set_focused(focused);
     }
 
     fn has_focus(&self) -> bool {
-        self.focused
+        self.state.focused()
     }
 
     fn is_disabled(&self) -> bool {
-        self.disabled
+        self.state.disabled()
     }
 
     fn is_hovered(&self) -> bool {
-        self.hovered
+        self.state.hovered()
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+        self.state.set_hovered(hovered);
     }
 
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.state.is_active()
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -103,49 +92,21 @@ impl Widget for Checkbox {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.disabled {
-            return;
+        let outcome = self.state.handle_event(event, self.id);
+        if outcome.toggled {
+            self.emit_changed(ctx);
         }
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
-                self.pressed = true;
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                    if mouse.target == Some(self.id) {
-                        self.toggle(ctx);
-                        return;
-                    }
-                }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                }
-            }
-            Event::Action(Action::Toggle) if self.focused => {
-                self.toggle(ctx);
-                return;
-            }
-            Event::Key(key) if self.focused => match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.toggle(ctx);
-                    return;
-                }
-                _ => {}
-            },
-            _ => {}
+        if outcome.repaint {
+            ctx.request_repaint();
+        }
+        if outcome.handled {
+            ctx.set_handled();
         }
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let state = if self.checked { "☑" } else { "☐" };
+        let state = if self.state.value() { "☑" } else { "☐" };
         let line = rich_rs::set_cell_size(&format!("{state} {}", self.label), width);
         let mut out = Segments::new();
         out.push(Segment::new(line));
@@ -157,7 +118,7 @@ impl Widget for Checkbox {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
+        if self.state.focused() {
             &self.focused_classes
         } else if self.classes.is_empty() {
             empty_classes()
@@ -178,5 +139,26 @@ impl Widget for Checkbox {
 impl Renderable for Checkbox {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn checkbox_emits_message_on_toggle() {
+        let mut checkbox = Checkbox::new("Remember");
+        checkbox.set_focus(true);
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        checkbox.on_event(&Event::Key(key), &mut ctx);
+        let messages = ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true })));
     }
 }

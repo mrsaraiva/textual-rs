@@ -1,12 +1,12 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    option_list::toggle_option::BinaryToggleState,
+    Widget, WidgetId, WidgetStyles,
 };
 
 /// The visual width of the switch slider track (in cells).
@@ -19,11 +19,7 @@ const SWITCH_WIDTH: usize = 8;
 #[derive(Debug, Clone)]
 pub struct Switch {
     id: WidgetId,
-    value: bool,
-    focused: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
+    state: BinaryToggleState,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -33,11 +29,7 @@ impl Switch {
     pub fn new(value: bool) -> Self {
         Self {
             id: WidgetId::new(),
-            value,
-            focused: false,
-            hovered: false,
-            pressed: false,
-            disabled: false,
+            state: BinaryToggleState::new(value),
             classes: Vec::new(),
             focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -46,27 +38,32 @@ impl Switch {
     }
 
     pub fn value(&self) -> bool {
-        self.value
+        self.state.value()
     }
 
     pub fn set_value(&mut self, value: bool) {
-        if self.value != value {
-            self.value = value;
+        if self.state.value() != value {
+            self.state.set_value(value);
             self.rebuild_classes_in_place();
         }
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.state.set_disabled(disabled);
         self.rebuild_classes()
     }
 
-    fn toggle(&mut self, ctx: &mut EventCtx) {
-        self.value = !self.value;
+    fn emit_changed(&self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            Message::SwitchChanged {
+                value: self.state.value(),
+            },
+        );
+    }
+
+    fn on_toggled(&mut self) {
         self.rebuild_classes_in_place();
-        ctx.post_message(self.id, Message::SwitchChanged { value: self.value });
-        ctx.request_repaint();
-        ctx.set_handled();
     }
 
     fn rebuild_classes(mut self) -> Self {
@@ -76,12 +73,12 @@ impl Switch {
 
     fn rebuild_classes_in_place(&mut self) {
         let mut classes = vec!["switch".to_string()];
-        if self.value {
+        if self.state.value() {
             classes.push("-on".to_string());
         } else {
             classes.push("-off".to_string());
         }
-        if self.disabled {
+        if self.state.disabled() {
             classes.push("disabled".to_string());
         }
         let mut focused_classes = classes.clone();
@@ -97,31 +94,31 @@ impl Widget for Switch {
     }
 
     fn focusable(&self) -> bool {
-        !self.disabled
+        self.state.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.state.set_focused(focused);
     }
 
     fn has_focus(&self) -> bool {
-        self.focused
+        self.state.focused()
     }
 
     fn is_disabled(&self) -> bool {
-        self.disabled
+        self.state.disabled()
     }
 
     fn is_hovered(&self) -> bool {
-        self.hovered
+        self.state.hovered()
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+        self.state.set_hovered(hovered);
     }
 
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.state.is_active()
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -129,43 +126,16 @@ impl Widget for Switch {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.disabled {
-            return;
+        let outcome = self.state.handle_event(event, self.id);
+        if outcome.toggled {
+            self.on_toggled();
+            self.emit_changed(ctx);
         }
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
-                self.pressed = true;
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                    if mouse.target == Some(self.id) {
-                        self.toggle(ctx);
-                        return;
-                    }
-                }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                }
-            }
-            Event::Action(Action::Toggle) if self.focused => {
-                self.toggle(ctx);
-                return;
-            }
-            Event::Key(key) if self.focused => match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.toggle(ctx);
-                    return;
-                }
-                _ => {}
-            },
-            _ => {}
+        if outcome.repaint {
+            ctx.request_repaint();
+        }
+        if outcome.handled {
+            ctx.set_handled();
         }
     }
 
@@ -187,7 +157,7 @@ impl Widget for Switch {
         let track_inner = width.saturating_sub(2); // minus left/right border chars
         let knob_size = track_inner.saturating_sub(1).max(1); // knob takes most of the track
 
-        let track = if self.value {
+        let track = if self.state.value() {
             // ON: knob (filled) then space
             let knob = "█".repeat(knob_size);
             let space = " ".repeat(track_inner.saturating_sub(knob_size));
@@ -210,7 +180,7 @@ impl Widget for Switch {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
+        if self.state.focused() {
             &self.focused_classes
         } else if self.classes.is_empty() {
             empty_classes()
@@ -235,5 +205,48 @@ impl Widget for Switch {
 impl Renderable for Switch {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::MouseDownEvent;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn switch_space_toggles_and_emits_message() {
+        let mut widget = Switch::new(false);
+        widget.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        widget.on_event(&Event::Key(key), &mut ctx);
+        assert!(widget.value());
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::SwitchChanged { value: true })));
+    }
+
+    #[test]
+    fn switch_disabled_ignores_input() {
+        let mut widget = Switch::new(false).disabled(true);
+        widget.set_focus(true);
+        let mut ctx = EventCtx::default();
+        widget.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: widget.id(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(!widget.value());
+        assert!(!ctx.handled());
     }
 }

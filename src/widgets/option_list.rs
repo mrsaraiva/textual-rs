@@ -4,90 +4,14 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
+#[path = "toggle_option.rs"]
+pub(crate) mod toggle_option;
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    Widget, WidgetId, WidgetStyles,
 };
-
-/// A single item within an [`OptionList`].
-///
-/// Can be a selectable option (with text, optional string ID, and optional disabled flag)
-/// or a visual separator rendered as a horizontal rule.
-#[derive(Debug, Clone)]
-pub enum OptionItem {
-    /// A selectable option.
-    Option {
-        prompt: String,
-        id: Option<String>,
-        disabled: bool,
-    },
-    /// A visual separator (horizontal rule) between option groups.
-    Separator,
-}
-
-impl OptionItem {
-    /// Create a new enabled option with the given prompt text.
-    pub fn new(prompt: impl Into<String>) -> Self {
-        Self::Option {
-            prompt: prompt.into(),
-            id: None,
-            disabled: false,
-        }
-    }
-
-    /// Create a new option with prompt and string ID.
-    pub fn with_id(prompt: impl Into<String>, id: impl Into<String>) -> Self {
-        Self::Option {
-            prompt: prompt.into(),
-            id: Some(id.into()),
-            disabled: false,
-        }
-    }
-
-    /// Create a disabled option.
-    pub fn disabled(prompt: impl Into<String>) -> Self {
-        Self::Option {
-            prompt: prompt.into(),
-            id: None,
-            disabled: true,
-        }
-    }
-
-    /// Create a disabled option with an ID.
-    pub fn disabled_with_id(prompt: impl Into<String>, id: impl Into<String>) -> Self {
-        Self::Option {
-            prompt: prompt.into(),
-            id: Some(id.into()),
-            disabled: true,
-        }
-    }
-
-    /// Returns `true` if this item is a separator.
-    pub fn is_separator(&self) -> bool {
-        matches!(self, Self::Separator)
-    }
-
-    /// Returns `true` if this item is a disabled option.
-    pub fn is_disabled(&self) -> bool {
-        matches!(self, Self::Option { disabled: true, .. })
-    }
-
-    /// Returns the prompt text, or `None` for separators.
-    pub fn prompt(&self) -> Option<&str> {
-        match self {
-            Self::Option { prompt, .. } => Some(prompt),
-            Self::Separator => None,
-        }
-    }
-
-    /// Returns the string ID, or `None` for separators or options without an ID.
-    pub fn string_id(&self) -> Option<&str> {
-        match self {
-            Self::Option { id, .. } => id.as_deref(),
-            Self::Separator => None,
-        }
-    }
-}
+use toggle_option::OptionCursorState;
+pub use toggle_option::{OptionId, OptionItem};
 
 /// A scrollable, navigable list of selectable options.
 ///
@@ -97,8 +21,7 @@ impl OptionItem {
 pub struct OptionList {
     id: WidgetId,
     items: Vec<OptionItem>,
-    /// Index of the highlighted (cursor) item, or `None` if no items.
-    highlighted: Option<usize>,
+    cursor: OptionCursorState,
     offset: usize,
     focused: bool,
     hovered: bool,
@@ -116,7 +39,7 @@ impl OptionList {
         Self {
             id: WidgetId::new(),
             items: Vec::new(),
-            highlighted: None,
+            cursor: OptionCursorState::default(),
             offset: 0,
             focused: false,
             hovered: false,
@@ -133,7 +56,7 @@ impl OptionList {
     pub fn with_items(items: Vec<OptionItem>) -> Self {
         let mut list = Self::new();
         list.items = items;
-        list.highlighted = list.first_selectable();
+        list.cursor.set_highlighted(list.first_selectable());
         list
     }
 
@@ -146,15 +69,15 @@ impl OptionList {
     // ── Public API ──────────────────────────────────────────────────
 
     /// Add a selectable option.
-    pub fn add_option(&mut self, prompt: impl Into<String>, id: Option<String>, disabled: bool) {
-        let was_empty = self.highlighted.is_none();
+    pub fn add_option(&mut self, prompt: impl Into<String>, id: Option<OptionId>, disabled: bool) {
+        let was_empty = self.cursor.highlighted().is_none();
         self.items.push(OptionItem::Option {
             prompt: prompt.into(),
             id,
             disabled,
         });
         if was_empty && !disabled {
-            self.highlighted = Some(self.items.len() - 1);
+            self.cursor.set_highlighted(Some(self.items.len() - 1));
         }
     }
 
@@ -166,7 +89,7 @@ impl OptionList {
     /// Remove all items from the list.
     pub fn clear_options(&mut self) {
         self.items.clear();
-        self.highlighted = None;
+        self.cursor.clear();
         self.offset = 0;
         self.hovered_index = None;
     }
@@ -183,7 +106,7 @@ impl OptionList {
 
     /// The currently highlighted index, or `None`.
     pub fn highlighted(&self) -> Option<usize> {
-        self.highlighted
+        self.cursor.highlighted()
     }
 
     /// The current scroll offset (first visible item index).
@@ -194,11 +117,8 @@ impl OptionList {
     /// Programmatically move the highlight to `index`.
     /// Ignores separators and disabled items.
     pub fn set_highlighted(&mut self, index: usize) {
-        if index < self.items.len()
-            && !self.items[index].is_separator()
-            && !self.items[index].is_disabled()
-        {
-            self.highlighted = Some(index);
+        if index < self.items.len() && self.items[index].is_selectable() {
+            self.cursor.set_highlighted(Some(index));
             self.ensure_visible();
         }
     }
@@ -206,7 +126,7 @@ impl OptionList {
     /// Replace all items at once.
     pub fn set_items(&mut self, items: Vec<OptionItem>) {
         self.items = items;
-        self.highlighted = self.first_selectable();
+        self.cursor.set_highlighted(self.first_selectable());
         self.offset = 0;
         self.hovered_index = None;
         self.ensure_visible();
@@ -215,9 +135,7 @@ impl OptionList {
     // ── Internals ───────────────────────────────────────────────────
 
     fn first_selectable(&self) -> Option<usize> {
-        self.items
-            .iter()
-            .position(|item| !item.is_separator() && !item.is_disabled())
+        self.items.iter().position(|item| item.is_selectable())
     }
 
     fn last_selectable(&self) -> Option<usize> {
@@ -225,7 +143,7 @@ impl OptionList {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, item)| !item.is_separator() && !item.is_disabled())
+            .find(|(_, item)| item.is_selectable())
             .map(|(i, _)| i)
     }
 
@@ -233,7 +151,7 @@ impl OptionList {
     fn selectable_count(&self) -> usize {
         self.items
             .iter()
-            .filter(|item| !item.is_separator() && !item.is_disabled())
+            .filter(|item| item.is_selectable())
             .count()
     }
 
@@ -243,7 +161,7 @@ impl OptionList {
 
     fn clamp_offsets(&mut self) {
         if self.items.is_empty() {
-            self.highlighted = None;
+            self.cursor.set_highlighted(None);
             self.offset = 0;
             self.hovered_index = None;
             return;
@@ -258,7 +176,7 @@ impl OptionList {
 
     fn ensure_visible(&mut self) {
         self.clamp_offsets();
-        let Some(highlighted) = self.highlighted else {
+        let Some(highlighted) = self.cursor.highlighted() else {
             return;
         };
         let viewport = self.viewport_height.max(1);
@@ -271,13 +189,13 @@ impl OptionList {
     }
 
     fn emit_highlighted(&self, ctx: &mut EventCtx) {
-        if let Some(index) = self.highlighted {
+        if let Some(index) = self.cursor.highlighted() {
             ctx.post_message(self.id, Message::OptionHighlighted { index });
         }
     }
 
     fn emit_selected(&self, ctx: &mut EventCtx) {
-        if let Some(index) = self.highlighted {
+        if let Some(index) = self.cursor.highlighted() {
             ctx.post_message(self.id, Message::OptionSelected { index });
         }
     }
@@ -287,11 +205,11 @@ impl OptionList {
         if index >= self.items.len() {
             return;
         }
-        if self.items[index].is_separator() || self.items[index].is_disabled() {
+        if !self.items[index].is_selectable() {
             return;
         }
-        let changed = self.highlighted != Some(index);
-        self.highlighted = Some(index);
+        let changed = self.cursor.highlighted() != Some(index);
+        self.cursor.set_highlighted(Some(index));
         self.ensure_visible();
         if changed {
             self.emit_highlighted(ctx);
@@ -304,15 +222,13 @@ impl OptionList {
         if self.selectable_count() == 0 {
             return;
         }
-        let current = self.highlighted.unwrap_or(0) as isize;
+        let current = self.cursor.highlighted().unwrap_or(0) as isize;
         let max = (self.items.len() - 1) as isize;
         let mut target = (current + delta).clamp(0, max) as usize;
 
         // Walk in the direction of delta to find the next selectable item.
         let step: isize = if delta >= 0 { 1 } else { -1 };
-        while target < self.items.len()
-            && (self.items[target].is_separator() || self.items[target].is_disabled())
-        {
+        while target < self.items.len() && !self.items[target].is_selectable() {
             let next = target as isize + step;
             if next < 0 || next > max {
                 // Can't move further; stay at current position.
@@ -343,10 +259,10 @@ impl OptionList {
 
     /// Confirm the currently highlighted item (Enter or click).
     fn confirm_selection(&mut self, ctx: &mut EventCtx) {
-        let Some(index) = self.highlighted else {
+        let Some(index) = self.cursor.highlighted() else {
             return;
         };
-        if self.items[index].is_separator() || self.items[index].is_disabled() {
+        if !self.items[index].is_selectable() {
             return;
         }
         self.emit_selected(ctx);
@@ -390,10 +306,7 @@ impl Widget for OptionList {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 let index = self.offset.saturating_add(mouse.y as usize);
-                if index < self.items.len()
-                    && !self.items[index].is_separator()
-                    && !self.items[index].is_disabled()
-                {
+                if index < self.items.len() && self.items[index].is_selectable() {
                     self.highlight_index(index, ctx);
                     self.confirm_selection(ctx);
                     ctx.set_handled();
@@ -462,7 +375,7 @@ impl Widget for OptionList {
             return false;
         }
         let index = self.offset.saturating_add(y as usize);
-        let hovered = if index < self.items.len() && !self.items[index].is_separator() {
+        let hovered = if index < self.items.len() && self.items[index].is_selectable() {
             Some(index)
         } else {
             None
@@ -511,7 +424,7 @@ impl Widget for OptionList {
                     OptionItem::Option {
                         prompt, disabled, ..
                     } => {
-                        let highlighted = self.highlighted == Some(index);
+                        let highlighted = self.cursor.highlighted() == Some(index);
                         let hovered = self.hovered_index == Some(index);
                         let mut classes = vec!["option-list--option"];
                         if highlighted {
@@ -668,11 +581,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.confirm_selection(&mut ctx);
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::OptionSelected { index: 0 }))
-        );
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::OptionSelected { index: 0 })));
     }
 
     #[test]
@@ -684,5 +595,11 @@ mod tests {
 
         assert_eq!(list.highlighted(), None);
         assert_eq!(list.option_count(), 0);
+    }
+
+    #[test]
+    fn option_item_with_typed_id_round_trips() {
+        let item = OptionItem::with_id("Alpha", "alpha");
+        assert_eq!(item.string_id(), Some("alpha"));
     }
 }

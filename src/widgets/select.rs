@@ -6,6 +6,7 @@ use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes};
+use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
 use super::{Widget, WidgetId, WidgetStyles};
 
@@ -18,7 +19,7 @@ use super::{Widget, WidgetId, WidgetStyles};
 pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     id: WidgetId,
     options: Vec<(String, T)>,
-    selected: Option<usize>,
+    cursor: OptionCursorState,
     prompt: String,
     open: bool,
     list: OptionList,
@@ -47,7 +48,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         Self {
             id: WidgetId::new(),
             options,
-            selected: None,
+            cursor: OptionCursorState::default(),
             prompt: prompt.into(),
             open: false,
             list,
@@ -65,18 +66,20 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 
     /// The currently selected value, or `None`.
     pub fn value(&self) -> Option<&T> {
-        self.selected
+        self.cursor
+            .selected()
             .and_then(|i| self.options.get(i).map(|(_, v)| v))
     }
 
     /// Programmatically set the value. If the value is not found, selection is cleared.
     pub fn set_value(&mut self, value: &T) {
-        self.selected = self.options.iter().position(|(_, v)| v == value);
+        self.cursor
+            .set_selected(self.options.iter().position(|(_, v)| v == value));
     }
 
     /// Clear the current selection (revert to prompt state).
     pub fn clear(&mut self) {
-        self.selected = None;
+        self.cursor.set_selected(None);
     }
 
     /// Whether the dropdown overlay is currently open.
@@ -91,7 +94,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             .map(|(label, _)| OptionItem::new(label.as_str()))
             .collect();
         self.options = options;
-        self.selected = None;
+        self.cursor.clear();
         self.list.set_items(list_items);
     }
 
@@ -104,8 +107,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.open = open;
         if self.open {
             // Sync list highlight with current selection.
-            if let Some(selected) = self.selected {
+            if let Some(selected) = self.cursor.selected() {
                 self.list.set_highlighted(selected);
+                self.cursor.set_highlighted(Some(selected));
             }
             self.list.set_focus(true);
         } else {
@@ -118,8 +122,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         if index >= self.options.len() {
             return;
         }
-        let changed = self.selected != Some(index);
-        self.selected = Some(index);
+        let changed = self.cursor.selected() != Some(index);
+        self.cursor.set_selected(Some(index));
+        self.cursor.set_highlighted(Some(index));
         self.set_open(false, ctx);
         if changed {
             let label = self.options[index].0.clone();
@@ -161,7 +166,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             .to_rich()
             .unwrap_or(label_style);
 
-        let label_text = if let Some(index) = self.selected {
+        let label_text = if let Some(index) = self.cursor.selected() {
             self.options[index].0.as_str()
         } else {
             &self.prompt
@@ -257,7 +262,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                             .offset_for_click()
                             .saturating_add(mouse.y as usize);
                         if let Some(item) = self.list.get_option(index) {
-                            if !item.is_separator() && !item.is_disabled() {
+                            if item.is_selectable() {
                                 self.apply_selection(index, ctx);
                             }
                         }
@@ -270,7 +275,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                             let list_y = click_y - panel_y;
                             let index = self.list.offset_for_click().saturating_add(list_y);
                             if let Some(item) = self.list.get_option(index) {
-                                if !item.is_separator() && !item.is_disabled() {
+                                if item.is_selectable() {
                                     self.apply_selection(index, ctx);
                                 }
                             }
@@ -286,6 +291,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             }
             // Delegate navigation keys to the inner OptionList.
             self.list.on_event(event, ctx);
+            self.cursor.set_highlighted(self.list.highlighted());
             if !ctx.handled() {
                 // Absorb all events when overlay is open.
                 ctx.set_handled();
@@ -545,11 +551,9 @@ mod tests {
         assert_eq!(sel.value(), Some(&2)); // Beta
 
         let messages = ctx3.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
-        );
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ })));
     }
 
     #[test]
@@ -580,11 +584,9 @@ mod tests {
         assert_eq!(sel.value(), Some(&2));
         assert!(click_ctx.handled());
         let messages = click_ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
-        );
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ })));
     }
 
     #[test]
@@ -600,5 +602,37 @@ mod tests {
         sel.set_value(&2);
         sel.clear();
         assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn select_ignores_disabled_option_click() {
+        let mut sel = Select::new(
+            vec![("Alpha".to_string(), 1), ("Beta".to_string(), 2)],
+            "Pick one...",
+        );
+        sel.list
+            .set_items(vec![OptionItem::new("Alpha"), OptionItem::disabled("Beta")]);
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut open_ctx = EventCtx::default();
+        sel.on_event(&Event::Key(open), &mut open_ctx);
+        assert!(sel.is_open());
+
+        let mut click_ctx = EventCtx::default();
+        sel.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: sel.list.id(),
+                screen_x: 1,
+                screen_y: 2,
+                x: 1,
+                y: 1,
+            }),
+            &mut click_ctx,
+        );
+
+        assert!(sel.value().is_none());
+        assert!(sel.is_open());
     }
 }

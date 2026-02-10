@@ -6,8 +6,8 @@ use crate::message::Message;
 
 use super::option_list::{OptionItem, OptionList};
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    Widget, WidgetId, WidgetStyles,
 };
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
@@ -26,6 +26,8 @@ pub struct Selection {
     pub value: String,
     /// Whether this selection starts in the selected state.
     pub initially_selected: bool,
+    /// Whether this selection is disabled.
+    pub disabled: bool,
 }
 
 impl Selection {
@@ -35,6 +37,7 @@ impl Selection {
             prompt: prompt.into(),
             value: value.into(),
             initially_selected: false,
+            disabled: false,
         }
     }
 
@@ -44,6 +47,17 @@ impl Selection {
             prompt: prompt.into(),
             value: value.into(),
             initially_selected: true,
+            disabled: false,
+        }
+    }
+
+    /// Create a new selection that is disabled.
+    pub fn disabled(prompt: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            prompt: prompt.into(),
+            value: value.into(),
+            initially_selected: false,
+            disabled: true,
         }
     }
 }
@@ -101,10 +115,19 @@ impl SelectionList {
         let mut list = Self::new();
         let items: Vec<OptionItem> = selections
             .iter()
-            .map(|s| OptionItem::new(&s.prompt))
+            .map(|s| {
+                if s.disabled {
+                    OptionItem::disabled(&s.prompt)
+                } else {
+                    OptionItem::new(&s.prompt)
+                }
+            })
             .collect();
         let values: Vec<String> = selections.iter().map(|s| s.value.clone()).collect();
-        let selected: Vec<bool> = selections.iter().map(|s| s.initially_selected).collect();
+        let selected: Vec<bool> = selections
+            .iter()
+            .map(|s| s.initially_selected && !s.disabled)
+            .collect();
         list.inner = OptionList::with_items(items);
         list.values = values;
         list.selected_set = selected;
@@ -115,7 +138,7 @@ impl SelectionList {
 
     /// Toggle the selection state of the item at `index`.
     pub fn toggle(&mut self, index: usize, ctx: &mut EventCtx) {
-        if index >= self.selected_set.len() {
+        if index >= self.selected_set.len() || !self.item_is_selectable(index) {
             return;
         }
         self.selected_set[index] = !self.selected_set[index];
@@ -127,7 +150,10 @@ impl SelectionList {
 
     /// Mark the item at `index` as selected (no-op if already selected).
     pub fn select(&mut self, index: usize, ctx: &mut EventCtx) {
-        if index >= self.selected_set.len() || self.selected_set[index] {
+        if index >= self.selected_set.len()
+            || self.selected_set[index]
+            || !self.item_is_selectable(index)
+        {
             return;
         }
         self.selected_set[index] = true;
@@ -137,7 +163,10 @@ impl SelectionList {
 
     /// Mark the item at `index` as deselected (no-op if already deselected).
     pub fn deselect(&mut self, index: usize, ctx: &mut EventCtx) {
-        if index >= self.selected_set.len() || !self.selected_set[index] {
+        if index >= self.selected_set.len()
+            || !self.selected_set[index]
+            || !self.item_is_selectable(index)
+        {
             return;
         }
         self.selected_set[index] = false;
@@ -147,9 +176,12 @@ impl SelectionList {
 
     /// Select all items.
     pub fn select_all(&mut self, ctx: &mut EventCtx) {
+        let selectable: Vec<bool> = (0..self.selected_set.len())
+            .map(|index| self.item_is_selectable(index))
+            .collect();
         let mut changed = false;
-        for sel in &mut self.selected_set {
-            if !*sel {
+        for (index, sel) in self.selected_set.iter_mut().enumerate() {
+            if selectable[index] && !*sel {
                 *sel = true;
                 changed = true;
             }
@@ -162,9 +194,12 @@ impl SelectionList {
 
     /// Deselect all items.
     pub fn deselect_all(&mut self, ctx: &mut EventCtx) {
+        let selectable: Vec<bool> = (0..self.selected_set.len())
+            .map(|index| self.item_is_selectable(index))
+            .collect();
         let mut changed = false;
-        for sel in &mut self.selected_set {
-            if *sel {
+        for (index, sel) in self.selected_set.iter_mut().enumerate() {
+            if selectable[index] && *sel {
                 *sel = false;
                 changed = true;
             }
@@ -225,6 +260,12 @@ impl SelectionList {
         if let Some(index) = self.inner.highlighted() {
             self.toggle(index, ctx);
         }
+    }
+
+    fn item_is_selectable(&self, index: usize) -> bool {
+        self.inner
+            .get_option(index)
+            .is_some_and(OptionItem::is_selectable)
     }
 
     /// Width of the toggle button prefix: `▐X▌ ` = 4 cells.
@@ -558,5 +599,26 @@ mod tests {
         list.select(99, &mut ctx);
         list.deselect(99, &mut ctx);
         assert!(!list.is_selected(99));
+    }
+
+    #[test]
+    fn selection_list_disabled_items_are_not_toggled() {
+        let selections = vec![
+            Selection::disabled("A", "a"),
+            Selection::selected("B", "b"),
+            Selection::new("C", "c"),
+        ];
+        let mut list = SelectionList::with_selections(selections);
+        let mut ctx = EventCtx::default();
+
+        list.toggle(0, &mut ctx);
+        list.select(0, &mut ctx);
+        list.deselect(0, &mut ctx);
+        assert!(!list.is_selected(0));
+
+        list.select_all(&mut ctx);
+        assert!(!list.is_selected(0));
+        assert!(list.is_selected(1));
+        assert!(list.is_selected(2));
     }
 }

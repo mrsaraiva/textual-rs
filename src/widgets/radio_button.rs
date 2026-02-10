@@ -1,12 +1,12 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    option_list::toggle_option::BinaryToggleState,
+    Widget, WidgetId, WidgetStyles,
 };
 
 /// A radio button widget that represents a boolean on/off value.
@@ -21,11 +21,7 @@ use super::{
 pub struct RadioButton {
     id: WidgetId,
     label: String,
-    value: bool,
-    focused: bool,
-    hovered: bool,
-    pressed: bool,
-    disabled: bool,
+    state: BinaryToggleState,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -37,11 +33,7 @@ impl RadioButton {
         Self {
             id: WidgetId::new(),
             label,
-            value: false,
-            focused: false,
-            hovered: false,
-            pressed: false,
-            disabled: false,
+            state: BinaryToggleState::new(false),
             classes: vec!["radio-button".to_string(), "-off".to_string()],
             focused_classes: vec![
                 "radio-button".to_string(),
@@ -54,20 +46,20 @@ impl RadioButton {
 
     /// Create a radio button with an initial value.
     pub fn with_value(mut self, value: bool) -> Self {
-        self.value = value;
+        self.state.set_value(value);
         self.rebuild_classes();
         self
     }
 
     /// Builder method to set the disabled state.
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.state.set_disabled(disabled);
         self
     }
 
     /// Returns the current value (`true` = selected).
     pub fn value(&self) -> bool {
-        self.value
+        self.state.value()
     }
 
     /// Returns the label text.
@@ -80,21 +72,37 @@ impl RadioButton {
     /// This is used by `RadioSet` to programmatically deselect buttons
     /// without triggering further change events.
     pub fn set_value_silent(&mut self, value: bool) {
-        self.value = value;
+        self.state.set_value(value);
         self.rebuild_classes();
     }
 
     /// Toggle the value and emit a `RadioButtonChanged` message.
     pub fn toggle(&mut self, ctx: &mut EventCtx) {
-        self.value = !self.value;
-        self.rebuild_classes();
-        ctx.post_message(self.id, Message::RadioButtonChanged { value: self.value });
+        if self.state.disabled() {
+            return;
+        }
+        self.state.toggle();
+        self.on_toggled();
+        self.emit_changed(ctx);
         ctx.request_repaint();
         ctx.set_handled();
     }
 
+    fn emit_changed(&self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            Message::RadioButtonChanged {
+                value: self.state.value(),
+            },
+        );
+    }
+
+    fn on_toggled(&mut self) {
+        self.rebuild_classes();
+    }
+
     fn rebuild_classes(&mut self) {
-        let on_off = if self.value { "-on" } else { "-off" };
+        let on_off = if self.state.value() { "-on" } else { "-off" };
         self.classes = vec!["radio-button".to_string(), on_off.to_string()];
         self.focused_classes = vec![
             "radio-button".to_string(),
@@ -110,31 +118,31 @@ impl Widget for RadioButton {
     }
 
     fn focusable(&self) -> bool {
-        !self.disabled
+        self.state.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.state.set_focused(focused);
     }
 
     fn has_focus(&self) -> bool {
-        self.focused
+        self.state.focused()
     }
 
     fn is_disabled(&self) -> bool {
-        self.disabled
+        self.state.disabled()
     }
 
     fn is_hovered(&self) -> bool {
-        self.hovered
+        self.state.hovered()
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+        self.state.set_hovered(hovered);
     }
 
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.state.is_active()
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -143,63 +151,36 @@ impl Widget for RadioButton {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.disabled {
-            return;
+        let outcome = self.state.handle_event(event, self.id);
+        if outcome.toggled {
+            self.on_toggled();
+            self.emit_changed(ctx);
         }
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
-                self.pressed = true;
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                    if mouse.target == Some(self.id) {
-                        self.toggle(ctx);
-                        return;
-                    }
-                }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                }
-            }
-            Event::Action(Action::Toggle) if self.focused => {
-                self.toggle(ctx);
-                return;
-            }
-            Event::Key(key) if self.focused => match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.toggle(ctx);
-                    return;
-                }
-                _ => {}
-            },
-            _ => {}
+        if outcome.repaint {
+            ctx.request_repaint();
+        }
+        if outcome.handled {
+            ctx.set_handled();
         }
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
-        let glyph = if self.value { "●" } else { "○" };
+        let glyph = if self.state.value() { "●" } else { "○" };
 
         // Resolve component styles for the button glyph and label separately.
         let mut glyph_classes = vec!["radio-button--button"];
         let mut label_classes = vec!["radio-button--label"];
-        if self.value {
+        if self.state.value() {
             glyph_classes.push("-on");
             label_classes.push("-on");
         }
-        if self.focused {
+        if self.state.focused() {
             glyph_classes.push("-focus");
             label_classes.push("-focus");
         }
-        if self.hovered {
+        if self.state.hovered() {
             glyph_classes.push("-hover");
             label_classes.push("-hover");
         }
@@ -247,7 +228,7 @@ impl Widget for RadioButton {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
+        if self.state.focused() {
             &self.focused_classes
         } else if self.classes.is_empty() {
             empty_classes()
@@ -272,5 +253,33 @@ impl Widget for RadioButton {
 impl Renderable for RadioButton {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn radio_button_toggle_emits_message() {
+        let mut button = RadioButton::new("A");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        button.on_event(&Event::Key(key), &mut ctx);
+        assert!(button.value());
+        let messages = ctx.take_messages();
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m.message, Message::RadioButtonChanged { value: true })));
+    }
+
+    #[test]
+    fn radio_button_disabled_is_not_focusable() {
+        let button = RadioButton::new("A").disabled(true);
+        assert!(!button.focusable());
     }
 }
