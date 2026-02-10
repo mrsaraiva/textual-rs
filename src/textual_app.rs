@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -6,7 +7,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::widgets::{AppRoot, Widget, WidgetId};
 use crate::{App, Result};
 
@@ -59,16 +60,41 @@ pub trait TextualApp: Send + 'static {
     /// Typed convenience hook for button-pressed messages.
     fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {}
 
+    /// Provide command-palette providers for this app.
+    ///
+    /// Providers are started when the command palette opens and shut down when
+    /// it closes.
+    fn command_palette_providers(&mut self) -> Vec<Box<dyn CommandPaletteProvider>> {
+        Vec::new()
+    }
+
     /// Optional app output returned after the runtime exits.
     fn take_exit_output(&mut self) -> Option<String> {
         None
     }
 }
 
+/// Command provider lifecycle for TextualApp command palette integration.
+pub trait CommandPaletteProvider: Send + Sync {
+    /// Called when the command palette opens.
+    fn startup(&mut self, _ctx: &mut EventCtx) {}
+
+    /// Return the commands currently provided by this provider.
+    fn commands(&mut self) -> Vec<CommandPaletteCommand>;
+
+    /// Called when one of this provider's commands is selected.
+    fn on_command_selected(&mut self, _command_id: &str, _ctx: &mut EventCtx) {}
+
+    /// Called when the command palette closes.
+    fn shutdown(&mut self, _ctx: &mut EventCtx) {}
+}
+
 struct TextualAppAdapter<T: TextualApp> {
     id: WidgetId,
     app: Arc<Mutex<T>>,
     child: Box<dyn Widget>,
+    command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
+    command_palette_provider_index: HashMap<String, (usize, String)>,
 }
 
 impl<T: TextualApp> TextualAppAdapter<T> {
@@ -77,7 +103,52 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             id: WidgetId::new(),
             app,
             child: Box::new(child),
+            command_palette_providers: Vec::new(),
+            command_palette_provider_index: HashMap::new(),
         }
+    }
+
+    fn shutdown_command_palette_providers(&mut self, ctx: &mut EventCtx) {
+        for provider in &mut self.command_palette_providers {
+            provider.shutdown(ctx);
+        }
+        self.command_palette_providers.clear();
+        self.command_palette_provider_index.clear();
+    }
+
+    fn initialize_command_palette_providers(&mut self, ctx: &mut EventCtx) {
+        self.shutdown_command_palette_providers(ctx);
+        self.command_palette_providers = self
+            .app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .command_palette_providers();
+
+        let mut commands = Vec::new();
+        for (provider_index, provider) in self.command_palette_providers.iter_mut().enumerate() {
+            provider.startup(ctx);
+            for command in provider.commands() {
+                self.command_palette_provider_index
+                    .insert(command.id.clone(), (provider_index, command.id.clone()));
+                commands.push(command);
+            }
+        }
+
+        if !commands.is_empty() {
+            ctx.post_message(self.id, Message::CommandPaletteSetCommands { commands });
+        }
+    }
+
+    fn handle_command_palette_selection(&mut self, command_id: &str, ctx: &mut EventCtx) {
+        let Some((provider_index, original_command_id)) =
+            self.command_palette_provider_index.get(command_id).cloned()
+        else {
+            return;
+        };
+        let Some(provider) = self.command_palette_providers.get_mut(provider_index) else {
+            return;
+        };
+        provider.on_command_selected(&original_command_id, ctx);
     }
 }
 
@@ -99,6 +170,8 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_unmount(&mut self) {
+        let mut ctx = EventCtx::default();
+        self.shutdown_command_palette_providers(&mut ctx);
         self.child.on_unmount();
     }
 
@@ -135,6 +208,18 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.child.on_message(message, ctx);
         if ctx.handled() {
             return;
+        }
+        match &message.message {
+            Message::CommandPaletteOpened => {
+                self.initialize_command_palette_providers(ctx);
+            }
+            Message::CommandPaletteClosed => {
+                self.shutdown_command_palette_providers(ctx);
+            }
+            Message::CommandPaletteCommandSelected { id, .. } => {
+                self.handle_command_palette_selection(id, ctx);
+            }
+            _ => {}
         }
         if let Message::ButtonPressed { description } = &message.message {
             self.app
@@ -235,4 +320,185 @@ pub fn run_sync_snapshot_with_output<T: TextualApp>(definition: T) -> Result<Opt
 pub fn run_sync_snapshot<T: TextualApp>(definition: T) -> Result<()> {
     let _ = run_sync_snapshot_with_output(definition)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rich_rs::{Console, ConsoleOptions, Segments};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct ProviderState {
+        startup_count: Arc<AtomicUsize>,
+        shutdown_count: Arc<AtomicUsize>,
+        selected_count: Arc<AtomicUsize>,
+    }
+
+    struct TestProvider {
+        state: ProviderState,
+    }
+
+    impl CommandPaletteProvider for TestProvider {
+        fn startup(&mut self, _ctx: &mut EventCtx) {
+            self.state.startup_count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn commands(&mut self) -> Vec<CommandPaletteCommand> {
+            vec![CommandPaletteCommand {
+                id: "deploy".to_string(),
+                title: "Deploy".to_string(),
+                help: "Ship the current build".to_string(),
+            }]
+        }
+
+        fn on_command_selected(&mut self, command_id: &str, _ctx: &mut EventCtx) {
+            if command_id == "deploy" {
+                self.state.selected_count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        fn shutdown(&mut self, _ctx: &mut EventCtx) {
+            self.state.shutdown_count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct TestApp {
+        provider_state: ProviderState,
+    }
+
+    impl TextualApp for TestApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn command_palette_providers(&mut self) -> Vec<Box<dyn CommandPaletteProvider>> {
+            vec![Box::new(TestProvider {
+                state: self.provider_state.clone(),
+            })]
+        }
+    }
+
+    struct NoopWidget {
+        id: WidgetId,
+    }
+
+    impl NoopWidget {
+        fn new() -> Self {
+            Self {
+                id: WidgetId::new(),
+            }
+        }
+    }
+
+    impl Widget for NoopWidget {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
+
+    #[test]
+    fn command_palette_providers_start_set_commands_select_and_shutdown() {
+        let state = ProviderState {
+            startup_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_count: Arc::new(AtomicUsize::new(0)),
+            selected_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: state.clone(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+
+        let mut open_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteOpened,
+            },
+            &mut open_ctx,
+        );
+        assert_eq!(state.startup_count.load(Ordering::SeqCst), 1);
+        let open_messages = open_ctx.take_messages();
+        assert!(
+            open_messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteSetCommands { .. }))
+        );
+
+        let mut select_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteCommandSelected {
+                    id: "deploy".to_string(),
+                    title: "Deploy".to_string(),
+                },
+            },
+            &mut select_ctx,
+        );
+        assert_eq!(state.selected_count.load(Ordering::SeqCst), 1);
+
+        let mut close_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteClosed,
+            },
+            &mut close_ctx,
+        );
+        assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn command_palette_providers_restart_on_reopen() {
+        let state = ProviderState {
+            startup_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_count: Arc::new(AtomicUsize::new(0)),
+            selected_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: state.clone(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+
+        let mut first_open_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteOpened,
+            },
+            &mut first_open_ctx,
+        );
+        let mut first_close_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteClosed,
+            },
+            &mut first_close_ctx,
+        );
+        let mut second_open_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteOpened,
+            },
+            &mut second_open_ctx,
+        );
+        let mut second_close_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: WidgetId::new(),
+                message: Message::CommandPaletteClosed,
+            },
+            &mut second_close_ctx,
+        );
+
+        assert_eq!(state.startup_count.load(Ordering::SeqCst), 2);
+        assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 2);
+    }
 }
