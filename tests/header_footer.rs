@@ -87,6 +87,46 @@ fn footer_docks_command_palette_binding_to_right_slot() {
 }
 
 #[test]
+fn footer_groups_consecutive_bindings_with_same_group() {
+    let console = Console::new();
+    let options = options_for(&console, 80, 1);
+    let mut footer = Footer::new();
+    let mut ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("left", "move left").with_group("Move"),
+            BindingHint::new("right", "move right").with_group("Move"),
+            BindingHint::new("enter", "submit"),
+        ]),
+        &mut ctx,
+    );
+    assert!(ctx.repaint_requested());
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &buf.as_plain_lines()[0];
+    assert!(line.contains("left"));
+    assert!(line.contains("right"));
+    assert!(line.contains("Move"));
+    assert!(!line.contains("move left"));
+    assert!(!line.contains("move right"));
+    assert!(line.contains("enter submit"));
+}
+
+#[test]
+fn footer_compact_mode_tightens_spacing() {
+    let console = Console::new();
+    let options = options_for(&console, 60, 1);
+    let footer = Footer::new()
+        .with_binding("ctrl+q", "quit")
+        .with_binding("tab", "next")
+        .compact(true);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &buf.as_plain_lines()[0];
+    assert!(line.starts_with("ctrl+q quit tab next"));
+}
+
+#[test]
 fn header_mouse_up_toggles_tall_outside_icon() {
     let mut header = Header::new().title("Textual Keys");
     let mut ctx = EventCtx::default();

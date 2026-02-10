@@ -97,9 +97,16 @@ impl Footer {
         description_style: rich_rs::Style,
     ) -> Vec<Segment> {
         let mut out = Vec::new();
-        out.push(Segment::styled(format!(" {}", binding.key), key_style));
+        let key_text = if self.compact {
+            binding.key.clone()
+        } else {
+            format!(" {}", binding.key)
+        };
+        out.push(Segment::styled(key_text, key_style));
         if binding.description.is_empty() {
-            out.push(Segment::styled(" ".to_string(), description_style));
+            if !self.compact {
+                out.push(Segment::styled(" ".to_string(), description_style));
+            }
         } else {
             out.push(Segment::styled(
                 format!(" {}", binding.description),
@@ -108,6 +115,81 @@ impl Footer {
         }
         out
     }
+
+    fn render_group(
+        &self,
+        group_label: &str,
+        group_bindings: &[FooterBinding],
+        key_style: rich_rs::Style,
+        description_style: rich_rs::Style,
+        base_style: rich_rs::Style,
+    ) -> Vec<Segment> {
+        let mut out = Vec::new();
+        let key_separator = if self.compact { " " } else { "  " };
+        for (index, binding) in group_bindings.iter().enumerate() {
+            if index > 0 {
+                out.push(Segment::styled(key_separator.to_string(), base_style));
+            }
+            let mut key_only = binding.clone();
+            key_only.description.clear();
+            out.extend(self.render_binding(&key_only, key_style, description_style));
+        }
+        out.push(Segment::styled(
+            format!(" {}", group_label),
+            description_style,
+        ));
+        out
+    }
+
+    fn split_bindings(&self) -> (Vec<LeftBindingItem>, Option<FooterBinding>) {
+        let mut left_bindings = Vec::new();
+        let mut palette = None::<FooterBinding>;
+        for binding in &self.bindings {
+            if binding.group.as_deref() == Some("command_palette") {
+                palette = Some(binding.clone());
+            } else {
+                left_bindings.push(binding.clone());
+            }
+        }
+
+        let mut left_items = Vec::new();
+        let mut index = 0;
+        while index < left_bindings.len() {
+            let binding = &left_bindings[index];
+            let Some(group_name) = binding.group.clone() else {
+                left_items.push(LeftBindingItem::Single(binding.clone()));
+                index += 1;
+                continue;
+            };
+
+            let mut run_end = index + 1;
+            while run_end < left_bindings.len()
+                && left_bindings[run_end].group.as_deref() == Some(group_name.as_str())
+            {
+                run_end += 1;
+            }
+            if run_end - index > 1 {
+                left_items.push(LeftBindingItem::Grouped {
+                    label: group_name,
+                    bindings: left_bindings[index..run_end].to_vec(),
+                });
+            } else {
+                left_items.push(LeftBindingItem::Single(binding.clone()));
+            }
+            index = run_end;
+        }
+
+        (left_items, palette)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum LeftBindingItem {
+    Single(FooterBinding),
+    Grouped {
+        label: String,
+        bindings: Vec<FooterBinding>,
+    },
 }
 
 impl Widget for Footer {
@@ -122,15 +204,7 @@ impl Widget for Footer {
         let description_style = self.description_style();
         let command_palette_style = self.command_palette_style();
 
-        let mut left_bindings: Vec<FooterBinding> = Vec::new();
-        let mut palette = None::<FooterBinding>;
-        for binding in &self.bindings {
-            if binding.group.as_deref() == Some("command_palette") {
-                palette = Some(binding.clone());
-            } else {
-                left_bindings.push(binding.clone());
-            }
-        }
+        let (left_bindings, palette) = self.split_bindings();
 
         let separator = if self.compact { " " } else { "   " };
         let mut left_segments = Vec::new();
@@ -138,7 +212,24 @@ impl Widget for Footer {
             if index > 0 {
                 left_segments.push(Segment::styled(separator.to_string(), base_style));
             }
-            left_segments.extend(self.render_binding(binding, key_style, description_style));
+            match binding {
+                LeftBindingItem::Single(binding) => {
+                    left_segments.extend(self.render_binding(
+                        binding,
+                        key_style,
+                        description_style,
+                    ));
+                }
+                LeftBindingItem::Grouped { label, bindings } => {
+                    left_segments.extend(self.render_group(
+                        label,
+                        bindings,
+                        key_style,
+                        description_style,
+                        base_style,
+                    ));
+                }
+            }
         }
 
         let mut line_segments = left_segments;
@@ -146,7 +237,11 @@ impl Widget for Footer {
             let mut right_segments =
                 self.render_binding(&palette_binding, key_style, command_palette_style);
             // Keep command palette hint docked at the right with a subtle separator.
-            right_segments.insert(0, Segment::styled("  ".to_string(), command_palette_style));
+            let right_separator = if self.compact { " " } else { "  " };
+            right_segments.insert(
+                0,
+                Segment::styled(right_separator.to_string(), command_palette_style),
+            );
 
             let left_width = Segment::get_line_length(&line_segments);
             let right_width = Segment::get_line_length(&right_segments);
