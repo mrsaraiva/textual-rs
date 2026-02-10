@@ -1,12 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::keys::KeyEventData;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 
@@ -132,8 +130,6 @@ pub struct TextArea {
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
-    on_change: Option<Arc<dyn Fn(&mut TextArea) + Send + Sync>>,
-    on_key: Option<Arc<dyn Fn(&mut TextArea, KeyEventData, &mut EventCtx) + Send + Sync>>,
 }
 
 impl TextArea {
@@ -199,8 +195,6 @@ impl TextArea {
             classes: Vec::new(),
             focused_classes: Vec::new(),
             styles: WidgetStyles::default(),
-            on_change: None,
-            on_key: None,
         };
         out.register_builtin_languages();
         out.rebuild_classes();
@@ -311,20 +305,11 @@ impl TextArea {
         self
     }
 
-    pub fn on_key(
-        mut self,
-        handler: impl Fn(&mut TextArea, KeyEventData, &mut EventCtx) + Send + Sync + 'static,
-    ) -> Self {
-        self.on_key = Some(Arc::new(handler));
-        self
-    }
-
     pub fn insert(&mut self, text: &str) {
         if text.is_empty() {
             return;
         }
         self.insert_str(text);
-        self.notify_changed();
         self.preferred_col_cells = Some(self.cursor_cell_x());
         self.adjust_scroll_to_cursor();
         self.reset_blink();
@@ -350,15 +335,11 @@ impl TextArea {
         self.lines.join("\n")
     }
 
-    pub fn on_change(mut self, handler: impl Fn(&mut TextArea) + Send + Sync + 'static) -> Self {
-        self.on_change = Some(Arc::new(handler));
-        self
-    }
-
-    fn notify_changed(&mut self) {
-        if let Some(handler) = self.on_change.clone() {
-            handler(self);
-        }
+    fn post_changed(&self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            crate::message::Message::TextAreaChanged { value: self.text() },
+        );
     }
 
     fn register_builtin_languages(&mut self) {
@@ -875,13 +856,6 @@ impl Widget for TextArea {
                 }
             }
             Event::Key(key) if self.focused => {
-                if let Some(handler) = self.on_key.clone() {
-                    handler(self, key.clone(), ctx);
-                    if ctx.handled() {
-                        return;
-                    }
-                }
-
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     let old = self.cursor;
                     let mut next = old;
@@ -964,7 +938,7 @@ impl Widget for TextArea {
                         // `KeyCode::Backspace` (notably DEL `\u{7f}` and BS `\u{08}`).
                         if ch == '\u{7f}' || ch == '\u{08}' {
                             self.backspace();
-                            self.notify_changed();
+                            self.post_changed(ctx);
                             self.preferred_col_cells = Some(self.cursor_cell_x());
                             self.adjust_scroll_to_cursor();
                             self.reset_blink();
@@ -974,7 +948,7 @@ impl Widget for TextArea {
                         }
                         if ch != '\t' {
                             self.insert_str(&ch.to_string());
-                            self.notify_changed();
+                            self.post_changed(ctx);
                             self.preferred_col_cells = Some(self.cursor_cell_x());
                             self.adjust_scroll_to_cursor();
                             self.reset_blink();
@@ -984,7 +958,7 @@ impl Widget for TextArea {
                     }
                     KeyCode::Enter => {
                         self.insert_newline();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.preferred_col_cells = Some(0);
                         self.adjust_scroll_to_cursor();
                         self.reset_blink();
@@ -993,7 +967,7 @@ impl Widget for TextArea {
                     }
                     KeyCode::Backspace => {
                         self.backspace();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.preferred_col_cells = Some(self.cursor_cell_x());
                         self.adjust_scroll_to_cursor();
                         self.reset_blink();
@@ -1002,7 +976,7 @@ impl Widget for TextArea {
                     }
                     KeyCode::Delete => {
                         self.delete();
-                        self.notify_changed();
+                        self.post_changed(ctx);
                         self.preferred_col_cells = Some(self.cursor_cell_x());
                         self.adjust_scroll_to_cursor();
                         self.reset_blink();

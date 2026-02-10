@@ -11,6 +11,9 @@ pub enum Message {
     InputSubmitted {
         value: String,
     },
+    TextAreaChanged {
+        value: String,
+    },
     ButtonPressed {
         description: String,
     },

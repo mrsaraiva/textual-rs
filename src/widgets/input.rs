@@ -1,6 +1,5 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
-use std::sync::Arc;
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -59,7 +58,6 @@ pub struct Input {
     input_type: InputType,
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
-    on_change: Option<Arc<dyn Fn(&mut Input) + Send + Sync>>,
     chrome: InputChrome,
     styles: WidgetStyles,
 }
@@ -75,7 +73,6 @@ impl Input {
             input_type: InputType::Text,
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
-            on_change: None,
             chrome: InputChrome::new(),
             styles: WidgetStyles::default(),
         }
@@ -104,11 +101,6 @@ impl Input {
 
     pub fn set_class(&mut self, class: &str, enabled: bool) {
         self.chrome.set_class(class, enabled);
-    }
-
-    pub fn on_change(mut self, handler: impl Fn(&mut Input) + Send + Sync + 'static) -> Self {
-        self.on_change = Some(Arc::new(handler));
-        self
     }
 
     pub fn text(&self) -> &str {
@@ -165,12 +157,6 @@ impl Input {
         }
     }
 
-    fn notify_changed(&mut self) {
-        if let Some(handler) = self.on_change.clone() {
-            handler(self);
-        }
-    }
-
     fn post_changed(&mut self, ctx: &mut EventCtx) {
         ctx.post_message(
             self.id,
@@ -179,7 +165,6 @@ impl Input {
                 validation: self.validation_result.clone(),
             },
         );
-        self.notify_changed();
     }
 
     fn revalidate(&mut self) {
