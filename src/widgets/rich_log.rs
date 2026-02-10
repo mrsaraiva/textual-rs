@@ -4,6 +4,7 @@ use unicode_width::UnicodeWidthChar;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::message::Message;
 use crate::style::parse_color_like;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
@@ -159,6 +160,16 @@ impl RichLog {
             self.offset_y = self.offset_y.saturating_add(delta as usize);
         }
         self.clamp_offset();
+    }
+
+    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            Message::RichLogScrolled {
+                offset: self.offset_y,
+                max_offset: self.max_offset(),
+            },
+        );
     }
 
     fn physical_lines(
@@ -414,6 +425,7 @@ impl Widget for RichLog {
                     }
                     if self.offset_y != before {
                         ctx.request_repaint();
+                        self.emit_scroll_changed_message(ctx);
                     }
                     ctx.set_handled();
                     return;
@@ -445,6 +457,7 @@ impl Widget for RichLog {
             }
             if self.offset_y != before {
                 ctx.request_repaint();
+                self.emit_scroll_changed_message(ctx);
             }
             ctx.set_handled();
         }
@@ -458,6 +471,7 @@ impl Widget for RichLog {
         self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
         if self.offset_y != before {
             ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
         }
         ctx.set_handled();
     }
@@ -549,4 +563,41 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
         out.push(String::new());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RichLog;
+    use crate::event::{Action, Event, EventCtx};
+    use crate::message::Message;
+    use crate::widgets::Widget;
+    use rich_rs::Console;
+
+    fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
+        let mut options = console.options().clone();
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+        options
+    }
+
+    #[test]
+    fn scroll_action_posts_scrolled_message() {
+        let console = Console::new();
+        let options = options_for(&console, 16, 2);
+        let mut log = RichLog::new().auto_scroll(false);
+        log.write("line 1");
+        log.write("line 2");
+        log.write("line 3");
+        let _ = log.render(&console, &options);
+
+        let mut ctx = EventCtx::default();
+        log.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::RichLogScrolled { .. }))
+        );
+    }
 }

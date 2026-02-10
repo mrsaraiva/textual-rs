@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, BindingHint, Event, EventCtx};
+use crate::message::Message;
 use crate::style::parse_color_like;
 
 use super::footer::FooterBinding;
@@ -264,6 +265,16 @@ impl KeyPanel {
         self.set_bindings(mapped);
     }
 
+    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+        ctx.post_message(
+            self.id,
+            Message::KeyPanelScrolled {
+                offset: self.offset_y,
+                max_offset: self.max_offset(),
+            },
+        );
+    }
+
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.scroll_step = step.max(1);
         self
@@ -438,8 +449,17 @@ impl Widget for KeyPanel {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::BindingsChanged(bindings) = event {
+            let previous = self.table.bindings.clone();
             self.set_binding_hints(bindings);
-            ctx.request_repaint();
+            if self.table.bindings != previous {
+                ctx.post_message(
+                    self.id,
+                    Message::KeyPanelBindingsUpdated {
+                        count: self.table.bindings.len(),
+                    },
+                );
+                ctx.request_repaint();
+            }
             return;
         }
         if let Event::MouseDown(mouse) = event {
@@ -474,6 +494,7 @@ impl Widget for KeyPanel {
                         }
                         if self.offset_y != before {
                             ctx.request_repaint();
+                            self.emit_scroll_changed_message(ctx);
                         }
                         ctx.set_handled();
                         return;
@@ -506,6 +527,7 @@ impl Widget for KeyPanel {
             }
             if self.offset_y != before {
                 ctx.request_repaint();
+                self.emit_scroll_changed_message(ctx);
                 ctx.set_handled();
             }
         }
@@ -519,6 +541,7 @@ impl Widget for KeyPanel {
         self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
         if self.offset_y != before {
             ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
             ctx.set_handled();
         }
     }
@@ -577,5 +600,61 @@ impl Widget for KeyPanel {
 impl Renderable for KeyPanel {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KeyPanel;
+    use crate::event::{Action, BindingHint, Event, EventCtx};
+    use crate::message::Message;
+    use crate::widgets::{FooterBinding, Widget};
+    use rich_rs::Console;
+
+    fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
+        let mut options = console.options().clone();
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+        options
+    }
+
+    #[test]
+    fn bindings_changed_posts_bindings_updated_message() {
+        let mut panel = KeyPanel::new();
+        let mut ctx = EventCtx::default();
+        panel.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::KeyPanelBindingsUpdated { count: 1 }))
+        );
+    }
+
+    #[test]
+    fn scroll_action_posts_scrolled_message() {
+        let console = Console::new();
+        let options = options_for(&console, 32, 5);
+        let mut panel = KeyPanel::new().with_bindings(vec![
+            FooterBinding::new("a", "one"),
+            FooterBinding::new("b", "two"),
+            FooterBinding::new("c", "three"),
+            FooterBinding::new("d", "four"),
+            FooterBinding::new("e", "five"),
+        ]);
+        let _ = panel.render(&console, &options);
+
+        let mut ctx = EventCtx::default();
+        panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::KeyPanelScrolled { .. }))
+        );
     }
 }

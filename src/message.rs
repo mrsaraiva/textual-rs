@@ -38,6 +38,9 @@ pub enum Message {
     HeaderToggled {
         tall: bool,
     },
+    FooterBindingsUpdated {
+        count: usize,
+    },
     PlaceholderVariantChanged {
         variant: String,
     },
@@ -120,6 +123,19 @@ pub enum Message {
     },
     // Toast
     ToastDismissed,
+    // Key panel
+    KeyPanelBindingsUpdated {
+        count: usize,
+    },
+    KeyPanelScrolled {
+        offset: usize,
+        max_offset: usize,
+    },
+    // Rich log
+    RichLogScrolled {
+        offset: usize,
+        max_offset: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

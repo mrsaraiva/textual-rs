@@ -1,6 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Event, EventCtx};
+use crate::message::Message;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetId, WidgetStyles};
@@ -181,6 +182,21 @@ impl Footer {
 
         (left_items, palette)
     }
+
+    fn bindings_from_hints(hints: &[crate::event::BindingHint]) -> Vec<FooterBinding> {
+        hints
+            .iter()
+            .filter(|hint| hint.show)
+            .map(|hint| {
+                let mut binding = FooterBinding::new(
+                    hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
+                    hint.description.clone(),
+                );
+                binding.group = hint.group.clone();
+                binding
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -279,20 +295,15 @@ impl Widget for Footer {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::BindingsChanged(bindings) = event {
-            let next = bindings
-                .iter()
-                .filter(|hint| hint.show)
-                .map(|hint| {
-                    let mut binding = FooterBinding::new(
-                        hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
-                        hint.description.clone(),
-                    );
-                    binding.group = hint.group.clone();
-                    binding
-                })
-                .collect::<Vec<_>>();
+            let next = Self::bindings_from_hints(bindings);
             if next != self.bindings {
                 self.bindings = next;
+                ctx.post_message(
+                    self.id,
+                    Message::FooterBindingsUpdated {
+                        count: self.bindings.len(),
+                    },
+                );
                 ctx.request_repaint();
             }
         }
@@ -318,5 +329,42 @@ impl Widget for Footer {
 impl Renderable for Footer {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Footer;
+    use crate::event::{BindingHint, Event, EventCtx};
+    use crate::message::Message;
+    use crate::widgets::Widget;
+
+    #[test]
+    fn bindings_changed_posts_footer_bindings_updated_message() {
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::FooterBindingsUpdated { count: 1 }))
+        );
+    }
+
+    #[test]
+    fn identical_bindings_changed_is_noop() {
+        let mut footer = Footer::new();
+        let mut first_ctx = EventCtx::default();
+        let hints = vec![BindingHint::new("ctrl+p", "Palette")];
+        footer.on_event(&Event::BindingsChanged(hints.clone()), &mut first_ctx);
+        assert!(!first_ctx.take_messages().is_empty());
+
+        let mut second_ctx = EventCtx::default();
+        footer.on_event(&Event::BindingsChanged(hints), &mut second_ctx);
+        assert!(second_ctx.take_messages().is_empty());
     }
 }
