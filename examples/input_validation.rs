@@ -60,17 +60,15 @@ impl TextualApp for InputValidationApp {
         Ok(())
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::InputChanged { value, validation } = &message.message {
-            let next = if value.trim().is_empty() || validation.is_valid {
-                Vec::new()
-            } else {
-                validation.failure_descriptions.clone()
-            };
-            *self.failures.lock().unwrap_or_else(|e| e.into_inner()) = next.clone();
-            *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
-            ctx.request_repaint();
-        }
+    fn on_input_changed(&mut self, value: &str, validation: &ValidationResult, ctx: &mut EventCtx) {
+        let next = if value.trim().is_empty() || validation.is_valid {
+            Vec::new()
+        } else {
+            validation.failure_descriptions.clone()
+        };
+        *self.failures.lock().unwrap_or_else(|e| e.into_inner()) = next.clone();
+        *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
+        ctx.request_repaint();
     }
 }
 

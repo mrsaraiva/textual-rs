@@ -1,7 +1,7 @@
 use crate::debug::debug_message;
 use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
-use crate::message::{AsyncTaskRequest, Message, MessageEvent};
+use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
@@ -433,6 +433,57 @@ impl EventCtx {
         self.post_message(sender, Message::TimerCancel { timer_id });
     }
 
+    pub fn set_overlay_visible(&mut self, sender: WidgetId, overlay: WidgetId, visible: bool) {
+        self.post_message(sender, Message::OverlaySetVisible { overlay, visible });
+    }
+
+    pub fn show_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
+        self.set_overlay_visible(sender, overlay, true);
+    }
+
+    pub fn hide_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
+        self.set_overlay_visible(sender, overlay, false);
+    }
+
+    pub fn toggle_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
+        self.post_message(sender, Message::OverlayToggle { overlay });
+    }
+
+    pub fn dismiss_overlay(&mut self, sender: WidgetId, overlay: Option<WidgetId>) {
+        self.post_message(sender, Message::OverlayDismissRequested { overlay });
+    }
+
+    pub fn open_command_palette(&mut self, sender: WidgetId) {
+        self.post_message(sender, Message::CommandPaletteOpened);
+    }
+
+    pub fn close_command_palette(&mut self, sender: WidgetId) {
+        self.post_message(sender, Message::CommandPaletteClosed);
+    }
+
+    pub fn set_command_palette_commands(
+        &mut self,
+        sender: WidgetId,
+        commands: Vec<CommandPaletteCommand>,
+    ) {
+        self.post_message(sender, Message::CommandPaletteSetCommands { commands });
+    }
+
+    pub fn select_command_palette_command(
+        &mut self,
+        sender: WidgetId,
+        id: impl Into<String>,
+        title: impl Into<String>,
+    ) {
+        self.post_message(
+            sender,
+            Message::CommandPaletteCommandSelected {
+                id: id.into(),
+                title: title.into(),
+            },
+        );
+    }
+
     pub fn request_animation(&mut self, request: AnimationRequest) {
         debug_message(&format!(
             "[request_animation] target={} attribute={} start={} end={} duration_ms={} delay_ms={} ease={:?} level={:?}",
@@ -476,7 +527,7 @@ impl EventCtx {
 #[cfg(test)]
 mod tests {
     use super::EventCtx;
-    use crate::message::{AsyncTaskRequest, Message};
+    use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message};
     use crate::widgets::WidgetId;
     use std::time::Duration;
 
@@ -523,5 +574,64 @@ mod tests {
             messages[3].message,
             Message::TimerCancel { timer_id: 9 }
         ));
+    }
+
+    #[test]
+    fn overlay_and_command_palette_helpers_emit_messages() {
+        let sender = WidgetId::from_u64(5);
+        let overlay = WidgetId::from_u64(77);
+        let mut ctx = EventCtx::default();
+
+        ctx.show_overlay(sender, overlay);
+        ctx.hide_overlay(sender, overlay);
+        ctx.toggle_overlay(sender, overlay);
+        ctx.dismiss_overlay(sender, Some(overlay));
+        ctx.open_command_palette(sender);
+        ctx.set_command_palette_commands(
+            sender,
+            vec![CommandPaletteCommand {
+                id: "open".to_string(),
+                title: "Open".to_string(),
+                help: "Open file".to_string(),
+            }],
+        );
+        ctx.select_command_palette_command(sender, "open", "Open");
+        ctx.close_command_palette(sender);
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 8);
+        assert!(matches!(
+            messages[0].message,
+            Message::OverlaySetVisible {
+                overlay: target,
+                visible: true
+            } if target == overlay
+        ));
+        assert!(matches!(
+            messages[1].message,
+            Message::OverlaySetVisible {
+                overlay: target,
+                visible: false
+            } if target == overlay
+        ));
+        assert!(matches!(
+            messages[2].message,
+            Message::OverlayToggle { overlay: target } if target == overlay
+        ));
+        assert!(matches!(
+            messages[3].message,
+            Message::OverlayDismissRequested { overlay: Some(target) } if target == overlay
+        ));
+        assert!(matches!(messages[4].message, Message::CommandPaletteOpened));
+        assert!(matches!(
+            &messages[5].message,
+            Message::CommandPaletteSetCommands { commands }
+                if commands.len() == 1 && commands[0].id == "open"
+        ));
+        assert!(matches!(
+            &messages[6].message,
+            Message::CommandPaletteCommandSelected { id, title } if id == "open" && title == "Open"
+        ));
+        assert!(matches!(messages[7].message, Message::CommandPaletteClosed));
     }
 }

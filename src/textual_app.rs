@@ -8,6 +8,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
+use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, Widget, WidgetId};
 use crate::{App, Result};
 
@@ -60,6 +61,48 @@ pub trait TextualApp: Send + 'static {
     /// Typed convenience hook for button-pressed messages.
     fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {}
 
+    /// Typed convenience hook for input-changed messages.
+    fn on_input_changed(
+        &mut self,
+        _value: &str,
+        _validation: &ValidationResult,
+        _ctx: &mut EventCtx,
+    ) {
+    }
+
+    /// Typed convenience hook for input-submitted messages.
+    fn on_input_submitted(&mut self, _value: &str, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for text-area-changed messages.
+    fn on_text_area_changed(&mut self, _value: &str, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for checkbox-changed messages.
+    fn on_checkbox_changed(&mut self, _checked: bool, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for list-view-selection-changed messages.
+    fn on_list_view_selection_changed(&mut self, _index: usize, _item: &str, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for list-view-activation messages.
+    fn on_list_view_item_activated(&mut self, _index: usize, _item: &str, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for tab-activated messages.
+    fn on_tab_activated(&mut self, _index: usize, _title: &str, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for command palette open.
+    fn on_command_palette_opened(&mut self, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for command palette close.
+    fn on_command_palette_closed(&mut self, _ctx: &mut EventCtx) {}
+
+    /// Typed convenience hook for command palette selection.
+    fn on_command_palette_command_selected(
+        &mut self,
+        _id: &str,
+        _title: &str,
+        _ctx: &mut EventCtx,
+    ) {
+    }
+
     /// Provide command-palette providers for this app.
     ///
     /// Providers are started when the command palette opens and shut down when
@@ -87,6 +130,61 @@ pub trait CommandPaletteProvider: Send + Sync {
 
     /// Called when the command palette closes.
     fn shutdown(&mut self, _ctx: &mut EventCtx) {}
+}
+
+/// Explicit push/pop helper for apps that model screen-like navigation with overlays.
+///
+/// This helper does not introduce a separate runtime path: it only posts existing
+/// overlay visibility messages on the message bus.
+#[derive(Debug, Clone, Default)]
+pub struct OverlayScreenStack {
+    stack: Vec<WidgetId>,
+}
+
+impl OverlayScreenStack {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.stack.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
+    }
+
+    pub fn current(&self) -> Option<WidgetId> {
+        self.stack.last().copied()
+    }
+
+    pub fn push(&mut self, sender: WidgetId, overlay: WidgetId, ctx: &mut EventCtx) -> bool {
+        if self.current() == Some(overlay) {
+            return false;
+        }
+        self.stack.retain(|existing| *existing != overlay);
+        if let Some(previous) = self.current() {
+            ctx.hide_overlay(sender, previous);
+        }
+        self.stack.push(overlay);
+        ctx.show_overlay(sender, overlay);
+        true
+    }
+
+    pub fn pop(&mut self, sender: WidgetId, ctx: &mut EventCtx) -> Option<WidgetId> {
+        let removed = self.stack.pop()?;
+        ctx.hide_overlay(sender, removed);
+        if let Some(previous) = self.current() {
+            ctx.show_overlay(sender, previous);
+        }
+        Some(removed)
+    }
+
+    pub fn clear(&mut self, sender: WidgetId, ctx: &mut EventCtx) {
+        while let Some(overlay) = self.stack.pop() {
+            ctx.hide_overlay(sender, overlay);
+        }
+    }
 }
 
 struct TextualAppAdapter<T: TextualApp> {
@@ -212,23 +310,89 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         match &message.message {
             Message::CommandPaletteOpened => {
                 self.initialize_command_palette_providers(ctx);
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_command_palette_opened(ctx);
+                if ctx.handled() {
+                    return;
+                }
             }
             Message::CommandPaletteClosed => {
                 self.shutdown_command_palette_providers(ctx);
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_command_palette_closed(ctx);
+                if ctx.handled() {
+                    return;
+                }
             }
-            Message::CommandPaletteCommandSelected { id, .. } => {
+            Message::CommandPaletteCommandSelected { id, title } => {
                 self.handle_command_palette_selection(id, ctx);
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_command_palette_command_selected(id, title, ctx);
+                if ctx.handled() {
+                    return;
+                }
             }
             _ => {}
         }
-        if let Message::ButtonPressed { description } = &message.message {
-            self.app
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .on_button_pressed(description, ctx);
-            if ctx.handled() {
-                return;
+        match &message.message {
+            Message::ButtonPressed { description } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_button_pressed(description, ctx);
             }
+            Message::InputChanged { value, validation } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_input_changed(value, validation, ctx);
+            }
+            Message::InputSubmitted { value } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_input_submitted(value, ctx);
+            }
+            Message::TextAreaChanged { value } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_text_area_changed(value, ctx);
+            }
+            Message::CheckboxChanged { checked } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_checkbox_changed(*checked, ctx);
+            }
+            Message::ListViewSelectionChanged { index, item } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_list_view_selection_changed(*index, item, ctx);
+            }
+            Message::ListViewItemActivated { index, item } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_list_view_item_activated(*index, item, ctx);
+            }
+            Message::TabActivated { index, title } => {
+                self.app
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .on_tab_activated(*index, title, ctx);
+            }
+            _ => {}
+        }
+        if ctx.handled() {
+            return;
         }
         self.app
             .lock()
@@ -275,12 +439,34 @@ pub async fn run<T: TextualApp>(definition: T) -> Result<()> {
     Ok(())
 }
 
+/// Compatibility alias for [`run`].
+pub async fn run_textual_app<T: TextualApp>(definition: T) -> Result<()> {
+    run(definition).await
+}
+
+/// Compatibility alias for [`run_with_output`].
+pub async fn run_textual_app_with_output<T: TextualApp>(definition: T) -> Result<Option<String>> {
+    run_with_output(definition).await
+}
+
 /// Optional helper for example/dev binaries that support both runtime and snapshot output.
 ///
 /// This keeps snapshot wiring out of example `main()` bodies while remaining opt-in.
 pub async fn run_snapshot<T: TextualApp>(definition: T) -> Result<()> {
     let _ = run_snapshot_with_output(definition).await?;
     Ok(())
+}
+
+/// Compatibility alias for [`run_snapshot`].
+pub async fn run_textual_app_or_snapshot<T: TextualApp>(definition: T) -> Result<()> {
+    run_snapshot(definition).await
+}
+
+/// Compatibility alias for [`run_snapshot_with_output`].
+pub async fn run_textual_app_or_snapshot_with_output<T: TextualApp>(
+    definition: T,
+) -> Result<Option<String>> {
+    run_snapshot_with_output(definition).await
 }
 
 /// Variant of `run_snapshot` that returns optional app output.
@@ -328,6 +514,20 @@ mod tests {
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[derive(Default)]
+    struct HookState {
+        last_button: Option<String>,
+        input_changed: Option<(String, bool)>,
+        input_submitted: Option<String>,
+        text_area_changed: Option<String>,
+        checkbox_changed: Option<bool>,
+        list_selection: Option<(usize, String)>,
+        list_activated: Option<(usize, String)>,
+        tab_activated: Option<(usize, String)>,
+        command_palette_events: Vec<String>,
+        fallback_count: usize,
+    }
+
     #[derive(Clone)]
     struct ProviderState {
         startup_count: Arc<AtomicUsize>,
@@ -365,6 +565,7 @@ mod tests {
 
     struct TestApp {
         provider_state: ProviderState,
+        hooks: HookState,
     }
 
     impl TextualApp for TestApp {
@@ -376,6 +577,73 @@ mod tests {
             vec![Box::new(TestProvider {
                 state: self.provider_state.clone(),
             })]
+        }
+
+        fn on_button_pressed(&mut self, description: &str, _ctx: &mut EventCtx) {
+            self.hooks.last_button = Some(description.to_string());
+        }
+
+        fn on_input_changed(
+            &mut self,
+            value: &str,
+            validation: &ValidationResult,
+            _ctx: &mut EventCtx,
+        ) {
+            self.hooks
+                .input_changed
+                .replace((value.to_string(), validation.is_valid));
+        }
+
+        fn on_input_submitted(&mut self, value: &str, _ctx: &mut EventCtx) {
+            self.hooks.input_submitted = Some(value.to_string());
+        }
+
+        fn on_text_area_changed(&mut self, value: &str, _ctx: &mut EventCtx) {
+            self.hooks.text_area_changed = Some(value.to_string());
+        }
+
+        fn on_checkbox_changed(&mut self, checked: bool, _ctx: &mut EventCtx) {
+            self.hooks.checkbox_changed = Some(checked);
+        }
+
+        fn on_list_view_selection_changed(
+            &mut self,
+            index: usize,
+            item: &str,
+            _ctx: &mut EventCtx,
+        ) {
+            self.hooks.list_selection = Some((index, item.to_string()));
+        }
+
+        fn on_list_view_item_activated(&mut self, index: usize, item: &str, _ctx: &mut EventCtx) {
+            self.hooks.list_activated = Some((index, item.to_string()));
+        }
+
+        fn on_tab_activated(&mut self, index: usize, title: &str, _ctx: &mut EventCtx) {
+            self.hooks.tab_activated = Some((index, title.to_string()));
+        }
+
+        fn on_command_palette_opened(&mut self, _ctx: &mut EventCtx) {
+            self.hooks.command_palette_events.push("opened".to_string());
+        }
+
+        fn on_command_palette_closed(&mut self, _ctx: &mut EventCtx) {
+            self.hooks.command_palette_events.push("closed".to_string());
+        }
+
+        fn on_command_palette_command_selected(
+            &mut self,
+            id: &str,
+            _title: &str,
+            _ctx: &mut EventCtx,
+        ) {
+            self.hooks
+                .command_palette_events
+                .push(format!("selected:{id}"));
+        }
+
+        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {
+            self.hooks.fallback_count += 1;
         }
     }
 
@@ -410,6 +678,7 @@ mod tests {
         };
         let app = Arc::new(Mutex::new(TestApp {
             provider_state: state.clone(),
+            hooks: HookState::default(),
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
@@ -462,6 +731,7 @@ mod tests {
         };
         let app = Arc::new(Mutex::new(TestApp {
             provider_state: state.clone(),
+            hooks: HookState::default(),
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
@@ -500,5 +770,131 @@ mod tests {
 
         assert_eq!(state.startup_count.load(Ordering::SeqCst), 2);
         assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn typed_hooks_receive_common_message_payloads() {
+        let state = ProviderState {
+            startup_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_count: Arc::new(AtomicUsize::new(0)),
+            selected_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: state,
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
+
+        let mut messages = vec![
+            Message::ButtonPressed {
+                description: "ok".to_string(),
+            },
+            Message::InputChanged {
+                value: "42".to_string(),
+                validation: ValidationResult::success(),
+            },
+            Message::InputSubmitted {
+                value: "submit".to_string(),
+            },
+            Message::TextAreaChanged {
+                value: "textarea".to_string(),
+            },
+            Message::CheckboxChanged { checked: true },
+            Message::ListViewSelectionChanged {
+                index: 2,
+                item: "gamma".to_string(),
+            },
+            Message::ListViewItemActivated {
+                index: 3,
+                item: "delta".to_string(),
+            },
+            Message::TabActivated {
+                index: 1,
+                title: "General".to_string(),
+            },
+        ];
+        for message in messages.drain(..) {
+            let mut ctx = EventCtx::default();
+            adapter.on_message(
+                &MessageEvent {
+                    sender: WidgetId::new(),
+                    message,
+                },
+                &mut ctx,
+            );
+        }
+
+        let app = app.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(app.hooks.last_button.as_deref(), Some("ok"));
+        assert_eq!(app.hooks.input_changed, Some(("42".to_string(), true)));
+        assert_eq!(app.hooks.input_submitted.as_deref(), Some("submit"));
+        assert_eq!(app.hooks.text_area_changed.as_deref(), Some("textarea"));
+        assert_eq!(app.hooks.checkbox_changed, Some(true));
+        assert_eq!(app.hooks.list_selection, Some((2, "gamma".to_string())));
+        assert_eq!(app.hooks.list_activated, Some((3, "delta".to_string())));
+        assert_eq!(app.hooks.tab_activated, Some((1, "General".to_string())));
+        assert_eq!(app.hooks.fallback_count, 8);
+    }
+
+    #[test]
+    fn overlay_screen_stack_posts_visibility_messages_for_push_pop() {
+        let sender = WidgetId::from_u64(9);
+        let first = WidgetId::from_u64(111);
+        let second = WidgetId::from_u64(222);
+        let mut stack = OverlayScreenStack::new();
+        let mut ctx = EventCtx::default();
+
+        assert!(stack.push(sender, first, &mut ctx));
+        assert!(stack.push(sender, second, &mut ctx));
+        assert_eq!(stack.current(), Some(second));
+        assert_eq!(stack.pop(sender, &mut ctx), Some(second));
+        assert_eq!(stack.current(), Some(first));
+        stack.clear(sender, &mut ctx);
+        assert!(stack.is_empty());
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 6);
+        assert!(matches!(
+            messages[0].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: true
+            } if overlay == first
+        ));
+        assert!(matches!(
+            messages[1].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: false
+            } if overlay == first
+        ));
+        assert!(matches!(
+            messages[2].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: true
+            } if overlay == second
+        ));
+        assert!(matches!(
+            messages[3].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: false
+            } if overlay == second
+        ));
+        assert!(matches!(
+            messages[4].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: true
+            } if overlay == first
+        ));
+        assert!(matches!(
+            messages[5].message,
+            Message::OverlaySetVisible {
+                overlay,
+                visible: false
+            } if overlay == first
+        ));
     }
 }

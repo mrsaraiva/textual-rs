@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Phase 8 adapter-utilities breadth closure**
+  - Expanded `TextualApp` adapter ergonomics with explicit typed message hooks for common app patterns (`Input`, `TextArea`, `Checkbox`, `ListView`, `TabActivated`, plus existing button/command-palette hooks) while keeping the same message-bus dispatch path.
+  - Added compatibility runner aliases in `src/textual_app.rs`: `run_textual_app*` and `run_textual_app_or_snapshot*` (delegating to existing `run*` APIs, no alternate runtime path).
+  - Added explicit overlay-backed push/pop helper `OverlayScreenStack` for screen-like app flows; it only emits existing overlay visibility messages.
+  - Added `EventCtx` convenience wrappers for overlay and command palette messages (`show/hide/toggle/dismiss overlay`, `open/close/select/set command palette commands`), implemented via `post_message`.
+  - Added focused tests for typed-hook dispatch, overlay screen-stack behavior, and new `EventCtx` wrappers; updated docs/roadmap status and example usage (`examples/input_validation.rs`).
 - **Dirty/style invalidation closure (`pending-stream #1`)**
   - Added region-scoped framebuffer diff support (`FrameBuffer::diff_to_segments_in_regions`) and runtime dirty-region accumulation to reduce repaint scope for localized updates.
   - Replaced coarse runtime dirty bool flow with typed invalidation flags (`content` / `style` / `layout`) carried by `EventCtx`/`DispatchOutcome`, and used these flags to drive selective relayout and repaint behavior.

@@ -260,7 +260,7 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 |--------|------|-------|
 | Done | Textual-like naming | Naming guidance is now documented as source-of-truth in `docs/devel/TEXTUAL_COMPAT_MAPPING.md` (class/component/state naming + migration guidance) |
 | Done | API mapping notes | Python Textual ↔ textual-rs concept/API mapping is documented in `docs/devel/TEXTUAL_COMPAT_MAPPING.md` and aligned with current `TextualApp`/message-bus/runtime APIs |
-| Partial | Adapter utilities | `TextualApp` trait plus async/sync/snapshot runners cover core app wiring; broader compatibility shortcut layer is still limited |
+| Done | Adapter utilities | Added explicit adapter-breadth utilities in `src/textual_app.rs` / `src/event/mod.rs`: typed app message hooks for common patterns, compatibility runner aliases (`run_textual_app*`), overlay-backed screen push/pop helper (`OverlayScreenStack`), and message convenience wrappers that stay on the existing message bus |
 
 ---
 
@@ -435,24 +435,12 @@ Reference plan:
 - One-shot timers + broader async task runtime closure: landed.
 - Terminal/golden coverage expansion: landed.
 - Rich-rs integration contract closures (hyperlink policy + deterministic widget-id policy decision): landed.
+- Phase 8 compatibility/doc ergonomics closure (including adapter utilities breadth): landed.
 
 ### Active Streams (Open Todo/Partial)
-1. Computed style caching/tree (`Phase 5`)
-   - Current state: on-demand style resolution works; no cached per-widget computed-style tree.
-   - Target: add cache/tree model with correct invalidation semantics and no behavior regressions.
-
-2. Compatibility/doc ergonomics (`Phase 8`)
-   - Current state:
-     - `Done`: textual-like naming.
-     - `Done`: API mapping notes.
-     - `Partial`: adapter utilities breadth.
-   - Target:
-     - expand compatibility adapter helpers for common app patterns,
-     - tighten naming/terminology consistency where appropriate.
-
-3. DevTools panel (`Phase 9`)
+1. DevTools panel (`Phase 9`)
    - `Todo`: in-app inspector MVP decision/implementation is still open.
-   - This stream is intentionally discussed/planned separately from 1/2.
+   - This stream is intentionally discussed/planned separately from completed closure streams.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.
