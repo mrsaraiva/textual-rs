@@ -139,7 +139,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Done | Grapheme-aware text editing model | Shared text-edit command core drives `Input` / `MaskedInput` / `TextArea`, with grapheme-sensitive follow-up closure for `MaskedInput` cursor/render paths plus `DataTable`/`Tree` width-hit-testing and wrapping edge regressions (`ZWJ`, combining marks, wide-cell labels) landed in PR8E (2026-02-11) |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
-| Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
+| Partial | Async tasks | Runtime async task baseline (`AsyncTaskSpawn`/`AsyncTaskCancel`/`AsyncTaskCompleted`/`AsyncTaskCancelled`) is landed via PR8A and used by `DirectoryTree`; broader task API surface and richer cancellation semantics remain open |
 
 Deliverable: progress/spinner + animated UI element without blocking input.
 
@@ -440,57 +440,32 @@ Reference plan:
 - Landed (2026-02-11): widget primitive closure batch (`PR8A`: A/B/C) with focused HELP metadata pipeline, runtime async task primitive baseline (`spawn`/`cancel`/completion delivery), DirectoryTree async-task migration, and `hkey`/`vkey` CSS border parser+renderer support used by HelpPanel/KeyPanel parity defaults.
 - Landed (2026-02-11): Tier-A final closure batch (`PR8C`) with DataTable horizontal viewport/scrollbar + key-lifecycle parity hardening, RichLog default markup/highlighter semantics, and CommandPalette close-animation interaction gating + unmount lifecycle reset.
 - Landed (2026-02-11): Tier-B/Tier-C closure follow-up (`PR8D`) with press/release activation parity for `ListView`/`Tree`, header press-region interaction fidelity, expanded platform text-edit shortcuts, `Select`/`OptionList` highlight lifecycle cleanup, and scrollbar drag-release repaint fixes in `Log`/`KeyPanel`.
-- Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps plus container-family parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
-- During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
-- Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
+- Landed (2026-02-11): message-bus closure follow-up (`PR8F`) with `Select` open-dropdown message-first routing and explicit ordering regressions for `OptionList`/`Select`/`SelectionList`.
+- Landed (2026-02-11): grapheme closure follow-up (`PR8E`) with `MaskedInput` cursor/render fixes plus `DataTable`/`Tree` grapheme edge regressions.
+- Widget closure stream status: complete in current scope (no remaining open widget parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`).
+- Next: remaining non-widget infrastructure closures (dirty/style invalidation, timers + broader async task API, golden coverage expansion, rich-rs integration-contract closures, compatibility/docs).
 - Doc checkpoint rule: after every merged widget PR, update both `ROADMAP.md` (milestone/checklist status) and `docs/devel/WIDGET_PORTING_PLAN.md` (widget-level matrix/notes) in the same work batch.
 
-### Widget Reality Snapshot (2026-02-11 audit, post `PR7K`)
+### Widget Reality Snapshot (2026-02-11 audit, post `PR8F`)
 
 High-confidence widget work already landed in recent commits (`112c29a`..`25b2deb`) includes:
 - Tier-A hardening for `DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`.
 - Tier-B interaction/message hardening for `ListView`/`Tree`, `Header`/`Footer`, and shared text-edit clipboard flows.
 - Tier-C utility lifecycle hardening for `Tooltip`/`HelpPanel`/`DirectoryTree`/`Welcome`.
-- No missing widget ports remain; remaining widget work is parity/polish/fundamentals closure.
+- No missing widget ports remain.
+- No remaining open widget parity gaps are tracked in the current closure scope.
+- Remaining open work has moved to non-widget infrastructure/fundamentals streams.
 
-Still-open widget gaps are now concentrated in:
-- `HelpPanel`: focused-widget HELP metadata source parity.
-- `DirectoryTree`: deeper async scheduling parity (beyond tick-queued deferred load).
-- `Tooltip`: deeper CSS/parser-feature parity.
-
-## Ordered PR Streams (Open Todo/Partial)
+## Ordered PR Streams (Open Todo/Partial, Post-Widget Closure)
 
 This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
 Order is prioritized for widget-first execution while keeping fundamentals and regression risk under control.
 
-1. Widget first-class closure program (Phase 7 + widget plan)
-   - PR 1: Continue Tier-A closure pass after PR5/PR6 landings (`DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`), with targeted behavior + styling parity deltas per slice.
-     - PR7A (2026-02-10): `RichLog` now preserves scroll-anchor behavior when max-line trimming drops head rows and keeps explicit multi-line styled writes intact; `CommandPalette` now emits `CommandPaletteCommandSelected` for built-ins (`keys`, `quit`) before close, with focused regressions.
-     - PR7I (2026-02-11): additional Tier-A closure hardening landed: `DataTable` fixed-column-preserving horizontal shift + shifted header hit-test mapping; `Tabs`/`TabbedContent` activation now replays latest geometry to newly active content; `CommandPalette` click hit-testing corrected to screen-space coordinates and animated panel Y; `RichLog` focus-style parity moved to background-tint with regression coverage.
-     - PR7K (2026-02-11): Tier-A recovery polish landed: `DataTable` horizontal-offset stability + home/end cursor visibility alignment, switchable-target binding-hint gating and unmount lifecycle reset for `Tabs`/`TabbedContent`, local-coordinate-safe `CommandPalette` hit-testing, and multiline auto-scroll estimation for `RichLog`.
-     - PR8C (2026-02-11): Tier-A final closure landed: `DataTable` now has horizontal viewport scrollbar parity (render/track/drag/action-wheel) with key-lifecycle alignment, `RichLog.write(...)` now honors default markup/highlighter semantics, and `CommandPalette` blocks child interaction while close-animation panel remains visible plus unmount lifecycle reset coverage.
-   - PR 2: Tier-B closure slices (`ListView`/`Tree`, text-edit follow-up including clipboard hooks, `Header`/`Footer` lifecycle polish) aligned to Python semantics.
-     - PR7B (2026-02-10): `ListView`/`Tree` now support disabled-item/node navigation semantics (keyboard + mouse skip/ignore + disabled classes); shared text-edit clipboard hooks are message-bus-first via `TextEditClipboard*` messages with focused regressions for `Input`/`MaskedInput`/`TextArea`.
-     - PR7C (2026-02-10): `Header`/`Footer` lifecycle polish landed: hover state cleanup on focus/unmount for `Header`, and deferred `BindingsChanged` handling in `Footer` while app is unfocused with focused replay on regain.
-     - PR7I (2026-02-11): Tier-B follow-up landed: `ListView`/`Tree` no longer render highlighted/selected markers when only disabled rows/nodes are present; `Footer` now preserves deferred binding updates across repeated focus-loss cycles; shared text-edit key mapping now supports `SUPER+X`/`SUPER+V`.
-     - PR7J (2026-02-11): deeper Tier-B interaction semantics landed: `ListView` and `Tree` now emit explicit activation messages on enter/click, tree twisty clicks toggle without activation side effects, header icon clicks emit `HeaderIconPressed`, and footer unmount resets deferred-focus tracking state.
-     - PR8D (2026-02-11): final Tier-B polish follow-up landed press/release activation lifecycle for `ListView`/`Tree`, header press-region parity, and expanded platform text-edit shortcut fidelity.
-   - PR 3: Tier-C/utility closure slices (toggle/list family polish, `Tooltip`/`HelpPanel` positioning/default CSS, `DirectoryTree` async loader fidelity, `Welcome` lifecycle/CSS parity).
-     - PR7D (2026-02-10): `Tooltip`/`HelpPanel` parity pass landed with anchor-aware tooltip positioning (clamp + inflection), help-panel split/lifecycle fixes, and default CSS component updates.
-     - PR7E (2026-02-10): `DirectoryTree` lazy-loader fidelity landed with expandable-directory support in `Tree`, message-driven lazy child loading, and refresh behavior that preserves expanded paths.
-     - PR7I (2026-02-11): utility parity follow-up landed runtime-driven `Tooltip` anchor updates via message bus, `HelpPanel` typed HELP-content message handling, typed `DirectoryTree` file/directory selection messages, and `Welcome` close-row hover lifecycle + baseline default CSS surface polish.
-     - PR7K (2026-02-11): utility recovery polish landed tick-queued `DirectoryTree` deferred loading with collapse-time cancellation and unmount-state cleanup for `HelpPanel`/`Tooltip`/`Welcome`.
-     - PR8D (2026-02-11): utility/list polish landed `Select`/`OptionList` highlight lifecycle synchronization and scrollbar drag-release repaint parity in `Log`/`KeyPanel`.
-   - PR 4: Container-family parity closure (Python `containers.py` alignment: behavior/default CSS/lifecycle for missing or partial container semantics).
-     - PR7F (2026-02-10): baseline parity slice landed: new `Vertical`/`Center`/`Right`/`Middle` aliases plus `VerticalGroup`/`HorizontalGroup`/`ScrollableContainer`/`CenterMiddle`/`ItemGrid` compatibility classes, `ScrollView`/`HorizontalScroll` focusability, and key/action parity additions (`ScrollHome`/`ScrollEnd`, `ctrl+pageup/pagedown` horizontal paging bindings) with focused regression tests.
-   - PR 5: Tier-B/C polish follow-up.
-     - PR7G (2026-02-10): landed highlighted-vs-selected class semantics for `ListView`/`Tree`, app/runtime clipboard request/response plumbing for text-edit widgets, `Welcome` close-lifecycle polish, and runtime-driven tooltip/help-panel lifecycle updates.
-   - PR 6: Tier-A/Tier-C hardening follow-up.
-     - PR7H (2026-02-10): landed additional parity hardening for `DataTable`/`Tabs`/`TabbedContent` (message/lifecycle regressions), `RichLog` (markup/renderable input paths), `CommandPalette` (small viewport + markup result rendering), and overlay/widget lifecycle delegation regressions.
-   - PR 7: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
-   - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
+1. Widget closure history (completed)
+   - Widget first-class closure program, widget-blocking primitive closures, message bus completion, and grapheme completion have landed through PR8A/PR8C/PR8D/PR8E/PR8F.
+   - Widget-level source of truth remains `docs/devel/WIDGET_PORTING_PLAN.md`.
 
-2. Widget-blocking primitive closures (explicit)
+2. Widget-blocking primitive closures (explicit, historical reference)
    - PR 1: Focused-help metadata pipeline for `HelpPanel` (widget/source -> runtime -> focused help sink).
    - PR 2: Async task primitive baseline (`spawn`/completion/cancel) to support true non-blocking loader parity (`DirectoryTree` and future widgets).
    - PR 3: CSS/parser closure items required for final tooltip/help styling parity.
@@ -500,14 +475,14 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
      - CSS/parser/style support for `hkey`/`vkey` borders with HelpPanel/KeyPanel default parity updates and parser/widget regressions.
    - Exit criteria: widget plan no longer lists primitive blockers as external dependencies.
 
-3. Message bus completion (Phase 6, widget-coupled)
+3. Message bus completion (Phase 6, widget-coupled, historical reference)
    - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants as part of widget closure slices.
    - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers (no compatibility shims).
    - PR 3: Add per-widget regression tests asserting message emission order/content on interaction.
    - PR8F (2026-02-11): closed remaining `Select` direct click/index coupling by routing dropdown selection through inner `OptionList` message emission and `Select::on_message` consumption; added explicit ordering regressions for `OptionList` (`OptionHighlighted` before `OptionSelected`), `Select` (`OptionSelected` before `SelectChanged`), and `SelectionList` (`SelectionListToggled` before `SelectionListSelectedChanged`).
    - Exit criteria: no callback-style integration surfaces for widget interactions; roadmap row can move to `Done`. **Met (PR8F, 2026-02-11).**
 
-4. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled)
+4. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled, historical reference)
    - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
    - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
    - PR8E (2026-02-11): landed `MaskedInput` grapheme-aware cursor-x mapping and width-clamped render runs, plus `DataTable` and `Tree` ZWJ/combining/wide-cell regressions for hit-testing and wrapping width edges.
