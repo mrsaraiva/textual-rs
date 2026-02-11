@@ -57,14 +57,22 @@ pub(crate) fn apply_style_to_segments(
 
             let mut style_changed = false;
             let mut s = seg.style.unwrap_or_else(rich_rs::Style::new);
-            let mut under_bg = s
-                .bgcolor
+            // In composition terms, terminal-default background should behave as transparent
+            // so children can inherit parent/widget surfaces.
+            let explicit_bg = s.bgcolor.and_then(|bg| {
+                if matches!(bg, rich_rs::SimpleColor::Default) {
+                    None
+                } else {
+                    Some(bg)
+                }
+            });
+            let mut under_bg = explicit_bg
                 .map(crate::style::color_from_simple)
                 .or(parent_bg)
                 .unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
             if !no_bg {
-                if s.bgcolor.is_none() {
+                if explicit_bg.is_none() {
                     // Preserve per-segment backgrounds (e.g. DataTable row/cell backgrounds,
                     // Input selection/cursor). When a segment has no explicit background:
                     // - apply this widget's own `bg` if present, flattened over parent bg

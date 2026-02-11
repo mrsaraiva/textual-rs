@@ -3,18 +3,18 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::{DebugLayout, debug_input, debug_layout};
+use crate::debug::{debug_input, debug_layout, DebugLayout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{TransitionTiming, parse_color_like};
+use crate::style::{parse_color_like, TransitionTiming};
 
 use crate::widgets::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
+    Widget, WidgetId, WidgetStyles,
 };
 
 pub struct ScrollView {
@@ -195,17 +195,20 @@ impl ScrollView {
         viewport_len: usize,
         current_offset: usize,
     ) -> usize {
-        let (_thumb_start, thumb_len) =
-            Self::line_scrollbar_thumb(track_len, content_len, viewport_len, current_offset);
-        let travel = track_len.saturating_sub(thumb_len);
-        let pointer = (pointer as isize) - (grab_offset as isize);
-        let new_thumb_start = pointer.clamp(0, travel as isize) as usize;
         let max_offset = Self::line_max_offset(content_len, viewport_len);
-        if travel == 0 {
+        if max_offset == 0 || viewport_len == 0 {
             0
         } else {
-            (((new_thumb_start as u128) * (max_offset as u128) + (travel as u128 / 2))
-                / (travel as u128)) as usize
+            // Use pointer delta scaled by virtual/window ratio for smoother drag updates.
+            // This follows Textual's scrollbar drag model more closely than mapping through
+            // coarse thumb travel cells.
+            let (thumb_start, _thumb_len) =
+                Self::line_scrollbar_thumb(track_len, content_len, viewport_len, current_offset);
+            let current_pointer = thumb_start.saturating_add(grab_offset);
+            let delta = (pointer as i64) - (current_pointer as i64);
+            let scale = (content_len as f64) / (viewport_len as f64);
+            let next = (current_offset as f64) + (delta as f64) * scale;
+            next.round().clamp(0.0, max_offset as f64) as usize
         }
     }
 

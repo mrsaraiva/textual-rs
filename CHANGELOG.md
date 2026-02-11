@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **RichLog demo parity + core composition/scroll polish**
+  - Added `examples/rich_log.rs` as a Python Textual parity port (`widgets/rich_log.py`) with syntax block, table renderable, markup line, and styled key-event logging in the RichLog stream.
+  - Fixed style composition so `rich-rs` default terminal background (`SimpleColor::Default`) is treated as transparent/inheritable during widget style application, preventing terminal-background bleed in composed widget surfaces.
+  - Added regression coverage in CSS selector tests to lock in the transparent-default-background composition behavior.
+  - Improved consolidated scrollbar drag mapping (`ScrollView::line_drag_offset`) to use pointer-delta scaling against virtual/window size, reducing perceived lag/jumpiness during thumb drag across widgets that share the primitive.
 - **DevTools closure (embedded runtime + external tooling plumbing)**
   - Added runtime devtools substrate in `textual-rs` (`src/runtime/devtools.rs`) with a local TCP control/snapshot server, instance registration files, and command queue integration.
   - Added live `WATCH` push-stream support for devtools snapshots (server-side publish/subscribe) so attached consoles can consume incremental updates without polling.

@@ -9,7 +9,7 @@ mod segments;
 // Public re-exports (used by `src/css/mod.rs` and external consumers)
 pub(crate) use ast::Combinator;
 pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
-pub use context::{AppActiveGuard, StyleContextGuard, set_app_active, set_style_context};
+pub use context::{set_app_active, set_style_context, AppActiveGuard, StyleContextGuard};
 
 // Crate-internal re-exports
 pub(crate) use resolver::{
@@ -31,7 +31,7 @@ mod tests {
         take_layout_affected_style_changes, with_style_stack,
     };
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
-    use crate::css::{StyleSheet, default_widget_stylesheet};
+    use crate::css::{default_widget_stylesheet, StyleSheet};
     use crate::style::{Color, Style, TransitionTiming};
     use crate::widgets::{Button, Widget, WidgetId};
     use rich_rs::{Segment, Segments};
@@ -128,6 +128,27 @@ mod tests {
         assert!(
             bg.is_some(),
             "background should be applied to unstyled segments"
+        );
+    }
+
+    #[test]
+    fn default_terminal_background_is_treated_as_transparent_for_composition() {
+        let mut segments = Segments::new();
+        let seg_style = rich_rs::Style::new().with_bgcolor(rich_rs::SimpleColor::Default);
+        segments.push(Segment::styled("x", seg_style));
+        let style = Style::new().bg(Color::parse("#334455").expect("valid color"));
+        let styled = apply_style_to_segments(WidgetId::from_u64(1), segments, style, None);
+        let bg = styled
+            .into_iter()
+            .next()
+            .and_then(|segment| segment.style)
+            .and_then(|segment_style| segment_style.bgcolor)
+            .expect("background should be composed");
+        let bg = crate::style::color_from_simple(bg);
+        assert_eq!(
+            bg,
+            Color::parse("#334455").expect("valid color"),
+            "default terminal background should be replaced by widget background in composition"
         );
     }
 
