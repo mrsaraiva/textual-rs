@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **DevTools closure (embedded runtime + external tooling plumbing)**
+  - Added runtime devtools substrate in `textual-rs` (`src/runtime/devtools.rs`) with a local TCP control/snapshot server, instance registration files, and command queue integration.
+  - `App::run_widget_tree` now publishes live widget/runtime snapshots (focus/hover/layout/debug state, widget tree metadata, binding hints) and consumes remote control commands (`focus`, `debug layout`, `quit`).
+  - Added environment-gated activation for live inspection (`TEXTUAL_DEVTOOLS`, `TEXTUAL_DEVTOOLS_BIND`, `TEXTUAL_DEVTOOLS_ROOT`) without changing default runtime behavior when disabled.
+  - Added focused runtime parser regressions for devtools command handling (`src/runtime/devtools.rs` tests).
+  - Added matching `textual-dev-rs` live inspection CLI support:
+    - `textual-rs run --devtools ...` to launch instrumented app instances,
+    - `textual-rs devtools list|snapshot|focus|debug-layout|quit` to inspect/control running apps.
 - **Phase 5 computed-style caching/tree closure**
   - Added a per-widget computed-style cache/tree model in the CSS resolver path, keyed by widget id plus selector ancestry, parent style, inline style, and active stylesheet.
   - Cache invalidation now occurs naturally on class/id/pseudo/style/ancestor/stylesheet changes via key mismatch, while preserving selector-chain correctness.

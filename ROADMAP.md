@@ -273,7 +273,7 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 | Done | File-based debug tracing | `TEXTUAL_DEBUG_INPUT_FILE`, `TEXTUAL_DEBUG_LAYOUT_FILE`, `TEXTUAL_DEBUG_STYLE_FILE`, `TEXTUAL_DEBUG_RENDER_FILE` |
 | Done | Layout debug overlay | `DebugLayout` mode renders widget bounds and sizes |
 | Done | Initial widget/CSS module organization | Widgets live in `src/widgets/` and CSS engine lives in `src/css/`; deeper decomposition tracked in Phase 9.7 |
-| Todo | DevTools panel | In-app inspector (like Textual's DevTools). Scope boundary: `textual-rs` owns embedded inspector/runtime hooks; `textual-dev-rs` owns external CLI tooling (`keys`/`run`/`console`). |
+| Done | DevTools panel | Runtime now exposes an embedded live-inspection substrate in `textual-rs` (snapshot + remote commands) and `textual-dev-rs` consumes it through `devtools` commands (`list`, `snapshot`, `focus`, `debug-layout`, `quit`) for Python-like live inspection workflows. Scope boundary remains: `textual-rs` owns embedded inspector/runtime hooks; `textual-dev-rs` owns external CLI tooling. |
 
 ---
 
@@ -436,12 +436,10 @@ Reference plan:
 - Terminal/golden coverage expansion: landed.
 - Rich-rs integration contract closures (hyperlink policy + deterministic widget-id policy decision): landed.
 - Phase 8 compatibility/doc ergonomics closure (including adapter utilities breadth): landed.
+- DevTools panel + external live-inspection plumbing closure: landed.
 
 ### Active Streams (Open Todo/Partial)
-1. DevTools panel (`Phase 9`)
-   - `Todo`: in-app inspector MVP decision/implementation is still open.
-   - Boundary: this is the in-app panel/runtime-inspection stream in `textual-rs`; external developer CLI workflows stay in `textual-dev-rs`.
-   - This stream is intentionally discussed/planned separately from completed closure streams.
+- None in the current v0.2 closure scope.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.

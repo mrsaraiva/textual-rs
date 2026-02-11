@@ -2,6 +2,7 @@ mod event_loop;
 mod helpers;
 mod render;
 mod routing;
+mod devtools;
 mod tasks;
 mod timers;
 mod types;
@@ -69,6 +70,7 @@ pub struct App {
     clipboard: Option<String>,
     async_tasks: AsyncTaskRuntime,
     one_shot_timers: OneShotTimerRuntime,
+    devtools: Option<devtools::DevtoolsRuntime>,
 }
 
 impl App {
@@ -133,6 +135,7 @@ impl App {
             clipboard: None,
             async_tasks: AsyncTaskRuntime::default(),
             one_shot_timers: OneShotTimerRuntime::default(),
+            devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
         };
         Ok(app)
     }

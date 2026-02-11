@@ -14,6 +14,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::App;
+use super::devtools::DevtoolsCommand;
 use super::helpers::{any_widget_active, mouse_scroll_deltas, should_quit_key};
 use super::routing::{
     active_binding_hints, dispatch_event, dispatch_event_to_target, dispatch_message_queue,
@@ -328,6 +329,20 @@ fn collect_stylesheet_affected_widgets(
     out
 }
 
+fn sanitize_snapshot_field(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\n' | '\r' | '\t' | '|' => ' ',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn bool_flag(value: bool) -> &'static str {
+    if value { "1" } else { "0" }
+}
+
 #[derive(Clone, Copy)]
 enum InvalidationScope {
     Global,
@@ -438,6 +453,145 @@ fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
 }
 
 impl App {
+    fn apply_devtools_commands(
+        &mut self,
+        root: &mut dyn Widget,
+        pending_invalidation: &mut PendingInvalidation,
+    ) -> bool {
+        let Some(devtools) = &self.devtools else {
+            return false;
+        };
+        let commands = devtools.drain_commands();
+        if commands.is_empty() {
+            return false;
+        }
+        for command in commands {
+            match command {
+                DevtoolsCommand::Focus(id) => {
+                    crate::widgets::set_focus_by_id(root, Some(id));
+                    pending_invalidation.request_full_content();
+                }
+                DevtoolsCommand::SetDebugLayout(enabled) => {
+                    self.enable_debug_layout(enabled);
+                    pending_invalidation.request_full_content();
+                }
+                DevtoolsCommand::Quit => {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn publish_devtools_snapshot(&mut self, root: &mut dyn Widget) {
+        let Some(devtools) = &self.devtools else {
+            return;
+        };
+
+        fn collect_widgets(
+            widget: &mut dyn Widget,
+            depth: usize,
+            app_active: bool,
+            hovered: Option<WidgetId>,
+            hit_test: &crate::runtime::types::HitTestMap,
+            out: &mut Vec<String>,
+            focused_out: &mut Option<WidgetId>,
+        ) {
+            let id = widget.id();
+            let focused = widget.has_focus() && app_active;
+            if focused {
+                *focused_out = Some(id);
+            }
+            let rect = hit_test.rect(id);
+            let rect_field = if let Some(rect) = rect {
+                format!("{},{},{},{}", rect.x0, rect.y0, rect.x1, rect.y1)
+            } else {
+                "-".to_string()
+            };
+            let style_id = widget
+                .style_id()
+                .map(sanitize_snapshot_field)
+                .unwrap_or_else(|| "-".to_string());
+            let classes = widget
+                .style_classes()
+                .iter()
+                .map(|class| sanitize_snapshot_field(class))
+                .collect::<Vec<_>>()
+                .join(",");
+            let line = format!(
+                "widget\t{depth}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                id.as_u64(),
+                sanitize_snapshot_field(widget.style_type()),
+                style_id,
+                classes,
+                bool_flag(focused),
+                bool_flag(hovered == Some(id)),
+                bool_flag(widget.is_active()),
+                bool_flag(widget.is_disabled()),
+                rect_field
+            );
+            out.push(line);
+            widget.visit_children_mut(&mut |child| {
+                collect_widgets(
+                    child,
+                    depth + 1,
+                    app_active,
+                    hovered,
+                    hit_test,
+                    out,
+                    focused_out,
+                )
+            });
+        }
+
+        let mut widget_lines = Vec::new();
+        let mut focused = None;
+        collect_widgets(
+            root,
+            0,
+            self.app_active,
+            self.hovered,
+            &self.hit_test,
+            &mut widget_lines,
+            &mut focused,
+        );
+
+        let mut snapshot = String::new();
+        snapshot.push_str("version\t1\n");
+        snapshot.push_str(&format!("pid\t{}\n", std::process::id()));
+        snapshot.push_str(&format!("app_active\t{}\n", bool_flag(self.app_active)));
+        snapshot.push_str(&format!(
+            "debug_layout\t{}\n",
+            bool_flag(self.debug_layout.enabled)
+        ));
+        snapshot.push_str(&format!("frame\t{}\t{}\n", self.frame.width, self.frame.height));
+        snapshot.push_str(&format!(
+            "hovered\t{}\n",
+            self.hovered
+                .map(|id| id.as_u64().to_string())
+                .unwrap_or_else(|| "-".to_string())
+        ));
+        snapshot.push_str(&format!(
+            "focused\t{}\n",
+            focused
+                .map(|id| id.as_u64().to_string())
+                .unwrap_or_else(|| "-".to_string())
+        ));
+        snapshot.push_str(&format!("widget_count\t{}\n", widget_lines.len()));
+        for hint in &self.last_binding_hints {
+            snapshot.push_str(&format!(
+                "hint\t{}\t{}\n",
+                sanitize_snapshot_field(&hint.key),
+                sanitize_snapshot_field(&hint.description)
+            ));
+        }
+        for line in widget_lines {
+            snapshot.push_str(&line);
+            snapshot.push('\n');
+        }
+        devtools.publish_snapshot(snapshot);
+    }
+
     fn dispatch_message_queue_with_runtime(
         &mut self,
         root: &mut dyn Widget,
@@ -542,6 +696,7 @@ impl App {
         if let Some(first) = ids.first().copied() {
             crate::widgets::set_focus_by_id(root, Some(first));
         }
+        self.publish_devtools_snapshot(root);
         let initial_help_outcome = self.dispatch_focused_help_changed(root);
         if initial_help_outcome.stop_requested {
             root.on_unmount();
@@ -559,10 +714,14 @@ impl App {
         }
         let mut prev_any_active = false;
         self.render_widget(root)?;
+        self.publish_devtools_snapshot(root);
         pending_invalidation = PendingInvalidation::default();
         let mut last_render = Instant::now();
 
         'event_loop: loop {
+            if self.apply_devtools_commands(root, &mut pending_invalidation) {
+                break 'event_loop;
+            }
             let now = Instant::now();
             let has_runtime_animation = self.animator.has_animations();
             let tick_rate = if has_runtime_animation || prev_any_active {
@@ -1031,6 +1190,7 @@ impl App {
                     || pending_invalidation.flags.style
                     || self.resized_since_last_render;
                 self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
                 last_render = Instant::now();
             }
@@ -1083,6 +1243,7 @@ impl App {
                         || pending_invalidation.flags.style
                         || self.resized_since_last_render;
                     self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                    self.publish_devtools_snapshot(root);
                     pending_invalidation = PendingInvalidation::default();
                     last_render = Instant::now();
                 }
