@@ -9,6 +9,7 @@
 mod base;
 mod button;
 mod checkbox;
+mod collapsible;
 mod data_table;
 mod header_footer;
 mod input;
@@ -29,6 +30,7 @@ pub fn default_widget_stylesheet() -> StyleSheet {
         text_area::DEFAULT_CSS,
         input::DEFAULT_CSS,
         checkbox::DEFAULT_CSS,
+        collapsible::DEFAULT_CSS,
         select::DEFAULT_CSS,
         list_view::DEFAULT_CSS,
         tree::DEFAULT_CSS,

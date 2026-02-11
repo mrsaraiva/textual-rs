@@ -86,7 +86,7 @@ pub use radio_set::RadioSet;
 pub use rich_log::RichLog;
 pub use rule::{LineStyle, Rule, RuleOrientation};
 pub use select::Select;
-pub use selection_list::{Selection, SelectionList};
+pub use selection_list::{Selection, SelectionList, SelectionListString};
 pub use spacer::Spacer;
 pub use sparkline::{Sparkline, SummaryFunction, summary_max, summary_mean, summary_min};
 pub use switch::Switch;

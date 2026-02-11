@@ -1,6 +1,7 @@
 use crate::css::{StyleRule, StyleSheet};
 use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
 use crate::message::MessageEvent;
+use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widgets::{ToastSeverity, Widget, WidgetId, border_spacing_from_style};
 use rich_rs::MetaValue;
@@ -96,6 +97,106 @@ impl HitTestMap {
         }
         visit(root, target, &mut insets);
         let (inset_x, inset_y) = insets.unwrap_or((0, 0));
+
+        let origin_x = rect.x0.saturating_add(inset_x);
+        let origin_y = rect.y0.saturating_add(inset_y);
+        (
+            screen_x.saturating_sub(origin_x),
+            screen_y.saturating_sub(origin_y),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NodeHitTestMap (P1-12: arena NodeId-keyed hit-test map)
+// ---------------------------------------------------------------------------
+
+/// Hit-test map keyed by arena `NodeId` instead of the legacy `WidgetId`.
+///
+/// This is the P1-12 replacement for [`HitTestMap`]. During migration both
+/// types exist side-by-side; the runtime will switch to `NodeHitTestMap` once
+/// the render pipeline is wired to the arena tree (P1-05).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct NodeHitTestMap {
+    pub(crate) bounds: HashMap<NodeId, Rect>,
+}
+
+impl NodeHitTestMap {
+    /// Build a `NodeHitTestMap` from a rendered frame buffer.
+    ///
+    /// Decodes the `textual:widget_id` metadata stored in each cell back to
+    /// `NodeId` via [`node_id_from_ffi`]. During the transition period the
+    /// same metadata value may represent either a `WidgetId` or a `NodeId`
+    /// depending on which render path produced the frame — callers must use
+    /// the correct map type.
+    pub(crate) fn from_frame(frame: &FrameBuffer) -> Self {
+        let mut out = NodeHitTestMap::default();
+        for y in 0..frame.height {
+            for x in 0..frame.width {
+                let cell = frame.get(x, y);
+                let Some(meta) = cell.meta.as_ref() else {
+                    continue;
+                };
+                let Some(map) = meta.meta.as_ref() else {
+                    continue;
+                };
+                let Some(MetaValue::Int(id)) = map.get("textual:widget_id") else {
+                    continue;
+                };
+                if *id < 0 {
+                    continue;
+                }
+                let nid = node_id_from_ffi(*id as u64);
+                let xu = x as u16;
+                let yu = y as u16;
+                out.bounds
+                    .entry(nid)
+                    .and_modify(|r| {
+                        r.x0 = r.x0.min(xu);
+                        r.y0 = r.y0.min(yu);
+                        r.x1 = r.x1.max(xu);
+                        r.y1 = r.y1.max(yu);
+                    })
+                    .or_insert(Rect {
+                        x0: xu,
+                        y0: yu,
+                        x1: xu,
+                        y1: yu,
+                    });
+            }
+        }
+        out
+    }
+
+    /// Look up the bounding rectangle for a given `NodeId`.
+    pub(crate) fn rect(&self, id: NodeId) -> Option<Rect> {
+        self.bounds.get(&id).copied()
+    }
+
+    /// Translate screen coordinates to content-local coordinates for `target`.
+    ///
+    /// Mirrors [`HitTestMap::content_local_coords`] but uses the arena tree
+    /// instead of recursive `visit_children_mut`.
+    pub(crate) fn content_local_coords(
+        &self,
+        tree: &mut crate::widget_tree::WidgetTree,
+        target: NodeId,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> (u16, u16) {
+        let Some(rect) = self.rect(target) else {
+            return (0, 0);
+        };
+
+        let (inset_x, inset_y) = if let Some(node) = tree.get(target) {
+            let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+            let line_pad = resolved.line_pad.unwrap_or(0);
+            let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
+            (left.saturating_add(line_pad) as u16, top as u16)
+        } else {
+            (0, 0)
+        };
 
         let origin_x = rect.x0.saturating_add(inset_x);
         let origin_y = rect.y0.saturating_add(inset_y);

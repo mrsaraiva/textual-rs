@@ -1,6 +1,8 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
+use crate::node_id::NodeId;
+use crate::widget_tree::WidgetTree;
 use crate::widgets::{Widget, WidgetId};
 
 use super::types::DispatchOutcome;
@@ -455,6 +457,352 @@ fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mu
         }
         dispatch_message_tree(child, message, ctx);
     });
+}
+
+// ===========================================================================
+// P1-11: Arena-tree-based event routing (scaffold)
+//
+// These functions replace the recursive `visit_children_mut` dispatch with
+// explicit `Vec<NodeId>` path traversal over the `WidgetTree` arena. They
+// are added alongside the old functions; the runtime will switch to these
+// once the main event loop is wired to the arena tree (P1-05).
+// ===========================================================================
+
+/// Build the path from root to `target` (inclusive): `[root, …, parent, target]`.
+///
+/// Returns an empty vec if `target` is not in the tree or the tree has no root.
+fn build_path_to_node(tree: &WidgetTree, target: NodeId) -> Vec<NodeId> {
+    if !tree.contains(target) {
+        return Vec::new();
+    }
+    let mut path = vec![target];
+    let ancestors = tree.ancestors(target); // [parent, grandparent, …, root]
+    path.extend(ancestors);
+    path.reverse(); // [root, …, parent, target]
+    path
+}
+
+/// Find the currently focused node by walking the entire tree depth-first.
+///
+/// Returns the first node whose widget reports `has_focus() == true`.
+pub(crate) fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
+    let root = tree.root()?;
+    for node_id in tree.walk_depth_first(root) {
+        if let Some(node) = tree.get(node_id) {
+            if node.widget.has_focus() {
+                return Some(node_id);
+            }
+        }
+    }
+    None
+}
+
+/// Dispatch an event through the arena tree using capture + bubble phases.
+///
+/// 1. Build the path from root to `focused` node.
+/// 2. **Capture phase**: walk root→focused, calling `on_event_capture()`.
+/// 3. **Bubble phase**: walk focused→root, calling `on_event()`.
+///
+/// If `focused` is `None`, dispatches to the root node only.
+pub(crate) fn dispatch_event_tree(
+    tree: &mut WidgetTree,
+    focused: Option<NodeId>,
+    event: &Event,
+) -> DispatchOutcome {
+    let event_debug = format!("{event:?}");
+    let mut ctx = EventCtx::default();
+    let always_bubble = matches!(event, Event::MouseUp(..));
+
+    let path = match focused {
+        Some(focus_id) => build_path_to_node(tree, focus_id),
+        None => match tree.root() {
+            Some(root) => vec![root],
+            None => return DispatchOutcome::default(),
+        },
+    };
+
+    // Capture phase: root → focused
+    for &node_id in &path {
+        if ctx.handled() {
+            break;
+        }
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_event_capture(event, &mut ctx);
+        }
+    }
+
+    // Bubble phase: focused → root
+    if always_bubble || !ctx.handled() {
+        for &node_id in path.iter().rev() {
+            if let Some(node) = tree.get_mut(node_id) {
+                node.widget.on_event(event, &mut ctx);
+            }
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    let outcome = DispatchOutcome {
+        handled: ctx.handled(),
+        repaint_requested: ctx.repaint_requested(),
+        invalidation: ctx.invalidation(),
+        stop_requested: ctx.stop_requested(),
+        messages: ctx.take_messages(),
+        animation_requests: ctx.take_animation_requests(),
+    };
+    debug_message(&format!(
+        "[dispatch_event_tree] event={event_debug} handled={} repaint={} messages={}",
+        outcome.handled,
+        outcome.repaint_requested,
+        outcome.messages.len()
+    ));
+    outcome
+}
+
+/// Dispatch an event to a specific `target` node using the arena tree.
+///
+/// Capture phase runs root→target, then bubble phase runs target→root.
+pub(crate) fn dispatch_event_to_target_tree(
+    tree: &mut WidgetTree,
+    target: NodeId,
+    event: &Event,
+) -> DispatchOutcome {
+    let mut ctx = EventCtx::default();
+    let path = build_path_to_node(tree, target);
+
+    // Capture phase: root → target
+    for &node_id in &path {
+        if ctx.handled() {
+            break;
+        }
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_event_capture(event, &mut ctx);
+        }
+    }
+
+    // Bubble phase: target → root
+    if !ctx.handled() {
+        for &node_id in path.iter().rev() {
+            if let Some(node) = tree.get_mut(node_id) {
+                node.widget.on_event(event, &mut ctx);
+            }
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    DispatchOutcome {
+        handled: ctx.handled(),
+        repaint_requested: ctx.repaint_requested(),
+        invalidation: ctx.invalidation(),
+        stop_requested: ctx.stop_requested(),
+        messages: ctx.take_messages(),
+        animation_requests: ctx.take_animation_requests(),
+    }
+}
+
+/// Dispatch a scroll action through the tree, preferring focused → hovered → root.
+pub(crate) fn dispatch_scroll_action_tree(
+    tree: &mut WidgetTree,
+    action: Action,
+    hovered: Option<NodeId>,
+) -> DispatchOutcome {
+    let event = Event::Action(action);
+    let focused = focused_node_id_tree(tree);
+
+    if let Some(target) = focused {
+        let outcome = dispatch_event_to_target_tree(tree, target, &event);
+        if outcome.handled || outcome.repaint_requested || !outcome.messages.is_empty() {
+            return outcome;
+        }
+    }
+
+    if let Some(target) = hovered.filter(|id| Some(*id) != focused) {
+        let outcome = dispatch_event_to_target_tree(tree, target, &event);
+        if outcome.handled || outcome.repaint_requested || !outcome.messages.is_empty() {
+            return outcome;
+        }
+    }
+
+    dispatch_event_tree(tree, None, &event)
+}
+
+/// Dispatch mouse scroll to a target node, bubbling up the ancestor path.
+pub(crate) fn dispatch_mouse_scroll_to_target_tree(
+    tree: &mut WidgetTree,
+    target: NodeId,
+    delta_x: i32,
+    delta_y: i32,
+) -> DispatchOutcome {
+    let mut ctx = EventCtx::default();
+    let path = build_path_to_node(tree, target);
+
+    // Bubble phase only: target → root (mouse scroll doesn't have a capture phase)
+    for &node_id in path.iter().rev() {
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_mouse_scroll(delta_x, delta_y, &mut ctx);
+        }
+        if ctx.handled() {
+            break;
+        }
+    }
+
+    DispatchOutcome {
+        handled: ctx.handled(),
+        repaint_requested: ctx.repaint_requested(),
+        invalidation: ctx.invalidation(),
+        stop_requested: ctx.stop_requested(),
+        messages: ctx.take_messages(),
+        animation_requests: ctx.take_animation_requests(),
+    }
+}
+
+/// Drain and dispatch a queue of messages through the arena tree.
+///
+/// Each message is broadcast to every node in the tree (depth-first order)
+/// until a handler sets `ctx.handled()`. Newly emitted messages are appended
+/// to the queue (bounded by a safety limit).
+pub(crate) fn dispatch_message_queue_tree(
+    tree: &mut WidgetTree,
+    initial: Vec<MessageEvent>,
+) -> DispatchOutcome {
+    use std::collections::VecDeque;
+
+    let mut handled = false;
+    let mut repaint_requested = false;
+    let mut invalidation = crate::event::InvalidationFlags::default();
+    let mut stop_requested = false;
+    let mut queue: VecDeque<MessageEvent> = initial.into();
+    let mut emitted: Vec<MessageEvent> = Vec::new();
+    let mut animation_requests: Vec<AnimationRequest> = Vec::new();
+
+    const LIMIT: usize = 1024;
+    let mut processed = 0usize;
+
+    while let Some(message) = queue.pop_front() {
+        processed += 1;
+        if processed > LIMIT {
+            debug_message("[dispatch_message_queue_tree] limit reached, dropping remaining");
+            break;
+        }
+
+        let mut ctx = EventCtx::default();
+        dispatch_message_tree_walk(tree, &message, &mut ctx);
+        handled |= ctx.handled();
+        repaint_requested |= ctx.repaint_requested();
+        invalidation.merge(ctx.invalidation());
+        stop_requested |= ctx.stop_requested();
+        let next = ctx.take_messages();
+        let mut next_anims = ctx.take_animation_requests();
+        if !next.is_empty() {
+            queue.extend(next.clone());
+            emitted.extend(next);
+        }
+        if !next_anims.is_empty() {
+            animation_requests.append(&mut next_anims);
+        }
+    }
+
+    DispatchOutcome {
+        handled,
+        repaint_requested,
+        invalidation,
+        stop_requested,
+        messages: emitted,
+        animation_requests,
+    }
+}
+
+/// Broadcast a single message to all nodes in the tree (depth-first).
+fn dispatch_message_tree_walk(
+    tree: &mut WidgetTree,
+    message: &MessageEvent,
+    ctx: &mut EventCtx,
+) {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return,
+    };
+    // Collect node IDs first to avoid borrow conflicts.
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        if ctx.handled() {
+            return;
+        }
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_message(message, ctx);
+        }
+    }
+}
+
+/// Return the focused widget's help markup, if any.
+pub(crate) fn focused_help_metadata_tree(
+    tree: &WidgetTree,
+) -> Option<(NodeId, String)> {
+    let root = tree.root()?;
+    for node_id in tree.walk_depth_first(root) {
+        let node = tree.get(node_id)?;
+        if node.widget.has_focus() {
+            let help = node.widget.help_markup().map(str::trim).unwrap_or_default();
+            if !help.is_empty() {
+                return Some((node_id, help.to_string()));
+            }
+            return None;
+        }
+    }
+    None
+}
+
+/// Collect binding hints along the focused path (root→focused).
+///
+/// If no widget has focus, falls back to root + single-child chain.
+pub(crate) fn active_binding_hints_tree(
+    tree: &WidgetTree,
+) -> (Vec<BindingHint>, Vec<NodeId>) {
+    if let Some(focus_id) = focused_node_id_tree(tree) {
+        let path = build_path_to_node(tree, focus_id);
+        let mut hints = Vec::new();
+        let mut sources = Vec::new();
+        for &node_id in &path {
+            if let Some(node) = tree.get(node_id) {
+                sources.push(node_id);
+                hints.extend(node.widget.binding_hints());
+            }
+        }
+        return (hints, sources);
+    }
+
+    // No focus — walk root + single-child chain (matches old `collect_no_focus_scope`).
+    collect_root_scope_hints(tree)
+}
+
+/// Walk from root along single-child chains collecting hints (no-focus fallback).
+fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>) {
+    let mut hints = Vec::new();
+    let mut sources = Vec::new();
+    let Some(root) = tree.root() else {
+        return (hints, sources);
+    };
+
+    let mut current = root;
+    loop {
+        if let Some(node) = tree.get(current) {
+            sources.push(current);
+            hints.extend(node.widget.binding_hints());
+            let children = tree.children(current);
+            if children.len() == 1 {
+                current = children[0];
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    (hints, sources)
 }
 
 #[cfg(test)]

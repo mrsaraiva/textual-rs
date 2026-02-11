@@ -560,6 +560,53 @@ impl MaskedInput {
         self.revalidate();
     }
 
+    /// Replace the template at runtime, re-parsing and resetting content/cursor state.
+    ///
+    /// Returns `Err` if the template string contains no non-separator characters.
+    pub fn set_template(&mut self, template_str: &str) -> Result<(), String> {
+        // Validate before modifying state: template must have at least one editable slot.
+        let has_editable = {
+            let mut escaped = false;
+            let mut found = false;
+            for ch in template_str.chars() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        continue;
+                    }
+                    ';' => break,
+                    '>' | '<' | '!' => continue,
+                    _ => {
+                        if template_char_def(ch).is_some() {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            found
+        };
+        if !has_editable {
+            return Err(
+                "Template must contain at least one non-separator character".to_string(),
+            );
+        }
+
+        let mut template = Template::parse(template_str);
+        let placeholder = self.placeholder.clone();
+        template.update_mask(&placeholder);
+        let (value, cursor) = template.insert_separators(&[], 0);
+        self.template = template;
+        self.value = value;
+        self.cursor = cursor;
+        self.revalidate();
+        Ok(())
+    }
+
     // --- internal helpers --------------------------------------------------
 
     fn value_str(&self) -> String {

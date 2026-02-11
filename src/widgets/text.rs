@@ -33,6 +33,9 @@ pub struct Label {
     id: WidgetId,
     text: String,
     wrap: bool,
+    markup: bool,
+    expand: bool,
+    shrink: bool,
     layout_width: usize,
     variant: Option<LabelVariant>,
     classes: Vec<String>,
@@ -45,6 +48,9 @@ impl Label {
             id: WidgetId::new(),
             text: text.into(),
             wrap: true,
+            markup: false,
+            expand: false,
+            shrink: true,
             layout_width: 0,
             variant: None,
             classes: vec!["label".to_string()],
@@ -62,6 +68,24 @@ impl Label {
 
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    /// Enable or disable Rich markup parsing for this label's text content.
+    pub fn with_markup(mut self, markup: bool) -> Self {
+        self.markup = markup;
+        self
+    }
+
+    /// When true, the widget expands to fill the available width.
+    pub fn with_expand(mut self, expand: bool) -> Self {
+        self.expand = expand;
+        self
+    }
+
+    /// When true, the widget shrinks to its content width (default: true).
+    pub fn with_shrink(mut self, shrink: bool) -> Self {
+        self.shrink = shrink;
         self
     }
 
@@ -103,6 +127,15 @@ impl Label {
         }
         lines.max(1)
     }
+
+    fn intrinsic_content_width(&self) -> usize {
+        self.text
+            .lines()
+            .map(rich_rs::cell_len)
+            .max()
+            .unwrap_or(0)
+            .max(1)
+    }
 }
 
 impl Widget for Label {
@@ -111,8 +144,13 @@ impl Widget for Label {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let text = Text::plain(self.text.clone());
-        text.render(console, options)
+        if self.markup {
+            let rendered = console.render_str(&self.text, Some(true), None, None, None);
+            rendered.render(console, options)
+        } else {
+            let text = Text::plain(self.text.clone());
+            text.render(console, options)
+        }
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -120,14 +158,15 @@ impl Widget for Label {
     }
 
     fn content_width(&self) -> Option<usize> {
-        Some(
-            self.text
-                .lines()
-                .map(rich_rs::cell_len)
-                .max()
-                .unwrap_or(0)
-                .max(1),
-        )
+        if self.expand {
+            // No intrinsic width constraint — fill available space.
+            None
+        } else if self.shrink {
+            Some(self.intrinsic_content_width())
+        } else {
+            // Neither expand nor shrink — no width hint.
+            None
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {

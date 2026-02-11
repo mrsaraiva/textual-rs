@@ -1,5 +1,7 @@
 use crate::driver::PointerShape;
 use crate::event::{Action, ActionMap, KeyBind};
+use crate::node_id::NodeId;
+use crate::widget_tree::WidgetTree;
 use crate::widgets::{Widget, WidgetId};
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
@@ -182,6 +184,94 @@ pub(crate) fn pointer_shape_for_hover(
     let Some((mouse_interactive, disabled, ty)) = found else {
         return PointerShape::Default;
     };
+
+    if !mouse_interactive {
+        return PointerShape::Default;
+    }
+
+    if ty == "Input" {
+        return PointerShape::Text;
+    }
+
+    if disabled {
+        PointerShape::NotAllowed
+    } else {
+        PointerShape::Pointer
+    }
+}
+
+// ===========================================================================
+// P1-13: Arena-tree-based focus/hover/binding helpers (scaffold)
+//
+// These functions replace the recursive `visit_children_mut` helpers with
+// arena-tree traversal. They are added alongside the old functions; the
+// runtime will switch to these once wired in (P1-05).
+// ===========================================================================
+
+/// Collect the focus chain: all focusable, visible nodes in depth-first order.
+pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    tree.walk_depth_first(root)
+        .into_iter()
+        .filter(|&id| {
+            tree.get(id)
+                .map(|node| node.display && node.widget.focusable())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Forward `on_mouse_move` to a specific node in the tree.
+///
+/// Returns `true` if the widget reported a change.
+pub(crate) fn call_on_mouse_move_tree(
+    tree: &mut WidgetTree,
+    target: NodeId,
+    x: u16,
+    y: u16,
+) -> bool {
+    if let Some(node) = tree.get_mut(target) {
+        node.widget.on_mouse_move(x, y)
+    } else {
+        false
+    }
+}
+
+/// Check whether any widget in the tree reports `is_active() == true`.
+pub(crate) fn any_widget_active_tree(tree: &WidgetTree) -> bool {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return false,
+    };
+    for node_id in tree.walk_depth_first(root) {
+        if let Some(node) = tree.get(node_id) {
+            if node.widget.is_active() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Determine the pointer shape for a hovered node.
+pub(crate) fn pointer_shape_for_hover_tree(
+    tree: &WidgetTree,
+    hovered: Option<NodeId>,
+) -> PointerShape {
+    let Some(id) = hovered else {
+        return PointerShape::Default;
+    };
+
+    let Some(node) = tree.get(id) else {
+        return PointerShape::Default;
+    };
+
+    let mouse_interactive = node.widget.mouse_interactive();
+    let disabled = node.widget.is_disabled();
+    let ty = node.widget.style_type();
 
     if !mouse_interactive {
         return PointerShape::Default;

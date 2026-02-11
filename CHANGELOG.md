@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Parity Sprint 4: Widget trait redesign + runtime scaffold + QW batch**
+  - Widget trait redesign (P1-02): `id()`, `visit_children_mut()`, `set_focus_target()` deprecated with defaults (kept for migration). Added `compose()` default returning empty. `render_styled_dyn_obj` now accepts `NodeId` parameter for future arena rendering.
+  - Runtime event routing scaffold (P1-11): Added tree-based dispatch functions (`dispatch_event_tree`, `build_path_to_node`, `focused_node_id_tree`) using explicit `Vec<NodeId>` paths alongside old recursive dispatch.
+  - Runtime render scaffold (P1-12): Added `render_tree_scaffold`, `collect_render_nodes`, `apply_layout_info_tree`, `NodeHitTestMap` (NodeId-keyed parallel to HitTestMap).
+  - Runtime focus/hover scaffold (P1-13): Added `collect_focus_chain_tree`, `call_on_mouse_move_tree`, `any_widget_active_tree`, `pointer_shape_for_hover_tree`.
+  - Switch: added tick-based slider animation with ease-out cubic (QW-31) and half-block sub-cell rendering (QW-32).
+  - Collapsible: added default CSS with `border-top`, padding, focus style (QW-30).
+  - Static/Label: added `markup` flag for Rich markup rendering (QW-36), `expand`/`shrink` sizing fields (QW-37).
+  - MaskedInput: added `set_template()` for runtime template changes (QW-39).
+  - SelectionList: made generic over value type `SelectionList<T>` with `SelectionListString` alias (QW-40).
+  - Select: added keyboard type-to-search with prefix matching and timeout reset (QW-41).
 - **Parity Sprint 3: Compose foundation + DOM queries + validators/CSS**
   - Added `src/compose.rs`: `ComposeResult`, `ChildDecl`, `WidgetBuilder`, `compose![]` macro with `From<W: Widget>` blanket impl.
   - Added lifecycle event system: `LifecycleEvent` (Mount/Unmount) accumulator in `WidgetTree` with `drain_lifecycle()` API.

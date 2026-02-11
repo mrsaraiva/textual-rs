@@ -2,9 +2,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
 
+use crate::compose::ComposeResult;
 use crate::debug::DebugLayout;
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
+use crate::node_id::{self, NodeId};
 use crate::style::{Color, Style};
 
 use super::helpers;
@@ -29,15 +31,66 @@ impl WidgetId {
     }
 }
 
+/// Behavior-only widget trait.
+///
+/// Identity (NodeId) comes from the arena-based `WidgetTree`, not from the
+/// widget itself. Structural concerns (parent/child links, CSS classes, display
+/// state) also live on the tree, not here.
+///
+/// The `render_styled_dyn_obj` method receives a `NodeId` from the runtime so
+/// it can tag rendered segments with the correct arena identity. The convenience
+/// wrappers `render_styled` / `render_styled_with_debug` use a null sentinel
+/// NodeId for backward-compatible widget-to-widget rendering during migration.
 pub trait Widget: Send + Sync {
-    fn id(&self) -> WidgetId;
+    /// Legacy identity accessor — will be removed in P1-14.
+    ///
+    /// Identity now comes from the arena-based `WidgetTree` (`NodeId`), not
+    /// from the widget itself. Widget impls still override this during
+    /// migration; new code should use `NodeId` from context instead.
+    #[deprecated(note = "Identity comes from arena NodeId. Will be removed in P1-14.")]
+    fn id(&self) -> WidgetId {
+        WidgetId::default()
+    }
+
+    /// Legacy child visitor — will be removed in P1-14.
+    ///
+    /// The `WidgetTree` arena now owns parent/child structure. This method
+    /// remains during migration so existing recursive traversal compiles.
+    #[deprecated(note = "Tree owns structure. Will be removed in P1-14.")]
+    fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
+
+    /// Legacy focus-target setter — will be removed in P1-14.
+    #[deprecated(note = "Focus target is tree-level. Will be removed in P1-14.")]
+    fn set_focus_target(&mut self, _target: Option<WidgetId>) {}
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
+
+    /// Declare child widgets for this widget.
+    ///
+    /// The runtime materializes these declarations into arena nodes during
+    /// mount. The default implementation returns an empty list (leaf widget).
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    /// Render with full CSS styling, border composition, and segment tagging.
+    ///
+    /// `_node_id` is the arena-assigned identity — reserved for future use when
+    /// the runtime renders via the arena tree (P1-12). During migration, metadata
+    /// tagging still uses the legacy `self.id()` (WidgetId) so hit-test lookups
+    /// remain compatible with `HitTestMap`.
+    #[allow(deprecated)]
     fn render_styled_dyn_obj(
         &self,
         console: &Console,
         options: &ConsoleOptions,
         debug: Option<&DebugLayout>,
+        _node_id: NodeId,
     ) -> Segments {
+        // During migration, use the widget's own WidgetId for metadata tagging.
+        // When the runtime switches to arena-tree rendering (P1-05/P1-12), this
+        // will use the `_node_id` parameter instead.
+        let widget_id = self.id();
         let meta = crate::css::selector_meta_generic(self);
         let debug_widget_label = {
             let mut label = self.style_type().to_string();
@@ -90,20 +143,20 @@ pub trait Widget: Send + Sync {
             Some(debug) => self.render_with_debug(console, &content_options, debug),
             None => self.render(console, &content_options),
         });
-        let segments = tag_widget_meta(self.id(), segments);
+        let segments = tag_widget_meta_legacy(widget_id, segments);
 
         let inner_width = content_width
             .saturating_add(line_pad.saturating_mul(2))
             .max(1);
         let segments = if line_pad > 0 {
             let padded = helpers::apply_line_pad(segments, content_width, inner_width, line_pad);
-            tag_widget_meta(self.id(), padded)
+            tag_widget_meta_legacy(widget_id, padded)
         } else {
             segments
         };
 
         let styled =
-            crate::css::apply_style_to_segments(self.id(), segments, resolved, parent_style);
+            crate::css::apply_style_to_segments(widget_id, segments, resolved, parent_style);
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,
@@ -118,7 +171,7 @@ pub trait Widget: Send + Sync {
         } else {
             segments
         };
-        tag_widget_meta(self.id(), segments)
+        tag_widget_meta_legacy(widget_id, segments)
     }
     fn render_with_debug(
         &self,
@@ -158,16 +211,10 @@ pub trait Widget: Send + Sync {
     /// Coordinates for mouse events (`MouseDownEvent` / `MouseUpEvent` / `on_mouse_move`) are
     /// relative to this content box.
     fn on_layout(&mut self, _width: u16, _height: u16) {}
-    fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
     fn focusable(&self) -> bool {
         false
     }
     fn set_focus(&mut self, _focused: bool) {}
-    /// Optional hook for widgets that track the currently-focused child id.
-    ///
-    /// Most widgets can ignore this; it exists so focus traversal state (e.g. in `AppRoot`)
-    /// stays consistent when external helpers like `set_focus_by_id` are used.
-    fn set_focus_target(&mut self, _target: Option<WidgetId>) {}
     /// Whether the widget is disabled (used for `:disabled` selector matching).
     fn is_disabled(&self) -> bool {
         false
@@ -227,16 +274,22 @@ pub trait Widget: Send + Sync {
     fn style_classes(&self) -> &[String] {
         helpers::empty_classes()
     }
+    /// Legacy convenience wrapper: render with styling.
+    ///
+    /// Widget-to-widget rendering calls this during migration. Once the runtime
+    /// renders via the arena tree (P1-12), this path becomes unused and the
+    /// runtime calls `render_styled_dyn_obj` directly with the real `NodeId`.
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.render_styled_dyn_obj(console, options, None)
+        self.render_styled_dyn_obj(console, options, None, NodeId::default())
     }
+    /// Legacy convenience wrapper with debug layout.
     fn render_styled_with_debug(
         &self,
         console: &Console,
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        self.render_styled_dyn_obj(console, options, Some(debug))
+        self.render_styled_dyn_obj(console, options, Some(debug), NodeId::default())
     }
     fn set_width(&mut self, value: usize) {
         if let Some(styles) = self.styles_mut() {
@@ -275,7 +328,25 @@ pub trait Widget: Send + Sync {
     }
 }
 
-fn tag_widget_meta(widget_id: WidgetId, segments: Segments) -> Segments {
+/// Legacy metadata tagger using `WidgetId` — used by `render_styled_dyn_obj` during migration.
+///
+/// Once the runtime switches to arena-tree rendering (P1-12), this will be
+/// replaced by `tag_widget_meta` which uses `NodeId`.
+fn tag_widget_meta_legacy(widget_id: WidgetId, segments: Segments) -> Segments {
+    let ffi_value = widget_id.as_u64() as i64;
+    tag_widget_meta_raw(ffi_value, segments)
+}
+
+/// Tag all segments that lack a `textual:widget_id` metadata entry with the
+/// given arena `NodeId` (encoded via `node_id_to_ffi` for FFI compatibility).
+#[allow(dead_code)]
+fn tag_widget_meta(node_id: NodeId, segments: Segments) -> Segments {
+    let ffi_value = node_id::node_id_to_ffi(node_id) as i64;
+    tag_widget_meta_raw(ffi_value, segments)
+}
+
+/// Shared implementation: tag segments with a raw i64 metadata value.
+fn tag_widget_meta_raw(ffi_value: i64, segments: Segments) -> Segments {
     let mut out = Segments::new();
     for mut seg in segments {
         if seg.control.is_some() {
@@ -300,10 +371,7 @@ fn tag_widget_meta(widget_id: WidgetId, segments: Segments) -> Segments {
             .and_then(|m| m.meta.as_ref())
             .map(|m| (**m).clone())
             .unwrap_or_default();
-        map.insert(
-            META_WIDGET_ID.to_string(),
-            MetaValue::Int(widget_id.as_u64() as i64),
-        );
+        map.insert(META_WIDGET_ID.to_string(), MetaValue::Int(ffi_value));
 
         let mut meta = seg.meta.unwrap_or_else(StyleMeta::new);
         meta.meta = Some(std::sync::Arc::new(map));

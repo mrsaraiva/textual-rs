@@ -18,51 +18,58 @@ const BUTTON_INNER_CHECKED: &str = "X";
 const BUTTON_INNER_UNCHECKED: &str = " ";
 
 /// A single selection entry for a [`SelectionList`].
+///
+/// Generic over the value type `T`.
 #[derive(Debug, Clone)]
-pub struct Selection {
+pub struct Selection<T: Clone + PartialEq> {
     /// The display text shown to the user.
     pub prompt: String,
-    /// A string value associated with this selection.
-    pub value: String,
+    /// A value associated with this selection.
+    pub value: T,
     /// Whether this selection starts in the selected state.
     pub initially_selected: bool,
     /// Whether this selection is disabled.
     pub disabled: bool,
 }
 
-impl Selection {
+impl<T: Clone + PartialEq> Selection<T> {
     /// Create a new selection with default (unselected) state.
-    pub fn new(prompt: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn new(prompt: impl Into<String>, value: T) -> Self {
         Self {
             prompt: prompt.into(),
-            value: value.into(),
+            value,
             initially_selected: false,
             disabled: false,
         }
     }
 
     /// Create a new selection that starts selected.
-    pub fn selected(prompt: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn selected(prompt: impl Into<String>, value: T) -> Self {
         Self {
             prompt: prompt.into(),
-            value: value.into(),
+            value,
             initially_selected: true,
             disabled: false,
         }
     }
 
     /// Create a new selection that is disabled.
-    pub fn disabled(prompt: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn disabled(prompt: impl Into<String>, value: T) -> Self {
         Self {
             prompt: prompt.into(),
-            value: value.into(),
+            value,
             initially_selected: false,
             disabled: true,
         }
     }
 }
 
+/// Backwards-compatible type alias for `SelectionList<String>`.
+pub type SelectionListString = SelectionList<String>;
+
 /// A vertical selection list that allows making multiple selections.
+///
+/// Generic over the value type `T`. Use [`SelectionListString`] for string-valued lists.
 ///
 /// Wraps an inner [`OptionList`] for navigation, adding per-item toggle checkboxes
 /// rendered as `▐X▌` (selected) or `▐ ▌` (deselected) before each option's prompt.
@@ -71,13 +78,12 @@ impl Selection {
 ///
 /// - [`Message::SelectionListToggled`] — posted when an individual item is toggled.
 /// - [`Message::SelectionListSelectedChanged`] — posted when the overall selected set changes.
-#[derive(Debug, Clone)]
-pub struct SelectionList {
+pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
     id: WidgetId,
     inner: OptionList,
     disabled: bool,
-    /// The string values associated with each selection.
-    values: Vec<String>,
+    /// The values associated with each selection.
+    values: Vec<T>,
     /// Per-index selection state.
     selected_set: Vec<bool>,
     focused: bool,
@@ -88,13 +94,13 @@ pub struct SelectionList {
     styles: WidgetStyles,
 }
 
-impl Default for SelectionList {
+impl<T: Clone + PartialEq + Send + Sync + 'static> Default for SelectionList<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SelectionList {
+impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     /// Create an empty `SelectionList`.
     pub fn new() -> Self {
         Self {
@@ -113,7 +119,7 @@ impl SelectionList {
     }
 
     /// Create a `SelectionList` pre-populated with selections.
-    pub fn with_selections(selections: Vec<Selection>) -> Self {
+    pub fn with_selections(selections: Vec<Selection<T>>) -> Self {
         let mut list = Self::new();
         let items: Vec<OptionItem> = selections
             .iter()
@@ -125,7 +131,7 @@ impl SelectionList {
                 }
             })
             .collect();
-        let values: Vec<String> = selections.iter().map(|s| s.value.clone()).collect();
+        let values: Vec<T> = selections.iter().map(|s| s.value.clone()).collect();
         let selected: Vec<bool> = selections
             .iter()
             .map(|s| s.initially_selected && !s.disabled)
@@ -253,14 +259,14 @@ impl SelectionList {
         self.selected_set.get(index).copied().unwrap_or(false)
     }
 
-    /// Returns the string values of all currently selected items.
-    pub fn selected_values(&self) -> Vec<&str> {
+    /// Returns the values of all currently selected items.
+    pub fn selected_values(&self) -> Vec<&T> {
         self.selected_set
             .iter()
             .enumerate()
             .filter_map(|(i, &sel)| {
                 if sel {
-                    self.values.get(i).map(|v| v.as_str())
+                    self.values.get(i)
                 } else {
                     None
                 }
@@ -268,9 +274,9 @@ impl SelectionList {
             .collect()
     }
 
-    /// Returns the string value associated with the item at `index`.
-    pub fn value_at(&self, index: usize) -> Option<&str> {
-        self.values.get(index).map(|v| v.as_str())
+    /// Returns the value associated with the item at `index`.
+    pub fn value_at(&self, index: usize) -> Option<&T> {
+        self.values.get(index)
     }
 
     /// The currently highlighted index in the inner list.
@@ -297,7 +303,7 @@ impl SelectionList {
     }
 }
 
-impl Widget for SelectionList {
+impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     fn id(&self) -> WidgetId {
         self.id
     }
@@ -560,7 +566,7 @@ impl Widget for SelectionList {
     }
 }
 
-impl Renderable for SelectionList {
+impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for SelectionList<T> {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }
@@ -573,9 +579,9 @@ mod tests {
     #[test]
     fn selection_list_initial_state() {
         let selections = vec![
-            Selection::new("Alpha", "a"),
-            Selection::selected("Beta", "b"),
-            Selection::new("Gamma", "g"),
+            Selection::new("Alpha", "a".to_string()),
+            Selection::selected("Beta", "b".to_string()),
+            Selection::new("Gamma", "g".to_string()),
         ];
         let list = SelectionList::with_selections(selections);
         assert_eq!(list.item_count(), 3);
@@ -587,7 +593,10 @@ mod tests {
 
     #[test]
     fn selection_list_toggle() {
-        let selections = vec![Selection::new("Alpha", "a"), Selection::new("Beta", "b")];
+        let selections = vec![
+            Selection::new("Alpha", "a".to_string()),
+            Selection::new("Beta", "b".to_string()),
+        ];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
@@ -600,7 +609,7 @@ mod tests {
 
     #[test]
     fn selection_list_toggle_emits_ordered_messages() {
-        let selections = vec![Selection::new("Alpha", "a")];
+        let selections = vec![Selection::new("Alpha", "a".to_string())];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
@@ -624,9 +633,9 @@ mod tests {
     #[test]
     fn selection_list_select_all_deselect_all() {
         let selections = vec![
-            Selection::new("A", "a"),
-            Selection::new("B", "b"),
-            Selection::selected("C", "c"),
+            Selection::new("A", "a".to_string()),
+            Selection::new("B", "b".to_string()),
+            Selection::selected("C", "c".to_string()),
         ];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
@@ -640,7 +649,10 @@ mod tests {
 
     #[test]
     fn selection_list_select_deselect_individual() {
-        let selections = vec![Selection::new("A", "a"), Selection::new("B", "b")];
+        let selections = vec![
+            Selection::new("A", "a".to_string()),
+            Selection::new("B", "b".to_string()),
+        ];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
@@ -657,7 +669,7 @@ mod tests {
 
     #[test]
     fn selection_list_out_of_bounds() {
-        let selections = vec![Selection::new("A", "a")];
+        let selections = vec![Selection::new("A", "a".to_string())];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
@@ -671,9 +683,9 @@ mod tests {
     #[test]
     fn selection_list_disabled_items_are_not_toggled() {
         let selections = vec![
-            Selection::disabled("A", "a"),
-            Selection::selected("B", "b"),
-            Selection::new("C", "c"),
+            Selection::disabled("A", "a".to_string()),
+            Selection::selected("B", "b".to_string()),
+            Selection::new("C", "c".to_string()),
         ];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
@@ -692,8 +704,8 @@ mod tests {
     #[test]
     fn selection_list_disabled_widget_ignores_keyboard_toggle() {
         let mut list = SelectionList::with_selections(vec![
-            Selection::new("A", "a"),
-            Selection::new("B", "b"),
+            Selection::new("A", "a".to_string()),
+            Selection::new("B", "b".to_string()),
         ])
         .disabled(true);
         list.set_focus(true);
@@ -713,10 +725,10 @@ mod tests {
     #[test]
     fn selection_list_toggle_all() {
         let selections = vec![
-            Selection::new("A", "a"),
-            Selection::selected("B", "b"),
-            Selection::disabled("C", "c"),
-            Selection::new("D", "d"),
+            Selection::new("A", "a".to_string()),
+            Selection::selected("B", "b".to_string()),
+            Selection::disabled("C", "c".to_string()),
+            Selection::new("D", "d".to_string()),
         ];
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
@@ -740,8 +752,8 @@ mod tests {
     #[test]
     fn selection_list_click_on_disabled_item_is_not_handled() {
         let mut list = SelectionList::with_selections(vec![
-            Selection::disabled("A", "a"),
-            Selection::new("B", "b"),
+            Selection::disabled("A", "a".to_string()),
+            Selection::new("B", "b".to_string()),
         ]);
         list.set_focus(true);
         list.on_layout(40, 5);
@@ -760,5 +772,21 @@ mod tests {
 
         assert!(!ctx.handled());
         assert!(!list.is_selected(0));
+    }
+
+    #[test]
+    fn selection_list_with_integer_values() {
+        let selections = vec![
+            Selection::new("One", 1i32),
+            Selection::selected("Two", 2),
+            Selection::new("Three", 3),
+        ];
+        let list = SelectionList::with_selections(selections);
+        assert_eq!(list.item_count(), 3);
+        assert!(!list.is_selected(0));
+        assert!(list.is_selected(1));
+        assert_eq!(list.value_at(0), Some(&1));
+        assert_eq!(list.value_at(1), Some(&2));
+        assert_eq!(list.selected_values(), vec![&2]);
     }
 }

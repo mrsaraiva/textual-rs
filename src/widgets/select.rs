@@ -10,10 +10,14 @@ use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
 use super::{Widget, WidgetId, WidgetStyles};
 
+/// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
+const SEARCH_RESET_TICKS: u64 = 30;
+
 /// A dropdown select control.
 ///
 /// Shows the current selection (or a placeholder prompt) with a dropdown arrow.
 /// On activation (Enter/Space/click), opens an [`OptionList`] overlay for choosing a value.
+/// When open, typing characters performs type-to-search (case-insensitive prefix matching).
 ///
 /// Generic over the value type `T`.
 pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
@@ -28,6 +32,12 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     hovered: bool,
     viewport_width: usize,
     viewport_height: usize,
+    /// Current tick counter (updated via on_tick).
+    current_tick: u64,
+    /// Type-to-search buffer (accumulated while dropdown is open).
+    search_buffer: String,
+    /// Tick when last search character was typed (for timeout reset).
+    search_last_tick: u64,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -58,6 +68,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             hovered: false,
             viewport_width: 20,
             viewport_height: 10,
+            current_tick: 0,
+            search_buffer: String::new(),
+            search_last_tick: 0,
             classes: vec!["select".to_string()],
             focused_classes: vec!["select".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
@@ -138,8 +151,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
                 self.cursor.set_highlighted(None);
             }
             self.list.set_focus(true);
+            // Reset search state when opening.
+            self.search_buffer.clear();
         } else {
             self.list.set_focus(false);
+            self.search_buffer.clear();
         }
         ctx.request_repaint();
     }
@@ -212,6 +228,28 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         out.extend(line);
         out
     }
+
+    /// Handle a character typed for type-to-search when the dropdown is open.
+    /// Appends to the search buffer and highlights the first matching option.
+    fn handle_search_char(&mut self, ch: char, tick: u64) {
+        // Reset buffer if timeout expired.
+        if tick.saturating_sub(self.search_last_tick) > SEARCH_RESET_TICKS {
+            self.search_buffer.clear();
+        }
+        self.search_buffer.push(ch);
+        self.search_last_tick = tick;
+
+        // Find first option whose label starts with the search buffer (case-insensitive).
+        let query = self.search_buffer.to_lowercase();
+        if let Some(index) = self
+            .options
+            .iter()
+            .position(|(label, _)| label.to_lowercase().starts_with(&query))
+        {
+            self.list.set_highlighted(index);
+            self.cursor.set_highlighted(Some(index));
+        }
+    }
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
@@ -229,6 +267,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             // Close dropdown when focus is lost.
             self.open = false;
             self.list.set_focus(false);
+            self.search_buffer.clear();
         }
     }
 
@@ -257,6 +296,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         }
     }
 
+    fn on_tick(&mut self, tick: u64) {
+        self.current_tick = tick;
+        // Reset search buffer after timeout.
+        if self.open
+            && !self.search_buffer.is_empty()
+            && tick.saturating_sub(self.search_last_tick) > SEARCH_RESET_TICKS
+        {
+            self.search_buffer.clear();
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if self.disabled {
             return;
@@ -280,6 +330,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                         }
                         ctx.set_handled();
                         return;
+                    }
+                    KeyCode::Char(ch) => {
+                        // Type-to-search: printable chars that aren't space (space toggles).
+                        if ch != ' ' {
+                            self.handle_search_char(ch, self.current_tick);
+                            ctx.request_repaint();
+                            ctx.set_handled();
+                            return;
+                        }
                     }
                     _ => {}
                 },
@@ -750,5 +809,105 @@ mod tests {
         assert!(!sel.is_open());
         assert!(!click_ctx.handled());
         assert!(!sel.focusable());
+    }
+
+    #[test]
+    fn select_type_to_search_highlights_matching_option() {
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+        assert!(sel.is_open());
+
+        // Advance tick so type-to-search has a time reference.
+        sel.on_tick(10);
+
+        // Type 'g' — should highlight "Gamma" (index 2).
+        let g_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        sel.on_event(&Event::Key(g_key), &mut ctx2);
+
+        assert_eq!(sel.list.highlighted(), Some(2));
+        assert!(ctx2.handled());
+    }
+
+    #[test]
+    fn select_type_to_search_accumulates_chars() {
+        let mut sel = Select::new(
+            vec![
+                ("Apple".to_string(), 1),
+                ("Apricot".to_string(), 2),
+                ("Banana".to_string(), 3),
+            ],
+            "Pick one...",
+        );
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+        assert!(sel.is_open());
+
+        // Type 'a' at tick 10 — should match "Apple" (index 0).
+        sel.on_tick(10);
+        let a_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        sel.on_event(&Event::Key(a_key), &mut ctx2);
+        assert_eq!(sel.list.highlighted(), Some(0));
+
+        // Type 'p' at tick 11 — buffer is "ap", matches "Apple" (index 0).
+        sel.on_tick(11);
+        let p_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        let mut ctx3 = EventCtx::default();
+        sel.on_event(&Event::Key(p_key), &mut ctx3);
+        assert_eq!(sel.list.highlighted(), Some(0));
+
+        // Type 'r' at tick 12 — buffer is "apr", matches "Apricot" (index 1).
+        sel.on_tick(12);
+        let r_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+        let mut ctx4 = EventCtx::default();
+        sel.on_event(&Event::Key(r_key), &mut ctx4);
+        assert_eq!(sel.list.highlighted(), Some(1));
+    }
+
+    #[test]
+    fn select_type_to_search_resets_on_timeout() {
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+
+        // Type 'b' at tick 10 — highlights "Beta" (index 1).
+        sel.on_tick(10);
+        let b_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        sel.on_event(&Event::Key(b_key), &mut ctx2);
+        assert_eq!(sel.list.highlighted(), Some(1));
+
+        // Simulate timeout via on_tick.
+        sel.on_tick(50);
+        assert!(sel.search_buffer.is_empty());
+
+        // Type 'a' after timeout — fresh search, highlights "Alpha" (index 0).
+        let a_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        let mut ctx3 = EventCtx::default();
+        sel.on_event(&Event::Key(a_key), &mut ctx3);
+        assert_eq!(sel.list.highlighted(), Some(0));
     }
 }

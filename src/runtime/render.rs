@@ -2,14 +2,16 @@ use crate::css::{
     begin_style_render_pass, set_app_active, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::debug_render;
+use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
+use crate::widget_tree::WidgetTree;
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
 use super::App;
 use super::types::{
-    HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS, TOAST_SIDE_MARGIN,
-    resize_trace_enabled,
+    HitTestMap, NodeHitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS,
+    TOAST_SIDE_MARGIN, resize_trace_enabled,
 };
 
 impl App {
@@ -366,6 +368,109 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
         }
     }
     labels.join(", ")
+}
+
+// ===========================================================================
+// P1-12: Arena-tree-based render scaffold
+//
+// These standalone functions demonstrate the tree-walk render pattern using
+// `WidgetTree`. They are added alongside the existing `impl App` methods;
+// the runtime will switch to these once the render pipeline is wired to the
+// arena tree (P1-05).
+// ===========================================================================
+
+/// Render the widget tree via depth-first traversal, producing styled segments.
+///
+/// # Current limitations
+///
+/// The current widget rendering model is monolithic: a container widget's
+/// `render_styled()` calls `visit_children_mut` internally to render its
+/// children. This scaffold calls `render_styled()` on the root node, which
+/// still uses the old recursive path internally. The per-widget tree-driven
+/// render loop (where the *tree traversal* drives individual widget render
+/// calls and composites their segments externally) is a deeper change for a
+/// future sprint.
+///
+/// This function demonstrates the integration point: tree walk → root render
+/// → `NodeHitTestMap` from the result, bridging the old and new worlds.
+pub(crate) fn render_tree_scaffold(
+    tree: &mut WidgetTree,
+    console: &rich_rs::Console,
+    options: &rich_rs::ConsoleOptions,
+) -> Option<Segments> {
+    let root_id = tree.root()?;
+    let node = tree.get(root_id)?;
+    if !node.display {
+        return Some(Segments::new());
+    }
+    // Delegate to the root widget's existing render_styled pipeline.
+    // Once the tree-driven per-widget render is implemented, this will
+    // iterate `tree.walk_depth_first(root_id)` and composite each
+    // visible node's segments into a unified frame.
+    Some(node.widget.render_styled(console, options))
+}
+
+/// Walk visible nodes in depth-first order and collect render metadata.
+///
+/// Returns a list of `(NodeId, bool)` pairs — `true` if the node should
+/// be rendered (displayed + has a widget), `false` if hidden. This is a
+/// building block for the full tree-driven render loop.
+pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    tree.walk_depth_first(root)
+        .into_iter()
+        .map(|id| {
+            let visible = tree
+                .get(id)
+                .map(|node| node.display)
+                .unwrap_or(false);
+            (id, visible)
+        })
+        .collect()
+}
+
+/// Distribute layout information to widgets using the arena tree + `NodeHitTestMap`.
+///
+/// This is the P1-12 replacement for `App::apply_layout_info` which uses
+/// recursive `visit_children_mut`. Walks the tree depth-first and calls
+/// `on_layout(content_w, content_h)` on each widget whose bounding rect
+/// appears in the hit-test map.
+pub(crate) fn apply_layout_info_tree(
+    tree: &mut WidgetTree,
+    hit_test: &NodeHitTestMap,
+) {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return,
+    };
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        let Some(rect) = hit_test.rect(node_id) else {
+            continue;
+        };
+        let Some(node) = tree.get(node_id) else {
+            continue;
+        };
+        let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+        let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+        let line_pad = resolved.line_pad.unwrap_or(0);
+        let (top, bottom, left, right) = border_spacing_from_style(&resolved);
+        let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
+        let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
+        let content_w = full_w
+            .saturating_sub(left + right)
+            .saturating_sub(line_pad.saturating_mul(2))
+            .max(1) as u16;
+        let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
+
+        // Re-borrow mutably for on_layout.
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_layout(content_w, content_h);
+        }
+    }
 }
 
 #[cfg(test)]
