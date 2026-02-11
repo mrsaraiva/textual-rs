@@ -25,6 +25,24 @@ fn vertical_alias_stacks_children() {
 }
 
 #[test]
+fn vertical_group_alias_stacks_children() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (8, 2);
+    options.max_width = 8;
+    options.max_height = 2;
+
+    let vertical = VerticalGroup::new()
+        .with_child(Label::new("alpha"))
+        .with_child(Label::new("beta"));
+    let buf =
+        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&vertical), None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("alpha"), "first line: {:?}", lines[0]);
+    assert!(lines[1].starts_with("beta"), "second line: {:?}", lines[1]);
+}
+
+#[test]
 fn center_alias_aligns_children_horizontally() {
     let console = Console::new();
     let mut options = console.options().clone();
@@ -37,6 +55,23 @@ fn center_alias_aligns_children_horizontally() {
         FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&center), None);
     let lines = buf.as_plain_lines();
     assert_eq!(lines[0], "   cat   ");
+}
+
+#[test]
+fn horizontal_group_alias_places_children_in_row() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (8, 1);
+    options.max_width = 8;
+    options.max_height = 1;
+
+    let row = HorizontalGroup::new()
+        .with_child(Label::new("a"))
+        .with_child(Label::new("b"));
+    let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&row), None);
+    let line = &buf.as_plain_lines()[0];
+    assert!(line.contains("a"));
+    assert!(line.contains("b"));
 }
 
 #[test]
@@ -71,6 +106,25 @@ fn middle_alias_centers_children_vertically() {
     assert_eq!(lines[2], "x    ");
     assert_eq!(lines[3], "     ");
     assert_eq!(lines[4], "     ");
+}
+
+#[test]
+fn center_middle_centers_both_axes() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (7, 5);
+    options.max_width = 7;
+    options.max_height = 5;
+
+    let center_middle = CenterMiddle::new().with_child(Label::new("ok"));
+    let buf = FrameBuffer::from_renderable(
+        &console,
+        &options,
+        &WidgetRenderable::new(&center_middle),
+        None,
+    );
+    let lines = buf.as_plain_lines();
+    assert_eq!(lines[2], "  ok   ");
 }
 
 #[test]
@@ -145,6 +199,53 @@ fn vertical_scroll_supports_home_end_actions() {
 }
 
 #[test]
+fn scrollable_container_supports_home_end_actions() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (8, 2);
+    options.max_width = 8;
+    options.max_height = 2;
+
+    let mut scrollable = ScrollableContainer::new()
+        .with_child(Static::new("row 1"))
+        .with_child(Static::new("row 2"))
+        .with_child(Static::new("row 3"))
+        .with_child(Static::new("row 4"))
+        .height(2);
+    assert!(scrollable.focusable());
+    let _ = FrameBuffer::from_renderable(
+        &console,
+        &options,
+        &WidgetRenderable::new(&scrollable),
+        None,
+    );
+
+    let mut ctx = EventCtx::default();
+    scrollable.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+    assert!(ctx.handled());
+    let end = FrameBuffer::from_renderable(
+        &console,
+        &options,
+        &WidgetRenderable::new(&scrollable),
+        None,
+    );
+    let end_lines = end.as_plain_lines();
+    assert!(end_lines[0].starts_with("row 3"));
+
+    let mut ctx = EventCtx::default();
+    scrollable.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+    assert!(ctx.handled());
+    let home = FrameBuffer::from_renderable(
+        &console,
+        &options,
+        &WidgetRenderable::new(&scrollable),
+        None,
+    );
+    let home_lines = home.as_plain_lines();
+    assert!(home_lines[0].starts_with("row 1"));
+}
+
+#[test]
 fn horizontal_scroll_is_focusable_and_supports_home_end_actions() {
     let console = Console::new();
     let mut options = console.options().clone();
@@ -179,4 +280,21 @@ fn horizontal_scroll_is_focusable_and_supports_home_end_actions() {
         "line: {:?}",
         home_lines[0]
     );
+}
+
+#[test]
+fn item_grid_renders_cells() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (10, 2);
+    options.max_width = 10;
+    options.max_height = 2;
+
+    let grid = ItemGrid::new(1, 2)
+        .with_cell(0, 0, Label::new("a"))
+        .with_cell(0, 1, Label::new("b"));
+    let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&grid), None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].contains("a"));
+    assert!(lines[0].contains("b"));
 }

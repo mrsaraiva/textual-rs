@@ -454,7 +454,7 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
      - PR7E (2026-02-10): `DirectoryTree` lazy-loader fidelity landed with expandable-directory support in `Tree`, message-driven lazy child loading, and refresh behavior that preserves expanded paths.
    - PR 4: Container-family parity closure (Python `containers.py` alignment: behavior/default CSS/lifecycle for missing or partial container semantics).
      - PR7F (planned): audit current container set against Python `containers.py`, classify missing semantics vs missing APIs, then land focused parity slices with targeted tests.
-     - PR7F (2026-02-10): baseline parity slice landed: new `Vertical`/`Center`/`Right`/`Middle` aliases, `ScrollView`/`HorizontalScroll` focusability, and key/action parity additions (`ScrollHome`/`ScrollEnd`, `ctrl+pageup/pagedown` horizontal paging bindings) with focused regression tests.
+     - PR7F (2026-02-10): baseline parity slice landed: new `Vertical`/`Center`/`Right`/`Middle` aliases plus `VerticalGroup`/`HorizontalGroup`/`ScrollableContainer`/`CenterMiddle`/`ItemGrid` compatibility classes, `ScrollView`/`HorizontalScroll` focusability, and key/action parity additions (`ScrollHome`/`ScrollEnd`, `ctrl+pageup/pagedown` horizontal paging bindings) with focused regression tests.
    - PR 5: Tier-B/C polish follow-up.
      - PR7G (2026-02-10): landed highlighted-vs-selected class semantics for `ListView`/`Tree`, app/runtime clipboard request/response plumbing for text-edit widgets, `Welcome` close-lifecycle polish, and runtime-driven tooltip/help-panel lifecycle updates.
    - PR 6: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.

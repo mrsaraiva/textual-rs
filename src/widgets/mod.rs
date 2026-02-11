@@ -47,7 +47,8 @@ mod tree;
 mod welcome;
 
 pub use aliases::{
-    Center, Horizontal, HorizontalScroll, Middle, Right, Static, Vertical, VerticalScroll,
+    Center, CenterMiddle, Horizontal, HorizontalGroup, HorizontalScroll, ItemGrid, Middle, Right,
+    ScrollableContainer, Static, Vertical, VerticalGroup, VerticalScroll,
 };
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;

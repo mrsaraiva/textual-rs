@@ -9,7 +9,7 @@ until the API stabilizes.
 
 ### 2026-02-10
 - **Container-family parity baseline (`containers.py` alignment pass)**
-  - Added new container aliases: `Vertical`, `Center`, `Right`, and `Middle`.
+  - Added new container aliases/classes: `Vertical`, `Center`, `Right`, `Middle`, `VerticalGroup`, `HorizontalGroup`, `ScrollableContainer`, `CenterMiddle`, and `ItemGrid`.
   - Added `ScrollHome` / `ScrollEnd` actions and key bindings (`home`, `end`) plus `ctrl+pageup` / `ctrl+pagedown` horizontal paging bindings.
   - Made `ScrollView` and `HorizontalScroll` focusable and wired home/end handling across scroll aliases/container primitives.
   - Added focused coverage in `tests/container_parity.rs` and scroll container suites.
