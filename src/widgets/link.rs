@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
@@ -175,12 +175,17 @@ impl Widget for Link {
         let width = options.size.0.max(1);
         let line = rich_rs::set_cell_size(&self.text, width);
         let mut out = Segments::new();
-        out.push(Segment::styled(
+        let mut segment = Segment::styled(
             line,
             crate::css::resolve_component_style(self, &["link"])
                 .to_rich()
                 .unwrap_or_else(rich_rs::Style::new),
-        ));
+        );
+        if !self.url.is_empty() {
+            // Hyperlink policy: set URL only and rely on rich-rs per-Console link-id registry.
+            segment.meta = Some(StyleMeta::with_link(self.url.clone()));
+        }
+        out.push(segment);
         out
     }
 
@@ -312,6 +317,25 @@ mod tests {
     fn style_type_is_link() {
         let link = Link::new("text");
         assert_eq!(link.style_type(), "Link");
+    }
+
+    #[test]
+    fn render_sets_hyperlink_meta_without_explicit_link_id() {
+        let link = Link::new("Click here").with_url("https://example.com");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (20, 1);
+        options.max_width = 20;
+        options.max_height = 1;
+
+        let rendered = Widget::render(&link, &console, &options);
+        let first = rendered
+            .iter()
+            .find(|segment| segment.control.is_none())
+            .expect("expected text segment");
+        let meta = first.meta.as_ref().expect("expected hyperlink metadata");
+        assert_eq!(meta.link.as_deref(), Some("https://example.com"));
+        assert!(meta.link_id.is_none());
     }
 
     #[test]

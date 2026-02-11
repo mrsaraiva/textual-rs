@@ -8,6 +8,10 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Rich-rs integration closure follow-up (`PR8G`)**
+  - `Link` now emits hyperlink metadata (`StyleMeta.link`) in render output, enabling OSC8 links through the existing `rich-rs` terminal pipeline.
+  - Hyperlink policy is now explicit and tested: no explicit `link_id` is set by widgets; `rich-rs` assigns stable per-Console link IDs when needed.
+  - Added focused regression coverage in `src/widgets/link.rs` and updated `ROADMAP.md` Phase 0.5 hyperlink-id row to `Done`.
 - **Message-bus closure follow-up (`PR8F`)**
   - `Select` open-dropdown Enter/click selection now routes through inner `OptionList`
     message flow (`OptionSelected` consumed in `on_message`) instead of direct click/index coupling.

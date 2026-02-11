@@ -33,7 +33,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Done | Choose render boundary | `rich-rs` Console renders segments; `FrameBuffer` diffs; `Console::print_segments` writes output |
 | Done | Define handler metadata schema | `MetaValue::Int` keyed as `textual:widget_id` for hit-testing and event routing |
 | Done | Preserve metadata through rendering | Metadata survives clipping/diffing; verified by `tests/render_metadata.rs` |
-| Todo | Hyperlink id policy | For OSC8: rely on `rich-rs` per-Console URL→id registry when `link_id` is omitted |
+| Done | Hyperlink id policy | Link widget now emits OSC8 metadata via `StyleMeta.link` and relies on `rich-rs` per-Console URL→id registry when `link_id` is omitted (PR8G, 2026-02-11) |
 | Todo | Deterministic ids (open) | Widget IDs are random (`WidgetId::new()`); consider hash-based IDs if needed for persistence/snapshots |
 | Done | Integration golden tests | Metadata-specific coverage now includes direct assertions and snapshots for metadata preservation across framebuffer + diff (`tests/render_metadata.rs`) |
 
