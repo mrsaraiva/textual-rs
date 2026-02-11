@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Widget primitive closure batch (`PR8A`: A/B/C)**
+  - Focused HELP metadata pipeline:
+    - added framework-level focused-help signaling (`HelpPanelFocusedHelpChanged` / `HelpPanelFocusedHelpCleared`) and runtime diff/dispatch integration.
+    - added `Widget::help_markup()` hook and `HelpPanel` message-path consumption.
+  - Async task primitive baseline:
+    - added runtime async task manager with `AsyncTaskSpawn` / `AsyncTaskCancel` / `AsyncTaskCompleted` / `AsyncTaskCancelled`.
+    - migrated `DirectoryTree` lazy loading from tick-queue to runtime async task flow with collapse-time cancellation.
+  - CSS/parser closure items for tooltip/help parity:
+    - added `hkey` / `vkey` border types in style model, parser, and border rendering.
+    - updated `HelpPanel`/`KeyPanel` defaults to `vkey` and added focused parser/widget regressions.
 - **Widget closure recovery batch (`PR7K`)**
   - Tier-A follow-up:
     - `DataTable` tightened horizontal-offset stability when fixed columns saturate viewport width, and aligned cursor/home/end paths with column visibility behavior.

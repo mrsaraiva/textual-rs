@@ -141,6 +141,10 @@ pub trait Widget: Send + Sync {
     fn binding_hints(&self) -> Vec<BindingHint> {
         Vec::new()
     }
+    /// Optional focused HELP markup exposed to framework-level help panels.
+    fn help_markup(&self) -> Option<&str> {
+        None
+    }
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }

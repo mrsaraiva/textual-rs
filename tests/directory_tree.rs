@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
-use textual::message::MessageEvent;
+use textual::message::{AsyncDirectoryEntry, AsyncTaskResult, MessageEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -93,7 +93,24 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
             .any(|line| line.contains("leaf.txt"))
     );
 
-    tree.on_tick(1);
+    tree.on_message(
+        &MessageEvent {
+            sender: WidgetId::from_u64(0),
+            message: Message::AsyncTaskCompleted {
+                task_id: 1,
+                target: tree.id(),
+                result: AsyncTaskResult::DirectoryEntries {
+                    path: nested_dir.display().to_string(),
+                    entries: vec![AsyncDirectoryEntry {
+                        path: nested_dir.join("leaf.txt").display().to_string(),
+                        label: "leaf.txt".to_string(),
+                        is_dir: false,
+                    }],
+                },
+            },
+        },
+        &mut EventCtx::default(),
+    );
 
     let after_tick = FrameBuffer::from_renderable(&console, &options, &tree, None);
     let lines = after_tick.as_plain_lines();
@@ -173,7 +190,24 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
     );
     assert!(collapse_ctx.handled());
 
-    tree.on_tick(1);
+    tree.on_message(
+        &MessageEvent {
+            sender: WidgetId::from_u64(0),
+            message: Message::AsyncTaskCompleted {
+                task_id: 1,
+                target: tree.id(),
+                result: AsyncTaskResult::DirectoryEntries {
+                    path: nested_dir.display().to_string(),
+                    entries: vec![AsyncDirectoryEntry {
+                        path: nested_dir.join("leaf.txt").display().to_string(),
+                        label: "leaf.txt".to_string(),
+                        is_dir: false,
+                    }],
+                },
+            },
+        },
+        &mut EventCtx::default(),
+    );
 
     let console = Console::new();
     let options = options_for(&console, 60, 8);
@@ -300,7 +334,24 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
     assert!(expand_ctx.handled());
 
     tree.on_unmount();
-    tree.on_tick(1);
+    tree.on_message(
+        &MessageEvent {
+            sender: WidgetId::from_u64(0),
+            message: Message::AsyncTaskCompleted {
+                task_id: 1,
+                target: tree.id(),
+                result: AsyncTaskResult::DirectoryEntries {
+                    path: nested_dir.display().to_string(),
+                    entries: vec![AsyncDirectoryEntry {
+                        path: nested_dir.join("leaf.txt").display().to_string(),
+                        label: "leaf.txt".to_string(),
+                        is_dir: false,
+                    }],
+                },
+            },
+        },
+        &mut EventCtx::default(),
+    );
 
     assert!(!tree.has_focus());
     assert!(!tree.is_hovered());

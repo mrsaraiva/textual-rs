@@ -17,7 +17,7 @@ use super::helpers::{any_widget_active, mouse_scroll_deltas, should_quit_key};
 use super::routing::{
     active_binding_hints, dispatch_event, dispatch_event_to_target, dispatch_message_queue,
     dispatch_mouse_scroll, dispatch_mouse_scroll_to_target, dispatch_scroll_action,
-    is_priority_action, is_scroll_action,
+    focused_help_metadata, is_priority_action, is_scroll_action,
 };
 use super::types::DispatchOutcome;
 use crate::widgets::Widget;
@@ -29,6 +29,29 @@ fn should_dispatch_binding_hints(
     current_sources: &[crate::widgets::WidgetId],
 ) -> bool {
     last_hints != current_hints || last_sources != current_sources
+}
+
+fn should_dispatch_focused_help(
+    last_source: Option<crate::widgets::WidgetId>,
+    last_markup: Option<&str>,
+    current_source: Option<crate::widgets::WidgetId>,
+    current_markup: Option<&str>,
+) -> bool {
+    last_source != current_source || last_markup != current_markup
+}
+
+fn focused_help_message(current: Option<(crate::widgets::WidgetId, String)>) -> MessageEvent {
+    if let Some((source, markup)) = current {
+        MessageEvent {
+            sender: source,
+            message: Message::HelpPanelFocusedHelpChanged { source, markup },
+        }
+    } else {
+        MessageEvent {
+            sender: App::runtime_message_sender(),
+            message: Message::HelpPanelFocusedHelpCleared,
+        }
+    }
 }
 
 fn collect_clipboard_runtime_messages(
@@ -92,6 +115,35 @@ fn collect_clipboard_runtime_messages_with_backend(
         }
     }
     generated
+}
+
+#[derive(Default)]
+struct RuntimeMessagePass {
+    deliver: Vec<MessageEvent>,
+    generated: Vec<MessageEvent>,
+}
+
+fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> RuntimeMessagePass {
+    let mut pass = RuntimeMessagePass::default();
+    for event in queue {
+        match event.message {
+            Message::AsyncTaskSpawn {
+                task_id,
+                target,
+                request,
+            } => {
+                app.async_tasks.spawn(task_id, target, request);
+            }
+            Message::AsyncTaskCancel { task_id } => {
+                if let Some(cancelled) = app.async_tasks.cancel(task_id) {
+                    pass.generated.push(cancelled);
+                }
+            }
+            _ => pass.deliver.push(event),
+        }
+    }
+    pass.generated.extend(app.async_tasks.drain_completed());
+    pass
 }
 
 fn copy_to_system_clipboard(text: &str) -> bool {
@@ -203,15 +255,18 @@ impl App {
         root: &mut dyn Widget,
         initial: Vec<MessageEvent>,
     ) -> DispatchOutcome {
-        if initial.is_empty() {
-            return DispatchOutcome::default();
-        }
-
         let mut aggregate = DispatchOutcome::default();
         let mut queue = initial;
         loop {
-            let runtime_messages = collect_clipboard_runtime_messages(&mut self.clipboard, &queue);
-            let mut outcome = dispatch_message_queue(root, queue);
+            let pass = split_runtime_control_messages(self, queue);
+            let mut runtime_messages =
+                collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
+            runtime_messages.extend(pass.generated);
+            let mut outcome = if pass.deliver.is_empty() {
+                DispatchOutcome::default()
+            } else {
+                dispatch_message_queue(root, pass.deliver)
+            };
             aggregate.handled |= outcome.handled;
             aggregate.repaint_requested |= outcome.repaint_requested;
             aggregate.stop_requested |= outcome.stop_requested;
@@ -226,6 +281,11 @@ impl App {
             queue = runtime_messages;
         }
         aggregate
+    }
+
+    fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
+        let queue = self.async_tasks.drain_completed();
+        self.dispatch_message_queue_with_runtime(root, queue)
     }
 
     pub async fn run_with<F, R>(&mut self, mut render: F) -> crate::Result<()>
@@ -292,11 +352,17 @@ impl App {
         if let Some(first) = ids.first().copied() {
             crate::widgets::set_focus_by_id(root, Some(first));
         }
+        let initial_help_outcome = self.dispatch_focused_help_changed(root);
+        if initial_help_outcome.stop_requested {
+            root.on_unmount();
+            self.finish()?;
+            return Ok(());
+        }
 
         let mut tick: u64 = 0;
         let idle_tick_rate = Duration::from_millis(100);
         let active_tick_rate = Duration::from_millis(16);
-        let mut dirty = false;
+        let mut dirty = initial_help_outcome.should_repaint();
         let mut prev_any_active = false;
         self.render_widget(root)?;
         let mut last_render = Instant::now();
@@ -617,6 +683,18 @@ impl App {
                 }
             }
 
+            let mut background_outcome = self.dispatch_background_runtime_messages(root);
+            self.absorb_outcome(&mut background_outcome, &mut dirty);
+            if background_outcome.stop_requested {
+                break 'event_loop;
+            }
+
+            let mut focused_help_outcome = self.dispatch_focused_help_changed(root);
+            self.absorb_outcome(&mut focused_help_outcome, &mut dirty);
+            if focused_help_outcome.stop_requested {
+                break 'event_loop;
+            }
+
             let mut binding_outcome = self.dispatch_binding_hints_changed(root);
             self.absorb_outcome(&mut binding_outcome, &mut dirty);
             if binding_outcome.stop_requested {
@@ -709,6 +787,29 @@ impl App {
         }
     }
 
+    pub(super) fn dispatch_focused_help_changed(
+        &mut self,
+        root: &mut dyn Widget,
+    ) -> DispatchOutcome {
+        let current = focused_help_metadata(root);
+        let current_source = current.as_ref().map(|(source, _)| *source);
+        let current_markup = current.as_ref().map(|(_, markup)| markup.as_str());
+        if !should_dispatch_focused_help(
+            self.last_focused_help_source,
+            self.last_focused_help_markup.as_deref(),
+            current_source,
+            current_markup,
+        ) {
+            return DispatchOutcome::default();
+        }
+
+        self.last_focused_help_source = current_source;
+        self.last_focused_help_markup = current.as_ref().map(|(_, markup)| markup.clone());
+
+        let event = focused_help_message(current);
+        self.dispatch_message_queue_with_runtime(root, vec![event])
+    }
+
     pub(super) fn enqueue_animation_requests(&mut self, requests: Vec<AnimationRequest>) {
         if requests.is_empty() {
             return;
@@ -756,8 +857,8 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
-        should_dispatch_binding_hints,
+        ClipboardBackend, collect_clipboard_runtime_messages_with_backend, focused_help_message,
+        should_dispatch_binding_hints, should_dispatch_focused_help,
     };
     use crate::event::BindingHint;
     use crate::message::{Message, MessageEvent};
@@ -821,6 +922,60 @@ mod tests {
 
         assert!(!should_dispatch_binding_hints(
             &hints, &sources, &hints, &sources,
+        ));
+    }
+
+    #[test]
+    fn focused_help_dispatches_when_focus_source_changes() {
+        assert!(should_dispatch_focused_help(
+            Some(WidgetId::from_u64(1)),
+            Some("## First"),
+            Some(WidgetId::from_u64(2)),
+            Some("## Second"),
+        ));
+    }
+
+    #[test]
+    fn focused_help_dispatches_when_help_clears() {
+        assert!(should_dispatch_focused_help(
+            Some(WidgetId::from_u64(1)),
+            Some("## First"),
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn focused_help_skips_when_source_and_markup_stable() {
+        assert!(!should_dispatch_focused_help(
+            Some(WidgetId::from_u64(1)),
+            Some("## Stable"),
+            Some(WidgetId::from_u64(1)),
+            Some("## Stable"),
+        ));
+    }
+
+    #[test]
+    fn focused_help_message_emits_set_payload() {
+        let source = WidgetId::from_u64(7);
+        let event = focused_help_message(Some((source, "## Source help".to_string())));
+        assert_eq!(event.sender, source);
+        assert!(matches!(
+            event.message,
+            Message::HelpPanelFocusedHelpChanged {
+                source: msg_source,
+                markup,
+            } if msg_source == source && markup == "## Source help"
+        ));
+    }
+
+    #[test]
+    fn focused_help_message_emits_clear_payload() {
+        let event = focused_help_message(None);
+        assert_eq!(event.sender, WidgetId::from_u64(0));
+        assert!(matches!(
+            event.message,
+            Message::HelpPanelFocusedHelpCleared
         ));
     }
 

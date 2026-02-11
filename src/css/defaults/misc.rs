@@ -35,7 +35,7 @@ RichLog:focus {
 KeyPanel {
     bg: $panel;
     fg: $foreground;
-    border-left: tall $border-blurred;
+    border-left: vkey $border-blurred;
 }
 
 HelpPanel {
@@ -46,7 +46,7 @@ HelpPanel {
     line-pad: 1;
     bg: $panel;
     fg: $foreground;
-    border-left: tall $border-blurred;
+    border-left: vkey $border-blurred;
 }
 
 HelpPanel > Markdown {

@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -163,6 +164,35 @@ fn help_panel_help_can_be_driven_via_messages() {
 }
 
 #[test]
+fn help_panel_handles_focused_help_pipeline_messages() {
+    let mut panel = HelpPanel::new();
+    let mut set_ctx = EventCtx::default();
+    panel.on_message(
+        &MessageEvent {
+            sender: WidgetId::from_u64(100),
+            message: Message::HelpPanelFocusedHelpChanged {
+                source: WidgetId::from_u64(100),
+                markup: "## Focused widget help".to_string(),
+            },
+        },
+        &mut set_ctx,
+    );
+    assert!(panel.showing_help());
+    assert_eq!(panel.help(), "## Focused widget help");
+
+    let mut clear_ctx = EventCtx::default();
+    panel.on_message(
+        &MessageEvent {
+            sender: WidgetId::from_u64(0),
+            message: Message::HelpPanelFocusedHelpCleared,
+        },
+        &mut clear_ctx,
+    );
+    assert!(!panel.showing_help());
+    assert_eq!(panel.help(), "");
+}
+
+#[test]
 fn help_panel_unmount_resets_app_focus_gate() {
     let mut panel = HelpPanel::new().with_help("## Widget help");
 
@@ -180,5 +210,23 @@ fn help_panel_unmount_resets_app_focus_gate() {
             .style_classes()
             .iter()
             .any(|class| class == "-show-help")
+    );
+}
+
+#[test]
+fn help_panel_default_css_uses_vkey_border_glyphs() {
+    let console = Console::new();
+    let options = options_for(&console, 40, 6);
+    let _guard = set_style_context(default_widget_stylesheet());
+    let panel = HelpPanel::new().with_bindings(vec![FooterBinding::new("^q", "Quit")]);
+    let renderable = WidgetRenderable::new(&panel);
+    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with('\u{258f}') || line.ends_with('\u{2595}')),
+        "expected vkey border glyphs in help panel output, got {lines:?}"
     );
 }

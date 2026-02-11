@@ -152,6 +152,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_hkey_and_vkey_border_types() {
+        let vkey = parse_style_body("border-left: vkey $foreground 30%;");
+        assert_eq!(vkey.border_left.edge_type(), "vkey");
+
+        let hkey = parse_style_body("border: hkey $foreground;");
+        assert_eq!(hkey.border_top.edge_type(), "hkey");
+        assert_eq!(hkey.border_right.edge_type(), "hkey");
+        assert_eq!(hkey.border_bottom.edge_type(), "hkey");
+        assert_eq!(hkey.border_left.edge_type(), "hkey");
+    }
+
+    #[test]
     fn text_opacity_applies_to_existing_foreground() {
         let mut segments = Segments::new();
         let rich_style = rich_rs::Style::new()

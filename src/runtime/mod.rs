@@ -2,6 +2,7 @@ mod event_loop;
 mod helpers;
 mod render;
 mod routing;
+mod tasks;
 mod types;
 
 use crate::animation::{Animator, animation_level_from_env};
@@ -21,6 +22,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use tasks::AsyncTaskRuntime;
 use types::{
     AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetWatcher,
 };
@@ -56,10 +58,13 @@ pub struct App {
     app_active: bool,
     last_binding_hints: Vec<BindingHint>,
     last_binding_hint_sources: Vec<WidgetId>,
+    last_focused_help_source: Option<WidgetId>,
+    last_focused_help_markup: Option<String>,
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
     notifications: Vec<AppNotification>,
     clipboard: Option<String>,
+    async_tasks: AsyncTaskRuntime,
 }
 
 impl App {
@@ -116,16 +121,23 @@ impl App {
             app_active: true,
             last_binding_hints: Vec::new(),
             last_binding_hint_sources: Vec::new(),
+            last_focused_help_source: None,
+            last_focused_help_markup: None,
             animator: Animator::new(60),
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
             clipboard: None,
+            async_tasks: AsyncTaskRuntime::default(),
         };
         Ok(app)
     }
 
     pub(super) fn clipboard_message_sender() -> WidgetId {
-        // Runtime/system-synthesized clipboard messages use widget id 0.
+        Self::runtime_message_sender()
+    }
+
+    pub(super) fn runtime_message_sender() -> WidgetId {
+        // Runtime/system-synthesized messages use widget id 0.
         WidgetId::from_u64(0)
     }
 
@@ -369,6 +381,8 @@ impl App {
     pub fn start(&mut self) -> Result<()> {
         self.last_binding_hints.clear();
         self.last_binding_hint_sources.clear();
+        self.last_focused_help_source = None;
+        self.last_focused_help_markup = None;
         self.driver.start()?;
         self.refresh_size()?;
         debug_render(&format!("[app] sync_output={}", self.sync_output));

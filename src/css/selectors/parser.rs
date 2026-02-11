@@ -397,6 +397,8 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
         "block" => (BorderType::Block, tokens.collect()),
         "solid" => (BorderType::Solid, tokens.collect()),
         "outer" => (BorderType::Outer, tokens.collect()),
+        "hkey" => (BorderType::HKey, tokens.collect()),
+        "vkey" => (BorderType::VKey, tokens.collect()),
         // If the first token isn't a border type, treat it as a color token and default
         // to `solid`.
         _ => (
@@ -441,6 +443,8 @@ fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, Border
         "solid" => BorderType::Solid,
         "tall" => BorderType::Tall,
         "outer" => BorderType::Outer,
+        "hkey" => BorderType::HKey,
+        "vkey" => BorderType::VKey,
         _ => return None,
     };
     let mut color: Option<crate::style::Color> = None;

@@ -217,6 +217,16 @@ impl Widget for HelpPanel {
                 ctx.set_handled();
                 return;
             }
+            Message::HelpPanelFocusedHelpChanged { markup, .. } => {
+                self.set_help(markup.clone());
+                ctx.request_repaint();
+                return;
+            }
+            Message::HelpPanelFocusedHelpCleared => {
+                self.clear_help();
+                ctx.request_repaint();
+                return;
+            }
             _ => {}
         }
 

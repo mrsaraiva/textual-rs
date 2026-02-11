@@ -437,6 +437,7 @@ Reference plan:
 - Landed (2026-02-11): widget closure push (`PR7I`) with DataTable fixed-column horizontal-shift behavior + shifted hit-testing, Tabs/TabbedContent activation geometry replay, CommandPalette screen-space hit-testing fix, RichLog focus-style parity update, runtime-driven Tooltip/HelpPanel message APIs, DirectoryTree typed file/dir selection messages, Welcome lifecycle/CSS polish, and Tier-B regressions for disabled highlight handling + Footer/text-edit clipboard shortcut polish.
 - Landed (2026-02-11): widget closure follow-up (`PR7J`) with explicit activation-message paths for `ListView`/`Tree`, tree twisty-click toggle-vs-activate parity, header icon press message emission, and footer unmount lifecycle reset for deferred bindings.
 - Landed (2026-02-11): widget closure recovery batch (`PR7K`) with DataTable horizontal-offset stability fixes, Tabs/TabbedContent binding-hint + unmount lifecycle polish, CommandPalette local-coordinate hit-test hardening, RichLog multiline auto-scroll estimation, single-line clipboard paste normalization for Input/MaskedInput, and DirectoryTree deferred load queue with collapse-time cancellation.
+- Landed (2026-02-11): widget primitive closure batch (`PR8A`: A/B/C) with focused HELP metadata pipeline, runtime async task primitive baseline (`spawn`/`cancel`/completion delivery), DirectoryTree async-task migration, and `hkey`/`vkey` CSS border parser+renderer support used by HelpPanel/KeyPanel parity defaults.
 - Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps plus container-family parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
@@ -491,6 +492,10 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
    - PR 1: Focused-help metadata pipeline for `HelpPanel` (widget/source -> runtime -> focused help sink).
    - PR 2: Async task primitive baseline (`spawn`/completion/cancel) to support true non-blocking loader parity (`DirectoryTree` and future widgets).
    - PR 3: CSS/parser closure items required for final tooltip/help styling parity.
+   - PR8A (2026-02-11): landed all three baseline primitives:
+     - focused-help metadata pipeline via `Widget::help_markup` + runtime focused-help dispatch + `HelpPanel` focused-help message handling;
+     - runtime async-task baseline with `AsyncTask*` messages plus `DirectoryTree` migration to async load/cancel flow;
+     - CSS/parser/style support for `hkey`/`vkey` borders with HelpPanel/KeyPanel default parity updates and parser/widget regressions.
    - Exit criteria: widget plan no longer lists primitive blockers as external dependencies.
 
 3. Message bus completion (Phase 6, widget-coupled)

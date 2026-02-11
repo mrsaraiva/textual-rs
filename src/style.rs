@@ -527,6 +527,8 @@ pub enum BorderType {
     Block,
     Tall,
     Outer,
+    HKey,
+    VKey,
 }
 
 impl BorderType {
@@ -536,6 +538,8 @@ impl BorderType {
             BorderType::Block => "block",
             BorderType::Tall => "tall",
             BorderType::Outer => "outer",
+            BorderType::HKey => "hkey",
+            BorderType::VKey => "vkey",
         }
     }
 }

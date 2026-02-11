@@ -66,6 +66,26 @@ pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
     out
 }
 
+pub(crate) fn focused_help_metadata(root: &mut dyn Widget) -> Option<(WidgetId, String)> {
+    fn visit(widget: &mut dyn Widget, out: &mut Option<(WidgetId, String)>) {
+        if out.is_some() {
+            return;
+        }
+        if widget.has_focus() {
+            let help = widget.help_markup().map(str::trim).unwrap_or_default();
+            if !help.is_empty() {
+                *out = Some((widget.id(), help.to_string()));
+            }
+            return;
+        }
+        widget.visit_children_mut(&mut |child| visit(child, out));
+    }
+
+    let mut out = None;
+    visit(root, &mut out);
+    out
+}
+
 #[cfg(test)]
 pub(crate) fn focused_path_binding_hints(root: &mut dyn Widget) -> Vec<BindingHint> {
     fn walk(widget: &mut dyn Widget, out: &mut Vec<BindingHint>) -> bool {
@@ -446,6 +466,7 @@ mod message_tests {
         id: WidgetId,
         focused: bool,
         hints: Vec<BindingHint>,
+        help_markup: Option<String>,
         child: Option<Box<HintNode>>,
     }
 
@@ -455,12 +476,18 @@ mod message_tests {
                 id: WidgetId::new(),
                 focused,
                 hints,
+                help_markup: None,
                 child: None,
             }
         }
 
         fn with_child(mut self, child: HintNode) -> Self {
             self.child = Some(Box::new(child));
+            self
+        }
+
+        fn with_help(mut self, help_markup: impl Into<String>) -> Self {
+            self.help_markup = Some(help_markup.into());
             self
         }
     }
@@ -476,6 +503,10 @@ mod message_tests {
 
         fn binding_hints(&self) -> Vec<BindingHint> {
             self.hints.clone()
+        }
+
+        fn help_markup(&self) -> Option<&str> {
+            self.help_markup.as_deref()
         }
 
         fn has_focus(&self) -> bool {
@@ -862,6 +893,30 @@ mod message_tests {
     }
 
     #[test]
+    fn focused_help_metadata_returns_focused_widget_help() {
+        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next")]).with_child(
+            HintNode::new(true, vec![BindingHint::new("enter", "activate")])
+                .with_help("## Focused help\nUse enter"),
+        );
+
+        let focused = focused_help_metadata(&mut root);
+        assert!(matches!(
+            focused.as_ref(),
+            Some((_, markup)) if markup == "## Focused help\nUse enter"
+        ));
+    }
+
+    #[test]
+    fn focused_help_metadata_returns_none_without_focus() {
+        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next")]).with_child(
+            HintNode::new(false, vec![BindingHint::new("enter", "activate")])
+                .with_help("## Focused help"),
+        );
+
+        assert!(focused_help_metadata(&mut root).is_none());
+    }
+
+    #[test]
     fn focused_path_binding_hints_tracks_focus_transitions() {
         let mut root =
             HintNode::new(false, vec![BindingHint::new("tab", "next focus")]).with_child(
@@ -884,6 +939,33 @@ mod message_tests {
 
         let second = focused_path_binding_hints(&mut root);
         assert_eq!(second, vec![BindingHint::new("tab", "next focus")]);
+    }
+
+    #[test]
+    fn focused_help_metadata_tracks_focus_transitions() {
+        let mut root = HintNode::new(false, vec![BindingHint::new("tab", "next focus")])
+            .with_child(
+                HintNode::new(true, vec![BindingHint::new("left/right", "switch tab")])
+                    .with_help("## First"),
+            );
+
+        let first = focused_help_metadata(&mut root);
+        assert!(matches!(
+            first.as_ref(),
+            Some((_, markup)) if markup == "## First"
+        ));
+
+        if let Some(child) = root.child.as_mut() {
+            child.set_focus(false);
+        }
+        root.set_focus(true);
+        root.help_markup = Some("## Second".to_string());
+
+        let second = focused_help_metadata(&mut root);
+        assert!(matches!(
+            second.as_ref(),
+            Some((_, markup)) if markup == "## Second"
+        ));
     }
 
     #[test]

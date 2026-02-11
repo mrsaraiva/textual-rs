@@ -8,6 +8,30 @@ pub struct CommandPaletteCommand {
     pub help: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDirectoryEntry {
+    pub path: String,
+    pub label: String,
+    pub is_dir: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncTaskRequest {
+    ReadDirectory { path: String, show_hidden: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AsyncTaskResult {
+    DirectoryEntries {
+        path: String,
+        entries: Vec<AsyncDirectoryEntry>,
+    },
+    Failed {
+        path: String,
+        error: String,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ClearRequested,
@@ -64,6 +88,11 @@ pub enum Message {
     HelpPanelClearHelp {
         panel: WidgetId,
     },
+    HelpPanelFocusedHelpChanged {
+        source: WidgetId,
+        markup: String,
+    },
+    HelpPanelFocusedHelpCleared,
     PlaceholderVariantChanged {
         variant: String,
     },
@@ -178,6 +207,23 @@ pub enum Message {
     RichLogScrolled {
         offset: usize,
         max_offset: usize,
+    },
+    AsyncTaskSpawn {
+        task_id: u64,
+        target: WidgetId,
+        request: AsyncTaskRequest,
+    },
+    AsyncTaskCancel {
+        task_id: u64,
+    },
+    AsyncTaskCompleted {
+        task_id: u64,
+        target: WidgetId,
+        result: AsyncTaskResult,
+    },
+    AsyncTaskCancelled {
+        task_id: u64,
+        target: WidgetId,
     },
 }
 

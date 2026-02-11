@@ -4,6 +4,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use textual::css::set_style_context;
 use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
@@ -320,4 +321,22 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
     let reset_x = after_line.find("tip").expect("reset x");
 
     assert!(anchored_x > reset_x);
+}
+
+#[test]
+fn tooltip_accepts_vkey_border_styles_from_css() {
+    let console = Console::new();
+    let options = options_for(&console, 20, 4);
+    let _guard = set_style_context(StyleSheet::parse(
+        "Tooltip { border-left: vkey $foreground; }",
+    ));
+    let tooltip = Tooltip::new(Label::new("base"), "tip").visible(true);
+    let renderable = WidgetRenderable::new(&tooltip);
+    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(
+        lines.iter().any(|line| line.starts_with('\u{258f}')),
+        "expected vkey left border glyph on tooltip, got {lines:?}"
+    );
 }

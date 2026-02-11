@@ -1,11 +1,13 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent};
-use crate::message::{Message, MessageEvent};
+use crate::message::{
+    AsyncDirectoryEntry, AsyncTaskRequest, AsyncTaskResult, Message, MessageEvent,
+};
 
 use super::{
     Tree, TreeNode, Widget, WidgetId, WidgetStyles,
@@ -63,8 +65,9 @@ pub struct DirectoryTree {
     root: DirectoryNode,
     tree: Tree,
     visible_entries: Vec<VisibleEntry>,
-    pending_loads: VecDeque<PathBuf>,
-    pending_loads_set: HashSet<PathBuf>,
+    inflight_loads_by_path: HashMap<PathBuf, u64>,
+    inflight_loads_by_task: HashMap<u64, PathBuf>,
+    next_task_id: u64,
     show_hidden: bool,
     focused: bool,
     hovered: bool,
@@ -90,8 +93,9 @@ impl DirectoryTree {
             root,
             tree,
             visible_entries: Vec::new(),
-            pending_loads: VecDeque::new(),
-            pending_loads_set: HashSet::new(),
+            inflight_loads_by_path: HashMap::new(),
+            inflight_loads_by_task: HashMap::new(),
+            next_task_id: 1,
             show_hidden,
             focused: false,
             hovered: false,
@@ -141,8 +145,8 @@ impl DirectoryTree {
         let selected = self.selected_path().map(Path::to_path_buf);
         let mut expanded_paths = HashSet::new();
         collect_expanded_paths(&self.root, &mut expanded_paths);
-        self.pending_loads.clear();
-        self.pending_loads_set.clear();
+        self.inflight_loads_by_path.clear();
+        self.inflight_loads_by_task.clear();
         let root = build_root(
             self.root_path.clone(),
             self.show_hidden,
@@ -174,7 +178,7 @@ impl DirectoryTree {
         self.tree = tree;
     }
 
-    fn update_node_expanded_state(&mut self, index: usize, expanded: bool) {
+    fn update_node_expanded_state(&mut self, index: usize, expanded: bool, ctx: &mut EventCtx) {
         let Some(entry) = self.visible_entries.get(index).cloned() else {
             return;
         };
@@ -194,44 +198,96 @@ impl DirectoryTree {
             }
         }
         if let Some(path) = cancel_pending_for.as_deref() {
-            self.cancel_pending_loads_for(path);
+            self.cancel_inflight_loads_for(path, ctx);
         }
         if let Some(path) = queue_load_for.as_deref() {
-            self.enqueue_pending_load(path);
+            self.spawn_directory_load(path, ctx);
         }
 
         self.rebuild_tree(Some(entry.path));
     }
 
-    fn enqueue_pending_load(&mut self, path: &Path) {
-        let path = path.to_path_buf();
-        if self.pending_loads_set.insert(path.clone()) {
-            self.pending_loads.push_back(path);
+    fn spawn_directory_load(&mut self, path: &Path, ctx: &mut EventCtx) {
+        if self.inflight_loads_by_path.contains_key(path) {
+            return;
+        }
+        let path_buf = path.to_path_buf();
+        let task_id = self.next_task_id;
+        self.next_task_id += 1;
+        self.inflight_loads_by_path
+            .insert(path_buf.clone(), task_id);
+        self.inflight_loads_by_task
+            .insert(task_id, path_buf.clone());
+        ctx.post_message(
+            self.id,
+            Message::AsyncTaskSpawn {
+                task_id,
+                target: self.id,
+                request: AsyncTaskRequest::ReadDirectory {
+                    path: path_buf.display().to_string(),
+                    show_hidden: self.show_hidden,
+                },
+            },
+        );
+    }
+
+    fn cancel_inflight_loads_for(&mut self, path: &Path, ctx: &mut EventCtx) {
+        let task_ids = self
+            .inflight_loads_by_path
+            .iter()
+            .filter_map(|(pending_path, task_id)| {
+                is_same_or_descendant(pending_path, path).then_some(*task_id)
+            })
+            .collect::<Vec<_>>();
+
+        for task_id in task_ids {
+            if let Some(pending_path) = self.inflight_loads_by_task.remove(&task_id) {
+                self.inflight_loads_by_path.remove(&pending_path);
+            }
+            ctx.post_message(self.id, Message::AsyncTaskCancel { task_id });
         }
     }
 
-    fn cancel_pending_loads_for(&mut self, path: &Path) {
-        self.pending_loads
-            .retain(|pending| !is_same_or_descendant(pending, path));
-        self.pending_loads_set
-            .retain(|pending| !is_same_or_descendant(pending, path));
-    }
+    fn apply_directory_load_result(
+        &mut self,
+        task_id: u64,
+        result: &AsyncTaskResult,
+        ctx: &mut EventCtx,
+    ) {
+        let Some(path) = self.inflight_loads_by_task.remove(&task_id) else {
+            return;
+        };
+        self.inflight_loads_by_path.remove(&path);
 
-    fn process_next_pending_load(&mut self) -> bool {
-        while let Some(path) = self.pending_loads.pop_front() {
-            self.pending_loads_set.remove(&path);
-            let selected = self.selected_path().map(Path::to_path_buf);
-            if let Some(node) = find_node_mut(&mut self.root, &path) {
-                if !node.is_dir || !node.expanded || node.loaded {
-                    continue;
+        match result {
+            AsyncTaskResult::DirectoryEntries { entries, .. } => {
+                let selected = self.selected_path().map(Path::to_path_buf);
+                if let Some(node) = find_node_mut(&mut self.root, &path) {
+                    if node.is_dir && node.expanded && !node.loaded {
+                        node.children = entries
+                            .iter()
+                            .map(directory_node_from_async_entry)
+                            .collect::<Vec<_>>();
+                        node.loaded = true;
+                        self.rebuild_tree(selected);
+                        ctx.request_repaint();
+                    }
                 }
-                node.children = read_children(&node.path, self.show_hidden);
-                node.loaded = true;
-                self.rebuild_tree(selected);
-                return true;
+            }
+            AsyncTaskResult::Failed { .. } => {
+                if let Some(node) = find_node_mut(&mut self.root, &path) {
+                    node.children.clear();
+                    node.loaded = false;
+                }
             }
         }
-        false
+    }
+
+    fn clear_inflight_task(&mut self, task_id: u64) {
+        let Some(path) = self.inflight_loads_by_task.remove(&task_id) else {
+            return;
+        };
+        self.inflight_loads_by_path.remove(&path);
     }
 }
 
@@ -275,8 +331,8 @@ impl Widget for DirectoryTree {
     fn on_unmount(&mut self) {
         self.focused = false;
         self.hovered = false;
-        self.pending_loads.clear();
-        self.pending_loads_set.clear();
+        self.inflight_loads_by_path.clear();
+        self.inflight_loads_by_task.clear();
         self.tree.set_focus(false);
         self.tree.set_hovered(false);
         self.tree.on_unmount();
@@ -284,7 +340,6 @@ impl Widget for DirectoryTree {
 
     fn on_tick(&mut self, tick: u64) {
         self.tree.on_tick(tick);
-        let _ = self.process_next_pending_load();
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
@@ -316,12 +371,23 @@ impl Widget for DirectoryTree {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if message.sender != self.tree.id() {
-            return;
-        }
-
         match &message.message {
+            Message::AsyncTaskCompleted {
+                task_id,
+                target,
+                result,
+            } if *target == self.id => {
+                self.apply_directory_load_result(*task_id, result, ctx);
+                ctx.set_handled();
+            }
+            Message::AsyncTaskCancelled { task_id, target } if *target == self.id => {
+                self.clear_inflight_task(*task_id);
+                ctx.set_handled();
+            }
             Message::TreeNodeSelected { index, .. } => {
+                if message.sender != self.tree.id() {
+                    return;
+                }
                 if let Some(entry) = self.visible_entries.get(*index) {
                     let path = entry.path.display().to_string();
                     let forwarded = if entry.path.is_dir() {
@@ -342,12 +408,15 @@ impl Widget for DirectoryTree {
             Message::TreeNodeToggled {
                 index, expanded, ..
             } => {
+                if message.sender != self.tree.id() {
+                    return;
+                }
                 let label = self
                     .visible_entries
                     .get(*index)
                     .map(|entry| entry.path.display().to_string())
                     .unwrap_or_default();
-                self.update_node_expanded_state(*index, *expanded);
+                self.update_node_expanded_state(*index, *expanded, ctx);
                 ctx.post_message(
                     self.id,
                     Message::TreeNodeToggled {
@@ -452,6 +521,17 @@ fn read_children(path: &Path, show_hidden: bool) -> Vec<DirectoryNode> {
     });
 
     entries
+}
+
+fn directory_node_from_async_entry(entry: &AsyncDirectoryEntry) -> DirectoryNode {
+    DirectoryNode {
+        path: PathBuf::from(&entry.path),
+        label: entry.label.clone(),
+        is_dir: entry.is_dir,
+        expanded: false,
+        loaded: !entry.is_dir,
+        children: Vec::new(),
+    }
 }
 
 fn build_root(
@@ -624,5 +704,82 @@ mod tests {
                     if *index == 1 && path.ends_with("nested")
             )
         }));
+    }
+
+    #[test]
+    fn directory_tree_expand_emits_async_task_spawn_message() {
+        let temp = TempTreeDir::new("directory-tree-expand-spawn");
+        fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
+
+        let mut tree = DirectoryTree::new(&temp.path);
+        tree.on_layout(40, 4);
+
+        let mut ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeToggled {
+                    index: 1,
+                    label: "nested".to_string(),
+                    expanded: true,
+                },
+            },
+            &mut ctx,
+        );
+
+        let emitted = ctx.take_messages();
+        assert!(emitted.iter().any(|event| {
+            matches!(
+                &event.message,
+                Message::AsyncTaskSpawn {
+                    target,
+                    request: AsyncTaskRequest::ReadDirectory { .. },
+                    ..
+                } if *target == tree.id()
+            )
+        }));
+    }
+
+    #[test]
+    fn directory_tree_collapse_emits_async_task_cancel_message() {
+        let temp = TempTreeDir::new("directory-tree-collapse-cancel");
+        fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
+
+        let mut tree = DirectoryTree::new(&temp.path);
+        tree.on_layout(40, 4);
+
+        let mut expand_ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeToggled {
+                    index: 1,
+                    label: "nested".to_string(),
+                    expanded: true,
+                },
+            },
+            &mut expand_ctx,
+        );
+        let _ = expand_ctx.take_messages();
+
+        let mut collapse_ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeToggled {
+                    index: 1,
+                    label: "nested".to_string(),
+                    expanded: false,
+                },
+            },
+            &mut collapse_ctx,
+        );
+
+        let emitted = collapse_ctx.take_messages();
+        assert!(
+            emitted
+                .iter()
+                .any(|event| matches!(event.message, Message::AsyncTaskCancel { task_id: 1 }))
+        );
     }
 }
