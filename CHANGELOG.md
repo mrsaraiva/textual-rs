@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Phase 5 computed-style caching/tree closure**
+  - Added a per-widget computed-style cache/tree model in the CSS resolver path, keyed by widget id plus selector ancestry, parent style, inline style, and active stylesheet.
+  - Cache invalidation now occurs naturally on class/id/pseudo/style/ancestor/stylesheet changes via key mismatch, while preserving selector-chain correctness.
+  - Added render-pass tracking for layout-affecting computed-style deltas so layout callbacks are reapplied when cached style transitions change box-model-affecting fields.
+  - Added focused cache/invalidation regressions in `src/css/selectors/mod.rs`; full `cargo test -q --lib --tests` remains green.
 - **Phase 8 adapter-utilities breadth closure**
   - Expanded `TextualApp` adapter ergonomics with explicit typed message hooks for common app patterns (`Input`, `TextArea`, `Checkbox`, `ListView`, `TabActivated`, plus existing button/command-palette hooks) while keeping the same message-bus dispatch path.
   - Added compatibility runner aliases in `src/textual_app.rs`: `run_textual_app*` and `run_textual_app_or_snapshot*` (delegating to existing `run*` APIs, no alternate runtime path).

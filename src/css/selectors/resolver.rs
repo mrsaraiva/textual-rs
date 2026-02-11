@@ -2,7 +2,9 @@ use crate::style::Style;
 use crate::widgets::Widget;
 
 use super::ast::{SelectorMeta, SelectorStates, StyleSheet};
-use super::context::{SELECTOR_STACK, STYLE_CONTEXT, STYLE_STACK, app_is_active};
+use super::context::{
+    COMPUTED_STYLE_CACHE, SELECTOR_STACK, STYLE_CONTEXT, STYLE_STACK, app_is_active,
+};
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
 
@@ -115,6 +117,18 @@ pub(crate) fn current_parent_style() -> Option<Style> {
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
+    let widget_id = widget.id();
+    let key = super::context::ComputedStyleKey {
+        meta: meta.clone(),
+        ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),
+        parent_style: STYLE_STACK.with(|stack| stack.borrow().last().copied()),
+        inline_style: widget.style(),
+    };
+    if let Some(cached) = COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(widget_id, &key))
+    {
+        return cached;
+    }
+
     let sheet_style = STYLE_CONTEXT
         .with(|ctx| {
             ctx.borrow()
@@ -129,6 +143,16 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
     if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
         style = style.inherit_from(&parent);
     }
+    let layout_affected_changed = COMPUTED_STYLE_CACHE
+        .with(|cache| cache.borrow().prior_resolved(widget_id))
+        .is_some_and(|prior| {
+            layout_affecting_signature(prior) != layout_affecting_signature(style)
+        });
+    COMPUTED_STYLE_CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .store(widget_id, key, style, layout_affected_changed)
+    });
     style
 }
 
@@ -183,5 +207,58 @@ pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl F
             style_stack.borrow_mut().pop();
             out
         })
+    })
+}
+
+type LayoutAffectingSignature = (
+    Option<crate::style::Margin>,
+    crate::style::BorderEdge,
+    crate::style::BorderEdge,
+    crate::style::BorderEdge,
+    crate::style::BorderEdge,
+    Option<usize>,
+    Option<bool>,
+    Option<bool>,
+    Option<usize>,
+    Option<usize>,
+    Option<usize>,
+    Option<usize>,
+);
+
+fn layout_affecting_signature(style: Style) -> LayoutAffectingSignature {
+    (
+        style.margin,
+        style.border_top,
+        style.border_right,
+        style.border_bottom,
+        style.border_left,
+        style.line_pad,
+        style.width_auto,
+        style.height_auto,
+        style.min_width,
+        style.max_width,
+        style.min_height,
+        style.max_height,
+    )
+}
+
+pub(crate) fn begin_style_render_pass() {
+    COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().begin_render_pass());
+}
+
+pub(crate) fn take_layout_affected_style_changes() -> bool {
+    COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().take_layout_affected_change())
+}
+
+#[cfg(test)]
+pub(crate) fn reset_computed_style_cache_for_tests() {
+    COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().reset_for_tests());
+}
+
+#[cfg(test)]
+pub(crate) fn computed_style_cache_stats_for_tests() -> (u64, u64) {
+    COMPUTED_STYLE_CACHE.with(|cache| {
+        let stats = cache.borrow().stats_for_tests();
+        (stats.hits, stats.misses)
     })
 }

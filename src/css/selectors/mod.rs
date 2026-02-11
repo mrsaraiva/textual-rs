@@ -13,8 +13,10 @@ pub use context::{AppActiveGuard, StyleContextGuard, set_app_active, set_style_c
 
 // Crate-internal re-exports
 pub(crate) use resolver::{
-    current_parent_style, resolve_component_style, resolve_component_style_with_id, resolve_style,
-    resolve_style_for_meta, selector_meta_component, selector_meta_generic, with_style_stack,
+    begin_style_render_pass, current_parent_style, resolve_component_style,
+    resolve_component_style_with_id, resolve_style, resolve_style_for_meta,
+    selector_meta_component, selector_meta_generic, take_layout_affected_style_changes,
+    with_style_stack,
 };
 pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
 
@@ -23,13 +25,65 @@ mod tests {
     use super::parser::{
         parse_duration, parse_style_body, parse_transition_shorthand, parse_transition_timing,
     };
-    use super::resolver::{resolve_style, selector_meta_generic};
+    use super::resolver::{
+        begin_style_render_pass, computed_style_cache_stats_for_tests,
+        reset_computed_style_cache_for_tests, resolve_style, selector_meta_generic,
+        take_layout_affected_style_changes, with_style_stack,
+    };
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
-    use crate::css::default_widget_stylesheet;
+    use crate::css::{StyleSheet, default_widget_stylesheet};
     use crate::style::{Color, Style, TransitionTiming};
-    use crate::widgets::{Button, WidgetId};
+    use crate::widgets::{Button, Widget, WidgetId};
     use rich_rs::{Segment, Segments};
     use std::time::Duration;
+
+    struct ProbeWidget {
+        id: WidgetId,
+        classes: Vec<String>,
+        style_id: Option<String>,
+        focused: bool,
+    }
+
+    impl ProbeWidget {
+        fn new() -> Self {
+            Self {
+                id: WidgetId::new(),
+                classes: Vec::new(),
+                style_id: None,
+                focused: false,
+            }
+        }
+    }
+
+    impl Widget for ProbeWidget {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(
+            &self,
+            _console: &rich_rs::Console,
+            _options: &rich_rs::ConsoleOptions,
+        ) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "Probe"
+        }
+
+        fn style_id(&self) -> Option<&str> {
+            self.style_id.as_deref()
+        }
+
+        fn style_classes(&self) -> &[String] {
+            &self.classes
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+    }
 
     #[test]
     fn parses_transition_shorthand_duration_delay_and_timing() {
@@ -265,5 +319,74 @@ mod tests {
             dist(fg, bg) < dist(original_fg, original_bg),
             "foreground should move toward local background with opacity"
         );
+    }
+
+    #[test]
+    fn computed_style_cache_hits_for_stable_widget() {
+        reset_computed_style_cache_for_tests();
+        let _guard = super::context::set_style_context(StyleSheet::parse(
+            "Probe#target.on { fg: #ff00aa; }",
+        ));
+        let mut widget = ProbeWidget::new();
+        widget.style_id = Some("target".to_string());
+        widget.classes.push("on".to_string());
+        let meta = selector_meta_generic(&widget);
+
+        let first = resolve_style(&widget, &meta);
+        let second = resolve_style(&widget, &meta);
+
+        assert_eq!(first.fg, second.fg);
+        let (hits, misses) = computed_style_cache_stats_for_tests();
+        assert_eq!(hits, 1);
+        assert_eq!(misses, 1);
+    }
+
+    #[test]
+    fn computed_style_cache_invalidates_for_ancestor_selector_change() {
+        reset_computed_style_cache_for_tests();
+        let _guard = super::context::set_style_context(StyleSheet::parse(
+            "Probe.panel Probe.child { fg: #00ffaa; }",
+        ));
+
+        let mut parent = ProbeWidget::new();
+        parent.classes.push("panel".to_string());
+        let mut child = ProbeWidget::new();
+        child.classes.push("child".to_string());
+
+        let parent_meta = selector_meta_generic(&parent);
+        let parent_style = resolve_style(&parent, &parent_meta);
+        let child_with_panel = with_style_stack(parent_meta.clone(), parent_style, || {
+            resolve_style(&child, &selector_meta_generic(&child))
+        });
+
+        parent.classes.clear();
+        parent.classes.push("other".to_string());
+        let parent_meta_changed = selector_meta_generic(&parent);
+        let parent_style_changed = resolve_style(&parent, &parent_meta_changed);
+        let child_with_other = with_style_stack(parent_meta_changed, parent_style_changed, || {
+            resolve_style(&child, &selector_meta_generic(&child))
+        });
+
+        assert_ne!(child_with_panel.fg, child_with_other.fg);
+    }
+
+    #[test]
+    fn layout_affecting_computed_style_change_is_tracked_in_pass() {
+        reset_computed_style_cache_for_tests();
+        let _guard = super::context::set_style_context(StyleSheet::parse(
+            "Probe { min-width: 1; } Probe:focus { min-width: 12; }",
+        ));
+        let mut widget = ProbeWidget::new();
+        widget.focused = false;
+
+        begin_style_render_pass();
+        let _ = resolve_style(&widget, &selector_meta_generic(&widget));
+        assert!(!take_layout_affected_style_changes());
+
+        widget.focused = true;
+        begin_style_render_pass();
+        let focused = resolve_style(&widget, &selector_meta_generic(&widget));
+        assert_eq!(focused.min_width, Some(12));
+        assert!(take_layout_affected_style_changes());
     }
 }

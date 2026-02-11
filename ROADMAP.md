@@ -121,7 +121,7 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 | Done | Stylesheet hot reload | File watch with configurable interval |
 | Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
 | Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
-| Partial | Computed styles | On-demand style resolution (selector match + cascade + inline + inheritance) exists in render path; no cached per-widget computed-style tree yet |
+| Done | Computed styles | Per-widget computed-style cache/tree now memoizes selector/cascade + inline + inheritance across renders; cache keys include ancestor selector stack + parent style and invalidate correctly on style/class/id/pseudo/stylesheet changes, with layout-affecting computed deltas triggering layout application. |
 | Done | Style invalidation | Stylesheet hot-reload now computes changed rules and invalidates matching widgets/selectors (including descendant/child selector matches) with selective region redraw where feasible; falls back to full redraw for layout-affecting or broad changes. |
 
 Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**

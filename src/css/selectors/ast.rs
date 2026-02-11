@@ -137,7 +137,7 @@ impl SelectorChain {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectorMeta {
     pub(super) type_name: String,
     pub(super) id: Option<String>,
@@ -145,7 +145,7 @@ pub(crate) struct SelectorMeta {
     pub(super) states: SelectorStates,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SelectorStates {
     pub(super) disabled: bool,
     pub(super) focused: bool,

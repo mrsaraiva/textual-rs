@@ -1,4 +1,6 @@
-use crate::css::{set_app_active, set_style_context};
+use crate::css::{
+    begin_style_render_pass, set_app_active, set_style_context, take_layout_affected_style_changes,
+};
 use crate::debug::debug_render;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
@@ -79,11 +81,13 @@ impl App {
         sheet.extend(&self.stylesheet);
         let _active = set_app_active(self.app_active);
         let _guard = set_style_context(sheet);
+        begin_style_render_pass();
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {
             widget.render_styled(&self.console, &self.options)
         };
+        let layout_affected_style_change = take_layout_affected_style_changes();
         let (width, height) = self.options.size;
         let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
         let base_style = self.theme.base.to_rich();
@@ -143,7 +147,7 @@ impl App {
         let next_hit_test = HitTestMap::from_frame(&next);
         let geometry_changed = self.hit_test != next_hit_test;
         self.hit_test = next_hit_test;
-        if layout_invalidation || geometry_changed {
+        if layout_invalidation || geometry_changed || layout_affected_style_change {
             self.apply_layout_info(widget, &self.hit_test);
         }
         self.frame = next;
