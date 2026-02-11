@@ -34,7 +34,7 @@ impl StyleSheet {
     }
 }
 
-pub(super) fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
+pub(crate) fn parse_selector_list(selector: &str) -> Vec<SelectorChain> {
     let mut groups = Vec::new();
     for group in selector.split(',') {
         let group = group.trim();

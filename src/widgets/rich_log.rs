@@ -20,6 +20,7 @@ pub struct RichLog {
     highlight: bool,
     markup: bool,
     highlighter: rich_rs::highlighter::RegexHighlighter,
+    min_width: usize,
     scroll_step: usize,
     offset_y: usize,
     focused: bool,
@@ -62,6 +63,7 @@ impl RichLog {
             highlight: false,
             markup: false,
             highlighter: repr_highlighter(),
+            min_width: 78,
             scroll_step: 1,
             offset_y: 0,
             focused: false,
@@ -99,6 +101,11 @@ impl RichLog {
 
     pub fn markup(mut self, markup: bool) -> Self {
         self.markup = markup;
+        self
+    }
+
+    pub fn min_width(mut self, min_width: usize) -> Self {
+        self.min_width = min_width;
         self
     }
 
@@ -382,7 +389,7 @@ impl Widget for RichLog {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
+        let width = options.size.0.max(self.min_width).max(1);
         let height = options.size.1.max(1);
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(height, Ordering::Relaxed);

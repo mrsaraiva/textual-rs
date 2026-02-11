@@ -21,7 +21,11 @@ Log:focus {
     background-tint: $foreground 5%;
 }
 
-Pretty { fg: $foreground; }
+Static { height: auto; }
+
+Label { width: auto; height: auto; min-height: 1; }
+
+Pretty { fg: $foreground; height: auto; }
 
 RichLog {
     bg: $surface;

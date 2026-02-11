@@ -56,6 +56,14 @@ impl ContentSwitcher {
         self.current = current;
     }
 
+    /// Returns a reference to the currently visible content widget, if any.
+    ///
+    /// The visible child is determined by matching `current` against each
+    /// child's `style_id()`.
+    pub fn visible_content(&self) -> Option<&dyn Widget> {
+        self.visible_child()
+    }
+
     fn visible_child(&self) -> Option<&dyn Widget> {
         let current = self.current.as_deref()?;
         self.children

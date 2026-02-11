@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Parity Sprint 3: Compose foundation + DOM queries + validators/CSS**
+  - Added `src/compose.rs`: `ComposeResult`, `ChildDecl`, `WidgetBuilder`, `compose![]` macro with `From<W: Widget>` blanket impl.
+  - Added lifecycle event system: `LifecycleEvent` (Mount/Unmount) accumulator in `WidgetTree` with `drain_lifecycle()` API.
+  - Added DOM query methods: `query()`, `query_one()`, `query_children()` with CSS selector integration (type/class/id/combinator matching).
+  - Added `Integer`, `Length`, `Url`, `Regex` validators with 19 tests.
+  - Header: changed bg from `$primary` to `$panel`. Footer: aligned to `$footer-*` tokens.
+  - Added CSS defaults for Pretty (`height: auto`), Static (`height: auto`), Label (`width/height: auto; min-height: 1`).
+  - RichLog: added `min_width` field (default 78). ContentSwitcher: exposed `visible_content()` API.
 - **Parity Sprint 2: Pillar 1 core + Input/TextArea/Tabs quick wins**
   - Added arena-based `WidgetTree`/`WidgetNode` (`src/widget_tree.rs`) with mount/remove/move, class manipulation, traversal iterators, display toggle, and 22 unit tests.
   - Input: added key bindings (ctrl+d/k/f/a), public API (clear/insert/delete/replace/select_all/selected_text), password mode, regex restrict, max_length, InputBlurred message.

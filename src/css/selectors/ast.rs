@@ -145,6 +145,21 @@ pub(crate) struct SelectorMeta {
     pub(super) states: SelectorStates,
 }
 
+impl SelectorMeta {
+    /// Create a `SelectorMeta` with default (inactive) pseudo-class states.
+    ///
+    /// Used by `WidgetTree::query*` to build lightweight match targets without
+    /// requiring the full render-time style stack.
+    pub(crate) fn new(type_name: String, id: Option<String>, classes: Vec<String>) -> Self {
+        Self {
+            type_name,
+            id,
+            classes,
+            states: SelectorStates::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct SelectorStates {
     pub(super) disabled: bool,

@@ -1,6 +1,7 @@
 //! Textual-inspired reactive TUI framework built on rich-rs.
 
 pub mod animation;
+pub mod compose;
 pub mod css;
 pub mod debug;
 pub mod demo_snapshot;
@@ -34,6 +35,7 @@ pub use widgets::WidgetStyles;
 
 pub mod prelude {
     pub use crate::animation::{Animator, animation_level_from_env};
+    pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
     pub use crate::event::{Action, ActionMap, BindingHint, Event, EventCtx, KeyBind, WidgetCtx};
@@ -47,7 +49,9 @@ pub mod prelude {
         run_textual_app_or_snapshot, run_textual_app_or_snapshot_with_output,
         run_textual_app_with_output,
     };
-    pub use crate::validation::{Function, Number, ValidationResult, Validator, ValidatorRef};
+    pub use crate::validation::{
+        Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,
+    };
     pub use crate::widgets::{
         AppRoot, BindingsTable, Button, ButtonVariant, Center, CenterMiddle, Checkbox, Collapsible,
         CommandPalette, Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits,
@@ -64,6 +68,6 @@ pub mod prelude {
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
-    pub use crate::widget_tree::{WidgetNode, WidgetTree};
+    pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::{Error, Result};
 }

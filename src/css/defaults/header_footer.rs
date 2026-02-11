@@ -2,8 +2,8 @@
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Header {
-    bg: $primary;
-    fg: $text;
+    bg: $panel;
+    fg: $foreground;
     text-style: bold;
     line-pad: 1;
     height: auto;
@@ -31,19 +31,21 @@ Header > .header--clock {
 }
 
 Footer {
-    bg: $panel;
-    fg: $foreground;
+    bg: $footer-background;
+    fg: $footer-foreground;
     line-pad: 1;
     height: auto;
 }
 
 Footer > .footer-key--key {
-    fg: $accent;
+    fg: $footer-key-foreground;
+    bg: $footer-key-background;
     text-style: bold;
 }
 
 Footer > .footer-key--description {
-    fg: $text-disabled;
+    fg: $footer-description-foreground;
+    bg: $footer-description-background;
 }
 
 Footer > .footer-key--command-palette {
