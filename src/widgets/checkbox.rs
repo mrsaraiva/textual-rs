@@ -4,9 +4,9 @@ use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
+    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
-    Widget, WidgetId, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -157,8 +157,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         checkbox.on_event(&Event::Key(key), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true }))
+        );
     }
 }

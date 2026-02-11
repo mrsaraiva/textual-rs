@@ -513,9 +513,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
 mod tests {
     use super::*;
     use crate::event::{Event, EventCtx, MouseDownEvent};
-    use crate::message::MessageEvent;
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::message::MessageEvent;
     use crossterm::event::{KeyEvent, KeyModifiers};
 
     fn make_select() -> Select<i32> {

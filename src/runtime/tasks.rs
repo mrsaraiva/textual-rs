@@ -49,7 +49,8 @@ impl AsyncTaskRuntime {
         target: WidgetId,
         request: AsyncTaskRequest,
     ) -> Option<MessageEvent> {
-        let (previous_generation, replaced) = if let Some(previous) = self.running.remove(&task_id) {
+        let (previous_generation, replaced) = if let Some(previous) = self.running.remove(&task_id)
+        {
             previous.cancel_flag.store(true, Ordering::Relaxed);
             (
                 previous.generation,

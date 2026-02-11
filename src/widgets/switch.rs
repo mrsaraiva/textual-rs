@@ -4,9 +4,9 @@ use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
+    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
-    Widget, WidgetId, WidgetStyles,
 };
 
 /// The visual width of the switch slider track (in cells).
@@ -226,9 +226,11 @@ mod tests {
         assert!(widget.value());
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::SwitchChanged { value: true })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::SwitchChanged { value: true }))
+        );
     }
 
     #[test]

@@ -588,9 +588,12 @@ mod tests {
 
         list.toggle(0, &mut ctx);
         let messages = ctx.take_messages();
-        let toggled_pos = messages
-            .iter()
-            .position(|m| matches!(m.message, crate::message::Message::SelectionListToggled { .. }));
+        let toggled_pos = messages.iter().position(|m| {
+            matches!(
+                m.message,
+                crate::message::Message::SelectionListToggled { .. }
+            )
+        });
         let changed_pos = messages.iter().position(|m| {
             matches!(
                 m.message,
@@ -670,9 +673,11 @@ mod tests {
 
     #[test]
     fn selection_list_disabled_widget_ignores_keyboard_toggle() {
-        let mut list =
-            SelectionList::with_selections(vec![Selection::new("A", "a"), Selection::new("B", "b")])
-                .disabled(true);
+        let mut list = SelectionList::with_selections(vec![
+            Selection::new("A", "a"),
+            Selection::new("B", "b"),
+        ])
+        .disabled(true);
         list.set_focus(true);
 
         let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(

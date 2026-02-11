@@ -4,18 +4,18 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
-use crate::style::{parse_color_like, Color};
+use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use super::{
+    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
-        byte_index_from_cell_x, clamp_grapheme_boundary, edit_command_from_key,
-        first_clipboard_line, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
-        prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
+        EditCommand, MoveUnit, byte_index_from_cell_x, clamp_grapheme_boundary,
+        edit_command_from_key, first_clipboard_line, grapheme_cell_width, next_grapheme_boundary,
+        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     },
-    Widget, WidgetId, WidgetStyles,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4,9 +4,9 @@ use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::{
+    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
-    Widget, WidgetId, WidgetStyles,
 };
 
 /// A radio button widget that represents a boolean on/off value.
@@ -272,9 +272,11 @@ mod tests {
         button.on_event(&Event::Key(key), &mut ctx);
         assert!(button.value());
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::RadioButtonChanged { value: true })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::RadioButtonChanged { value: true }))
+        );
     }
 
     #[test]
