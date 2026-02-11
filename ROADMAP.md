@@ -258,8 +258,8 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Partial | Textual-like naming | CSS class conventions (`-style-default`, `-primary`, etc.) and property names mirror Textual where practical |
-| Partial | API mapping notes | App composition/messaging mapping notes exist; broader Python Textual ↔ textual-rs conceptual mapping is still incomplete |
+| Done | Textual-like naming | Naming guidance is now documented as source-of-truth in `docs/devel/TEXTUAL_COMPAT_MAPPING.md` (class/component/state naming + migration guidance) |
+| Done | API mapping notes | Python Textual ↔ textual-rs concept/API mapping is documented in `docs/devel/TEXTUAL_COMPAT_MAPPING.md` and aligned with current `TextualApp`/message-bus/runtime APIs |
 | Partial | Adapter utilities | `TextualApp` trait plus async/sync/snapshot runners cover core app wiring; broader compatibility shortcut layer is still limited |
 
 ---
@@ -443,11 +443,10 @@ Reference plan:
 
 2. Compatibility/doc ergonomics (`Phase 8`)
    - Current state:
-     - `Partial`: textual-like naming.
-     - `Partial`: API mapping notes.
+     - `Done`: textual-like naming.
+     - `Done`: API mapping notes.
      - `Partial`: adapter utilities breadth.
    - Target:
-     - publish a clear Python Textual ↔ textual-rs mapping source-of-truth,
      - expand compatibility adapter helpers for common app patterns,
      - tighten naming/terminology consistency where appropriate.
 
