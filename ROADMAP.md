@@ -273,7 +273,7 @@ These criteria intentionally overlap with v0.2 goals (message bus, invalidation,
 | Done | File-based debug tracing | `TEXTUAL_DEBUG_INPUT_FILE`, `TEXTUAL_DEBUG_LAYOUT_FILE`, `TEXTUAL_DEBUG_STYLE_FILE`, `TEXTUAL_DEBUG_RENDER_FILE` |
 | Done | Layout debug overlay | `DebugLayout` mode renders widget bounds and sizes |
 | Done | Initial widget/CSS module organization | Widgets live in `src/widgets/` and CSS engine lives in `src/css/`; deeper decomposition tracked in Phase 9.7 |
-| Todo | DevTools panel | In-app inspector (like Textual's DevTools) |
+| Todo | DevTools panel | In-app inspector (like Textual's DevTools). Scope boundary: `textual-rs` owns embedded inspector/runtime hooks; `textual-dev-rs` owns external CLI tooling (`keys`/`run`/`console`). |
 
 ---
 
@@ -440,6 +440,7 @@ Reference plan:
 ### Active Streams (Open Todo/Partial)
 1. DevTools panel (`Phase 9`)
    - `Todo`: in-app inspector MVP decision/implementation is still open.
+   - Boundary: this is the in-app panel/runtime-inspection stream in `textual-rs`; external developer CLI workflows stay in `textual-dev-rs`.
    - This stream is intentionally discussed/planned separately from completed closure streams.
 
 ### Doc Discipline
