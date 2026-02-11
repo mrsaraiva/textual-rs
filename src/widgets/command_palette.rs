@@ -13,6 +13,66 @@ use super::{
     helpers::{collect_focus_ids, set_focus_by_id},
 };
 
+/// Simple fuzzy matcher: scores a query against text based on character positions,
+/// consecutive-match bonuses, and start-of-word bonuses.
+pub struct FuzzyMatcher;
+
+impl FuzzyMatcher {
+    /// Returns a score if all characters in `query` appear (in order) in `text`.
+    /// Higher score = better match. Returns `None` if no match.
+    pub fn score(query: &str, text: &str) -> Option<u32> {
+        if query.is_empty() {
+            return Some(0);
+        }
+
+        let query_chars: Vec<char> = query.chars().collect();
+        let text_chars: Vec<char> = text.chars().collect();
+
+        if query_chars.len() > text_chars.len() {
+            return None;
+        }
+
+        let mut qi = 0;
+        let mut score: u32 = 0;
+        let mut prev_match_pos: Option<usize> = None;
+
+        for (ti, &tc) in text_chars.iter().enumerate() {
+            if qi < query_chars.len() && tc == query_chars[qi] {
+                // Base score per character matched
+                score += 10;
+
+                // Consecutive match bonus
+                if let Some(prev) = prev_match_pos {
+                    if ti == prev + 1 {
+                        score += 5;
+                    }
+                }
+
+                // Start-of-word bonus (first char or preceded by separator)
+                if ti == 0
+                    || text_chars
+                        .get(ti.wrapping_sub(1))
+                        .map_or(false, |&c| c == ' ' || c == '_' || c == '-')
+                {
+                    score += 8;
+                }
+
+                // Early position bonus (penalize late matches less)
+                score += (text_chars.len().saturating_sub(ti) as u32).min(5);
+
+                prev_match_pos = Some(ti);
+                qi += 1;
+            }
+        }
+
+        if qi == query_chars.len() {
+            Some(score)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PaletteCommand {
     pub id: String,
@@ -245,22 +305,24 @@ impl CommandPalette {
 
     fn rebuild_results(&mut self) {
         let needle = self.query.text().trim().to_lowercase();
-        self.filtered = self
-            .commands
-            .iter()
-            .enumerate()
-            .filter_map(|(index, command)| {
-                if needle.is_empty()
-                    || command.id.to_lowercase().contains(&needle)
-                    || command.title.to_lowercase().contains(&needle)
-                    || command.help.to_lowercase().contains(&needle)
-                {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        if needle.is_empty() {
+            self.filtered = (0..self.commands.len()).collect();
+        } else {
+            let mut scored: Vec<(usize, u32)> = self
+                .commands
+                .iter()
+                .enumerate()
+                .filter_map(|(index, command)| {
+                    let best = [&command.id, &command.title, &command.help]
+                        .iter()
+                        .filter_map(|text| FuzzyMatcher::score(&needle, &text.to_lowercase()))
+                        .max();
+                    best.map(|score| (index, score))
+                })
+                .collect();
+            scored.sort_by(|a, b| b.1.cmp(&a.1));
+            self.filtered = scored.into_iter().map(|(idx, _)| idx).collect();
+        }
         let list_items = self
             .filtered
             .iter()

@@ -53,7 +53,7 @@ pub use aliases::{
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::Collapsible;
-pub use command_palette::{CommandPalette, PaletteCommand};
+pub use command_palette::{CommandPalette, FuzzyMatcher, PaletteCommand};
 pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };

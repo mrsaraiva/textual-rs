@@ -17,6 +17,7 @@ pub struct Log {
     scroll_step: usize,
     offset_y: usize,
     focused: bool,
+    highlight: bool,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     content_height: AtomicUsize,
@@ -38,6 +39,7 @@ impl Log {
             scroll_step: 1,
             offset_y: 0,
             focused: false,
+            highlight: false,
             classes: Vec::new(),
             focused_classes: vec!["-focus".to_string()],
             content_height: AtomicUsize::new(1),
@@ -48,6 +50,18 @@ impl Log {
             max_line_width: 0,
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn with_highlight(mut self, highlight: bool) -> Self {
+        self.highlight = highlight;
+        self
+    }
+
+    pub fn with_highlighter(mut self, _name: impl Into<String>) -> Self {
+        // Language-specific highlighting is reserved for future use.
+        // Currently enables the default repr highlighter.
+        self.highlight = true;
+        self
     }
 
     pub fn max_lines(mut self, max_lines: usize) -> Self {
@@ -246,6 +260,24 @@ impl Log {
         }
         out
     }
+
+    fn render_line_segments(&self, console: &Console, options: &ConsoleOptions, line: &str, viewport_width: usize) -> Vec<Segment> {
+        let processed = Self::process_line(line);
+        if self.highlight {
+            // Use markup=false to avoid interpreting log text like "[error]" as rich markup.
+            // The highlight flag enables the repr highlighter for syntax coloring only.
+            let hl = console.render_str(&processed, Some(false), None, Some(true), None);
+            let rendered = hl.render(console, options);
+            let split = Segment::split_and_crop_lines(rendered, viewport_width, None, true, false);
+            if let Some(first) = split.into_iter().next() {
+                adjust_line_length_no_bg(&first, viewport_width.max(1))
+            } else {
+                adjust_line_length_no_bg(&[Segment::new(String::new())], viewport_width.max(1))
+            }
+        } else {
+            adjust_line_length_no_bg(&[Segment::new(processed)], viewport_width.max(1))
+        }
+    }
 }
 
 impl Widget for Log {
@@ -253,7 +285,7 @@ impl Widget for Log {
         self.id
     }
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         self.widget_width.store(width, Ordering::Relaxed);
@@ -285,15 +317,14 @@ impl Widget for Log {
         let display_count = self.line_count();
         let mut rows: Vec<Vec<Segment>> = Vec::with_capacity(height);
         for index in start..end {
-            let line = if index < display_count {
-                Self::process_line(&self.lines[index])
+            if index < display_count {
+                rows.push(self.render_line_segments(console, options, &self.lines[index], viewport_width));
             } else {
-                String::new()
-            };
-            rows.push(adjust_line_length_no_bg(
-                &[Segment::new(line)],
-                viewport_width.max(1),
-            ));
+                rows.push(adjust_line_length_no_bg(
+                    &[Segment::new(String::new())],
+                    viewport_width.max(1),
+                ));
+            }
         }
         while rows.len() < height {
             rows.push(vec![Segment::new(" ".repeat(viewport_width.max(1)))]);

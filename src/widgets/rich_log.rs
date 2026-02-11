@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use unicode_width::UnicodeWidthChar;
 
 use rich_rs::highlighter::repr_highlighter;
@@ -9,6 +11,59 @@ use crate::message::Message;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{ScrollView, Widget, WidgetId, WidgetStyles};
+
+/// Simple LRU cache for rendered line segments.
+#[derive(Debug)]
+struct LineCache {
+    entries: HashMap<(usize, u64), Vec<Vec<Segment>>>,
+    order: Vec<(usize, u64)>,
+    max_size: usize,
+}
+
+impl LineCache {
+    fn new(max_size: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: Vec::new(),
+            max_size: max_size.max(1),
+        }
+    }
+
+    fn get(&mut self, key: &(usize, u64)) -> Option<&Vec<Vec<Segment>>> {
+        if self.entries.contains_key(key) {
+            // Move to end (most recently used)
+            self.order.retain(|k| k != key);
+            self.order.push(*key);
+            self.entries.get(key)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: (usize, u64), value: Vec<Vec<Segment>>) {
+        if self.entries.contains_key(&key) {
+            self.order.retain(|k| *k != key);
+        } else if self.entries.len() >= self.max_size {
+            // Evict least recently used
+            if let Some(evicted) = self.order.first().cloned() {
+                self.entries.remove(&evicted);
+                self.order.remove(0);
+            }
+        }
+        self.entries.insert(key, value);
+        self.order.push(key);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
+    fn invalidate_from(&mut self, line_index: usize) {
+        self.entries.retain(|&(idx, _), _| idx < line_index);
+        self.order.retain(|&(idx, _)| idx < line_index);
+    }
+}
 
 #[derive(Debug)]
 pub struct RichLog {
@@ -32,6 +87,8 @@ pub struct RichLog {
     widget_height: AtomicUsize,
     drag_v: Option<usize>,
     styles: WidgetStyles,
+    cache: Mutex<LineCache>,
+    cache_width: AtomicUsize,
 }
 
 enum LogLine {
@@ -39,6 +96,25 @@ enum LogLine {
     Markup(String),
     Styled(Vec<Segment>),
     Renderable(Box<dyn Renderable>),
+}
+
+impl LogLine {
+    fn content_hash(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::mem::discriminant(self).hash(&mut hasher);
+        match self {
+            LogLine::Plain(s) | LogLine::Markup(s) => s.hash(&mut hasher),
+            LogLine::Styled(segs) => {
+                for seg in segs {
+                    seg.text.hash(&mut hasher);
+                }
+            }
+            // Renderables are opaque — use a unique sentinel so they never match
+            LogLine::Renderable(_) => 0xDEAD_BEEF_u64.hash(&mut hasher),
+        }
+        hasher.finish()
+    }
 }
 
 impl std::fmt::Debug for LogLine {
@@ -75,7 +151,14 @@ impl RichLog {
             widget_height: AtomicUsize::new(1),
             drag_v: None,
             styles: WidgetStyles::default(),
+            cache: Mutex::new(LineCache::new(1000)),
+            cache_width: AtomicUsize::new(0),
         }
+    }
+
+    pub fn cache_size(mut self, max_entries: usize) -> Self {
+        self.cache = Mutex::new(LineCache::new(max_entries));
+        self
     }
 
     pub fn max_lines(mut self, max_lines: usize) -> Self {
@@ -90,17 +173,26 @@ impl RichLog {
     }
 
     pub fn wrap(mut self, wrap: bool) -> Self {
-        self.wrap = wrap;
+        if self.wrap != wrap {
+            self.wrap = wrap;
+            self.cache.lock().unwrap().clear();
+        }
         self
     }
 
     pub fn highlight(mut self, highlight: bool) -> Self {
-        self.highlight = highlight;
+        if self.highlight != highlight {
+            self.highlight = highlight;
+            self.cache.lock().unwrap().clear();
+        }
         self
     }
 
     pub fn markup(mut self, markup: bool) -> Self {
-        self.markup = markup;
+        if self.markup != markup {
+            self.markup = markup;
+            self.cache.lock().unwrap().clear();
+        }
         self
     }
 
@@ -116,6 +208,7 @@ impl RichLog {
 
     pub fn write(&mut self, content: impl Into<String>) -> &mut Self {
         let content = content.into();
+        let insert_from = self.lines.len();
         if content.is_empty() {
             self.lines.push(LogLine::Plain(String::new()));
         } else {
@@ -126,6 +219,7 @@ impl RichLog {
                     .map(LogLine::Plain),
             );
         }
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
             self.scroll_end();
@@ -136,8 +230,10 @@ impl RichLog {
     }
 
     pub fn write_segments(&mut self, segments: Vec<Segment>) -> &mut Self {
+        let insert_from = self.lines.len();
         let estimated_added_lines = self.estimate_segment_lines(&segments);
         self.lines.push(LogLine::Styled(segments));
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
             self.scroll_end_with_estimated_added_lines(estimated_added_lines);
@@ -149,6 +245,7 @@ impl RichLog {
 
     pub fn write_markup(&mut self, content: impl Into<String>) -> &mut Self {
         let content = content.into();
+        let insert_from = self.lines.len();
         if content.is_empty() {
             self.lines.push(LogLine::Markup(String::new()));
         } else {
@@ -159,6 +256,7 @@ impl RichLog {
                     .map(LogLine::Markup),
             );
         }
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
             self.scroll_end();
@@ -169,8 +267,10 @@ impl RichLog {
     }
 
     pub fn write_renderable(&mut self, renderable: impl Renderable + 'static) -> &mut Self {
+        let insert_from = self.lines.len();
         let estimated_added_lines = self.estimate_renderable_lines(&renderable);
         self.lines.push(LogLine::Renderable(Box::new(renderable)));
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
             self.scroll_end_with_estimated_added_lines(estimated_added_lines);
@@ -188,6 +288,7 @@ impl RichLog {
         self.lines.clear();
         self.offset_y = 0;
         self.content_height.store(1, Ordering::Relaxed);
+        self.cache.lock().unwrap().clear();
         self
     }
 
@@ -197,6 +298,8 @@ impl RichLog {
                 let excess = self.lines.len() - max_lines;
                 self.lines.drain(0..excess);
                 self.offset_y = self.offset_y.saturating_sub(excess);
+                // Indices shifted — clear the whole cache
+                self.cache.lock().unwrap().clear();
             }
         }
     }
@@ -265,89 +368,41 @@ impl RichLog {
             return vec![vec![Segment::new(String::new())]];
         }
 
+        // Invalidate cache if width changed
+        let prev_width = self.cache_width.swap(width, Ordering::Relaxed);
+        if prev_width != width {
+            self.cache.lock().unwrap().clear();
+        }
+
         let mut out: Vec<Vec<Segment>> = Vec::new();
-        for line in &self.lines {
-            match line {
-                LogLine::Plain(content) => {
-                    let text = console.render_str(
-                        content,
-                        Some(self.markup),
-                        None,
-                        Some(self.highlight),
-                        Some(&self.highlighter),
-                    );
-                    if self.wrap {
-                        for wrapped in wrap_line(content, width.max(1)) {
-                            let rendered = if self.markup || self.highlight {
-                                console
-                                    .render_str(
-                                        &wrapped,
-                                        Some(self.markup),
-                                        None,
-                                        Some(self.highlight),
-                                        Some(&self.highlighter),
-                                    )
-                                    .render(console, options)
-                            } else {
-                                Text::plain(wrapped).render(console, options)
-                            };
-                            let split =
-                                Segment::split_and_crop_lines(rendered, width, None, true, false);
-                            if let Some(first) = split.first() {
-                                out.push(first.clone());
-                            } else {
-                                out.push(vec![Segment::new(String::new())]);
-                            }
-                        }
-                    } else {
-                        let rendered = text.render(console, options);
-                        let split =
-                            Segment::split_and_crop_lines(rendered, width, None, true, false);
-                        if let Some(first) = split.first() {
-                            out.push(first.clone());
-                        } else {
-                            out.push(vec![Segment::new(String::new())]);
-                        }
+        for (line_idx, line) in self.lines.iter().enumerate() {
+            // Renderable lines are opaque/dynamic — skip caching
+            let cacheable = !matches!(line, LogLine::Renderable(_));
+
+            if cacheable {
+                let content_hash = line.content_hash();
+                let cache_key = (line_idx, content_hash);
+
+                // Try cache first
+                {
+                    let mut cache = self.cache.lock().unwrap();
+                    if let Some(cached) = cache.get(&cache_key) {
+                        out.extend(cached.iter().cloned());
+                        continue;
                     }
                 }
-                LogLine::Markup(content) => {
-                    let rendered = console.render_str(content, Some(true), None, None, None);
-                    let split = Segment::split_and_crop_lines(
-                        rendered.render(console, options),
-                        width,
-                        None,
-                        true,
-                        false,
-                    );
-                    if split.is_empty() {
-                        out.push(vec![Segment::new(String::new())]);
-                    } else {
-                        out.extend(split);
-                    }
+
+                let rendered_lines = self.render_line(line, console, options, width);
+
+                // Store in cache
+                {
+                    let mut cache = self.cache.lock().unwrap();
+                    cache.insert(cache_key, rendered_lines.clone());
                 }
-                LogLine::Styled(segments) => {
-                    let split =
-                        Segment::split_and_crop_lines(segments.clone(), width, None, true, false);
-                    if split.is_empty() {
-                        out.push(vec![Segment::new(String::new())]);
-                    } else {
-                        out.extend(split);
-                    }
-                }
-                LogLine::Renderable(renderable) => {
-                    let split = Segment::split_and_crop_lines(
-                        renderable.render(console, options),
-                        width,
-                        None,
-                        true,
-                        false,
-                    );
-                    if split.is_empty() {
-                        out.push(vec![Segment::new(String::new())]);
-                    } else {
-                        out.extend(split);
-                    }
-                }
+
+                out.extend(rendered_lines);
+            } else {
+                out.extend(self.render_line(line, console, options, width));
             }
         }
 
@@ -355,6 +410,99 @@ impl RichLog {
             out.push(vec![Segment::new(String::new())]);
         }
         out
+    }
+
+    fn render_line(
+        &self,
+        line: &LogLine,
+        console: &Console,
+        options: &ConsoleOptions,
+        width: usize,
+    ) -> Vec<Vec<Segment>> {
+        match line {
+            LogLine::Plain(content) => {
+                let text = console.render_str(
+                    content,
+                    Some(self.markup),
+                    None,
+                    Some(self.highlight),
+                    Some(&self.highlighter),
+                );
+                if self.wrap {
+                    let mut lines = Vec::new();
+                    for wrapped in wrap_line(content, width.max(1)) {
+                        let rendered = if self.markup || self.highlight {
+                            console
+                                .render_str(
+                                    &wrapped,
+                                    Some(self.markup),
+                                    None,
+                                    Some(self.highlight),
+                                    Some(&self.highlighter),
+                                )
+                                .render(console, options)
+                        } else {
+                            Text::plain(wrapped).render(console, options)
+                        };
+                        let split =
+                            Segment::split_and_crop_lines(rendered, width, None, true, false);
+                        if let Some(first) = split.first() {
+                            lines.push(first.clone());
+                        } else {
+                            lines.push(vec![Segment::new(String::new())]);
+                        }
+                    }
+                    lines
+                } else {
+                    let rendered = text.render(console, options);
+                    let split =
+                        Segment::split_and_crop_lines(rendered, width, None, true, false);
+                    if let Some(first) = split.first() {
+                        vec![first.clone()]
+                    } else {
+                        vec![vec![Segment::new(String::new())]]
+                    }
+                }
+            }
+            LogLine::Markup(content) => {
+                let rendered = console.render_str(content, Some(true), None, None, None);
+                let split = Segment::split_and_crop_lines(
+                    rendered.render(console, options),
+                    width,
+                    None,
+                    true,
+                    false,
+                );
+                if split.is_empty() {
+                    vec![vec![Segment::new(String::new())]]
+                } else {
+                    split
+                }
+            }
+            LogLine::Styled(segments) => {
+                let split =
+                    Segment::split_and_crop_lines(segments.clone(), width, None, true, false);
+                if split.is_empty() {
+                    vec![vec![Segment::new(String::new())]]
+                } else {
+                    split
+                }
+            }
+            LogLine::Renderable(renderable) => {
+                let split = Segment::split_and_crop_lines(
+                    renderable.render(console, options),
+                    width,
+                    None,
+                    true,
+                    false,
+                );
+                if split.is_empty() {
+                    vec![vec![Segment::new(String::new())]]
+                } else {
+                    split
+                }
+            }
+        }
     }
 
     fn estimate_segment_lines(&self, segments: &[Segment]) -> usize {
@@ -536,6 +684,7 @@ impl Widget for RichLog {
         if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
             let was_dragging = self.drag_v.take().is_some();
             if was_dragging {
+                ctx.request_repaint();
                 ctx.set_handled();
             }
         }

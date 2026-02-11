@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Parity Sprint 5: Compose wiring + final QW batch**
+  - P1-05: Wired compose API into live runtime. `App` builds `WidgetTree` from root's `compose()` on startup. Event dispatch, focus management, scroll/mouse routing, message queue, and layout info all bridged through `_auto` methods that use tree-based paths when available, falling back to legacy recursive dispatch otherwise.
+  - RichLog: added `Mutex<LineCache>` LRU cache for rendered line segments with configurable size (QW-43). Fixed pre-existing drag-release repaint bug.
+  - Log: added `with_highlight(bool)` and `with_highlighter(name)` for syntax highlighting via repr highlighter (QW-44).
+  - KeyPanel: added namespace grouping with styled section headers when multiple binding groups exist (QW-45).
+  - CommandPalette: added `FuzzyMatcher` with consecutive-match, start-of-word, and position bonuses for score-based ranking (QW-46).
 - **Parity Sprint 4: Widget trait redesign + runtime scaffold + QW batch**
   - Widget trait redesign (P1-02): `id()`, `visit_children_mut()`, `set_focus_target()` deprecated with defaults (kept for migration). Added `compose()` default returning empty. `render_styled_dyn_obj` now accepts `NodeId` parameter for future arena rendering.
   - Runtime event routing scaffold (P1-11): Added tree-based dispatch functions (`dispatch_event_tree`, `build_path_to_node`, `focused_node_id_tree`) using explicit `Vec<NodeId>` paths alongside old recursive dispatch.

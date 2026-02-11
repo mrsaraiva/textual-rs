@@ -8,13 +8,16 @@ mod timers;
 mod types;
 
 use crate::animation::{Animator, animation_level_from_env};
+use crate::compose::{ChildDecl, WidgetBuilder};
 use crate::css::{StyleSheet, default_widget_stylesheet};
 use crate::debug::{DebugLayout, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
 use crate::event::{ActionMap, BindingHint, KeyBind};
 use crate::message::MessageEvent;
+use crate::node_id::NodeId;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
+use crate::widget_tree::WidgetTree;
 use crate::widgets::{ToastSeverity, Widget, WidgetId};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -33,7 +36,6 @@ use types::{
 
 use helpers::{apply_size, default_action_map};
 
-use helpers::{call_on_mouse_move, pointer_shape_for_hover};
 
 pub struct App {
     driver: TerminalDriver,
@@ -71,6 +73,12 @@ pub struct App {
     async_tasks: AsyncTaskRuntime,
     one_shot_timers: OneShotTimerRuntime,
     devtools: Option<devtools::DevtoolsRuntime>,
+    /// Arena-based widget tree built from `compose()` declarations.
+    ///
+    /// `None` until `build_widget_tree()` is called during app startup.
+    /// When present, the runtime uses tree-based event dispatch and focus
+    /// management instead of the legacy recursive `visit_children_mut` paths.
+    widget_tree: Option<WidgetTree>,
 }
 
 impl App {
@@ -136,8 +144,64 @@ impl App {
             async_tasks: AsyncTaskRuntime::default(),
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
+            widget_tree: None,
         };
         Ok(app)
+    }
+
+    /// Build the arena-based widget tree from a root widget's `compose()` declarations.
+    ///
+    /// Recursively processes each widget's `compose()` output, mounting children
+    /// into the `WidgetTree`. After building, the tree is stored in `self.widget_tree`
+    /// and tree-based dispatch paths become active.
+    pub(crate) fn build_widget_tree(&mut self, root: &dyn Widget) {
+        let mut tree = WidgetTree::new();
+        let declarations = root.compose();
+        if declarations.is_empty() {
+            // No compose declarations — tree stays empty (root-only widgets
+            // still use the old recursive paths for children they manage
+            // internally via visit_children_mut).
+            self.widget_tree = None;
+            return;
+        }
+        // Mount a synthetic root node that mirrors the real root widget.
+        // We don't move the root widget into the tree — it stays as the
+        // `&mut dyn Widget` parameter. The tree tracks structure only.
+        //
+        // Use a lightweight stub widget for the root slot.
+        let root_node_id = tree.set_root(Box::new(TreeStubWidget::from_widget(root)));
+        Self::mount_declarations(&mut tree, root_node_id, declarations);
+        // Drain lifecycle events from initial build (mount events) — the
+        // runtime will call on_mount separately via the existing path.
+        let _ = tree.drain_lifecycle();
+        self.widget_tree = Some(tree);
+    }
+
+    /// Recursively mount `ChildDecl` declarations into the tree under `parent`.
+    fn mount_declarations(tree: &mut WidgetTree, parent: NodeId, declarations: Vec<ChildDecl>) {
+        for decl in declarations {
+            let WidgetBuilder::Ready(widget) = decl.builder;
+            // Collect nested compose declarations from the widget itself.
+            let child_compose = widget.compose();
+            let node_id = tree.mount(parent, widget);
+            // Apply CSS id/classes from the declaration.
+            if let Some(id_str) = &decl.id {
+                // CSS id is stored on the widget itself (style_id), not
+                // on the tree node. Tree-level classes are separate.
+                let _ = id_str; // Reserved for future tree-level id support.
+            }
+            for class in &decl.classes {
+                tree.add_class(node_id, class);
+            }
+            // Mount explicit child declarations first.
+            if !decl.children.is_empty() {
+                Self::mount_declarations(tree, node_id, decl.children);
+            }
+            // Then mount compose() declarations from the widget itself.
+            if !child_compose.is_empty() {
+                Self::mount_declarations(tree, node_id, child_compose);
+            }
+        }
     }
 
     pub(super) fn clipboard_message_sender() -> WidgetId {
@@ -443,7 +507,7 @@ impl App {
         if hovered_changed {
             self.hovered = hovered;
             crate::widgets::set_hover_by_id(root, self.hovered);
-            let shape = pointer_shape_for_hover(root, self.hovered);
+            let shape = self.pointer_shape_for_hover_auto(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
         }
 
@@ -453,7 +517,7 @@ impl App {
             let (lx, ly) = self
                 .hit_test
                 .content_local_coords(root, id, x as u16, y as u16);
-            moved_changed = call_on_mouse_move(root, id, lx, ly);
+            moved_changed = self.call_on_mouse_move_auto(root, id, lx, ly);
         }
 
         hovered_changed || moved_changed
@@ -601,4 +665,45 @@ fn style_affects_layout(style: crate::style::Style) -> bool {
         || style.max_width.is_some()
         || style.min_height.is_some()
         || style.max_height.is_some()
+}
+
+// ---------------------------------------------------------------------------
+// TreeStubWidget — lightweight root-slot placeholder for the arena tree
+// ---------------------------------------------------------------------------
+
+/// Minimal widget used as the root slot in the arena-based `WidgetTree`.
+///
+/// The real root widget is owned by the caller (`run_widget_tree` parameter).
+/// This stub mirrors its identity metadata so tree-based dispatch and CSS
+/// queries can locate the root position. No rendering, events, or focus
+/// are handled — those are forwarded to the real root widget.
+struct TreeStubWidget {
+    #[allow(deprecated)]
+    id: WidgetId,
+    type_name: &'static str,
+}
+
+impl TreeStubWidget {
+    #[allow(deprecated)]
+    fn from_widget(w: &dyn Widget) -> Self {
+        Self {
+            id: w.id(),
+            type_name: w.style_type(),
+        }
+    }
+}
+
+impl Widget for TreeStubWidget {
+    #[allow(deprecated)]
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+        rich_rs::Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        self.type_name
+    }
 }

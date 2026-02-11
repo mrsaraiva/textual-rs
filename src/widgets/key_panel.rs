@@ -43,9 +43,27 @@ impl BindingsTable {
         if self.bindings.is_empty() {
             1
         } else {
-            // Header + divider + data rows.
-            self.bindings.len() + 2
+            let group_count = self.count_groups();
+            if group_count > 0 {
+                // Header + divider + data rows + group_title per group + separator between groups
+                self.bindings.len() + 2 + group_count + (group_count - 1)
+            } else {
+                // Header + divider + data rows.
+                self.bindings.len() + 2
+            }
         }
+    }
+
+    fn count_groups(&self) -> usize {
+        let mut seen: Vec<Option<&str>> = Vec::new();
+        for binding in &self.bindings {
+            let g = binding.group.as_deref();
+            if !seen.iter().any(|s| *s == g) {
+                seen.push(g);
+            }
+        }
+        // Group headers are shown only when there are multiple distinct groups
+        if seen.len() <= 1 { 0 } else { seen.len() }
     }
 
     fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
@@ -140,17 +158,74 @@ impl BindingsTable {
             &[Segment::styled("─".repeat(width), divider_style)],
             width,
         ));
-        for binding in &self.bindings {
-            let key = rich_rs::set_cell_size(&binding.key, key_column_width);
-            out.push(adjust_line_length_no_bg(
-                &[
-                    Segment::new(" ".to_string()),
-                    Segment::styled(key, key_style),
-                    Segment::styled("  ".to_string(), divider_style),
-                    Segment::styled(binding.description.clone(), description_style),
-                ],
-                width,
-            ));
+
+        // Determine if we need group separators
+        let use_groups = self.count_groups() > 0;
+
+        if use_groups {
+            // Collect unique groups in order of first appearance
+            let mut group_order: Vec<Option<String>> = Vec::new();
+            for binding in &self.bindings {
+                let g = binding.group.clone();
+                if !group_order.iter().any(|existing| *existing == g) {
+                    group_order.push(g);
+                }
+            }
+
+            let group_title_style = rich_rs::Style::new()
+                .with_color(
+                    parse_color_like("$text")
+                        .or_else(|| parse_color_like("$foreground"))
+                        .unwrap_or_else(|| crate::style::Color::rgb(215, 219, 224))
+                        .to_simple_opaque(),
+                )
+                .with_bold(true)
+                .with_dim(true);
+
+            for (group_idx, group) in group_order.iter().enumerate() {
+                if group_idx > 0 {
+                    // Blank separator line between groups
+                    out.push(adjust_line_length_no_bg(
+                        &[Segment::new(" ".repeat(width))],
+                        width,
+                    ));
+                }
+                let title = group.as_deref().unwrap_or("General");
+                out.push(adjust_line_length_no_bg(
+                    &[
+                        Segment::new(" ".to_string()),
+                        Segment::styled(title.to_string(), group_title_style),
+                    ],
+                    width,
+                ));
+                for binding in &self.bindings {
+                    if binding.group == *group {
+                        let key = rich_rs::set_cell_size(&binding.key, key_column_width);
+                        out.push(adjust_line_length_no_bg(
+                            &[
+                                Segment::new(" ".to_string()),
+                                Segment::styled(key, key_style),
+                                Segment::styled("  ".to_string(), divider_style),
+                                Segment::styled(binding.description.clone(), description_style),
+                            ],
+                            width,
+                        ));
+                    }
+                }
+            }
+        } else {
+            for binding in &self.bindings {
+                let key = rich_rs::set_cell_size(&binding.key, key_column_width);
+                out.push(adjust_line_length_no_bg(
+                    &[
+                        Segment::new(" ".to_string()),
+                        Segment::styled(key, key_style),
+                        Segment::styled("  ".to_string(), divider_style),
+                        Segment::styled(binding.description.clone(), description_style),
+                    ],
+                    width,
+                ));
+            }
         }
         out
     }
@@ -256,10 +331,14 @@ impl KeyPanel {
         let mapped = bindings
             .iter()
             .map(|hint| {
-                FooterBinding::new(
+                let mut binding = FooterBinding::new(
                     hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
                     hint.description.clone(),
-                )
+                );
+                if let Some(ref group) = hint.group {
+                    binding = binding.with_group(group);
+                }
+                binding
             })
             .collect::<Vec<_>>();
         self.set_bindings(mapped);
