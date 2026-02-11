@@ -68,3 +68,24 @@ fn text_area_ctrl_backspace_deletes_previous_word() {
 
     assert_eq!(text_area.text(), "alpha ");
 }
+
+#[test]
+fn text_area_super_left_and_alt_backspace_shortcuts_work() {
+    let mut text_area = TextArea::new("alpha beta");
+    text_area.set_focus(true);
+    let mut ctx = EventCtx::default();
+
+    text_area.on_event(&key(KeyCode::End), &mut ctx);
+    text_area.on_event(
+        &key_with_modifiers(KeyCode::Left, KeyModifiers::SUPER),
+        &mut ctx,
+    );
+    assert_eq!(text_area.text(), "alpha beta");
+
+    text_area.on_event(&key(KeyCode::End), &mut ctx);
+    text_area.on_event(
+        &key_with_modifiers(KeyCode::Backspace, KeyModifiers::ALT),
+        &mut ctx,
+    );
+    assert_eq!(text_area.text(), "alpha ");
+}

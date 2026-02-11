@@ -1,5 +1,5 @@
 use rich_rs::Console;
-use textual::event::{Event, EventCtx, MouseUpEvent};
+use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -162,6 +162,19 @@ fn footer_compact_mode_tightens_spacing() {
 #[test]
 fn header_mouse_up_toggles_tall_outside_icon() {
     let mut header = Header::new().title("Textual Keys");
+    let mut down_ctx = EventCtx::default();
+    header.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: header.id(),
+            screen_x: 20,
+            screen_y: 0,
+            x: 20,
+            y: 0,
+        }),
+        &mut down_ctx,
+    );
+    assert!(down_ctx.handled());
+
     let mut ctx = EventCtx::default();
     header.on_event(
         &Event::MouseUp(MouseUpEvent {
@@ -182,6 +195,19 @@ fn header_mouse_up_toggles_tall_outside_icon() {
 #[test]
 fn header_icon_click_does_not_toggle_tall() {
     let mut header = Header::new().title("Textual Keys");
+    let mut down_ctx = EventCtx::default();
+    header.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: header.id(),
+            screen_x: 1,
+            screen_y: 0,
+            x: 1,
+            y: 0,
+        }),
+        &mut down_ctx,
+    );
+    assert!(down_ctx.handled());
+
     let mut ctx = EventCtx::default();
     header.on_event(
         &Event::MouseUp(MouseUpEvent {
@@ -211,4 +237,36 @@ fn header_can_render_clock() {
     let buf = FrameBuffer::from_renderable(&console, &options, &header, None);
     let line = &buf.as_plain_lines()[0];
     assert!(line.contains(":"));
+}
+
+#[test]
+fn header_cross_region_press_release_is_noop() {
+    let mut header = Header::new().title("Textual Keys");
+    let id = header.id();
+    let mut down_ctx = EventCtx::default();
+    header.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: id,
+            screen_x: 1,
+            screen_y: 0,
+            x: 1,
+            y: 0,
+        }),
+        &mut down_ctx,
+    );
+    assert!(down_ctx.handled());
+
+    let mut up_ctx = EventCtx::default();
+    header.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(id),
+            screen_x: 20,
+            screen_y: 0,
+            x: 20,
+            y: 0,
+        }),
+        &mut up_ctx,
+    );
+    assert!(up_ctx.handled());
+    assert_eq!(header.layout_height(), Some(1));
 }

@@ -408,6 +408,7 @@ impl Widget for Log {
         if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
             let was_dragging = self.drag_v.take().is_some();
             if was_dragging {
+                ctx.request_repaint();
                 ctx.set_handled();
             }
         }
@@ -538,5 +539,42 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.message, Message::RichLogScrolled { .. }))
         );
+    }
+
+    #[test]
+    fn mouse_up_after_thumb_drag_requests_repaint() {
+        let console = Console::new();
+        let options = options_for(&console, 16, 3);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+        let _ = log.render(&console, &options);
+
+        let id = log.id();
+        let mut down_ctx = EventCtx::default();
+        log.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: id,
+                screen_x: 15,
+                screen_y: 0,
+                x: 15,
+                y: 0,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut up_ctx = EventCtx::default();
+        log.on_event(
+            &Event::MouseUp(crate::event::MouseUpEvent {
+                target: Some(id),
+                screen_x: 15,
+                screen_y: 0,
+                x: 15,
+                y: 0,
+            }),
+            &mut up_ctx,
+        );
+        assert!(up_ctx.handled());
+        assert!(up_ctx.repaint_requested());
     }
 }

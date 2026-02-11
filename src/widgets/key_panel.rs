@@ -459,6 +459,7 @@ impl Widget for KeyPanel {
         }
         if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
             if self.drag_v.take().is_some() {
+                ctx.request_repaint();
                 ctx.set_handled();
             }
         }
@@ -607,5 +608,43 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.message, Message::KeyPanelScrolled { .. }))
         );
+    }
+
+    #[test]
+    fn mouse_up_after_thumb_drag_requests_repaint() {
+        let console = Console::new();
+        let options = options_for(&console, 32, 6);
+        let bindings = (1..=16)
+            .map(|index| FooterBinding::new(format!("k{index:02}"), format!("item {index:02}")))
+            .collect::<Vec<_>>();
+        let mut panel = KeyPanel::new().with_bindings(bindings);
+        let _ = panel.render(&console, &options);
+
+        let mut down_ctx = EventCtx::default();
+        panel.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: panel.id(),
+                screen_x: 31,
+                screen_y: 1,
+                x: 31,
+                y: 1,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut up_ctx = EventCtx::default();
+        panel.on_event(
+            &Event::MouseUp(crate::event::MouseUpEvent {
+                target: Some(panel.id()),
+                screen_x: 31,
+                screen_y: 1,
+                x: 31,
+                y: 1,
+            }),
+            &mut up_ctx,
+        );
+        assert!(up_ctx.handled());
+        assert!(up_ctx.repaint_requested());
     }
 }

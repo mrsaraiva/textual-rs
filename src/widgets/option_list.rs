@@ -134,6 +134,17 @@ impl OptionList {
         }
     }
 
+    /// Clear the current highlighted option.
+    pub fn clear_highlighted(&mut self) {
+        self.cursor.set_highlighted(None);
+        self.ensure_visible();
+    }
+
+    /// Return the first selectable index, if any.
+    pub fn first_selectable_index(&self) -> Option<usize> {
+        self.first_selectable()
+    }
+
     /// Replace all items at once.
     pub fn set_items(&mut self, items: Vec<OptionItem>) {
         self.items = items;
@@ -419,6 +430,13 @@ impl Widget for OptionList {
                 }
                 _ => {}
             },
+            Event::AppFocus(false) => {
+                if self.hovered || self.hovered_index.is_some() {
+                    self.hovered = false;
+                    self.hovered_index = None;
+                    ctx.request_repaint();
+                }
+            }
             _ => {}
         }
     }
@@ -454,6 +472,11 @@ impl Widget for OptionList {
             delta_y.saturating_mul(self.scroll_step as i32) as isize,
             ctx,
         );
+    }
+
+    fn on_unmount(&mut self) {
+        self.hovered = false;
+        self.hovered_index = None;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -721,5 +744,20 @@ mod tests {
         assert_eq!(list.highlighted(), before);
         assert!(!ctx.handled());
         assert!(!list.focusable());
+    }
+
+    #[test]
+    fn app_focus_loss_clears_hover_state() {
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
+        let mut list = OptionList::with_items(items);
+        list.set_hovered(true);
+        assert!(list.on_mouse_move(0, 0));
+
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::AppFocus(false), &mut ctx);
+
+        assert!(!list.is_hovered());
+        assert!(list.hovered_index.is_none());
+        assert!(ctx.repaint_requested());
     }
 }

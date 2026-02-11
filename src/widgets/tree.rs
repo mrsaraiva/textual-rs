@@ -66,6 +66,7 @@ pub struct Tree {
     focused: bool,
     hovered: bool,
     hovered_index: Option<usize>,
+    pressed_activation_index: Option<usize>,
     viewport_height: usize,
     scroll_step: usize,
     classes: Vec<String>,
@@ -94,6 +95,7 @@ impl Tree {
             focused: false,
             hovered: false,
             hovered_index: None,
+            pressed_activation_index: None,
             viewport_height: 1,
             scroll_step: 1,
             classes: vec!["tree".to_string()],
@@ -170,6 +172,7 @@ impl Tree {
             self.selected = 0;
             self.offset = 0;
             self.hovered_index = None;
+            self.pressed_activation_index = None;
             return;
         }
         self.selected = self.selected.min(total - 1);
@@ -510,13 +513,27 @@ impl Widget for Tree {
                     }
                     let twist_col = node.depth.saturating_mul(2) + 2;
                     if node.expandable && (mouse.x as usize) <= twist_col {
+                        self.pressed_activation_index = None;
                         self.toggle_index(index, ctx);
                     } else {
                         self.select_index(index, ctx);
-                        self.emit_activated(ctx, index, &nodes);
+                        self.pressed_activation_index = Some(index);
+                        if self.hovered_index != Some(index) {
+                            self.hovered_index = Some(index);
+                            ctx.request_repaint();
+                        }
                     }
                     ctx.set_handled();
                 }
+            }
+            Event::MouseUp(mouse) if mouse.target == Some(self.id) => {
+                let index = self.offset.saturating_add(mouse.y as usize);
+                let nodes = self.visible_nodes();
+                if self.pressed_activation_index == Some(index) {
+                    self.emit_activated(ctx, index, &nodes);
+                    ctx.set_handled();
+                }
+                self.pressed_activation_index = None;
             }
             Event::Action(action) if self.focused => match action {
                 Action::ScrollUp => {
@@ -589,6 +606,7 @@ impl Widget for Tree {
                 _ => {}
             },
             Event::AppFocus(false) => {
+                self.pressed_activation_index = None;
                 if self.hovered || self.hovered_index.is_some() {
                     self.hovered = false;
                     self.hovered_index = None;
@@ -628,6 +646,7 @@ impl Widget for Tree {
     fn on_unmount(&mut self) {
         self.hovered = false;
         self.hovered_index = None;
+        self.pressed_activation_index = None;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -714,7 +733,7 @@ impl Renderable for Tree {
 #[cfg(test)]
 mod tests {
     use super::{Tree, TreeNode, VisibleNode};
-    use crate::event::{Event, EventCtx, MouseDownEvent};
+    use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
     use crate::widgets::Widget;
@@ -823,6 +842,48 @@ mod tests {
                 expanded: false,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn mouse_row_click_activates_on_mouse_up() {
+        let mut tree = Tree::new(vec![TreeNode::new("Root"), TreeNode::new("Second")]);
+        tree.on_layout(24, 4);
+        let id = tree.id();
+
+        let mut down_ctx = EventCtx::default();
+        tree.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 1,
+                screen_y: 1,
+                x: 1,
+                y: 1,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+        assert_eq!(down_ctx.take_messages().len(), 1); // selection changed only
+
+        let mut up_ctx = EventCtx::default();
+        tree.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                target: Some(id),
+                screen_x: 1,
+                screen_y: 1,
+                x: 1,
+                y: 1,
+            }),
+            &mut up_ctx,
+        );
+        let messages = up_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::TreeNodeActivated {
+                index: 1,
+                ref label
+            } if label == "Second"
         ));
     }
 

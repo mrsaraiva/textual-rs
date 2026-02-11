@@ -19,6 +19,7 @@ pub struct Header {
     hovered: bool,
     icon: String,
     icon_hover: bool,
+    pressed_icon: Option<bool>,
     icon_width: usize,
     clock_width: usize,
     show_clock: bool,
@@ -38,6 +39,7 @@ impl Header {
             hovered: false,
             icon: "⭘".to_string(),
             icon_hover: false,
+            pressed_icon: None,
             icon_width: 8,
             clock_width: 10,
             show_clock: false,
@@ -158,11 +160,27 @@ impl Widget for Header {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseUp(mouse) => {
-                if mouse.target != Some(self.id) {
+            Event::MouseDown(mouse) => {
+                if mouse.target != self.id {
                     return;
                 }
-                if (mouse.x as usize) < self.icon_width {
+                self.pressed_icon = Some((mouse.x as usize) < self.icon_width);
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) => {
+                if mouse.target != Some(self.id) {
+                    self.pressed_icon = None;
+                    return;
+                }
+                let released_on_icon = (mouse.x as usize) < self.icon_width;
+                let Some(pressed_icon) = self.pressed_icon.take() else {
+                    return;
+                };
+                if pressed_icon != released_on_icon {
+                    ctx.set_handled();
+                    return;
+                }
+                if released_on_icon {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
                     ctx.post_message(self.id, Message::HeaderIconPressed);
@@ -175,6 +193,7 @@ impl Widget for Header {
                 ctx.set_handled();
             }
             Event::AppFocus(false) => {
+                self.pressed_icon = None;
                 if self.hovered || self.icon_hover {
                     self.hovered = false;
                     self.icon_hover = false;
@@ -188,6 +207,7 @@ impl Widget for Header {
     fn on_unmount(&mut self) {
         self.hovered = false;
         self.icon_hover = false;
+        self.pressed_icon = None;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -320,13 +340,26 @@ impl Renderable for Header {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::MouseUpEvent;
+    use crate::event::{MouseDownEvent, MouseUpEvent};
 
     #[test]
     fn header_body_click_toggles_tall_and_emits_message() {
         let mut header = Header::new();
-        let mut ctx = EventCtx::default();
         let id = header.id();
+        let mut down_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                x: 9,
+                y: 0,
+                screen_x: 9,
+                screen_y: 0,
+                target: id,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut ctx = EventCtx::default();
         header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 9,
@@ -352,8 +385,21 @@ mod tests {
     #[test]
     fn header_icon_click_does_not_emit_toggle_message() {
         let mut header = Header::new();
-        let mut ctx = EventCtx::default();
         let id = header.id();
+        let mut down_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                x: 0,
+                y: 0,
+                screen_x: 0,
+                screen_y: 0,
+                target: id,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut ctx = EventCtx::default();
         header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 0,
@@ -394,5 +440,37 @@ mod tests {
         header.on_unmount();
         assert!(!header.hovered);
         assert!(!header.icon_hover);
+    }
+
+    #[test]
+    fn header_cross_region_press_release_is_noop() {
+        let mut header = Header::new();
+        let id = header.id();
+        let mut down_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut up_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 12,
+                y: 0,
+                screen_x: 12,
+                screen_y: 0,
+                target: Some(id),
+            }),
+            &mut up_ctx,
+        );
+        assert!(up_ctx.handled());
+        assert!(up_ctx.take_messages().is_empty());
     }
 }

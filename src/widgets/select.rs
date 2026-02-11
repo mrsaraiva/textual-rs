@@ -75,13 +75,20 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 
     /// Programmatically set the value. If the value is not found, selection is cleared.
     pub fn set_value(&mut self, value: &T) {
-        self.cursor
-            .set_selected(self.options.iter().position(|(_, v)| v == value));
+        let selected = self.options.iter().position(|(_, v)| v == value);
+        self.cursor.set_selected(selected);
+        self.cursor.set_highlighted(selected);
+        if let Some(index) = selected {
+            self.list.set_highlighted(index);
+        } else {
+            self.list.clear_highlighted();
+        }
     }
 
     /// Clear the current selection (revert to prompt state).
     pub fn clear(&mut self) {
-        self.cursor.set_selected(None);
+        self.cursor.clear();
+        self.list.clear_highlighted();
     }
 
     /// Whether the dropdown overlay is currently open.
@@ -123,6 +130,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             if let Some(selected) = self.cursor.selected() {
                 self.list.set_highlighted(selected);
                 self.cursor.set_highlighted(Some(selected));
+            } else if let Some(first) = self.list.first_selectable_index() {
+                self.list.set_highlighted(first);
+                self.cursor.set_highlighted(Some(first));
+            } else {
+                self.list.clear_highlighted();
+                self.cursor.set_highlighted(None);
             }
             self.list.set_focus(true);
         } else {
@@ -632,6 +645,22 @@ mod tests {
         sel.set_value(&2);
         sel.clear();
         assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn select_clear_then_reopen_highlights_first_selectable() {
+        let mut sel = make_select();
+        sel.set_value(&3);
+        sel.clear();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(open), &mut ctx);
+
+        assert!(sel.is_open());
+        assert_eq!(sel.list.highlighted(), Some(0));
     }
 
     #[test]

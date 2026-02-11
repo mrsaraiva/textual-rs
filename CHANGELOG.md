@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Tier-B/Tier-C closure follow-up (`PR8D`)**
+  - `ListView`/`Tree` interaction polish:
+    - moved row activation to press/release semantics (emit on matching `MouseUp`), preserving selection/twist-toggle behavior and tightening hover synchronization on click.
+  - `Header` interaction polish:
+    - added icon/body press-region matching so cross-region press/release is a no-op.
+  - Text-edit platform-fidelity shortcuts:
+    - added `Ctrl+Insert` (copy), `Shift+Insert` (paste), `Shift+Delete` (cut),
+      `Alt+Left/Right/Backspace/Delete` word-nav/delete, and `Super+A/E/Left/Right/Backspace` home/end/delete-to-start mappings.
+  - Utility parity/lifecycle polish:
+    - `Select`/`OptionList` highlight lifecycle now resets correctly on clear/reopen and clears hover state on app focus loss/unmount.
+    - `Log` and `KeyPanel` now request repaint when scrollbar drag ends so thumb active state clears immediately.
 - **Tier-A final closure batch (`PR8C`)**
   - `DataTable`:
     - added horizontal viewport scrollbar parity (render + track-click paging + thumb-drag),

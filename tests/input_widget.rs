@@ -64,3 +64,34 @@ fn input_ctrl_backspace_deletes_previous_word() {
 
     assert_eq!(input.text(), "alpha ");
 }
+
+#[test]
+fn input_super_left_and_alt_backspace_shortcuts_work() {
+    let mut input = Input::new();
+    input.set_focus(true);
+    input.set_text("alpha beta");
+    input.on_event(
+        &key(KeyCode::End, KeyModifiers::NONE),
+        &mut EventCtx::default(),
+    );
+    input.on_event(
+        &key(KeyCode::Left, KeyModifiers::SUPER),
+        &mut EventCtx::default(),
+    );
+    input.on_event(
+        &key(KeyCode::Char('Z'), KeyModifiers::NONE),
+        &mut EventCtx::default(),
+    );
+    assert_eq!(input.text(), "Zalpha beta");
+
+    input.set_text("alpha beta");
+    input.on_event(
+        &key(KeyCode::End, KeyModifiers::NONE),
+        &mut EventCtx::default(),
+    );
+    input.on_event(
+        &key(KeyCode::Backspace, KeyModifiers::ALT),
+        &mut EventCtx::default(),
+    );
+    assert_eq!(input.text(), "alpha ");
+}

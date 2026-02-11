@@ -19,6 +19,7 @@ pub struct ListView {
     focused: bool,
     hovered: bool,
     hovered_index: Option<usize>,
+    pressed_index: Option<usize>,
     viewport_height: usize,
     scroll_step: usize,
     classes: Vec<String>,
@@ -38,6 +39,7 @@ impl ListView {
             focused: false,
             hovered: false,
             hovered_index: None,
+            pressed_index: None,
             viewport_height: 1,
             scroll_step: 1,
             classes: vec!["list-view".to_string()],
@@ -155,6 +157,7 @@ impl ListView {
             self.selected = 0;
             self.offset = 0;
             self.hovered_index = None;
+            self.pressed_index = None;
             return;
         }
         self.selected = self.selected.min(self.items.len() - 1);
@@ -329,9 +332,21 @@ impl Widget for ListView {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
                     self.select_index(index, ctx);
+                    self.pressed_index = Some(index);
+                    if self.hovered_index != Some(index) {
+                        self.hovered_index = Some(index);
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                }
+            }
+            Event::MouseUp(mouse) if mouse.target == Some(self.id) => {
+                let index = self.offset.saturating_add(mouse.y as usize);
+                if self.pressed_index == Some(index) && self.is_selectable(index) {
                     self.emit_item_activated(index, ctx);
                     ctx.set_handled();
                 }
+                self.pressed_index = None;
             }
             Event::Action(action) if self.focused => match action {
                 Action::ScrollUp => {
@@ -388,6 +403,7 @@ impl Widget for ListView {
                 _ => {}
             },
             Event::AppFocus(false) => {
+                self.pressed_index = None;
                 if self.hovered || self.hovered_index.is_some() {
                     self.hovered = false;
                     self.hovered_index = None;
@@ -424,6 +440,7 @@ impl Widget for ListView {
     fn on_unmount(&mut self) {
         self.hovered = false;
         self.hovered_index = None;
+        self.pressed_index = None;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -508,7 +525,7 @@ impl Renderable for ListView {
 #[cfg(test)]
 mod tests {
     use super::ListView;
-    use crate::event::{Event, EventCtx, MouseDownEvent};
+    use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
     use crate::widgets::Widget;
@@ -560,8 +577,21 @@ mod tests {
             }),
             &mut ctx,
         );
+        assert!(ctx.handled());
 
-        let messages = ctx.take_messages();
+        let mut up_ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                target: Some(id),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut up_ctx,
+        );
+
+        let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
@@ -585,5 +615,27 @@ mod tests {
         assert!(!list.is_hovered());
         assert_eq!(list.hovered_index, None);
         assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn mouse_click_updates_hovered_index() {
+        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
+        list.on_layout(20, 2);
+        let id = list.id();
+
+        let mut down_ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut down_ctx,
+        );
+
+        assert_eq!(list.hovered_index, Some(1));
+        assert!(down_ctx.repaint_requested());
     }
 }
