@@ -82,6 +82,10 @@ impl Tooltip {
         self.visible
     }
 
+    pub fn anchor_target_id(&self) -> WidgetId {
+        self.child.id()
+    }
+
     fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
         if self.visible == visible {
             return;
@@ -349,6 +353,25 @@ impl Widget for Tooltip {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::AppFocus(active) => {
+                if !*active && self.visible {
+                    self.set_visible(false, ctx);
+                    ctx.set_handled();
+                }
+            }
+            Event::MouseDown(mouse) if mouse.target == self.child.id() => {
+                self.set_anchor(mouse.x as usize, mouse.y as usize);
+            }
+            Event::MouseUp(mouse) if mouse.target == Some(self.child.id()) => {
+                self.set_anchor(mouse.x as usize, mouse.y as usize);
+            }
+            Event::MouseScroll(mouse) if mouse.target == Some(self.child.id()) => {
+                self.set_anchor(mouse.x as usize, mouse.y as usize);
+            }
+            _ => {}
+        }
+
         self.child.on_event(event, ctx);
         if ctx.handled() {
             return;

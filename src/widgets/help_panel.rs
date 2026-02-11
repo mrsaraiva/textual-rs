@@ -19,6 +19,7 @@ pub struct HelpPanel {
     markdown: Markdown,
     key_panel: KeyPanel,
     show_help: bool,
+    app_active: bool,
     help_markup: String,
     classes: Vec<String>,
     classes_with_help: Vec<String>,
@@ -32,6 +33,7 @@ impl HelpPanel {
             markdown: Markdown::new(""),
             key_panel: KeyPanel::new().title("Keys"),
             show_help: false,
+            app_active: true,
             help_markup: String::new(),
             classes: vec!["help-panel".to_string(), "-textual-system".to_string()],
             classes_with_help: vec![
@@ -83,7 +85,7 @@ impl HelpPanel {
 
     fn split_heights(&self, width: usize, height: usize) -> (usize, usize) {
         let height = height.max(1);
-        if !self.show_help {
+        if !self.show_help || !self.app_active {
             return (0, height);
         }
 
@@ -182,6 +184,13 @@ impl Widget for HelpPanel {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::AppFocus(active) = event {
+            if self.app_active != *active {
+                self.app_active = *active;
+                ctx.request_repaint();
+            }
+        }
+
         self.key_panel.on_event(event, ctx);
         if !ctx.handled() {
             self.markdown.on_event(event, ctx);

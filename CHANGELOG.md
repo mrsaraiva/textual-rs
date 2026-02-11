@@ -8,6 +8,18 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Container-family parity baseline (`containers.py` alignment pass)**
+  - Added new container aliases: `Vertical`, `Center`, `Right`, and `Middle`.
+  - Added `ScrollHome` / `ScrollEnd` actions and key bindings (`home`, `end`) plus `ctrl+pageup` / `ctrl+pagedown` horizontal paging bindings.
+  - Made `ScrollView` and `HorizontalScroll` focusable and wired home/end handling across scroll aliases/container primitives.
+  - Added focused coverage in `tests/container_parity.rs` and scroll container suites.
+- **Tier-B/C widget polish follow-up**
+  - `ListView`/`Tree` now model highlighted-vs-hovered styling semantics more explicitly (`-highlighted` class behavior).
+  - Added runtime clipboard store plumbing for text-edit message flow:
+    - handles `TextEditClipboardCopyRequested` and `TextEditClipboardPasteRequested`,
+    - responds with `TextEditClipboardPaste` through the runtime message bus.
+  - `Welcome` lifecycle polish: close action now emits both `ButtonPressed` and `OverlayDismissRequested`.
+  - `Tooltip`/`HelpPanel` lifecycle polish: runtime-driven tooltip anchor updates from mouse events, tooltip hide on app focus loss, and help-panel active/inactive visibility behavior.
 - **Widget closure follow-up slices: Header/Footer + Tooltip/HelpPanel + DirectoryTree**
   - `Header` lifecycle polish:
     - explicit hover state cleanup on leave, app focus loss, and unmount transitions.

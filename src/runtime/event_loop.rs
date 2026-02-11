@@ -5,6 +5,7 @@ use crate::event::{
     MouseUpEvent,
 };
 use crate::keys::KeyEventData;
+use crate::message::{Message, MessageEvent};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
 use rich_rs::Renderable;
 use std::time::{Duration, Instant};
@@ -28,7 +29,58 @@ fn should_dispatch_binding_hints(
     last_hints != current_hints || last_sources != current_sources
 }
 
+fn collect_clipboard_runtime_messages(
+    clipboard: &mut Option<String>,
+    messages: &[MessageEvent],
+) -> Vec<MessageEvent> {
+    let mut generated = Vec::new();
+    for event in messages {
+        match &event.message {
+            Message::TextEditClipboardCopyRequested { text, .. } => {
+                *clipboard = Some(text.clone());
+            }
+            Message::TextEditClipboardPasteRequested { target } => {
+                if let Some(text) = clipboard.clone() {
+                    generated.push(App::clipboard_message_event(*target, text));
+                }
+            }
+            _ => {}
+        }
+    }
+    generated
+}
+
 impl App {
+    fn dispatch_message_queue_with_runtime(
+        &mut self,
+        root: &mut dyn Widget,
+        initial: Vec<MessageEvent>,
+    ) -> DispatchOutcome {
+        if initial.is_empty() {
+            return DispatchOutcome::default();
+        }
+
+        let mut aggregate = DispatchOutcome::default();
+        let mut queue = initial;
+        loop {
+            let runtime_messages = collect_clipboard_runtime_messages(&mut self.clipboard, &queue);
+            let mut outcome = dispatch_message_queue(root, queue);
+            aggregate.handled |= outcome.handled;
+            aggregate.repaint_requested |= outcome.repaint_requested;
+            aggregate.stop_requested |= outcome.stop_requested;
+            aggregate.messages.append(&mut outcome.messages);
+            aggregate
+                .animation_requests
+                .append(&mut outcome.animation_requests);
+
+            if aggregate.stop_requested || runtime_messages.is_empty() {
+                break;
+            }
+            queue = runtime_messages;
+        }
+        aggregate
+    }
+
     pub async fn run_with<F, R>(&mut self, mut render: F) -> crate::Result<()>
     where
         F: FnMut(&mut App, u64) -> R,
@@ -152,7 +204,8 @@ impl App {
                                 outcome.messages.len()
                             ));
                             self.absorb_outcome(&mut outcome, &mut dirty);
-                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            let mut msg_outcome =
+                                self.dispatch_message_queue_with_runtime(root, outcome.messages);
                             self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
@@ -171,7 +224,8 @@ impl App {
                             key_outcome.messages.len()
                         ));
                         self.absorb_outcome(&mut key_outcome, &mut dirty);
-                        let mut msg_outcome = dispatch_message_queue(root, key_outcome.messages);
+                        let mut msg_outcome =
+                            self.dispatch_message_queue_with_runtime(root, key_outcome.messages);
                         self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if key_outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
@@ -201,8 +255,8 @@ impl App {
                                     outcome.messages.len()
                                 ));
                                 self.absorb_outcome(&mut outcome, &mut dirty);
-                                let mut msg_outcome =
-                                    dispatch_message_queue(root, outcome.messages);
+                                let mut msg_outcome = self
+                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
                                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
@@ -247,8 +301,8 @@ impl App {
                                     }),
                                 );
                                 self.absorb_outcome(&mut outcome, &mut dirty);
-                                let mut msg_outcome =
-                                    dispatch_message_queue(root, outcome.messages);
+                                let mut msg_outcome = self
+                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
                                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
@@ -278,7 +332,8 @@ impl App {
                                 }),
                             );
                             self.absorb_outcome(&mut outcome, &mut dirty);
-                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            let mut msg_outcome =
+                                self.dispatch_message_queue_with_runtime(root, outcome.messages);
                             self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
@@ -345,8 +400,8 @@ impl App {
                                 )
                             };
                             self.absorb_outcome(&mut diag_outcome, &mut dirty);
-                            let mut msg_outcome =
-                                dispatch_message_queue(root, diag_outcome.messages);
+                            let mut msg_outcome = self
+                                .dispatch_message_queue_with_runtime(root, diag_outcome.messages);
                             self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             let mut outcome = if let Some(target) = target {
                                 dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
@@ -360,7 +415,8 @@ impl App {
                                 outcome.messages.len()
                             ));
                             self.absorb_outcome(&mut outcome, &mut dirty);
-                            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                            let mut msg_outcome =
+                                self.dispatch_message_queue_with_runtime(root, outcome.messages);
                             self.absorb_outcome(&mut msg_outcome, &mut dirty);
                             if diag_outcome.stop_requested
                                 || outcome.stop_requested
@@ -379,7 +435,8 @@ impl App {
                         let mut outcome =
                             dispatch_event(root, Event::Resize(size.width, size.height));
                         self.absorb_outcome(&mut outcome, &mut dirty);
-                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut msg_outcome =
+                            self.dispatch_message_queue_with_runtime(root, outcome.messages);
                         self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
@@ -390,7 +447,8 @@ impl App {
                         debug_input("[event] FocusLost");
                         let mut outcome = dispatch_event(root, Event::AppFocus(false));
                         self.absorb_outcome(&mut outcome, &mut dirty);
-                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut msg_outcome =
+                            self.dispatch_message_queue_with_runtime(root, outcome.messages);
                         self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
@@ -401,7 +459,8 @@ impl App {
                         debug_input("[event] FocusGained");
                         let mut outcome = dispatch_event(root, Event::AppFocus(true));
                         self.absorb_outcome(&mut outcome, &mut dirty);
-                        let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                        let mut msg_outcome =
+                            self.dispatch_message_queue_with_runtime(root, outcome.messages);
                         self.absorb_outcome(&mut msg_outcome, &mut dirty);
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
@@ -441,7 +500,8 @@ impl App {
                 dirty = true;
                 let mut outcome = dispatch_event(root, Event::Tick(tick));
                 self.absorb_outcome(&mut outcome, &mut dirty);
-                let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+                let mut msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
                 self.absorb_outcome(&mut msg_outcome, &mut dirty);
                 let notifications_before = self.notifications.len();
                 let now = Instant::now();
@@ -488,7 +548,7 @@ impl App {
         self.last_binding_hints = current.clone();
         self.last_binding_hint_sources = current_sources;
         let outcome = dispatch_event(root, Event::BindingsChanged(current));
-        let msg_outcome = dispatch_message_queue(root, outcome.messages);
+        let msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
         DispatchOutcome {
             handled: outcome.handled || msg_outcome.handled,
             repaint_requested: outcome.repaint_requested || msg_outcome.repaint_requested,
@@ -534,7 +594,7 @@ impl App {
                 }),
             );
             self.absorb_outcome(&mut outcome, &mut aggregate.repaint_requested);
-            let mut msg_outcome = dispatch_message_queue(root, outcome.messages);
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(&mut msg_outcome, &mut aggregate.repaint_requested);
 
             aggregate.handled |= outcome.handled || msg_outcome.handled;
@@ -548,8 +608,9 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::should_dispatch_binding_hints;
+    use super::{collect_clipboard_runtime_messages, should_dispatch_binding_hints};
     use crate::event::BindingHint;
+    use crate::message::{Message, MessageEvent};
     use crate::widgets::WidgetId;
 
     #[test]
@@ -592,5 +653,50 @@ mod tests {
         assert!(!should_dispatch_binding_hints(
             &hints, &sources, &hints, &sources,
         ));
+    }
+
+    #[test]
+    fn clipboard_runtime_handles_copy_then_paste_request() {
+        let target = WidgetId::from_u64(42);
+        let mut clipboard = None;
+        let generated = collect_clipboard_runtime_messages(
+            &mut clipboard,
+            &[
+                MessageEvent {
+                    sender: WidgetId::from_u64(1),
+                    message: Message::TextEditClipboardCopyRequested {
+                        text: "hello".to_string(),
+                        cut: false,
+                    },
+                },
+                MessageEvent {
+                    sender: WidgetId::from_u64(2),
+                    message: Message::TextEditClipboardPasteRequested { target },
+                },
+            ],
+        );
+        assert_eq!(clipboard.as_deref(), Some("hello"));
+        assert_eq!(generated.len(), 1);
+        assert!(matches!(
+            &generated[0].message,
+            Message::TextEditClipboardPaste {
+                target: t,
+                text
+            } if *t == target && text == "hello"
+        ));
+    }
+
+    #[test]
+    fn clipboard_runtime_ignores_paste_without_buffered_text() {
+        let target = WidgetId::from_u64(7);
+        let mut clipboard = None;
+        let generated = collect_clipboard_runtime_messages(
+            &mut clipboard,
+            &[MessageEvent {
+                sender: WidgetId::from_u64(2),
+                message: Message::TextEditClipboardPasteRequested { target },
+            }],
+        );
+        assert!(generated.is_empty());
     }
 }

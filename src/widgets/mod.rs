@@ -46,7 +46,9 @@ mod tooltip;
 mod tree;
 mod welcome;
 
-pub use aliases::{Horizontal, HorizontalScroll, Static, VerticalScroll};
+pub use aliases::{
+    Center, Horizontal, HorizontalScroll, Middle, Right, Static, Vertical, VerticalScroll,
+};
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::Collapsible;

@@ -55,6 +55,27 @@ fn scrollbar_styles() -> (rich_rs::Style, rich_rs::Style) {
     (track_style, thumb_style)
 }
 
+fn align_line_horizontal(
+    line: &[Segment],
+    width: usize,
+    child_width: usize,
+    offset: usize,
+) -> Vec<Segment> {
+    let width = width.max(1);
+    let child_width = child_width.max(1).min(width);
+    let offset = offset.min(width.saturating_sub(child_width));
+    let mut out = Vec::new();
+    if offset > 0 {
+        out.push(Segment::new(" ".repeat(offset)));
+    }
+    out.extend(adjust_line_length_no_bg(line, child_width));
+    let tail = width.saturating_sub(offset + child_width);
+    if tail > 0 {
+        out.push(Segment::new(" ".repeat(tail)));
+    }
+    out
+}
+
 pub struct Horizontal {
     row: Row,
 }
@@ -138,6 +159,90 @@ impl Widget for Horizontal {
     }
 }
 
+pub struct Vertical {
+    container: Container,
+}
+
+impl Vertical {
+    pub fn new() -> Self {
+        Self {
+            container: Container::new(),
+        }
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.container = self.container.with_child(child);
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        self.container.push(child);
+    }
+}
+
+impl Widget for Vertical {
+    fn id(&self) -> WidgetId {
+        self.container.id()
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.container.render(console, options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &crate::debug::DebugLayout,
+    ) -> Segments {
+        self.container.render_with_debug(console, options, debug)
+    }
+
+    fn on_mount(&mut self) {
+        self.container.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.container.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.container.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.container.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.container.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.container.on_event(event, ctx);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        self.container.visit_children_mut(f);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.container.layout_height()
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        self.container.content_width()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        self.container.styles()
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        self.container.styles_mut()
+    }
+}
+
 pub struct Static {
     label: super::Label,
 }
@@ -181,6 +286,330 @@ impl Widget for Static {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         self.label.styles_mut()
+    }
+}
+
+pub struct Center {
+    id: WidgetId,
+    child: Container,
+    styles: WidgetStyles,
+}
+
+impl Center {
+    pub fn new() -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Container::new(),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.child.push(child);
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        self.child.push(child);
+    }
+}
+
+impl Widget for Center {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let child_width = self
+            .child
+            .content_width()
+            .unwrap_or(width)
+            .max(1)
+            .min(width);
+        let mut child_options = options.clone();
+        child_options.size = (child_width, height);
+        child_options.max_width = child_width;
+        child_options.max_height = height;
+
+        let segments = self.child.render_styled(console, &child_options);
+        let lines = Segment::split_and_crop_lines(segments, child_width, None, true, false);
+        let lines = Segment::set_shape(&lines, child_width, None, None, false);
+        let offset = width.saturating_sub(child_width) / 2;
+        let out_lines: Vec<Vec<Segment>> = lines
+            .iter()
+            .map(|line| align_line_horizontal(line, width, child_width, offset))
+            .collect();
+
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(&mut self.child);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.child.layout_height()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+pub struct Right {
+    id: WidgetId,
+    child: Container,
+    styles: WidgetStyles,
+}
+
+impl Right {
+    pub fn new() -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Container::new(),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.child.push(child);
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        self.child.push(child);
+    }
+}
+
+impl Widget for Right {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let child_width = self
+            .child
+            .content_width()
+            .unwrap_or(width)
+            .max(1)
+            .min(width);
+        let mut child_options = options.clone();
+        child_options.size = (child_width, height);
+        child_options.max_width = child_width;
+        child_options.max_height = height;
+
+        let segments = self.child.render_styled(console, &child_options);
+        let lines = Segment::split_and_crop_lines(segments, child_width, None, true, false);
+        let lines = Segment::set_shape(&lines, child_width, None, None, false);
+        let offset = width.saturating_sub(child_width);
+        let out_lines: Vec<Vec<Segment>> = lines
+            .iter()
+            .map(|line| align_line_horizontal(line, width, child_width, offset))
+            .collect();
+
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(&mut self.child);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.child.layout_height()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+pub struct Middle {
+    id: WidgetId,
+    child: Container,
+    styles: WidgetStyles,
+}
+
+impl Middle {
+    pub fn new() -> Self {
+        Self {
+            id: WidgetId::new(),
+            child: Container::new(),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.child.push(child);
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        self.child.push(child);
+    }
+}
+
+impl Widget for Middle {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let mut child_options = options.clone();
+        child_options.size = (width, height);
+        child_options.max_width = width;
+        child_options.max_height = height;
+
+        let segments = self.child.render_styled(console, &child_options);
+        let lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+        let child_height = lines.len().max(1).min(height);
+        let top = height.saturating_sub(child_height) / 2;
+
+        let mut out_lines: Vec<Vec<Segment>> = Vec::with_capacity(height);
+        for _ in 0..top {
+            out_lines.push(vec![Segment::new(" ".repeat(width))]);
+        }
+        out_lines.extend(
+            lines
+                .into_iter()
+                .take(child_height)
+                .map(|line| adjust_line_length_no_bg(&line, width)),
+        );
+        while out_lines.len() < height {
+            out_lines.push(vec![Segment::new(" ".repeat(width))]);
+        }
+
+        let line_count = out_lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in out_lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        self.child.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.child.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.child.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.child.on_resize(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(&mut self.child);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        super::helpers::fixed_height_from_constraints(self.layout_constraints())
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        self.child.content_width()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
     }
 }
 
@@ -417,6 +846,16 @@ impl Widget for VerticalScroll {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::Action(action) = event {
             match action {
+                Action::ScrollHome => {
+                    self.offset_y = 0;
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollEnd => {
+                    self.offset_y = self.max_offset();
+                    ctx.set_handled();
+                    return;
+                }
                 Action::ScrollUp => {
                     self.scroll_by(-(self.scroll_step as i32));
                     ctx.set_handled();
@@ -477,6 +916,7 @@ impl Widget for VerticalScroll {
 pub struct HorizontalScroll {
     id: WidgetId,
     child: Container,
+    focused: bool,
     height: Option<usize>,
     offset_x: usize,
     scroll_step_x: usize,
@@ -490,6 +930,7 @@ impl HorizontalScroll {
         Self {
             id: WidgetId::new(),
             child: Container::new(),
+            focused: false,
             height: None,
             offset_x: 0,
             scroll_step_x: 1,
@@ -544,6 +985,18 @@ impl HorizontalScroll {
 impl Widget for HorizontalScroll {
     fn id(&self) -> WidgetId {
         self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -683,6 +1136,16 @@ impl Widget for HorizontalScroll {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::Action(action) = event {
             match action {
+                Action::ScrollHome => {
+                    self.offset_x = 0;
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollEnd => {
+                    self.offset_x = self.max_offset();
+                    ctx.set_handled();
+                    return;
+                }
                 Action::ScrollLeft => {
                     self.scroll_by_x(-(self.scroll_step_x as i32));
                     ctx.set_handled();

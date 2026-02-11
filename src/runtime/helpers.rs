@@ -52,6 +52,14 @@ pub(crate) fn default_action_map() -> ActionMap {
         Action::FocusPrev,
     );
     map.bind(
+        KeyBind::new(KeyCode::Home, KeyModifiers::empty()),
+        Action::ScrollHome,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::End, KeyModifiers::empty()),
+        Action::ScrollEnd,
+    );
+    map.bind(
         KeyBind::new(KeyCode::Up, KeyModifiers::empty()),
         Action::ScrollUp,
     );
@@ -90,6 +98,14 @@ pub(crate) fn default_action_map() -> ActionMap {
     map.bind(
         KeyBind::new(KeyCode::Char('l'), KeyModifiers::empty()),
         Action::ScrollRight,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::PageUp, KeyModifiers::CONTROL),
+        Action::ScrollPageLeft,
+    );
+    map.bind(
+        KeyBind::new(KeyCode::PageDown, KeyModifiers::CONTROL),
+        Action::ScrollPageRight,
     );
     map.bind(
         KeyBind::new(KeyCode::Char(' '), KeyModifiers::empty()),

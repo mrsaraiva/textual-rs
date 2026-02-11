@@ -176,6 +176,7 @@ impl Widget for Welcome {
                     description: "Welcome.close".to_string(),
                 },
             );
+            ctx.post_message(self.id, Message::OverlayDismissRequested { overlay: None });
             ctx.set_handled();
         }
     }
@@ -265,5 +266,44 @@ impl Widget for Welcome {
 impl Renderable for Welcome {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn welcome_close_re_emits_button_press_and_overlay_dismiss() {
+        let mut welcome = Welcome::new();
+        welcome.on_layout(48, 10);
+
+        let mut ctx = EventCtx::default();
+        welcome.on_message(
+            &MessageEvent {
+                sender: welcome.close_button_id(),
+                message: Message::ButtonPressed {
+                    description: "Button(classes='button', variant='success')".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let emitted = ctx.take_messages();
+        assert!(emitted.iter().any(|event| {
+            matches!(
+                event.message,
+                Message::ButtonPressed {
+                    ref description
+                } if description == "Welcome.close"
+            )
+        }));
+        assert!(emitted.iter().any(|event| {
+            matches!(
+                event.message,
+                Message::OverlayDismissRequested { overlay: None }
+            )
+        }));
     }
 }

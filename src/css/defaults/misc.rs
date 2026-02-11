@@ -54,6 +54,30 @@ HelpPanel > KeyPanel {
     bg: $panel;
 }
 
+Welcome {
+    width: 76;
+    min-width: 40;
+    max-width: 100%;
+    height: auto;
+    bg: $panel;
+    fg: $foreground;
+    border: tall $border;
+    line-pad: 1;
+}
+
+Welcome:focus {
+    border: tall $primary;
+}
+
+Welcome > Markdown {
+    bg: $panel;
+    fg: $foreground;
+}
+
+Welcome > Button {
+    width: 100%;
+}
+
 Tooltip > .tooltip--bubble {
     bg: $panel;
     fg: $foreground;

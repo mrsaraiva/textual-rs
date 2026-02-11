@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
+use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -97,4 +98,46 @@ fn tooltip_clamps_horizontally_when_anchor_is_left_of_viewport() {
     let x = line.find("left-edge").expect("x position");
 
     assert_eq!(x, 2);
+}
+
+#[test]
+fn tooltip_updates_anchor_from_runtime_mouse_events() {
+    let console = Console::new();
+    let options = options_for(&console, 30, 8);
+    let mut tooltip = Tooltip::new(Label::new("base"), "tip")
+        .visible(true)
+        .with_anchor(2, 0);
+
+    let before = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let before_lines = before.as_plain_lines();
+    let before_line = before_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line before");
+    let before_x = before_line.find("tip").expect("tip x before");
+
+    let target = tooltip.anchor_target_id();
+    tooltip.on_event(
+        &Event::MouseScroll(MouseScrollEvent {
+            target: Some(target),
+            screen_x: 22,
+            screen_y: 1,
+            x: 22,
+            y: 1,
+            delta_x: 0,
+            delta_y: 1,
+            modifiers: KeyModifiers::empty(),
+        }),
+        &mut EventCtx::default(),
+    );
+
+    let after = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let after_lines = after.as_plain_lines();
+    let after_line = after_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line after");
+    let after_x = after_line.find("tip").expect("tip x after");
+
+    assert!(after_x > before_x);
 }

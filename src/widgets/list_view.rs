@@ -252,6 +252,28 @@ impl ListView {
             ctx.set_handled();
         }
     }
+
+    fn item_classes(
+        highlighted: bool,
+        hovered: bool,
+        focused: bool,
+        disabled: bool,
+    ) -> Vec<&'static str> {
+        let mut classes = vec!["list-view--item"];
+        if highlighted {
+            classes.push("-highlighted");
+        }
+        if hovered && !highlighted {
+            classes.push("-hover");
+        }
+        if highlighted && focused {
+            classes.push("-focus");
+        }
+        if disabled {
+            classes.push("-disabled");
+        }
+        classes
+    }
 }
 
 impl Widget for ListView {
@@ -387,25 +409,18 @@ impl Widget for ListView {
             let mut text = String::new();
             let mut style = base_style;
             if let Some(item) = self.items.get(index) {
-                let selected = index == self.selected;
+                let highlighted = index == self.selected;
                 let hovered = self.hovered_index == Some(index);
-                let mut classes = vec!["list-view--item"];
-                if selected {
-                    classes.push("-selected");
-                }
-                if hovered {
-                    classes.push("-hover");
-                }
-                if selected && self.focused {
-                    classes.push("-focus");
-                }
-                if self.is_item_disabled(index) {
-                    classes.push("-disabled");
-                }
+                let classes = Self::item_classes(
+                    highlighted,
+                    hovered,
+                    self.focused,
+                    self.is_item_disabled(index),
+                );
                 style = crate::css::resolve_component_style(self, &classes)
                     .to_rich()
                     .unwrap_or(style);
-                let marker = if selected { "› " } else { "  " };
+                let marker = if highlighted { "› " } else { "  " };
                 text = format!("{marker}{item}");
             }
 
@@ -456,5 +471,18 @@ impl Widget for ListView {
 impl Renderable for ListView {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ListView;
+
+    #[test]
+    fn highlighted_item_uses_highlight_class_not_hover() {
+        let classes = ListView::item_classes(true, true, true, false);
+        assert!(classes.contains(&"-highlighted"));
+        assert!(classes.contains(&"-focus"));
+        assert!(!classes.contains(&"-hover"));
     }
 }

@@ -20,6 +20,7 @@ use crate::widgets::{
 pub struct ScrollView {
     id: WidgetId,
     child: Box<dyn Widget>,
+    focused: bool,
     height: Option<usize>,
     pub(crate) offset_y: usize,
     render_offset_y: f32,
@@ -46,6 +47,7 @@ impl ScrollView {
         Self {
             id: WidgetId::new(),
             child: Box::new(child),
+            focused: false,
             height: None,
             offset_y: 0,
             render_offset_y: 0.0,
@@ -341,6 +343,18 @@ impl ScrollView {
 impl Widget for ScrollView {
     fn id(&self) -> WidgetId {
         self.id
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -745,6 +759,29 @@ impl Widget for ScrollView {
         }
         if let Event::Action(action) = event {
             match action {
+                Action::ScrollHome => {
+                    let before_x = self.offset_x;
+                    let before_y = self.offset_y;
+                    self.scroll_to(0);
+                    self.scroll_to_x(0);
+                    self.request_offset_x_animation(before_x, self.offset_x, ctx);
+                    self.request_offset_y_animation(before_y, self.offset_y, ctx);
+                    ctx.set_handled();
+                    return;
+                }
+                Action::ScrollEnd => {
+                    let before_y = self.offset_y;
+                    self.scroll_to(self.max_offset());
+                    self.request_offset_y_animation(before_y, self.offset_y, ctx);
+                    debug_input(&format!(
+                        "[scrollview] action=ScrollEnd before_y={} after_y={} max_y={}",
+                        before_y,
+                        self.offset_y,
+                        self.max_offset()
+                    ));
+                    ctx.set_handled();
+                    return;
+                }
                 Action::ScrollUp => {
                     let before = self.offset_y;
                     self.scroll_by(-(self.scroll_step as i32));

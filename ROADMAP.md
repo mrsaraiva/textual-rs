@@ -431,7 +431,9 @@ Reference plan:
 - Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
 - Landed (2026-02-10): widget follow-up slices for `RichLog` + `CommandPalette` interaction hardening, `ListView`/`Tree` disabled-navigation semantics, and shared text-edit clipboard message hooks across `Input`/`MaskedInput`/`TextArea`.
 - Landed (2026-02-10): widget follow-up slices for `Header`/`Footer` lifecycle polish, tooltip/help-panel positioning and default CSS parity pass, and `DirectoryTree` lazy-loader fidelity improvements.
-- Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
+- Landed (2026-02-10): container-family parity baseline slice (`PR7F`) with new `Vertical`/`Center`/`Right`/`Middle` aliases, focusable scroll containers, and Home/End + ctrl+PageUp/PageDown scroll bindings.
+- Landed (2026-02-10): Tier-B/C polish slice (`PR7G`) with highlighted-vs-selected semantics for `ListView`/`Tree`, runtime clipboard store plumbing, and lifecycle polish for `Welcome`/`Tooltip`/`HelpPanel`.
+- Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps plus container-family parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
 - Doc checkpoint rule: after every merged widget PR, update both `ROADMAP.md` (milestone/checklist status) and `docs/devel/WIDGET_PORTING_PLAN.md` (widget-level matrix/notes) in the same work batch.
@@ -450,7 +452,12 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
    - PR 3: Tier-C/utility closure slices (toggle/list family polish, `Tooltip`/`HelpPanel` positioning/default CSS, `DirectoryTree` async loader fidelity, `Welcome` lifecycle/CSS parity).
      - PR7D (2026-02-10): `Tooltip`/`HelpPanel` parity pass landed with anchor-aware tooltip positioning (clamp + inflection), help-panel split/lifecycle fixes, and default CSS component updates.
      - PR7E (2026-02-10): `DirectoryTree` lazy-loader fidelity landed with expandable-directory support in `Tree`, message-driven lazy child loading, and refresh behavior that preserves expanded paths.
-   - PR 4: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
+   - PR 4: Container-family parity closure (Python `containers.py` alignment: behavior/default CSS/lifecycle for missing or partial container semantics).
+     - PR7F (planned): audit current container set against Python `containers.py`, classify missing semantics vs missing APIs, then land focused parity slices with targeted tests.
+     - PR7F (2026-02-10): baseline parity slice landed: new `Vertical`/`Center`/`Right`/`Middle` aliases, `ScrollView`/`HorizontalScroll` focusability, and key/action parity additions (`ScrollHome`/`ScrollEnd`, `ctrl+pageup/pagedown` horizontal paging bindings) with focused regression tests.
+   - PR 5: Tier-B/C polish follow-up.
+     - PR7G (2026-02-10): landed highlighted-vs-selected class semantics for `ListView`/`Tree`, app/runtime clipboard request/response plumbing for text-edit widgets, `Welcome` close-lifecycle polish, and runtime-driven tooltip/help-panel lifecycle updates.
+   - PR 6: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
    - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
 
 2. Message bus completion (Phase 6, widget-coupled)

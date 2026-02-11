@@ -32,7 +32,9 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
 pub(crate) fn is_scroll_action(action: Action) -> bool {
     matches!(
         action,
-        Action::ScrollUp
+        Action::ScrollHome
+            | Action::ScrollEnd
+            | Action::ScrollUp
             | Action::ScrollDown
             | Action::ScrollPageUp
             | Action::ScrollPageDown

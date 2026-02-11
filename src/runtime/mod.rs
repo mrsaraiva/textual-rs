@@ -9,6 +9,7 @@ use crate::css::{StyleSheet, default_widget_stylesheet};
 use crate::debug::{DebugLayout, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
 use crate::event::{ActionMap, BindingHint, KeyBind};
+use crate::message::MessageEvent;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
 use crate::widgets::{ToastSeverity, Widget, WidgetId};
@@ -58,6 +59,7 @@ pub struct App {
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
     notifications: Vec<AppNotification>,
+    clipboard: Option<String>,
 }
 
 impl App {
@@ -117,8 +119,21 @@ impl App {
             animator: Animator::new(60),
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
+            clipboard: None,
         };
         Ok(app)
+    }
+
+    pub(super) fn clipboard_message_sender() -> WidgetId {
+        // Runtime/system-synthesized clipboard messages use widget id 0.
+        WidgetId::from_u64(0)
+    }
+
+    pub(super) fn clipboard_message_event(target: WidgetId, text: String) -> MessageEvent {
+        MessageEvent {
+            sender: Self::clipboard_message_sender(),
+            message: crate::message::Message::TextEditClipboardPaste { target, text },
+        }
     }
 
     pub fn driver(&self) -> &TerminalDriver {

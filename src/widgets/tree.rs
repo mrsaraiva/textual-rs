@@ -389,6 +389,38 @@ impl Tree {
             }
         }
     }
+
+    fn node_classes(
+        node: &VisibleNode,
+        highlighted: bool,
+        hovered: bool,
+        focused: bool,
+    ) -> Vec<&'static str> {
+        let mut classes = vec!["tree--node"];
+        if highlighted {
+            classes.push("-highlighted");
+        }
+        if hovered && !highlighted {
+            classes.push("-hover");
+        }
+        if highlighted && focused {
+            classes.push("-focus");
+        }
+        if node.expandable {
+            classes.push("-branch");
+        } else {
+            classes.push("-leaf");
+        }
+        if node.expanded {
+            classes.push("-expanded");
+        } else {
+            classes.push("-collapsed");
+        }
+        if node.disabled {
+            classes.push("-disabled");
+        }
+        classes
+    }
 }
 
 impl Widget for Tree {
@@ -550,7 +582,7 @@ impl Widget for Tree {
             let mut text = String::new();
             let mut style = base_style;
             if let Some(node) = nodes.get(index) {
-                let selected = index == self.selected;
+                let highlighted = index == self.selected;
                 let hovered = self.hovered_index == Some(index);
                 let twist = if !node.expandable {
                     " "
@@ -559,33 +591,11 @@ impl Widget for Tree {
                 } else {
                     "▸"
                 };
-                let mut classes = vec!["tree--node"];
-                if selected {
-                    classes.push("-selected");
-                }
-                if hovered {
-                    classes.push("-hover");
-                }
-                if selected && self.focused {
-                    classes.push("-focus");
-                }
-                if node.expandable {
-                    classes.push("-branch");
-                } else {
-                    classes.push("-leaf");
-                }
-                if node.expanded {
-                    classes.push("-expanded");
-                } else {
-                    classes.push("-collapsed");
-                }
-                if node.disabled {
-                    classes.push("-disabled");
-                }
+                let classes = Self::node_classes(node, highlighted, hovered, self.focused);
                 style = crate::css::resolve_component_style(self, &classes)
                     .to_rich()
                     .unwrap_or(style);
-                let marker = if selected { "› " } else { "  " };
+                let marker = if highlighted { "› " } else { "  " };
                 text = format!(
                     "{}{}{} {}",
                     marker,
@@ -635,5 +645,29 @@ impl Widget for Tree {
 impl Renderable for Tree {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Tree, TreeNode, VisibleNode};
+
+    #[test]
+    fn highlighted_node_uses_highlight_class_not_hover() {
+        let tree = Tree::new(vec![TreeNode::new("Root")]);
+        let node = VisibleNode {
+            path: vec![0],
+            depth: 0,
+            label: "Root".to_string(),
+            expanded: true,
+            disabled: false,
+            expandable: false,
+        };
+        let classes = Tree::node_classes(&node, true, true, true);
+        assert!(classes.contains(&"-highlighted"));
+        assert!(classes.contains(&"-focus"));
+        assert!(!classes.contains(&"-hover"));
+        assert!(classes.contains(&"-leaf"));
+        let _ = tree;
     }
 }
