@@ -15,6 +15,7 @@ pub mod runtime;
 pub mod style;
 pub mod textual_app;
 pub mod validation;
+pub mod widget_tree;
 pub mod widgets;
 
 pub use error::{Error, Result};
@@ -51,7 +52,7 @@ pub mod prelude {
         AppRoot, BindingsTable, Button, ButtonVariant, Center, CenterMiddle, Checkbox, Collapsible,
         CommandPalette, Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits,
         DigitsAlign, DirectoryTree, Dock, Footer, FooterBinding, Frame, Grid, Header, HelpPanel,
-        Horizontal, HorizontalGroup, HorizontalScroll, Input, InputType, ItemGrid, KeyPanel, Label,
+        Horizontal, HorizontalGroup, HorizontalScroll, Input, InputType, ItemGrid, KeyPanel, Label, LabelVariant,
         LayoutConstraints, LineStyle, Link, ListView, LoadingIndicator, Log, Markdown, MaskedInput,
         Middle, Node, OptionItem, OptionList, Overlay, PaletteCommand, Panel, Placeholder,
         PlaceholderVariant, Pretty, ProgressBar, RadioButton, RadioSet, RichLog, Right, Row,
@@ -63,5 +64,6 @@ pub mod prelude {
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+    pub use crate::widget_tree::{WidgetNode, WidgetTree};
     pub use crate::{Error, Result};
 }

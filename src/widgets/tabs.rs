@@ -17,7 +17,8 @@ use super::{
 pub struct Tabs {
     id: WidgetId,
     tabs: Vec<Tab>,
-    active: Option<usize>,
+    /// The string ID of the currently active tab, or `None` if no tab is active.
+    active: Option<String>,
     focused: bool,
     hovered: bool,
     hovered_tab: Option<usize>,
@@ -29,9 +30,13 @@ pub struct Tabs {
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
+    /// Messages queued by methods that lack `EventCtx` (e.g. `disable_tab`).
+    /// Drained into `ctx` at the start of the next `on_event` call.
+    pending_messages: Vec<Message>,
 }
 
 pub struct Tab {
+    pub tab_id: String,
     title: String,
     child: Box<dyn Widget>,
     disabled: bool,
@@ -60,50 +65,225 @@ impl Tabs {
             classes: vec!["tabs".to_string()],
             focused_classes: vec!["tabs".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
+            pending_messages: Vec::new(),
         }
     }
 
+    /// Add a tab using the title as the tab ID.
     pub fn with_tab(mut self, title: impl Into<String>, child: impl Widget + 'static) -> Self {
+        let title = title.into();
+        let tab_id = title.clone();
         self.tabs.push(Tab {
-            title: title.into(),
+            tab_id: tab_id.clone(),
+            title,
             child: Box::new(child),
             disabled: false,
             hidden: false,
         });
         if self.active.is_none() {
-            self.active = Some(self.tabs.len() - 1);
+            self.active = Some(tab_id);
         }
         self
     }
 
-    pub fn add_tab(&mut self, title: impl Into<String>, child: impl Widget + 'static) {
+    /// Add a tab with an explicit string ID.
+    pub fn with_tab_id(
+        mut self,
+        id: impl Into<String>,
+        title: impl Into<String>,
+        child: impl Widget + 'static,
+    ) -> Self {
+        let tab_id = id.into();
         self.tabs.push(Tab {
+            tab_id: tab_id.clone(),
             title: title.into(),
             child: Box::new(child),
             disabled: false,
             hidden: false,
         });
         if self.active.is_none() {
-            self.active = Some(self.tabs.len() - 1);
+            self.active = Some(tab_id);
+        }
+        self
+    }
+
+    /// Add a tab at runtime using the title as the tab ID.
+    pub fn add_tab(&mut self, title: impl Into<String>, child: impl Widget + 'static) {
+        let title = title.into();
+        let tab_id = title.clone();
+        self.tabs.push(Tab {
+            tab_id: tab_id.clone(),
+            title,
+            child: Box::new(child),
+            disabled: false,
+            hidden: false,
+        });
+        if self.active.is_none() {
+            self.active = Some(tab_id);
         }
     }
 
-    pub fn active(&self) -> usize {
-        self.active.unwrap_or(0)
+    /// Add a tab at runtime with an explicit string ID.
+    pub fn add_tab_id(
+        &mut self,
+        id: impl Into<String>,
+        title: impl Into<String>,
+        child: impl Widget + 'static,
+    ) {
+        let tab_id = id.into();
+        self.tabs.push(Tab {
+            tab_id: tab_id.clone(),
+            title: title.into(),
+            child: Box::new(child),
+            disabled: false,
+            hidden: false,
+        });
+        if self.active.is_none() {
+            self.active = Some(tab_id);
+        }
     }
 
-    pub fn set_active(&mut self, index: usize) {
-        let _ = self.activate(index, None);
+    /// The string ID of the currently active tab, or `None` if no tab is active.
+    pub fn active(&self) -> Option<&str> {
+        self.active.as_deref()
     }
 
-    pub fn set_tab_disabled(&mut self, index: usize, disabled: bool) -> bool {
+    /// The index of the currently active tab, or `None`.
+    pub fn active_index(&self) -> Option<usize> {
+        let id = self.active.as_ref()?;
+        self.index_for_id(id)
+    }
+
+    /// Activate a tab by its string ID.
+    pub fn set_active(&mut self, id: &str) {
+        if let Some(index) = self.index_for_id(id) {
+            let _ = self.activate(index, None);
+        }
+    }
+
+    pub fn set_tab_disabled(&mut self, id: &str, disabled: bool) -> bool {
+        let Some(index) = self.index_for_id(id) else {
+            return false;
+        };
+        self.set_tab_disabled_index(index, disabled)
+    }
+
+    pub fn disable_tab(&mut self, id: &str) -> bool {
+        self.set_tab_disabled(id, true)
+    }
+
+    pub fn enable_tab(&mut self, id: &str) -> bool {
+        self.set_tab_disabled(id, false)
+    }
+
+    pub fn set_tab_hidden(&mut self, id: &str, hidden: bool) -> bool {
+        let Some(index) = self.index_for_id(id) else {
+            return false;
+        };
+        self.set_tab_hidden_index(index, hidden)
+    }
+
+    pub fn hide_tab(&mut self, id: &str) -> bool {
+        self.set_tab_hidden(id, true)
+    }
+
+    pub fn show_tab(&mut self, id: &str) -> bool {
+        self.set_tab_hidden(id, false)
+    }
+
+    pub fn is_tab_disabled(&self, id: &str) -> bool {
+        self.tabs
+            .iter()
+            .find(|tab| tab.tab_id == id)
+            .map(|tab| tab.disabled)
+            .unwrap_or(false)
+    }
+
+    pub fn is_tab_hidden(&self, id: &str) -> bool {
+        self.tabs
+            .iter()
+            .find(|tab| tab.tab_id == id)
+            .map(|tab| tab.hidden)
+            .unwrap_or(false)
+    }
+
+    /// Remove a tab by its string ID. Returns `true` if found and removed.
+    pub fn remove_tab(&mut self, id: &str) -> bool {
+        let Some(index) = self.index_for_id(id) else {
+            return false;
+        };
+        let is_active = self.active.as_deref() == Some(id);
+        let replacement = if is_active {
+            self.replacement_after_deactivation(index)
+        } else {
+            None
+        };
+        self.tabs[index].child.set_focus(false);
+        self.tabs[index].child.on_unmount();
+        self.tabs.remove(index);
+        // Adjust hovered_tab after removal.
+        if let Some(h) = self.hovered_tab {
+            if h == index {
+                self.hovered_tab = None;
+            } else if h > index {
+                self.hovered_tab = Some(h - 1);
+            }
+        }
+        if is_active {
+            if let Some(next) = replacement {
+                // The removal shifted indices — clamp if needed.
+                let next = next.min(self.tabs.len().saturating_sub(1));
+                let _ = self.activate(next, None);
+            } else {
+                self.active = None;
+                self.ensure_active_exists();
+            }
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    /// Remove all tabs.
+    pub fn clear(&mut self) {
+        for tab in &mut self.tabs {
+            tab.child.set_focus(false);
+            tab.child.on_unmount();
+        }
+        self.tabs.clear();
+        self.active = None;
+        self.hovered_tab = None;
+        self.underline_start = 0.0;
+        self.underline_end = 0.0;
+        self.pending_messages.push(Message::TabsCleared);
+    }
+
+    /// Number of tabs.
+    pub fn tab_count(&self) -> usize {
+        self.tabs.len()
+    }
+
+    // ── Internal helpers ─────────────────────────────────────────────
+
+    fn index_for_id(&self, id: &str) -> Option<usize> {
+        self.tabs.iter().position(|tab| tab.tab_id == id)
+    }
+
+    fn set_tab_disabled_index(&mut self, index: usize, disabled: bool) -> bool {
         let Some(tab) = self.tabs.get_mut(index) else {
             return false;
         };
         if tab.disabled == disabled {
             return true;
         }
+        let tab_id = tab.tab_id.clone();
         tab.disabled = disabled;
+        if disabled {
+            self.pending_messages
+                .push(Message::TabDisabled { id: tab_id });
+        } else {
+            self.pending_messages
+                .push(Message::TabEnabled { id: tab_id });
+        }
         if self.active.is_none() {
             self.ensure_active_exists();
         }
@@ -111,15 +291,7 @@ impl Tabs {
         true
     }
 
-    pub fn disable_tab(&mut self, index: usize) -> bool {
-        self.set_tab_disabled(index, true)
-    }
-
-    pub fn enable_tab(&mut self, index: usize) -> bool {
-        self.set_tab_disabled(index, false)
-    }
-
-    pub fn set_tab_hidden(&mut self, index: usize, hidden: bool) -> bool {
+    fn set_tab_hidden_index(&mut self, index: usize, hidden: bool) -> bool {
         if index >= self.tabs.len() {
             return false;
         }
@@ -127,13 +299,22 @@ impl Tabs {
         if was_hidden == hidden {
             return true;
         }
-        let replacement = if hidden && self.active == Some(index) {
+        let tab_id = self.tabs[index].tab_id.clone();
+        let is_active = self.active_index() == Some(index);
+        let replacement = if hidden && is_active {
             self.replacement_after_deactivation(index)
         } else {
             None
         };
         self.tabs[index].hidden = hidden;
-        if hidden && self.active == Some(index) {
+        if hidden {
+            self.pending_messages
+                .push(Message::TabHidden { id: tab_id });
+        } else {
+            self.pending_messages
+                .push(Message::TabShown { id: tab_id });
+        }
+        if hidden && is_active {
             if let Some(next) = replacement {
                 let _ = self.activate(next, None);
             } else {
@@ -146,25 +327,6 @@ impl Tabs {
         true
     }
 
-    pub fn hide_tab(&mut self, index: usize) -> bool {
-        self.set_tab_hidden(index, true)
-    }
-
-    pub fn show_tab(&mut self, index: usize) -> bool {
-        self.set_tab_hidden(index, false)
-    }
-
-    pub fn is_tab_disabled(&self, index: usize) -> bool {
-        self.tabs
-            .get(index)
-            .map(|tab| tab.disabled)
-            .unwrap_or(false)
-    }
-
-    pub fn is_tab_hidden(&self, index: usize) -> bool {
-        self.tabs.get(index).map(|tab| tab.hidden).unwrap_or(false)
-    }
-
     fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
         if self.tabs.is_empty() {
             self.clear_active();
@@ -174,12 +336,14 @@ impl Tabs {
         if !self.is_activatable(next) {
             return false;
         }
-        let previous_active = self.active;
-        if Some(next) != self.active {
-            if let Some(prev) = previous_active.and_then(|idx| self.tabs.get_mut(idx)) {
-                prev.child.set_focus(false);
+        let previous_active_index = self.active_index();
+        if Some(next) != previous_active_index {
+            if let Some(prev_idx) = previous_active_index {
+                if let Some(prev) = self.tabs.get_mut(prev_idx) {
+                    prev.child.set_focus(false);
+                }
             }
-            self.active = Some(next);
+            self.active = Some(self.tabs[next].tab_id.clone());
             if let Some(tab) = self.tabs.get_mut(next) {
                 tab.child.set_focus(self.focused);
                 if let Some((width, height)) = self.last_size {
@@ -192,7 +356,7 @@ impl Tabs {
             if let Some(ctx) = ctx.as_mut() {
                 if let Some((target_start, target_end)) = target_span {
                     let (duration, delay, ease) = self.underline_animation_params();
-                    let fallback_source = previous_active
+                    let fallback_source = previous_active_index
                         .and_then(|prev| self.span_for_index(prev))
                         .unwrap_or((target_start, target_end));
                     let from_start = if self.underline_end > self.underline_start {
@@ -236,6 +400,7 @@ impl Tabs {
                 ctx.post_message(
                     self.id,
                     Message::TabActivated {
+                        id: self.tabs[next].tab_id.clone(),
                         index: next,
                         title: self.tabs[next].title.clone(),
                     },
@@ -269,8 +434,10 @@ impl Tabs {
     }
 
     fn clear_active(&mut self) {
-        if let Some(active) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
-            active.child.set_focus(false);
+        if let Some(idx) = self.active_index() {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                tab.child.set_focus(false);
+            }
         }
         self.active = None;
         self.underline_start = 0.0;
@@ -278,13 +445,13 @@ impl Tabs {
     }
 
     fn ensure_active_exists(&mut self) {
-        if let Some(active) = self.active {
-            if self.is_visible(active) {
+        if let Some(idx) = self.active_index() {
+            if self.is_visible(idx) {
                 return;
             }
         }
         if let Some(next) = self.first_activatable() {
-            self.active = Some(next);
+            self.active = Some(self.tabs[next].tab_id.clone());
         } else {
             self.active = None;
         }
@@ -302,6 +469,7 @@ impl Tabs {
     }
 
     fn potential_active_indices(&self) -> Vec<usize> {
+        let active_idx = self.active_index();
         self.tabs
             .iter()
             .enumerate()
@@ -309,7 +477,7 @@ impl Tabs {
                 if tab.hidden {
                     return None;
                 }
-                if tab.disabled && Some(index) != self.active {
+                if tab.disabled && Some(index) != active_idx {
                     return None;
                 }
                 Some(index)
@@ -354,7 +522,8 @@ impl Tabs {
         if candidates.is_empty() {
             return;
         }
-        let target = match self.active {
+        let active_idx = self.active_index();
+        let target = match active_idx {
             Some(active) => match candidates.iter().position(|index| *index == active) {
                 Some(position) => {
                     let len = candidates.len() as i32;
@@ -412,7 +581,7 @@ impl Tabs {
     }
 
     fn sync_underline_to_active(&mut self) {
-        if let Some(active) = self.active
+        if let Some(active) = self.active_index()
             && let Some((start, end)) = self.span_for_index(active)
         {
             self.underline_start = start;
@@ -541,7 +710,7 @@ impl Widget for Tabs {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.set_focus(focused);
         }
     }
@@ -581,14 +750,14 @@ impl Widget for Tabs {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.last_size = Some((width, height));
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child
                 .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
         }
@@ -603,19 +772,24 @@ impl Widget for Tabs {
         } else {
             self.layout_width = next_layout_width;
         }
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child
                 .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_event_capture(event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        // Drain any pending messages queued by methods that lack EventCtx.
+        for msg in self.pending_messages.drain(..) {
+            ctx.post_message(self.id, msg);
+        }
+
         if let Event::AnimationValue(AnimationValueEvent {
             target,
             attribute,
@@ -675,13 +849,13 @@ impl Widget for Tabs {
                 }
             }
         }
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
+        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_message(message, ctx);
         }
     }
@@ -711,6 +885,7 @@ impl Widget for Tabs {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+        let active_idx = self.active_index();
         let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
@@ -741,7 +916,7 @@ impl Widget for Tabs {
                 if tab.disabled {
                     classes.push("-disabled");
                 }
-                if self.active == Some(idx) {
+                if active_idx == Some(idx) {
                     classes.push("-active");
                     if self.focused {
                         classes.push("-focus");
@@ -783,7 +958,7 @@ impl Widget for Tabs {
         let mut lines = vec![header_line, underline_line];
 
         if height > self.tab_row_height {
-            if let Some(tab) = self.active.and_then(|idx| self.tabs.get(idx)) {
+            if let Some(tab) = active_idx.and_then(|idx| self.tabs.get(idx)) {
                 let mut child_options = options.clone();
                 child_options.size = (width, height - self.tab_row_height);
                 child_options.max_width = width;
@@ -818,7 +993,7 @@ impl Widget for Tabs {
             return Some(fixed);
         }
         let child_height = self
-            .active
+            .active_index()
             .and_then(|idx| self.tabs.get(idx))
             .and_then(|tab| tab.child.layout_height());
         child_height.map(|height| height + self.tab_row_height)
@@ -935,7 +1110,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TabActivated { index: 1, ref title } if title == "Two"
+            Message::TabActivated { index: 1, ref title, .. } if title == "Two"
         ));
         assert_eq!(ctx.take_animation_requests().len(), 2);
     }
@@ -1018,8 +1193,8 @@ mod tests {
             .with_tab("One", Label::new("first"))
             .with_tab("Two", Label::new("second"))
             .with_tab("Three", Label::new("third"));
-        assert!(tabs.disable_tab(1));
-        assert!(tabs.hide_tab(2));
+        assert!(tabs.disable_tab("Two"));
+        assert!(tabs.hide_tab("Three"));
 
         assert!(tabs.binding_hints().is_empty());
     }
@@ -1046,5 +1221,94 @@ mod tests {
         assert!(tabs.hovered_tab.is_none());
         let focus_events = focus_calls.lock().expect("focus_calls lock");
         assert_eq!(*focus_events, vec![true, false]);
+    }
+
+    #[test]
+    fn active_returns_string_id() {
+        let tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"));
+        assert_eq!(tabs.active(), Some("One"));
+        assert_eq!(tabs.active_index(), Some(0));
+    }
+
+    #[test]
+    fn set_active_by_id() {
+        let mut tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"));
+        tabs.set_active("Two");
+        assert_eq!(tabs.active(), Some("Two"));
+        assert_eq!(tabs.active_index(), Some(1));
+    }
+
+    #[test]
+    fn with_tab_id_explicit_id() {
+        let tabs = Tabs::new()
+            .with_tab_id("tab-one", "Tab One", Label::new("first"))
+            .with_tab_id("tab-two", "Tab Two", Label::new("second"));
+        assert_eq!(tabs.active(), Some("tab-one"));
+        assert!(tabs.is_tab_disabled("tab-one") == false);
+    }
+
+    #[test]
+    fn remove_tab_active_moves_to_next() {
+        let mut tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"))
+            .with_tab("Three", Label::new("third"));
+        assert_eq!(tabs.active(), Some("One"));
+
+        assert!(tabs.remove_tab("One"));
+        assert_eq!(tabs.tab_count(), 2);
+        // Active should move to the next available tab
+        assert!(tabs.active().is_some());
+    }
+
+    #[test]
+    fn remove_tab_nonexistent_returns_false() {
+        let mut tabs = Tabs::new().with_tab("One", Label::new("first"));
+        assert!(!tabs.remove_tab("NonExistent"));
+        assert_eq!(tabs.tab_count(), 1);
+    }
+
+    #[test]
+    fn clear_removes_all_tabs() {
+        let mut tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"));
+        tabs.clear();
+        assert_eq!(tabs.tab_count(), 0);
+        assert_eq!(tabs.active(), None);
+        assert_eq!(tabs.active_index(), None);
+    }
+
+    #[test]
+    fn tab_activated_message_includes_id() {
+        let mut tabs = Tabs::new()
+            .with_tab_id("tab-1", "One", Label::new("first"))
+            .with_tab_id("tab-2", "Two", Label::new("second"));
+        tabs.set_focus(true);
+        tabs.on_layout(40, 6);
+
+        let mut ctx = EventCtx::default();
+        tabs.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        match &messages[0].message {
+            Message::TabActivated { id, index, title } => {
+                assert_eq!(id, "tab-2");
+                assert_eq!(*index, 1);
+                assert_eq!(title, "Two");
+            }
+            other => panic!("expected TabActivated, got {:?}", other),
+        }
     }
 }

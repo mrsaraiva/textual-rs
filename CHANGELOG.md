@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Parity Sprint 2: Pillar 1 core + Input/TextArea/Tabs quick wins**
+  - Added arena-based `WidgetTree`/`WidgetNode` (`src/widget_tree.rs`) with mount/remove/move, class manipulation, traversal iterators, display toggle, and 22 unit tests.
+  - Input: added key bindings (ctrl+d/k/f/a), public API (clear/insert/delete/replace/select_all/selected_text), password mode, regex restrict, max_length, InputBlurred message.
+  - TextArea: added undo/redo stack, word-level nav, shift+selection, config (read_only/show_line_numbers/indent_width/soft_wrap/placeholder), SelectionChanged message.
+  - Tabs: migrated active tab from index to string-ID, added remove_tab/clear, 6 new messages (Disabled/Enabled/Hidden/Shown/Cleared/PaneFocused).
+  - SelectionList: added toggle_all/select_all/deselect_all. Link: open URLs via `open` crate. Label: added variant parameter with CSS classes.
 - **Parity Sprint 1: Bootstrap + DataTable/Tree quick wins**
   - Added `slotmap`, `regex`, `open` crate dependencies.
   - Scaffolded `textual-macros` proc-macro crate for future `#[reactive]`/`#[on()]` macros.

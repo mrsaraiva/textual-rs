@@ -77,6 +77,7 @@ pub enum Message {
         item: String,
     },
     TabActivated {
+        id: String,
         index: usize,
         title: String,
     },
@@ -279,6 +280,32 @@ pub enum Message {
     },
     DataTableColumnSelected {
         col: usize,
+    },
+    // TextArea selection change
+    TextAreaSelectionChanged {
+        start: (usize, usize),
+        end: (usize, usize),
+    },
+    // Input blur
+    InputBlurred {
+        value: String,
+    },
+    // Tabs lifecycle messages
+    TabDisabled {
+        id: String,
+    },
+    TabEnabled {
+        id: String,
+    },
+    TabHidden {
+        id: String,
+    },
+    TabShown {
+        id: String,
+    },
+    TabsCleared,
+    TabPaneFocused {
+        id: String,
     },
 }
 

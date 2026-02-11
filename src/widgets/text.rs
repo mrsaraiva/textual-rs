@@ -4,12 +4,38 @@ use std::collections::VecDeque;
 
 use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
 
+/// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelVariant {
+    Success,
+    Error,
+    Warning,
+    Primary,
+    Secondary,
+    Accent,
+}
+
+impl LabelVariant {
+    fn css_class(self) -> &'static str {
+        match self {
+            LabelVariant::Success => "label--success",
+            LabelVariant::Error => "label--error",
+            LabelVariant::Warning => "label--warning",
+            LabelVariant::Primary => "label--primary",
+            LabelVariant::Secondary => "label--secondary",
+            LabelVariant::Accent => "label--accent",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Label {
     id: WidgetId,
     text: String,
     wrap: bool,
     layout_width: usize,
+    variant: Option<LabelVariant>,
+    classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -20,6 +46,8 @@ impl Label {
             text: text.into(),
             wrap: true,
             layout_width: 0,
+            variant: None,
+            classes: vec!["label".to_string()],
             styles: WidgetStyles::default(),
         }
     }
@@ -35,6 +63,31 @@ impl Label {
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
         self
+    }
+
+    /// Set the visual variant, adding a CSS class like `label--success`.
+    pub fn with_variant(mut self, variant: LabelVariant) -> Self {
+        self.variant = Some(variant);
+        self.rebuild_classes();
+        self
+    }
+
+    /// Get the current variant, if any.
+    pub fn variant(&self) -> Option<LabelVariant> {
+        self.variant
+    }
+
+    /// Set the variant at runtime.
+    pub fn set_variant(&mut self, variant: Option<LabelVariant>) {
+        self.variant = variant;
+        self.rebuild_classes();
+    }
+
+    fn rebuild_classes(&mut self) {
+        self.classes = vec!["label".to_string()];
+        if let Some(v) = self.variant {
+            self.classes.push(v.css_class().to_string());
+        }
     }
 
     fn intrinsic_height(&self) -> usize {
@@ -79,6 +132,10 @@ impl Widget for Label {
 
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(Some(self.intrinsic_height()))
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

@@ -938,7 +938,13 @@ impl Widget for MaskedInput {
                     }
                     EditCommand::InsertNewline
                     | EditCommand::MoveUp { .. }
-                    | EditCommand::MoveDown { .. } => {}
+                    | EditCommand::MoveDown { .. }
+                    | EditCommand::DeleteToEnd
+                    | EditCommand::DeleteLine
+                    | EditCommand::SelectAll
+                    | EditCommand::SelectLine
+                    | EditCommand::Undo
+                    | EditCommand::Redo => {}
                 }
 
                 if value_changed {

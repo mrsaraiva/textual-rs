@@ -203,6 +203,24 @@ impl SelectionList {
         }
     }
 
+    /// Toggle all items (selected become deselected and vice versa).
+    pub fn toggle_all(&mut self, ctx: &mut EventCtx) {
+        let selectable: Vec<bool> = (0..self.selected_set.len())
+            .map(|index| self.item_is_selectable(index))
+            .collect();
+        let mut changed = false;
+        for (index, sel) in self.selected_set.iter_mut().enumerate() {
+            if selectable[index] {
+                *sel = !*sel;
+                changed = true;
+            }
+        }
+        if changed {
+            ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+            ctx.request_repaint();
+        }
+    }
+
     /// Deselect all items.
     pub fn deselect_all(&mut self, ctx: &mut EventCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
@@ -690,6 +708,33 @@ mod tests {
         assert_eq!(list.selected(), Vec::<usize>::new());
         assert!(!ctx.handled());
         assert!(!list.focusable());
+    }
+
+    #[test]
+    fn selection_list_toggle_all() {
+        let selections = vec![
+            Selection::new("A", "a"),
+            Selection::selected("B", "b"),
+            Selection::disabled("C", "c"),
+            Selection::new("D", "d"),
+        ];
+        let mut list = SelectionList::with_selections(selections);
+        let mut ctx = EventCtx::default();
+
+        // A=false, B=true, C=disabled(false), D=false
+        list.toggle_all(&mut ctx);
+        // A=true, B=false, C=still false (disabled), D=true
+        assert!(list.is_selected(0));
+        assert!(!list.is_selected(1));
+        assert!(!list.is_selected(2)); // disabled stays unchanged
+        assert!(list.is_selected(3));
+
+        list.toggle_all(&mut ctx);
+        // Back to: A=false, B=true, C=false, D=false
+        assert!(!list.is_selected(0));
+        assert!(list.is_selected(1));
+        assert!(!list.is_selected(2));
+        assert!(!list.is_selected(3));
     }
 
     #[test]

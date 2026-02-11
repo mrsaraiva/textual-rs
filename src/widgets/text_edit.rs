@@ -27,6 +27,12 @@ pub(crate) enum EditCommand {
     Backspace { unit: MoveUnit },
     Delete { unit: MoveUnit },
     DeleteToStart,
+    DeleteToEnd,
+    DeleteLine,
+    SelectAll,
+    SelectLine,
+    Undo,
+    Redo,
 }
 
 pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Option<EditCommand> {
@@ -48,7 +54,20 @@ pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Opti
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
     match key.code {
-        KeyCode::Char('u') if ctrl_shortcut && !multiline => Some(EditCommand::DeleteToStart),
+        KeyCode::Char('u') if ctrl_shortcut => Some(EditCommand::DeleteToStart),
+        KeyCode::Char('d') if ctrl_shortcut => Some(EditCommand::Delete {
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Char('k') if ctrl_shortcut && !shift => Some(EditCommand::DeleteToEnd),
+        KeyCode::Char('k') if ctrl_shortcut && shift => Some(EditCommand::DeleteLine),
+        KeyCode::Char('f') if ctrl_shortcut => Some(EditCommand::MoveRight {
+            select: shift,
+            unit: MoveUnit::Grapheme,
+        }),
+        KeyCode::Char('a') if ctrl_shortcut => Some(EditCommand::SelectAll),
+        KeyCode::Char('z') if ctrl_shortcut && !shift => Some(EditCommand::Undo),
+        KeyCode::Char('z') if ctrl_shortcut && shift => Some(EditCommand::Redo),
+        KeyCode::Char('y') if ctrl_shortcut => Some(EditCommand::Redo),
         KeyCode::Char(ch) if (ctrl_shortcut || super_shortcut) && ch.eq_ignore_ascii_case(&'x') => {
             Some(EditCommand::Cut)
         }

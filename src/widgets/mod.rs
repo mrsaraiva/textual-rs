@@ -92,7 +92,7 @@ pub use sparkline::{Sparkline, SummaryFunction, summary_max, summary_mean, summa
 pub use switch::Switch;
 pub use tabbed_content::{TabPane, TabbedContent};
 pub use tabs::{Tab, Tabs};
-pub use text::{Label, Markdown};
+pub use text::{Label, LabelVariant, Markdown};
 pub use text_area::{
     Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea, TextAreaTheme,
 };

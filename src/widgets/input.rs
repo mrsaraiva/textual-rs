@@ -1,3 +1,4 @@
+use regex::Regex;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
@@ -56,6 +57,10 @@ pub struct Input {
     selection: Selection,
     placeholder: Option<String>,
     input_type: InputType,
+    password: bool,
+    restrict: Option<Regex>,
+    max_length: Option<usize>,
+    pending_blur: bool,
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
     chrome: InputChrome,
@@ -71,6 +76,10 @@ impl Input {
             selection: Selection::cursor(0),
             placeholder: None,
             input_type: InputType::Text,
+            password: false,
+            restrict: None,
+            max_length: None,
+            pending_blur: false,
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
             chrome: InputChrome::new(),
@@ -99,6 +108,21 @@ impl Input {
         self
     }
 
+    pub fn with_password(mut self, password: bool) -> Self {
+        self.password = password;
+        self
+    }
+
+    pub fn with_restrict(mut self, pattern: &str) -> Self {
+        self.restrict = Regex::new(pattern).ok();
+        self
+    }
+
+    pub fn with_max_length(mut self, max_length: usize) -> Self {
+        self.max_length = Some(max_length);
+        self
+    }
+
     pub fn set_class(&mut self, class: &str, enabled: bool) {
         self.chrome.set_class(class, enabled);
     }
@@ -119,6 +143,96 @@ impl Input {
         self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
         self.selection = Selection::cursor(self.cursor);
         self.revalidate();
+    }
+
+    /// Clear the input text.
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.cursor = 0;
+        self.selection = Selection::cursor(0);
+        self.revalidate();
+    }
+
+    /// Insert text at the current cursor position.
+    pub fn insert_text_at_cursor(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.delete_selection_if_any();
+        let mut filtered = String::new();
+        for ch in text.chars() {
+            if !self.is_allowed_char(ch) {
+                continue;
+            }
+            if self
+                .max_length
+                .is_some_and(|max| self.text.len() + filtered.len() + ch.len_utf8() > max)
+            {
+                break;
+            }
+            if let Some(ref re) = self.restrict {
+                let mut candidate = self.text.clone();
+                candidate.insert_str(self.cursor + filtered.len(), &filtered);
+                candidate.insert(self.cursor + filtered.len(), ch);
+                if !re.is_match(&candidate) {
+                    continue;
+                }
+            }
+            filtered.push(ch);
+        }
+        if filtered.is_empty() {
+            return;
+        }
+        self.text.insert_str(self.cursor, &filtered);
+        self.cursor += filtered.len();
+        self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
+        self.selection = Selection::cursor(self.cursor);
+        self.revalidate();
+    }
+
+    /// Delete the selection if any, otherwise delete the character after the cursor.
+    pub fn delete(&mut self) {
+        if self.delete_selection_if_any() {
+            self.revalidate();
+            return;
+        }
+        if self.cursor < self.text.len() {
+            let end = next_grapheme_boundary(&self.text, self.cursor);
+            self.text.drain(self.cursor..end);
+            self.selection = Selection::cursor(self.cursor);
+            self.revalidate();
+        }
+    }
+
+    /// Replace the current selection with the given text. If nothing is selected, inserts at cursor.
+    pub fn replace(&mut self, text: &str) {
+        self.delete_selection_if_any();
+        self.insert_text_at_cursor(text);
+    }
+
+    /// Select all text.
+    pub fn select_all(&mut self) {
+        if self.text.is_empty() {
+            return;
+        }
+        self.selection = Selection {
+            start: 0,
+            end: self.text.len(),
+        };
+        self.cursor = self.text.len();
+    }
+
+    /// Return the currently selected text, or None if no selection.
+    pub fn selected_text(&self) -> Option<String> {
+        if self.selection.start == self.selection.end {
+            return None;
+        }
+        let (start, end) = if self.selection.start <= self.selection.end {
+            (self.selection.start, self.selection.end)
+        } else {
+            (self.selection.end, self.selection.start)
+        };
+        Some(self.text[start..end].to_string())
     }
 
     fn cursor_from_x(&self, x: u16) -> usize {
@@ -157,6 +271,17 @@ impl Input {
         }
     }
 
+    /// Check if the proposed new value passes restrict and max_length checks.
+    fn is_value_allowed(&self, value: &str) -> bool {
+        if self.max_length.is_some_and(|max| value.len() > max) {
+            return false;
+        }
+        if self.restrict.as_ref().is_some_and(|re| !re.is_match(value)) {
+            return false;
+        }
+        true
+    }
+
     fn post_changed(&mut self, ctx: &mut EventCtx) {
         ctx.post_message(
             self.id,
@@ -182,18 +307,6 @@ impl Input {
         true
     }
 
-    fn selected_text(&self) -> Option<String> {
-        if self.selection.start == self.selection.end {
-            return None;
-        }
-        let (start, end) = if self.selection.start <= self.selection.end {
-            (self.selection.start, self.selection.end)
-        } else {
-            (self.selection.end, self.selection.start)
-        };
-        Some(self.text[start..end].to_string())
-    }
-
     fn insert_text_from_clipboard(&mut self, text: &str) -> bool {
         let Some(text) = first_clipboard_line(text) else {
             return false;
@@ -208,6 +321,22 @@ impl Input {
             return false;
         }
         self.delete_selection_if_any();
+        // Apply max_length: truncate the insert to fit
+        if let Some(max) = self.max_length {
+            let remaining = max.saturating_sub(self.text.len());
+            if remaining == 0 {
+                return false;
+            }
+            // Truncate to remaining chars
+            let truncated: String = inserted.chars().take(remaining).collect();
+            inserted = truncated;
+        }
+        // Build proposed value and check restrict
+        let mut proposed = self.text.clone();
+        proposed.insert_str(self.cursor, &inserted);
+        if self.restrict.as_ref().is_some_and(|re| !re.is_match(&proposed)) {
+            return false;
+        }
         self.text.insert_str(self.cursor, &inserted);
         self.cursor += inserted.len();
         self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
@@ -284,7 +413,11 @@ impl Widget for Input {
     }
 
     fn set_focus(&mut self, focused: bool) {
+        let was_focused = self.chrome.has_focus();
         self.chrome.set_focus(focused);
+        if was_focused && !focused {
+            self.pending_blur = true;
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -335,6 +468,15 @@ impl Widget for Input {
             }
             Event::Tick(tick) => {
                 let _ = tick;
+                if self.pending_blur {
+                    self.pending_blur = false;
+                    ctx.post_message(
+                        self.id,
+                        Message::InputBlurred {
+                            value: self.text.clone(),
+                        },
+                    );
+                }
                 if self.chrome.handle_tick(Instant::now()) {
                     ctx.request_repaint();
                 }
@@ -348,13 +490,29 @@ impl Widget for Input {
                 match cmd {
                     EditCommand::InsertChar(ch) => {
                         if self.is_allowed_char(ch) {
-                            self.delete_selection_if_any();
-                            self.text.insert(self.cursor, ch);
-                            self.cursor += ch.len_utf8();
-                            self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
-                            self.selection = Selection::cursor(self.cursor);
-                            changed = true;
-                            value_changed = true;
+                            // Build the proposed new value
+                            let mut proposed = self.text.clone();
+                            let mut pos = self.cursor;
+                            if self.selection.start != self.selection.end {
+                                let (s, e) = if self.selection.start <= self.selection.end {
+                                    (self.selection.start, self.selection.end)
+                                } else {
+                                    (self.selection.end, self.selection.start)
+                                };
+                                proposed.drain(s..e);
+                                pos = s;
+                            }
+                            proposed.insert(pos, ch);
+                            if self.is_value_allowed(&proposed) {
+                                self.delete_selection_if_any();
+                                self.text.insert(self.cursor, ch);
+                                self.cursor += ch.len_utf8();
+                                self.cursor =
+                                    clamp_grapheme_boundary(&self.text, self.cursor);
+                                self.selection = Selection::cursor(self.cursor);
+                                changed = true;
+                                value_changed = true;
+                            }
                         }
                     }
                     EditCommand::Submit => {
@@ -470,9 +628,34 @@ impl Widget for Input {
                     EditCommand::MoveEnd { select } => {
                         changed = self.move_cursor_to(self.text.len(), select);
                     }
+                    EditCommand::DeleteToEnd => {
+                        if self.delete_selection_if_any() {
+                            changed = true;
+                            value_changed = true;
+                        } else if self.cursor < self.text.len() {
+                            self.text.truncate(self.cursor);
+                            self.selection = Selection::cursor(self.cursor);
+                            changed = true;
+                            value_changed = true;
+                        }
+                    }
+                    EditCommand::SelectAll => {
+                        if !self.text.is_empty() {
+                            self.selection = Selection {
+                                start: 0,
+                                end: self.text.len(),
+                            };
+                            self.cursor = self.text.len();
+                            changed = true;
+                        }
+                    }
                     EditCommand::InsertNewline
                     | EditCommand::MoveUp { .. }
-                    | EditCommand::MoveDown { .. } => {}
+                    | EditCommand::MoveDown { .. }
+                    | EditCommand::DeleteLine
+                    | EditCommand::SelectLine
+                    | EditCommand::Undo
+                    | EditCommand::Redo => {}
                 }
 
                 if value_changed {
@@ -592,8 +775,12 @@ impl Widget for Input {
             ));
         };
 
+        // Iterate over original text for byte indices (cursor/selection use these),
+        // but display bullet character in password mode.
+        let bullet = "\u{2022}";
         for (byte_idx, grapheme) in self.text.grapheme_indices(true) {
-            let w = grapheme_cell_width(grapheme);
+            let display = if self.password { bullet } else { grapheme };
+            let w = grapheme_cell_width(display);
             if cells_used.saturating_add(w) > width {
                 break;
             }
@@ -618,7 +805,7 @@ impl Widget for Input {
                 flush(&mut out, &mut pending_style, &mut pending_text);
                 pending_style = style;
             }
-            pending_text.push_str(grapheme);
+            pending_text.push_str(display);
             cells_used = cells_used.saturating_add(w);
         }
 

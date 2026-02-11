@@ -172,6 +172,61 @@ impl TabbedContent {
         self.set_pane_hidden(pane_id, false)
     }
 
+    /// Remove a pane by its string ID. Returns `true` if found and removed.
+    pub fn remove_pane(&mut self, pane_id: &str) -> bool {
+        let Some(index) = self
+            .panes
+            .iter()
+            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
+        else {
+            return false;
+        };
+        let is_active = self.active == Some(index);
+        let replacement = if is_active {
+            self.replacement_after_deactivation(index)
+        } else {
+            None
+        };
+        self.panes[index].child.set_focus(false);
+        self.panes[index].child.on_unmount();
+        self.panes.remove(index);
+        // Adjust self.active after removal since it's index-based.
+        if is_active {
+            if let Some(next) = replacement {
+                let next = next.min(self.panes.len().saturating_sub(1));
+                let _ = self.activate(next, None);
+            } else {
+                self.active = None;
+                self.ensure_active_exists();
+            }
+        } else if let Some(active) = self.active {
+            // Shift active index if it was after the removed pane.
+            if active > index {
+                self.active = Some(active - 1);
+            }
+        }
+        self.sync_underline_to_active();
+        true
+    }
+
+    /// Remove all panes.
+    pub fn clear_panes(&mut self) {
+        for pane in &mut self.panes {
+            pane.child.set_focus(false);
+            pane.child.on_unmount();
+        }
+        self.panes.clear();
+        self.active = None;
+        self.hovered_tab = None;
+        self.underline_start = 0.0;
+        self.underline_end = 0.0;
+    }
+
+    /// Number of panes.
+    pub fn pane_count(&self) -> usize {
+        self.panes.len()
+    }
+
     pub fn is_pane_disabled(&self, pane_id: &str) -> bool {
         self.panes
             .iter()
@@ -298,8 +353,10 @@ impl TabbedContent {
                     self.underline_start = 0.0;
                     self.underline_end = 0.0;
                 }
-                let title = self.panes[next].title.clone();
-                ctx.post_message(self.id, Message::TabActivated { index: next, title });
+                let pane = &self.panes[next];
+                let id = pane.pane_id.clone().unwrap_or_default();
+                let title = pane.title.clone();
+                ctx.post_message(self.id, Message::TabActivated { id, index: next, title });
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;
@@ -990,7 +1047,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TabActivated { index: 1, ref title } if title == "Two"
+            Message::TabActivated { index: 1, ref title, .. } if title == "Two"
         ));
         assert_eq!(ctx.take_animation_requests().len(), 2);
     }
@@ -1103,5 +1160,38 @@ mod tests {
         assert!(tabs.hovered_tab.is_none());
         let focus_events = focus_calls.lock().expect("focus_calls lock");
         assert_eq!(*focus_events, vec![true, false]);
+    }
+
+    #[test]
+    fn remove_pane_by_id() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
+            .with_pane(TabPane::new("Three", Label::new("third")).id("three"));
+        assert_eq!(tabs.pane_count(), 3);
+        assert_eq!(tabs.active_id(), Some("one"));
+
+        assert!(tabs.remove_pane("one"));
+        assert_eq!(tabs.pane_count(), 2);
+        // Active should move to the next available pane.
+        assert!(tabs.active_id().is_some());
+    }
+
+    #[test]
+    fn remove_pane_nonexistent_returns_false() {
+        let mut tabs =
+            TabbedContent::new().with_pane(TabPane::new("One", Label::new("first")).id("one"));
+        assert!(!tabs.remove_pane("nonexistent"));
+        assert_eq!(tabs.pane_count(), 1);
+    }
+
+    #[test]
+    fn clear_panes_removes_all() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+        tabs.clear_panes();
+        assert_eq!(tabs.pane_count(), 0);
+        assert!(tabs.active_id().is_none());
     }
 }

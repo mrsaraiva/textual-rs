@@ -34,7 +34,7 @@ fn tabs_keyboard_changes_active_tab() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(key), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), 1);
+    assert_eq!(tabs.active(), Some("Two"));
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), 1);
+    assert_eq!(tabs.active(), Some("Two"));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), 1);
+    assert_eq!(tabs.active(), Some("Deux"));
 }
 
 #[test]
@@ -134,8 +134,8 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
         .with_tab("Two", Label::new("second"))
         .with_tab("Three", Label::new("third"))
         .with_tab("Four", Label::new("fourth"));
-    assert!(tabs.disable_tab(1));
-    assert!(tabs.hide_tab(2));
+    assert!(tabs.disable_tab("Two"));
+    assert!(tabs.hide_tab("Three"));
     tabs.set_focus(true);
 
     let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
@@ -145,12 +145,12 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right.clone()), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), 3);
+    assert_eq!(tabs.active(), Some("Four"));
 
     let mut wrap_ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right), &mut wrap_ctx);
     assert!(wrap_ctx.handled());
-    assert_eq!(tabs.active(), 0);
+    assert_eq!(tabs.active(), Some("One"));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
     let mut tabs = Tabs::new()
         .with_tab("One", Label::new("first"))
         .with_tab("Two", Label::new("second"));
-    assert!(tabs.disable_tab(1));
+    assert!(tabs.disable_tab("Two"));
     tabs.on_layout(40, 5);
     let id = tabs.id();
     let mut ctx = EventCtx::default();
@@ -173,7 +173,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
         &mut ctx,
     );
     assert!(!ctx.handled());
-    assert_eq!(tabs.active(), 0);
+    assert_eq!(tabs.active(), Some("One"));
 }
 
 #[test]
@@ -182,11 +182,11 @@ fn tabs_hiding_active_tab_promotes_next_available() {
         .with_tab("One", Label::new("first"))
         .with_tab("Two", Label::new("second"))
         .with_tab("Three", Label::new("third"));
-    tabs.set_active(1);
-    assert_eq!(tabs.active(), 1);
+    tabs.set_active("Two");
+    assert_eq!(tabs.active(), Some("Two"));
 
-    assert!(tabs.hide_tab(1));
-    assert_eq!(tabs.active(), 2);
-    assert!(tabs.hide_tab(2));
-    assert_eq!(tabs.active(), 0);
+    assert!(tabs.hide_tab("Two"));
+    assert_eq!(tabs.active(), Some("Three"));
+    assert!(tabs.hide_tab("Three"));
+    assert_eq!(tabs.active(), Some("One"));
 }

@@ -383,7 +383,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .unwrap_or_else(|e| e.into_inner())
                     .on_list_view_item_activated(*index, item, ctx);
             }
-            Message::TabActivated { index, title } => {
+            Message::TabActivated { index, title, .. } => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -809,6 +809,7 @@ mod tests {
                 item: "delta".to_string(),
             },
             Message::TabActivated {
+                id: "general".to_string(),
                 index: 1,
                 title: "General".to_string(),
             },

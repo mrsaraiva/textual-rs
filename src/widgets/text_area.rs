@@ -79,6 +79,59 @@ impl Default for SyntaxCache {
     }
 }
 
+#[derive(Debug, Clone)]
+struct UndoEntry {
+    lines: Vec<String>,
+    cursor: Cursor,
+    selection: Selection,
+}
+
+#[derive(Debug, Clone, Default)]
+struct UndoStack {
+    entries: Vec<UndoEntry>,
+    position: usize,
+    max_entries: usize,
+}
+
+impl UndoStack {
+    fn new(max: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            position: 0,
+            max_entries: max,
+        }
+    }
+
+    fn push(&mut self, entry: UndoEntry) {
+        // Truncate any redo entries after current position.
+        self.entries.truncate(self.position);
+        self.entries.push(entry);
+        if self.entries.len() > self.max_entries {
+            self.entries.remove(0);
+        }
+        self.position = self.entries.len();
+    }
+
+    fn undo(&mut self) -> Option<&UndoEntry> {
+        if self.position > 0 {
+            self.position -= 1;
+            self.entries.get(self.position)
+        } else {
+            None
+        }
+    }
+
+    fn redo(&mut self) -> Option<&UndoEntry> {
+        if self.position < self.entries.len() {
+            let entry = self.entries.get(self.position);
+            self.position += 1;
+            entry
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Cursor {
     pub row: usize,
@@ -112,6 +165,11 @@ pub struct TextArea {
     focused: bool,
     language: Option<String>,
     code_editor: bool,
+    read_only: bool,
+    show_line_numbers: bool,
+    indent_width: usize,
+    soft_wrap: bool,
+    placeholder: String,
     scroll_row: usize,
     scroll_col: usize, // cell offset
     layout_w: u16,
@@ -124,6 +182,7 @@ pub struct TextArea {
     cursor_blink_next_at: Option<Instant>,
     cursor_blink_enabled: bool,
     doc_revision: u64,
+    undo_stack: UndoStack,
     syntax_cache: std::sync::Mutex<SyntaxCache>,
     languages: HashMap<String, LanguageDef>,
     themes: HashMap<String, TextAreaTheme>,
@@ -177,6 +236,11 @@ impl TextArea {
             focused: false,
             language: None,
             code_editor: false,
+            read_only: false,
+            show_line_numbers: false,
+            indent_width: 4,
+            soft_wrap: true,
+            placeholder: String::new(),
             scroll_row: 0,
             scroll_col: 0,
             layout_w: 1,
@@ -189,6 +253,7 @@ impl TextArea {
             cursor_blink_next_at: None,
             cursor_blink_enabled: true,
             doc_revision: 0,
+            undo_stack: UndoStack::new(100),
             syntax_cache: std::sync::Mutex::new(SyntaxCache::default()),
             languages: HashMap::new(),
             themes: HashMap::new(),
@@ -206,8 +271,77 @@ impl TextArea {
     pub fn code_editor(text: impl Into<String>) -> Self {
         let mut out = Self::new(text);
         out.code_editor = true;
+        out.show_line_numbers = true;
+        out.soft_wrap = false;
         out.rebuild_classes();
         out
+    }
+
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self.rebuild_classes();
+        self
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.read_only = read_only;
+        self.rebuild_classes();
+    }
+
+    pub fn with_show_line_numbers(mut self, show: bool) -> Self {
+        self.show_line_numbers = show;
+        self
+    }
+
+    pub fn show_line_numbers(&self) -> bool {
+        self.show_line_numbers
+    }
+
+    pub fn set_show_line_numbers(&mut self, show: bool) {
+        self.show_line_numbers = show;
+    }
+
+    pub fn with_indent_width(mut self, width: usize) -> Self {
+        self.indent_width = width;
+        self
+    }
+
+    pub fn indent_width(&self) -> usize {
+        self.indent_width
+    }
+
+    pub fn set_indent_width(&mut self, width: usize) {
+        self.indent_width = width;
+    }
+
+    pub fn with_soft_wrap(mut self, wrap: bool) -> Self {
+        self.soft_wrap = wrap;
+        self
+    }
+
+    pub fn soft_wrap(&self) -> bool {
+        self.soft_wrap
+    }
+
+    pub fn set_soft_wrap(&mut self, wrap: bool) {
+        self.soft_wrap = wrap;
+    }
+
+    pub fn with_placeholder(mut self, text: impl Into<String>) -> Self {
+        self.placeholder = text.into();
+        self
+    }
+
+    pub fn placeholder(&self) -> &str {
+        &self.placeholder
+    }
+
+    pub fn set_placeholder(&mut self, text: impl Into<String>) {
+        self.placeholder = text.into();
     }
 
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
@@ -340,6 +474,124 @@ impl TextArea {
         ctx.post_message(self.id, Message::TextAreaChanged { value: self.text() });
     }
 
+    fn post_selection_changed(&self, ctx: &mut EventCtx) {
+        let (a, b) = normalized_selection(self.selection);
+        ctx.post_message(
+            self.id,
+            Message::TextAreaSelectionChanged {
+                start: (a.row, a.col),
+                end: (b.row, b.col),
+            },
+        );
+    }
+
+    fn save_undo_checkpoint(&mut self) {
+        self.undo_stack.push(UndoEntry {
+            lines: self.lines.clone(),
+            cursor: self.cursor,
+            selection: self.selection,
+        });
+    }
+
+    fn undo(&mut self) -> bool {
+        if let Some(entry) = self.undo_stack.undo() {
+            self.lines = entry.lines.clone();
+            self.cursor = entry.cursor;
+            self.selection = entry.selection;
+            self.doc_revision = self.doc_revision.wrapping_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn redo(&mut self) -> bool {
+        if let Some(entry) = self.undo_stack.redo() {
+            self.lines = entry.lines.clone();
+            self.cursor = entry.cursor;
+            self.selection = entry.selection;
+            self.doc_revision = self.doc_revision.wrapping_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn delete_to_start_of_line(&mut self) {
+        if self.delete_selection_if_any() {
+            return;
+        }
+        if self.cursor.col > 0 {
+            let row = self.cursor.row;
+            self.lines[row].drain(..self.cursor.col);
+            self.cursor.col = 0;
+            self.selection = Selection::cursor(self.cursor);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
+        }
+    }
+
+    fn delete_to_end_of_line(&mut self) {
+        if self.delete_selection_if_any() {
+            return;
+        }
+        let row = self.cursor.row;
+        let line_len = self.lines[row].len();
+        if self.cursor.col < line_len {
+            self.lines[row].truncate(self.cursor.col);
+            self.selection = Selection::cursor(self.cursor);
+            self.doc_revision = self.doc_revision.wrapping_add(1);
+        }
+    }
+
+    fn delete_current_line(&mut self) {
+        if self.lines.is_empty() {
+            return;
+        }
+        let row = self.cursor.row.min(self.lines.len().saturating_sub(1));
+        if self.lines.len() > 1 {
+            self.lines.remove(row);
+        } else {
+            self.lines[0].clear();
+        }
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
+        self.cursor.col = self.cursor.col.min(self.lines[self.cursor.row].len());
+        self.selection = Selection::cursor(self.cursor);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+    }
+
+    fn select_all(&mut self) -> bool {
+        if self.lines.is_empty() || (self.lines.len() == 1 && self.lines[0].is_empty()) {
+            return false;
+        }
+        let last_row = self.lines.len().saturating_sub(1);
+        let last_col = self.lines[last_row].len();
+        let start = Cursor { row: 0, col: 0 };
+        let end = Cursor {
+            row: last_row,
+            col: last_col,
+        };
+        self.selection = Selection { start, end };
+        self.cursor = end;
+        true
+    }
+
+    fn select_line(&mut self) -> bool {
+        let row = self.cursor.row;
+        if row >= self.lines.len() {
+            return false;
+        }
+        let line_len = self.lines[row].len();
+        self.selection = Selection {
+            start: Cursor { row, col: 0 },
+            end: Cursor { row, col: line_len },
+        };
+        self.cursor = Cursor { row, col: line_len };
+        true
+    }
+
     fn register_builtin_languages(&mut self) {
         // Best effort: if query compilation fails, keep working without syntax highlighting.
         let _ = self.register_language(
@@ -448,7 +700,7 @@ impl TextArea {
                 cache.spans.push(SyntaxSpan {
                     start: range.start,
                     end: range.end,
-                    style: style.clone(),
+                    style: *style,
                 });
             }
         }
@@ -458,6 +710,9 @@ impl TextArea {
         let mut classes = vec!["text-area".to_string()];
         if self.code_editor {
             classes.push("-code-editor".to_string());
+        }
+        if self.read_only {
+            classes.push("-read-only".to_string());
         }
         self.classes = classes.clone();
         classes.push("focused".to_string());
@@ -487,7 +742,7 @@ impl TextArea {
     }
 
     fn line_number_gutter_width(&self) -> usize {
-        if !self.code_editor {
+        if !self.show_line_numbers {
             return 0;
         }
         let digits = self.lines.len().max(1).to_string().len();
@@ -953,7 +1208,8 @@ impl Widget for TextArea {
                 }
             }
             Event::Key(key) if self.focused => {
-                if matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
+                if !self.read_only && matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
+                    self.save_undo_checkpoint();
                     self.backspace();
                     self.post_changed(ctx);
                     self.preferred_col_cells = Some(self.cursor_cell_x());
@@ -968,9 +1224,35 @@ impl Widget for TextArea {
                     return;
                 };
 
+                // Determine if this is a mutating command.
+                let is_mutation = matches!(
+                    cmd,
+                    EditCommand::InsertChar(_)
+                        | EditCommand::InsertNewline
+                        | EditCommand::Backspace { .. }
+                        | EditCommand::Delete { .. }
+                        | EditCommand::DeleteToStart
+                        | EditCommand::DeleteToEnd
+                        | EditCommand::DeleteLine
+                        | EditCommand::Cut
+                        | EditCommand::Paste
+                );
+
+                // Block mutations in read-only mode.
+                if self.read_only && is_mutation {
+                    ctx.set_handled();
+                    return;
+                }
+
+                let old_selection = self.selection;
                 let mut changed = false;
                 let mut value_changed = false;
                 let mut next_preferred = self.preferred_col_cells;
+
+                // Save undo checkpoint before mutations.
+                if is_mutation {
+                    self.save_undo_checkpoint();
+                }
 
                 match cmd {
                     EditCommand::InsertChar(ch) => {
@@ -1006,6 +1288,48 @@ impl Widget for TextArea {
                         changed = before != self.text();
                         value_changed = changed;
                         next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::DeleteToStart => {
+                        let before = self.text();
+                        self.delete_to_start_of_line();
+                        changed = before != self.text();
+                        value_changed = changed;
+                        next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::DeleteToEnd => {
+                        let before = self.text();
+                        self.delete_to_end_of_line();
+                        changed = before != self.text();
+                        value_changed = changed;
+                        next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::DeleteLine => {
+                        self.delete_current_line();
+                        changed = true;
+                        value_changed = true;
+                        next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::SelectAll => {
+                        changed = self.select_all();
+                        next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::SelectLine => {
+                        changed = self.select_line();
+                        next_preferred = Some(self.cursor_cell_x());
+                    }
+                    EditCommand::Undo => {
+                        if self.undo() {
+                            changed = true;
+                            value_changed = true;
+                            next_preferred = Some(self.cursor_cell_x());
+                        }
+                    }
+                    EditCommand::Redo => {
+                        if self.redo() {
+                            changed = true;
+                            value_changed = true;
+                            next_preferred = Some(self.cursor_cell_x());
+                        }
                     }
                     EditCommand::MoveLeft { select, unit } => {
                         let next = match unit {
@@ -1100,11 +1424,14 @@ impl Widget for TextArea {
                             Message::TextEditClipboardPasteRequested { target: self.id },
                         );
                     }
-                    EditCommand::DeleteToStart | EditCommand::Submit => {}
+                    EditCommand::Submit => {}
                 }
 
                 if value_changed {
                     self.post_changed(ctx);
+                }
+                if self.selection != old_selection {
+                    self.post_selection_changed(ctx);
                 }
                 if changed || value_changed {
                     self.preferred_col_cells = next_preferred;
@@ -1123,6 +1450,10 @@ impl Widget for TextArea {
             if *target != self.id {
                 return;
             }
+            if self.read_only {
+                return;
+            }
+            self.save_undo_checkpoint();
             if self.insert_clipboard_text(text) {
                 self.post_changed(ctx);
                 self.preferred_col_cells = Some(self.cursor_cell_x());
@@ -1181,10 +1512,33 @@ impl Widget for TextArea {
         let gutter_active_style = resolve_component_style("text-area--gutter-active");
         let cursor_line_style = resolve_component_style("text-area--cursor-line");
 
+        let placeholder_style = resolve_component_style("text-area--placeholder");
         let cursor_rich = compose_rich(&cursor_style, base_bg);
         let selection_rich = compose_rich(&selection_style, base_bg);
         let gutter_rich = compose_rich(&gutter_style, base_bg);
         let gutter_active_rich = compose_rich(&gutter_active_style, base_bg);
+        let placeholder_rich = compose_rich(&placeholder_style, base_bg);
+
+        // Show placeholder when empty.
+        let is_empty = self.lines.len() == 1 && self.lines[0].is_empty();
+        if is_empty && !self.placeholder.is_empty() {
+            let mut out = Segments::new();
+            for y in 0..height {
+                if gutter_w > 0 {
+                    out.push(Segment::new(" ".repeat(gutter_w)));
+                }
+                if y == 0 {
+                    let line = rich_rs::set_cell_size(&self.placeholder, text_w);
+                    out.push(Segment::styled(line, placeholder_rich));
+                } else {
+                    out.push(Segment::new(" ".repeat(text_w)));
+                }
+                if y + 1 < height {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
 
         let syntax_cache = {
             let mut guard = self.syntax_cache.lock().unwrap_or_else(|e| e.into_inner());
