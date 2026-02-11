@@ -1,0 +1,8 @@
+---
+source: tests/render_metadata.rs
+expression: summarize_segment_stream(&diff)
+---
+0: CTRL Home
+1: CTRL MoveTo(0,0)
+2: TEXT "O"
+3: TEXT "K"

@@ -1,0 +1,9 @@
+---
+source: tests/terminal_output_golden.rs
+expression: summarize_segment_stream(&diff)
+---
+0: CTRL Home
+1: CTRL MoveTo(2,0)
+2: TEXT "Z"
+3: CTRL MoveTo(4,1)
+4: TEXT "X"

@@ -1,0 +1,5 @@
+---
+source: tests/render_metadata.rs
+expression: escape_terminal_bytes(&raw)
+---
+\x1b[H\x1b[1;1HOK

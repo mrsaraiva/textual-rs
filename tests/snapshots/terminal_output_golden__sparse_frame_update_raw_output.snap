@@ -1,0 +1,5 @@
+---
+source: tests/terminal_output_golden.rs
+expression: escape_terminal_bytes(&raw)
+---
+\x1b[H\x1b[1;3HZ\x1b[2;5HX
