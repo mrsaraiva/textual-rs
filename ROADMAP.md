@@ -442,6 +442,22 @@ Reference plan:
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
 - Doc checkpoint rule: after every merged widget PR, update both `ROADMAP.md` (milestone/checklist status) and `docs/devel/WIDGET_PORTING_PLAN.md` (widget-level matrix/notes) in the same work batch.
 
+### Widget Reality Snapshot (2026-02-11 audit, post `PR7K`)
+
+High-confidence widget work already landed in recent commits (`112c29a`..`25b2deb`) includes:
+- Tier-A hardening for `DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`.
+- Tier-B interaction/message hardening for `ListView`/`Tree`, `Header`/`Footer`, and shared text-edit clipboard flows.
+- Tier-C utility lifecycle hardening for `Tooltip`/`HelpPanel`/`DirectoryTree`/`Welcome`.
+- No missing widget ports remain; remaining widget work is parity/polish/fundamentals closure.
+
+Still-open widget gaps are now concentrated in:
+- `DataTable`: full horizontal viewport/scrollbar parity + final key-lifecycle alignment.
+- `RichLog`: deeper highlighter/default-markup fidelity.
+- `CommandPalette`: remaining interaction/UX/polish closure.
+- `HelpPanel`: focused-widget HELP metadata source parity.
+- `DirectoryTree`: deeper async scheduling parity (beyond tick-queued deferred load).
+- `Tooltip`: deeper CSS/parser-feature parity.
+
 ## Ordered PR Streams (Open Todo/Partial)
 
 This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
@@ -471,40 +487,46 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
    - PR 7: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
    - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
 
-2. Message bus completion (Phase 6, widget-coupled)
+2. Widget-blocking primitive closures (explicit)
+   - PR 1: Focused-help metadata pipeline for `HelpPanel` (widget/source -> runtime -> focused help sink).
+   - PR 2: Async task primitive baseline (`spawn`/completion/cancel) to support true non-blocking loader parity (`DirectoryTree` and future widgets).
+   - PR 3: CSS/parser closure items required for final tooltip/help styling parity.
+   - Exit criteria: widget plan no longer lists primitive blockers as external dependencies.
+
+3. Message bus completion (Phase 6, widget-coupled)
    - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants as part of widget closure slices.
    - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers (no compatibility shims).
    - PR 3: Add per-widget regression tests asserting message emission order/content on interaction.
    - Exit criteria: no callback-style integration surfaces for widget interactions; roadmap row can move to `Done`.
 
-3. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled)
+4. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled)
    - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
    - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
    - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
 
-4. Dirty invalidation + style invalidation (Phases 2 + 5)
+5. Dirty invalidation + style invalidation (Phases 2 + 5)
    - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
    - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
    - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
    - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area.
 
-5. One-shot timers + async task primitives (Phase 6)
+6. One-shot timers + async task primitives (Phase 6)
    - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
    - PR 2: Introduce background-task API (`spawn` + completion message delivery + cancellation semantics).
    - PR 3: Add demo/test proving non-blocking background work + timer-driven UI updates.
    - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests.
 
-6. Terminal/golden coverage expansion (Phases 0.5 + 1)
+7. Terminal/golden coverage expansion (Phases 0.5 + 1)
    - PR 1: Add metadata golden assertions for framebuffer->diff->output invariants (beyond current snapshot coverage).
    - PR 2: Add raw terminal-output capture test harness for deterministic control-sequence checks.
    - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`.
 
-7. Rich-rs integration contract closures (Phase 0.5)
+8. Rich-rs integration contract closures (Phase 0.5)
    - PR 1: Implement/document hyperlink ID policy usage (`StyleMeta.link`/`link_id`) where links are rendered.
    - PR 2: Decide deterministic widget-id policy (explicitly keep runtime IDs non-deterministic, or add optional stable IDs for persistence/snapshots).
    - Exit criteria: both Phase 0.5 `Todo` rows move to `Done` or to explicit `Won't do (for now)` notes.
 
-8. Compatibility/doc ergonomics (Phase 8 + 9)
+9. Compatibility/doc ergonomics (Phase 8 + 9)
    - PR 1: Publish Python Textual ↔ textual-rs concept/API mapping doc (source-of-truth).
    - PR 2: Add adapter utilities for common patterns (screen push/pop helpers, message convenience wrappers).
    - PR 3: Scope/implement DevTools panel MVP (tree/focus/style inspection) or explicitly defer with rationale.
