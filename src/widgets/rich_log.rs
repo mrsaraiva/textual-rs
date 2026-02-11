@@ -112,10 +112,11 @@ impl RichLog {
     }
 
     pub fn write_segments(&mut self, segments: Vec<Segment>) -> &mut Self {
+        let estimated_added_lines = self.estimate_segment_lines(&segments);
         self.lines.push(LogLine::Styled(segments));
         self.trim_to_max_lines();
         if self.auto_scroll {
-            self.scroll_end();
+            self.scroll_end_with_estimated_added_lines(estimated_added_lines);
         } else {
             self.clamp_offset();
         }
@@ -144,10 +145,11 @@ impl RichLog {
     }
 
     pub fn write_renderable(&mut self, renderable: impl Renderable + 'static) -> &mut Self {
+        let estimated_added_lines = self.estimate_renderable_lines(&renderable);
         self.lines.push(LogLine::Renderable(Box::new(renderable)));
         self.trim_to_max_lines();
         if self.auto_scroll {
-            self.scroll_end();
+            self.scroll_end_with_estimated_added_lines(estimated_added_lines);
         } else {
             self.clamp_offset();
         }
@@ -195,6 +197,17 @@ impl RichLog {
             self.lines
                 .len()
                 .max(self.content_height.load(Ordering::Relaxed)),
+            self.viewport_height.load(Ordering::Relaxed).max(1),
+        );
+    }
+
+    fn scroll_end_with_estimated_added_lines(&mut self, estimated_added_lines: usize) {
+        let estimated_content_height = self
+            .content_height
+            .load(Ordering::Relaxed)
+            .saturating_add(estimated_added_lines.max(1));
+        self.offset_y = ScrollView::line_scroll_end(
+            self.lines.len().max(estimated_content_height),
             self.viewport_height.load(Ordering::Relaxed).max(1),
         );
     }
@@ -299,6 +312,31 @@ impl RichLog {
             out.push(vec![Segment::new(String::new())]);
         }
         out
+    }
+
+    fn estimate_segment_lines(&self, segments: &[Segment]) -> usize {
+        let width = self.widget_width.load(Ordering::Relaxed).max(1);
+        Segment::split_and_crop_lines(segments.to_vec(), width, None, true, false)
+            .len()
+            .max(1)
+    }
+
+    fn estimate_renderable_lines(&self, renderable: &dyn Renderable) -> usize {
+        let width = self.widget_width.load(Ordering::Relaxed).max(1);
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (width, 1);
+        options.max_width = width;
+        options.max_height = 1;
+        Segment::split_and_crop_lines(
+            renderable.render(&console, &options),
+            width,
+            None,
+            true,
+            false,
+        )
+        .len()
+        .max(1)
     }
 }
 

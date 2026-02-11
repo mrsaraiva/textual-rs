@@ -11,7 +11,7 @@ use super::{
     Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
-    text_edit::{EditCommand, MoveUnit, edit_command_from_key},
+    text_edit::{EditCommand, MoveUnit, edit_command_from_key, first_clipboard_line},
 };
 
 // ---------------------------------------------------------------------------
@@ -943,12 +943,14 @@ impl Widget for MaskedInput {
             if *target != self.id {
                 return;
             }
-            if self.action_insert_text(text) {
-                self.revalidate();
-                self.post_changed(ctx);
-                self.chrome.reset_blink();
-                ctx.request_repaint();
-                ctx.set_handled();
+            if let Some(line) = first_clipboard_line(text) {
+                if self.action_insert_text(line) {
+                    self.revalidate();
+                    self.post_changed(ctx);
+                    self.chrome.reset_blink();
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                }
             }
         }
     }
@@ -1373,6 +1375,27 @@ mod tests {
             },
             &mut ctx,
         );
+        assert_eq!(input.text(), "9876");
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn masked_input_paste_uses_first_clipboard_line_only() {
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &MessageEvent {
+                sender: input.id(),
+                message: Message::TextEditClipboardPaste {
+                    target: input.id(),
+                    text: "9876\n1234".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+
         assert_eq!(input.text(), "9876");
         assert!(ctx.handled());
     }

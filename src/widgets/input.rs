@@ -4,18 +4,18 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
-use crate::style::{Color, parse_color_like};
+use crate::style::{parse_color_like, Color};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
-        EditCommand, MoveUnit, byte_index_from_cell_x, clamp_grapheme_boundary,
-        edit_command_from_key, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
-        prev_grapheme_boundary, prev_word_boundary,
+        byte_index_from_cell_x, clamp_grapheme_boundary, edit_command_from_key,
+        first_clipboard_line, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
+        prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
     },
+    Widget, WidgetId, WidgetStyles,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,9 +195,9 @@ impl Input {
     }
 
     fn insert_text_from_clipboard(&mut self, text: &str) -> bool {
-        if text.is_empty() {
+        let Some(text) = first_clipboard_line(text) else {
             return false;
-        }
+        };
         let mut inserted = String::new();
         for ch in text.chars() {
             if self.is_allowed_char(ch) {
@@ -927,6 +927,29 @@ mod tests {
                 message: Message::TextEditClipboardPaste {
                     target: input.id(),
                     text: "XYZ".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "aXYZbc");
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn paste_message_uses_first_clipboard_line_only() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("abc");
+        input.cursor = 1;
+        input.selection = Selection::cursor(1);
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &MessageEvent {
+                sender: input.id(),
+                message: Message::TextEditClipboardPaste {
+                    target: input.id(),
+                    text: "XYZ\r\n123".to_string(),
                 },
             },
             &mut ctx,

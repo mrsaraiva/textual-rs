@@ -374,6 +374,12 @@ impl DataTable {
             self.horizontal_offset = 0;
             return;
         }
+        let first_scrollable = self.fixed_column_count();
+        if !self.column_is_visible_at_width(first_scrollable, width, 0) {
+            // No horizontal viewport space remains after fixed columns; keep a stable offset.
+            self.horizontal_offset = 0;
+            return;
+        }
         let max_offset = self.scrollable_column_count().saturating_sub(1);
         self.horizontal_offset = self.horizontal_offset.min(max_offset);
         while self.horizontal_offset < max_offset
@@ -644,6 +650,9 @@ impl Widget for DataTable {
                 if selection_changed {
                     self.ensure_visible(visible_rows);
                 }
+                if cursor_changed {
+                    self.ensure_cursor_column_visible(self.content_width as usize);
+                }
                 if let Some(col) = header_clicked {
                     ctx.post_message(self.id, Message::DataTableHeaderSelected { column: col });
                 } else if selection_changed || cursor_changed {
@@ -674,6 +683,27 @@ impl Widget for DataTable {
                     }
                     handled = true;
                 }
+            }
+            Event::Action(Action::ScrollHome) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && self.cursor_column != 0
+                {
+                    self.cursor_column = 0;
+                    cursor_changed = true;
+                }
+                handled = true;
+            }
+            Event::Action(Action::ScrollEnd) => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && !self.headers.is_empty()
+                {
+                    let col = self.headers.len() - 1;
+                    if self.cursor_column != col {
+                        self.cursor_column = col;
+                        cursor_changed = true;
+                    }
+                }
+                handled = true;
             }
             Event::Action(Action::ScrollDown) => {
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Row) {
@@ -1268,6 +1298,46 @@ mod tests {
     }
 
     #[test]
+    fn clicking_fixed_header_reanchors_horizontal_offset() {
+        let mut table = DataTable::new(
+            vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
+            vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
+        );
+        table.set_fixed_columns(1);
+        table.on_layout(12, 3);
+        table.set_cursor(0, 3);
+        assert!(table.horizontal_offset > 0);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: table.id(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert_eq!(table.cursor_column, 0);
+        assert_eq!(table.horizontal_offset, 0);
+    }
+
+    #[test]
+    fn horizontal_offset_stays_stable_when_fixed_columns_fill_viewport() {
+        let mut table = DataTable::new(
+            vec!["WIDE_FIXED".into(), "C1".into(), "C2".into(), "C3".into()],
+            vec![vec!["row".into(), "1".into(), "2".into(), "3".into()]],
+        );
+        table.set_fixed_columns(1);
+        table.on_layout(4, 3);
+        table.set_cursor(0, 3);
+
+        assert_eq!(table.horizontal_offset, 0);
+    }
+
+    #[test]
     fn home_end_navigation_matches_cursor_and_control_semantics() {
         let mut table = DataTable::new(
             vec!["A".into(), "B".into(), "C".into()],
@@ -1315,6 +1385,32 @@ mod tests {
             &mut ctx,
         );
         assert_eq!(table.cursor(), (4, 2));
+    }
+
+    #[test]
+    fn scroll_home_end_actions_follow_column_cursor_navigation() {
+        let mut table = DataTable::new(
+            vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
+            vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
+        );
+        table.set_fixed_columns(1);
+        table.set_focus(true);
+        table.on_layout(12, 3);
+        table.set_cursor(0, 3);
+        let offset_at_end = table.horizontal_offset;
+        assert!(offset_at_end > 0);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+        assert!(ctx.handled());
+        assert_eq!(table.cursor_column, 0);
+        assert_eq!(table.horizontal_offset, 0);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+        assert!(ctx.handled());
+        assert_eq!(table.cursor_column, 3);
+        assert_eq!(table.horizontal_offset, offset_at_end);
     }
 
     #[test]

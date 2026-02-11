@@ -161,3 +161,24 @@ fn help_panel_help_can_be_driven_via_messages() {
     assert!(clear_ctx.handled());
     assert!(!panel.showing_help());
 }
+
+#[test]
+fn help_panel_unmount_resets_app_focus_gate() {
+    let mut panel = HelpPanel::new().with_help("## Widget help");
+
+    panel.on_event(&Event::AppFocus(false), &mut EventCtx::default());
+    assert!(
+        !panel
+            .style_classes()
+            .iter()
+            .any(|class| class == "-show-help")
+    );
+
+    panel.on_unmount();
+    assert!(
+        panel
+            .style_classes()
+            .iter()
+            .any(|class| class == "-show-help")
+    );
+}

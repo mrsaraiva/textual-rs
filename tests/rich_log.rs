@@ -129,6 +129,24 @@ fn rich_log_renders_multiline_renderable_entries() {
 }
 
 #[test]
+fn rich_log_auto_scroll_tracks_bottom_after_multiline_renderable_write() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new();
+    log.write("line 1");
+    log.write("line 2");
+    let _ = FrameBuffer::from_renderable(&console, &options, &log, None);
+
+    log.write_renderable(rich_rs::Text::plain("line 3\nline 4"));
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("line 3"));
+    assert!(lines[1].starts_with("line 4"));
+}
+
+#[test]
 fn rich_log_focus_style_does_not_draw_border_chrome() {
     let _guard = set_style_context(default_widget_stylesheet());
     let console = Console::new();

@@ -157,6 +157,10 @@ impl Widget for Welcome {
     }
 
     fn on_unmount(&mut self) {
+        self.focused = false;
+        self.hovered = false;
+        self.close.set_focus(false);
+        self.close.set_hovered(false);
         self.markdown.on_unmount();
         self.close.on_unmount();
     }

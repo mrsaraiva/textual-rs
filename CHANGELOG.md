@@ -8,6 +8,18 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Widget closure recovery batch (`PR7K`)**
+  - Tier-A follow-up:
+    - `DataTable` tightened horizontal-offset stability when fixed columns saturate viewport width, and aligned cursor/home/end paths with column visibility behavior.
+    - `Tabs`/`TabbedContent` now gate switch-tab binding hints on switchable targets and reset focus/hover/transient state on unmount.
+    - `CommandPalette` refined panel hit-testing to avoid false close behavior when query/input events use local coordinates.
+    - `RichLog` auto-scroll now tracks multiline styled/renderable writes with estimated post-write content height.
+  - Text-edit/clipboard polish:
+    - shared text-edit key decoding now ignores clipboard chords with extra modifiers and centralizes first-line clipboard extraction.
+    - `Input` and `MaskedInput` paste flow now consumes only first clipboard line for single-line parity.
+  - Utility lifecycle/async polish:
+    - `DirectoryTree` now queues directory loads for tick-time processing with collapse-time cancellation of pending descendant loads.
+    - `HelpPanel`, `Tooltip`, and `Welcome` unmount now reset lifecycle state to avoid stale focus/visibility/anchor behavior across remount.
 - **Widget closure follow-up (`PR7J`)**
   - `ListView`/`Tree` interaction semantics:
     - added explicit activation messages (`ListViewItemActivated`, `TreeNodeActivated`) for enter/click activation paths.

@@ -85,8 +85,18 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
 
     let console = Console::new();
     let options = options_for(&console, 60, 8);
-    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
-    let lines = buf.as_plain_lines();
+    let before_tick = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let before_tick_lines = before_tick.as_plain_lines();
+    assert!(
+        !before_tick_lines
+            .iter()
+            .any(|line| line.contains("leaf.txt"))
+    );
+
+    tree.on_tick(1);
+
+    let after_tick = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let lines = after_tick.as_plain_lines();
 
     assert!(lines.iter().any(|line| line.contains("leaf.txt")));
 }
@@ -123,6 +133,54 @@ fn directory_tree_refresh_preserves_expanded_paths() {
     let lines = buf.as_plain_lines();
 
     assert!(lines.iter().any(|line| line.contains("leaf.txt")));
+}
+
+#[test]
+fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
+    let temp = TempTreeDir::new("directory-tree-collapse-cancels-pending");
+    let nested_dir = temp.path.join("nested");
+    fs::create_dir_all(&nested_dir).expect("create nested dir");
+    fs::write(nested_dir.join("leaf.txt"), "leaf").expect("write nested file");
+
+    let mut tree = DirectoryTree::new(&temp.path);
+    tree.on_layout(60, 8);
+
+    let mut expand_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent {
+            sender: tree.tree_id(),
+            message: Message::TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: true,
+            },
+        },
+        &mut expand_ctx,
+    );
+    assert!(expand_ctx.handled());
+
+    let mut collapse_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent {
+            sender: tree.tree_id(),
+            message: Message::TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: false,
+            },
+        },
+        &mut collapse_ctx,
+    );
+    assert!(collapse_ctx.handled());
+
+    tree.on_tick(1);
+
+    let console = Console::new();
+    let options = options_for(&console, 60, 8);
+    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(!lines.iter().any(|line| line.contains("leaf.txt")));
 }
 
 #[test]
@@ -213,4 +271,43 @@ fn directory_tree_hover_state_is_forwarded_to_inner_tree() {
     });
 
     assert!(child_hovered);
+}
+
+#[test]
+fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
+    let temp = TempTreeDir::new("directory-tree-unmount");
+    let nested_dir = temp.path.join("nested");
+    fs::create_dir_all(&nested_dir).expect("create nested dir");
+    fs::write(nested_dir.join("leaf.txt"), "leaf").expect("write nested file");
+
+    let mut tree = DirectoryTree::new(&temp.path);
+    tree.on_layout(60, 8);
+    tree.set_focus(true);
+    tree.set_hovered(true);
+
+    let mut expand_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent {
+            sender: tree.tree_id(),
+            message: Message::TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: true,
+            },
+        },
+        &mut expand_ctx,
+    );
+    assert!(expand_ctx.handled());
+
+    tree.on_unmount();
+    tree.on_tick(1);
+
+    assert!(!tree.has_focus());
+    assert!(!tree.is_hovered());
+
+    let console = Console::new();
+    let options = options_for(&console, 60, 8);
+    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let lines = buf.as_plain_lines();
+    assert!(!lines.iter().any(|line| line.contains("leaf.txt")));
 }

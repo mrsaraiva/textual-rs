@@ -282,3 +282,42 @@ fn tooltip_delegates_mouse_hooks_to_child() {
     assert_eq!(mouse_moves.load(Ordering::Relaxed), 1);
     assert_eq!(mouse_scrolls.load(Ordering::Relaxed), 1);
 }
+
+#[test]
+fn tooltip_unmount_resets_visibility_and_anchor_state() {
+    let console = Console::new();
+    let options = options_for(&console, 30, 8);
+    let mut tooltip = Tooltip::new(Label::new("base"), "tip")
+        .visible(true)
+        .with_anchor(22, 1);
+
+    let before = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let before_lines = before.as_plain_lines();
+    let before_line = before_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line before unmount");
+    let anchored_x = before_line.find("tip").expect("anchored x");
+
+    tooltip.on_unmount();
+    tooltip.on_message(
+        &MessageEvent {
+            sender: WidgetId::new(),
+            message: Message::OverlaySetVisible {
+                overlay: tooltip.id(),
+                visible: true,
+            },
+        },
+        &mut EventCtx::default(),
+    );
+
+    let after = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let after_lines = after.as_plain_lines();
+    let after_line = after_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line after remount lifecycle");
+    let reset_x = after_line.find("tip").expect("reset x");
+
+    assert!(anchored_x > reset_x);
+}

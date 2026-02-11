@@ -129,3 +129,34 @@ fn welcome_clears_close_hover_when_pointer_leaves_close_row() {
     });
     assert!(!close_hovered_after);
 }
+
+#[test]
+fn welcome_unmount_resets_focus_and_hover_lifecycle_state() {
+    let mut welcome = Welcome::new();
+    welcome.on_layout(32, 6);
+    welcome.set_focus(true);
+    welcome.set_hovered(true);
+    let close_id = welcome.close_button_id();
+    welcome.visit_children_mut(&mut |child| {
+        if child.id() == close_id {
+            child.set_focus(true);
+            child.set_hovered(true);
+        }
+    });
+
+    welcome.on_unmount();
+
+    assert!(!welcome.has_focus());
+    assert!(!welcome.is_hovered());
+
+    let mut close_has_focus = false;
+    let mut close_hovered = false;
+    welcome.visit_children_mut(&mut |child| {
+        if child.id() == close_id {
+            close_has_focus = child.has_focus();
+            close_hovered = child.is_hovered();
+        }
+    });
+    assert!(!close_has_focus);
+    assert!(!close_hovered);
+}

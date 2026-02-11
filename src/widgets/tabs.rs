@@ -570,7 +570,12 @@ impl Widget for Tabs {
     }
 
     fn on_unmount(&mut self) {
+        self.focused = false;
+        self.hovered = false;
+        self.hovered_tab = None;
+        self.last_size = None;
         for tab in &mut self.tabs {
+            tab.child.set_focus(false);
             tab.child.on_unmount();
         }
     }
@@ -682,7 +687,7 @@ impl Widget for Tabs {
     }
 
     fn binding_hints(&self) -> Vec<BindingHint> {
-        if self.tabs.len() <= 1 {
+        if self.potential_active_indices().len() <= 1 {
             return Vec::new();
         }
         vec![BindingHint::new("left/right", "Switch tab").with_key_display("←/→")]
@@ -858,17 +863,20 @@ mod tests {
         id: WidgetId,
         resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
         layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+        focus_calls: Arc<Mutex<Vec<bool>>>,
     }
 
     impl ProbeWidget {
         fn new(
             resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
             layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+            focus_calls: Arc<Mutex<Vec<bool>>>,
         ) -> Self {
             Self {
                 id: WidgetId::new(),
                 resize_calls,
                 layout_calls,
+                focus_calls,
             }
         }
     }
@@ -894,6 +902,13 @@ mod tests {
                 .lock()
                 .expect("layout_calls lock")
                 .push((width, height));
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focus_calls
+                .lock()
+                .expect("focus_calls lock")
+                .push(focused);
         }
     }
 
@@ -954,7 +969,8 @@ mod tests {
     fn on_resize_forwards_content_height_to_active_tab() {
         let resize_calls = Arc::new(Mutex::new(Vec::new()));
         let layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let probe = ProbeWidget::new(resize_calls.clone(), layout_calls);
+        let focus_calls = Arc::new(Mutex::new(Vec::new()));
+        let probe = ProbeWidget::new(resize_calls.clone(), layout_calls, focus_calls);
         let mut tabs = Tabs::new().with_tab("One", probe);
 
         tabs.on_resize(80, 10);
@@ -967,10 +983,16 @@ mod tests {
     fn activation_after_layout_forwards_latest_geometry_to_new_active_tab() {
         let first_resize_calls = Arc::new(Mutex::new(Vec::new()));
         let first_layout_calls = Arc::new(Mutex::new(Vec::new()));
+        let first_focus_calls = Arc::new(Mutex::new(Vec::new()));
         let second_resize_calls = Arc::new(Mutex::new(Vec::new()));
         let second_layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let first = ProbeWidget::new(first_resize_calls, first_layout_calls);
-        let second = ProbeWidget::new(second_resize_calls.clone(), second_layout_calls.clone());
+        let second_focus_calls = Arc::new(Mutex::new(Vec::new()));
+        let first = ProbeWidget::new(first_resize_calls, first_layout_calls, first_focus_calls);
+        let second = ProbeWidget::new(
+            second_resize_calls.clone(),
+            second_layout_calls.clone(),
+            second_focus_calls,
+        );
         let mut tabs = Tabs::new().with_tab("One", first).with_tab("Two", second);
         tabs.on_layout(60, 9);
         tabs.set_focus(true);
@@ -988,5 +1010,41 @@ mod tests {
         let layout_calls = second_layout_calls.lock().expect("layout_calls lock");
         assert_eq!(*resize_calls, vec![(60, 7)]);
         assert_eq!(*layout_calls, vec![(60, 7)]);
+    }
+
+    #[test]
+    fn binding_hints_require_more_than_one_switchable_tab() {
+        let mut tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"))
+            .with_tab("Three", Label::new("third"));
+        assert!(tabs.disable_tab(1));
+        assert!(tabs.hide_tab(2));
+
+        assert!(tabs.binding_hints().is_empty());
+    }
+
+    #[test]
+    fn on_unmount_resets_transient_state_and_unfocuses_children() {
+        let resize_calls = Arc::new(Mutex::new(Vec::new()));
+        let layout_calls = Arc::new(Mutex::new(Vec::new()));
+        let focus_calls = Arc::new(Mutex::new(Vec::new()));
+        let probe = ProbeWidget::new(resize_calls, layout_calls, focus_calls.clone());
+        let mut tabs = Tabs::new().with_tab("One", probe);
+        tabs.on_layout(30, 6);
+        tabs.set_focus(true);
+        tabs.set_hovered(true);
+        assert!(tabs.on_mouse_move(1, 0));
+        assert!(tabs.hovered_tab.is_some());
+        assert!(tabs.has_focus());
+        assert!(tabs.is_hovered());
+
+        tabs.on_unmount();
+
+        assert!(!tabs.has_focus());
+        assert!(!tabs.is_hovered());
+        assert!(tabs.hovered_tab.is_none());
+        let focus_events = focus_calls.lock().expect("focus_calls lock");
+        assert_eq!(*focus_events, vec![true, false]);
     }
 }

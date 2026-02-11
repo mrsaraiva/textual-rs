@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -63,6 +63,8 @@ pub struct DirectoryTree {
     root: DirectoryNode,
     tree: Tree,
     visible_entries: Vec<VisibleEntry>,
+    pending_loads: VecDeque<PathBuf>,
+    pending_loads_set: HashSet<PathBuf>,
     show_hidden: bool,
     focused: bool,
     hovered: bool,
@@ -88,6 +90,8 @@ impl DirectoryTree {
             root,
             tree,
             visible_entries: Vec::new(),
+            pending_loads: VecDeque::new(),
+            pending_loads_set: HashSet::new(),
             show_hidden,
             focused: false,
             hovered: false,
@@ -137,6 +141,8 @@ impl DirectoryTree {
         let selected = self.selected_path().map(Path::to_path_buf);
         let mut expanded_paths = HashSet::new();
         collect_expanded_paths(&self.root, &mut expanded_paths);
+        self.pending_loads.clear();
+        self.pending_loads_set.clear();
         let root = build_root(
             self.root_path.clone(),
             self.show_hidden,
@@ -173,15 +179,59 @@ impl DirectoryTree {
             return;
         };
 
+        let mut queue_load_for: Option<PathBuf> = None;
+        let mut cancel_pending_for: Option<PathBuf> = None;
         if let Some(node) = find_node_mut(&mut self.root, &entry.path) {
             node.expanded = expanded;
-            if expanded && node.is_dir && !node.loaded {
-                node.children = read_children(&node.path, self.show_hidden);
-                node.loaded = true;
+            if node.is_dir {
+                if expanded && !node.loaded {
+                    queue_load_for = Some(node.path.clone());
+                } else if !expanded {
+                    node.children.clear();
+                    node.loaded = false;
+                    cancel_pending_for = Some(node.path.clone());
+                }
             }
+        }
+        if let Some(path) = cancel_pending_for.as_deref() {
+            self.cancel_pending_loads_for(path);
+        }
+        if let Some(path) = queue_load_for.as_deref() {
+            self.enqueue_pending_load(path);
         }
 
         self.rebuild_tree(Some(entry.path));
+    }
+
+    fn enqueue_pending_load(&mut self, path: &Path) {
+        let path = path.to_path_buf();
+        if self.pending_loads_set.insert(path.clone()) {
+            self.pending_loads.push_back(path);
+        }
+    }
+
+    fn cancel_pending_loads_for(&mut self, path: &Path) {
+        self.pending_loads
+            .retain(|pending| !is_same_or_descendant(pending, path));
+        self.pending_loads_set
+            .retain(|pending| !is_same_or_descendant(pending, path));
+    }
+
+    fn process_next_pending_load(&mut self) -> bool {
+        while let Some(path) = self.pending_loads.pop_front() {
+            self.pending_loads_set.remove(&path);
+            let selected = self.selected_path().map(Path::to_path_buf);
+            if let Some(node) = find_node_mut(&mut self.root, &path) {
+                if !node.is_dir || !node.expanded || node.loaded {
+                    continue;
+                }
+                node.children = read_children(&node.path, self.show_hidden);
+                node.loaded = true;
+                self.rebuild_tree(selected);
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -223,11 +273,18 @@ impl Widget for DirectoryTree {
     }
 
     fn on_unmount(&mut self) {
+        self.focused = false;
+        self.hovered = false;
+        self.pending_loads.clear();
+        self.pending_loads_set.clear();
+        self.tree.set_focus(false);
+        self.tree.set_hovered(false);
         self.tree.on_unmount();
     }
 
     fn on_tick(&mut self, tick: u64) {
         self.tree.on_tick(tick);
+        let _ = self.process_next_pending_load();
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
@@ -473,6 +530,10 @@ fn find_node_mut<'a>(node: &'a mut DirectoryNode, path: &Path) -> Option<&'a mut
     }
 
     None
+}
+
+fn is_same_or_descendant(path: &Path, maybe_parent: &Path) -> bool {
+    path == maybe_parent || path.starts_with(maybe_parent)
 }
 
 #[cfg(test)]

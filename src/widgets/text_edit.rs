@@ -30,61 +30,82 @@ pub(crate) enum EditCommand {
 }
 
 pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Option<EditCommand> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let super_key = key.modifiers.contains(KeyModifiers::SUPER);
+    let mut mods_without_shift = key.modifiers;
+    mods_without_shift.remove(KeyModifiers::SHIFT);
+
+    let has_extra_modifiers =
+        mods_without_shift.intersects(KeyModifiers::ALT | KeyModifiers::HYPER | KeyModifiers::META);
+    let ctrl_shortcut = !has_extra_modifiers && mods_without_shift == KeyModifiers::CONTROL;
+    let super_shortcut = !has_extra_modifiers && mods_without_shift == KeyModifiers::SUPER;
+    let plain_or_shift = !has_extra_modifiers && mods_without_shift.is_empty();
+    let has_text_blocking_modifier = key.modifiers.intersects(
+        KeyModifiers::CONTROL
+            | KeyModifiers::SUPER
+            | KeyModifiers::ALT
+            | KeyModifiers::HYPER
+            | KeyModifiers::META,
+    );
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
     match key.code {
-        KeyCode::Char('u') if ctrl && !multiline => Some(EditCommand::DeleteToStart),
-        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'x') => {
+        KeyCode::Char('u') if ctrl_shortcut && !multiline => Some(EditCommand::DeleteToStart),
+        KeyCode::Char(ch) if (ctrl_shortcut || super_shortcut) && ch.eq_ignore_ascii_case(&'x') => {
             Some(EditCommand::Cut)
         }
-        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'c') => {
+        KeyCode::Char(ch) if (ctrl_shortcut || super_shortcut) && ch.eq_ignore_ascii_case(&'c') => {
             Some(EditCommand::Copy)
         }
-        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'v') => {
+        KeyCode::Char(ch) if (ctrl_shortcut || super_shortcut) && ch.eq_ignore_ascii_case(&'v') => {
             Some(EditCommand::Paste)
         }
-        KeyCode::Char(_) if !ctrl => key
+        KeyCode::Char(_) if !has_text_blocking_modifier => key
             .character
             .filter(|_| key.is_printable)
             .map(EditCommand::InsertChar),
-        KeyCode::Enter if multiline => Some(EditCommand::InsertNewline),
-        KeyCode::Enter => Some(EditCommand::Submit),
-        KeyCode::Backspace if ctrl => Some(EditCommand::Backspace {
+        KeyCode::Enter if plain_or_shift && multiline => Some(EditCommand::InsertNewline),
+        KeyCode::Enter if plain_or_shift => Some(EditCommand::Submit),
+        KeyCode::Backspace if ctrl_shortcut => Some(EditCommand::Backspace {
             unit: MoveUnit::Word,
         }),
-        KeyCode::Backspace => Some(EditCommand::Backspace {
+        KeyCode::Backspace if plain_or_shift => Some(EditCommand::Backspace {
             unit: MoveUnit::Grapheme,
         }),
-        KeyCode::Delete if ctrl => Some(EditCommand::Delete {
+        KeyCode::Delete if ctrl_shortcut => Some(EditCommand::Delete {
             unit: MoveUnit::Word,
         }),
-        KeyCode::Delete => Some(EditCommand::Delete {
+        KeyCode::Delete if plain_or_shift => Some(EditCommand::Delete {
             unit: MoveUnit::Grapheme,
         }),
-        KeyCode::Left if ctrl => Some(EditCommand::MoveLeft {
+        KeyCode::Left if ctrl_shortcut => Some(EditCommand::MoveLeft {
             select: shift,
             unit: MoveUnit::Word,
         }),
-        KeyCode::Left => Some(EditCommand::MoveLeft {
+        KeyCode::Left if plain_or_shift => Some(EditCommand::MoveLeft {
             select: shift,
             unit: MoveUnit::Grapheme,
         }),
-        KeyCode::Right if ctrl => Some(EditCommand::MoveRight {
+        KeyCode::Right if ctrl_shortcut => Some(EditCommand::MoveRight {
             select: shift,
             unit: MoveUnit::Word,
         }),
-        KeyCode::Right => Some(EditCommand::MoveRight {
+        KeyCode::Right if plain_or_shift => Some(EditCommand::MoveRight {
             select: shift,
             unit: MoveUnit::Grapheme,
         }),
-        KeyCode::Up => Some(EditCommand::MoveUp { select: shift }),
-        KeyCode::Down => Some(EditCommand::MoveDown { select: shift }),
-        KeyCode::Home => Some(EditCommand::MoveHome { select: shift }),
-        KeyCode::End => Some(EditCommand::MoveEnd { select: shift }),
+        KeyCode::Up if plain_or_shift => Some(EditCommand::MoveUp { select: shift }),
+        KeyCode::Down if plain_or_shift => Some(EditCommand::MoveDown { select: shift }),
+        KeyCode::Home if plain_or_shift => Some(EditCommand::MoveHome { select: shift }),
+        KeyCode::End if plain_or_shift => Some(EditCommand::MoveEnd { select: shift }),
         _ => None,
     }
+}
+
+pub(crate) fn first_clipboard_line(text: &str) -> Option<&str> {
+    let line_end = text.find(['\n', '\r']).unwrap_or(text.len());
+    if line_end == 0 {
+        return None;
+    }
+    text.get(..line_end)
 }
 
 pub(crate) fn prev_grapheme_boundary(s: &str, idx: usize) -> usize {
@@ -355,5 +376,35 @@ mod tests {
             false,
         );
         assert_eq!(paste_super, Some(EditCommand::Paste));
+    }
+
+    #[test]
+    fn key_mapping_ignores_clipboard_chords_with_extra_modifiers() {
+        let alt_ctrl_v = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('v'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            )),
+            false,
+        );
+        assert_eq!(alt_ctrl_v, None);
+
+        let ctrl_super_c = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::SUPER,
+            )),
+            false,
+        );
+        assert_eq!(ctrl_super_c, None);
+    }
+
+    #[test]
+    fn first_clipboard_line_handles_newline_variants() {
+        assert_eq!(first_clipboard_line("hello\nworld"), Some("hello"));
+        assert_eq!(first_clipboard_line("hello\r\nworld"), Some("hello"));
+        assert_eq!(first_clipboard_line("hello\rworld"), Some("hello"));
+        assert_eq!(first_clipboard_line("\nworld"), None);
+        assert_eq!(first_clipboard_line(""), None);
     }
 }

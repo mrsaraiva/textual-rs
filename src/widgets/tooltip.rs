@@ -333,6 +333,8 @@ impl Widget for Tooltip {
     }
 
     fn on_unmount(&mut self) {
+        self.visible = false;
+        self.clear_anchor();
         self.child.on_unmount();
     }
 

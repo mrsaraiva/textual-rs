@@ -9,8 +9,8 @@ use crate::render::{Cell, FrameBuffer};
 use crate::style::TransitionTiming;
 
 use super::{
-    helpers::{collect_focus_ids, set_focus_by_id},
     Input, KeyPanel, ListView, Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    helpers::{collect_focus_ids, set_focus_by_id},
 };
 
 #[derive(Debug, Clone)]
@@ -828,14 +828,17 @@ impl Widget for CommandPalette {
             // MouseDown coordinates are relative to the event target widget.
             // Use screen coordinates so panel hit-testing remains correct when
             // bubbling from children (e.g. search input) and during panel animation.
-            let x = mouse.screen_x as usize;
-            let y = mouse.screen_y as usize;
+            let (x, y) = if mouse.target == self.id {
+                (mouse.x as usize, mouse.y as usize)
+            } else {
+                (mouse.screen_x as usize, mouse.screen_y as usize)
+            };
             let inside_panel = x >= panel_x
                 && x < panel_x.saturating_add(panel_w)
                 && y >= panel_y
                 && y < panel_y.saturating_add(panel_h);
 
-            if !inside_panel {
+            if mouse.target != self.query.id() && !inside_panel {
                 self.set_open(false, ctx);
                 ctx.set_handled();
                 return;
@@ -961,13 +964,13 @@ impl Renderable for CommandPalette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::css::{set_style_context, StyleSheet};
+    use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::{CommandPaletteCommand, Message};
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     struct FocusProbe {
         id: WidgetId,
@@ -1036,9 +1039,12 @@ mod tests {
         palette.on_event(&Event::Key(key), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected { .. })));
+        assert!(
+            messages.iter().any(|event| matches!(
+                event.message,
+                Message::CommandPaletteCommandSelected { .. }
+            ))
+        );
         assert!(!palette.is_open());
     }
 
@@ -1062,9 +1068,11 @@ mod tests {
                 Message::CommandPaletteCommandSelected { ref id, .. } if id == "keys"
             )
         }));
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
         assert!(!palette.is_open());
     }
 
@@ -1286,9 +1294,11 @@ mod tests {
         );
         assert!(!palette.is_open());
         let messages = transition_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
     }
 
     #[test]
@@ -1302,9 +1312,11 @@ mod tests {
         palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
         assert!(!palette.is_open());
         let messages = focus_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|event| matches!(event.message, Message::CommandPaletteClosed)));
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteClosed))
+        );
     }
 
     #[test]
@@ -1356,6 +1368,31 @@ mod tests {
                 screen_x: 5,
                 screen_y: 2,
                 x: 0,
+                y: 0,
+            }),
+            &mut click_ctx,
+        );
+
+        assert!(palette.is_open());
+        assert!(click_ctx.handled());
+    }
+
+    #[test]
+    fn command_palette_query_click_with_local_coordinates_keeps_palette_open() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let mut click_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: palette.query.id(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 2,
                 y: 0,
             }),
             &mut click_ctx,

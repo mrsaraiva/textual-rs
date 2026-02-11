@@ -167,6 +167,7 @@ impl Widget for HelpPanel {
     }
 
     fn on_unmount(&mut self) {
+        self.app_active = true;
         self.markdown.on_unmount();
         self.key_panel.on_unmount();
     }
