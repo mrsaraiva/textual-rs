@@ -428,93 +428,32 @@ Reference plan:
 
 ## Execution Plan (v0.2, Single Source of Truth)
 
-- Now: Widget PR6 baseline missing-widget ports are landed for `Log` (PR6A), `Tooltip`/`HelpPanel` (PR6B), and `DirectoryTree`/`Welcome` (PR6C).
-- Landed (2026-02-10): widget follow-up slices for `RichLog` + `CommandPalette` interaction hardening, `ListView`/`Tree` disabled-navigation semantics, and shared text-edit clipboard message hooks across `Input`/`MaskedInput`/`TextArea`.
-- Landed (2026-02-10): widget follow-up slices for `Header`/`Footer` lifecycle polish, tooltip/help-panel positioning and default CSS parity pass, and `DirectoryTree` lazy-loader fidelity improvements.
-- Landed (2026-02-10): container-family parity baseline slice (`PR7F`) with new `Vertical`/`Center`/`Right`/`Middle` aliases, focusable scroll containers, and Home/End + ctrl+PageUp/PageDown scroll bindings.
-- Landed (2026-02-10): Tier-B/C polish slice (`PR7G`) with highlighted-vs-selected semantics for `ListView`/`Tree`, runtime clipboard store plumbing, and lifecycle polish for `Welcome`/`Tooltip`/`HelpPanel`.
-- Landed (2026-02-10): Tier-A/Tier-C follow-up slice (`PR7H`) with DataTable/Tabs message+lifecycle hardening, RichLog markup/renderable support, CommandPalette small-viewport/markup rendering polish, and additional overlay/widget lifecycle regressions.
-- Landed (2026-02-11): widget closure push (`PR7I`) with DataTable fixed-column horizontal-shift behavior + shifted hit-testing, Tabs/TabbedContent activation geometry replay, CommandPalette screen-space hit-testing fix, RichLog focus-style parity update, runtime-driven Tooltip/HelpPanel message APIs, DirectoryTree typed file/dir selection messages, Welcome lifecycle/CSS polish, and Tier-B regressions for disabled highlight handling + Footer/text-edit clipboard shortcut polish.
-- Landed (2026-02-11): widget closure follow-up (`PR7J`) with explicit activation-message paths for `ListView`/`Tree`, tree twisty-click toggle-vs-activate parity, header icon press message emission, and footer unmount lifecycle reset for deferred bindings.
-- Landed (2026-02-11): widget closure recovery batch (`PR7K`) with DataTable horizontal-offset stability fixes, Tabs/TabbedContent binding-hint + unmount lifecycle polish, CommandPalette local-coordinate hit-test hardening, RichLog multiline auto-scroll estimation, single-line clipboard paste normalization for Input/MaskedInput, and DirectoryTree deferred load queue with collapse-time cancellation.
-- Landed (2026-02-11): widget primitive closure batch (`PR8A`: A/B/C) with focused HELP metadata pipeline, runtime async task primitive baseline (`spawn`/`cancel`/completion delivery), DirectoryTree async-task migration, and `hkey`/`vkey` CSS border parser+renderer support used by HelpPanel/KeyPanel parity defaults.
-- Landed (2026-02-11): Tier-A final closure batch (`PR8C`) with DataTable horizontal viewport/scrollbar + key-lifecycle parity hardening, RichLog default markup/highlighter semantics, and CommandPalette close-animation interaction gating + unmount lifecycle reset.
-- Landed (2026-02-11): Tier-B/Tier-C closure follow-up (`PR8D`) with press/release activation parity for `ListView`/`Tree`, header press-region interaction fidelity, expanded platform text-edit shortcuts, `Select`/`OptionList` highlight lifecycle cleanup, and scrollbar drag-release repaint fixes in `Log`/`KeyPanel`.
-- Landed (2026-02-11): message-bus closure follow-up (`PR8F`) with `Select` open-dropdown message-first routing and explicit ordering regressions for `OptionList`/`Select`/`SelectionList`.
-- Landed (2026-02-11): grapheme closure follow-up (`PR8E`) with `MaskedInput` cursor/render fixes plus `DataTable`/`Tree` grapheme edge regressions.
-- Widget closure stream status: complete in current scope (no remaining open widget parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`).
-- Next: remaining non-widget infrastructure closures (dirty/style invalidation, timers + broader async task API, golden coverage expansion, rich-rs integration-contract closures, compatibility/docs).
-- Doc checkpoint rule: after every merged widget PR, update both `ROADMAP.md` (milestone/checklist status) and `docs/devel/WIDGET_PORTING_PLAN.md` (widget-level matrix/notes) in the same work batch.
+### Recently Closed Streams
+- Widget closure program (Tier A/B/C + primitives + message bus + grapheme) is complete in current scope.  
+  Source of truth remains `docs/devel/WIDGET_PORTING_PLAN.md`.
+- Invalidation model + style invalidation closure: landed.
+- One-shot timers + broader async task runtime closure: landed.
+- Terminal/golden coverage expansion: landed.
+- Rich-rs integration contract closures (hyperlink policy + deterministic widget-id policy decision): landed.
 
-### Widget Reality Snapshot (2026-02-11 audit, post `PR8F`)
+### Active Streams (Open Todo/Partial)
+1. Computed style caching/tree (`Phase 5`)
+   - Current state: on-demand style resolution works; no cached per-widget computed-style tree.
+   - Target: add cache/tree model with correct invalidation semantics and no behavior regressions.
 
-High-confidence widget work already landed in recent commits (`112c29a`..`25b2deb`) includes:
-- Tier-A hardening for `DataTable`, `Tabs`/`TabbedContent`, `RichLog`, `CommandPalette`.
-- Tier-B interaction/message hardening for `ListView`/`Tree`, `Header`/`Footer`, and shared text-edit clipboard flows.
-- Tier-C utility lifecycle hardening for `Tooltip`/`HelpPanel`/`DirectoryTree`/`Welcome`.
-- No missing widget ports remain.
-- No remaining open widget parity gaps are tracked in the current closure scope.
-- Remaining open work has moved to non-widget infrastructure/fundamentals streams.
+2. Compatibility/doc ergonomics (`Phase 8`)
+   - Current state:
+     - `Partial`: textual-like naming.
+     - `Partial`: API mapping notes.
+     - `Partial`: adapter utilities breadth.
+   - Target:
+     - publish a clear Python Textual ↔ textual-rs mapping source-of-truth,
+     - expand compatibility adapter helpers for common app patterns,
+     - tighten naming/terminology consistency where appropriate.
 
-## Ordered PR Streams (Open Todo/Partial, Post-Widget Closure)
+3. DevTools panel (`Phase 9`)
+   - `Todo`: in-app inspector MVP decision/implementation is still open.
+   - This stream is intentionally discussed/planned separately from 1/2.
 
-This checklist turns remaining `Todo`/`Partial` items into concrete, reviewable PR slices.
-Order is prioritized for widget-first execution while keeping fundamentals and regression risk under control.
-
-1. Widget closure history (completed)
-   - Widget first-class closure program, widget-blocking primitive closures, message bus completion, and grapheme completion have landed through PR8A/PR8C/PR8D/PR8E/PR8F.
-   - Widget-level source of truth remains `docs/devel/WIDGET_PORTING_PLAN.md`.
-
-2. Widget-blocking primitive closures (explicit, historical reference)
-   - PR 1: Focused-help metadata pipeline for `HelpPanel` (widget/source -> runtime -> focused help sink).
-   - PR 2: Async task primitive baseline (`spawn`/completion/cancel) to support true non-blocking loader parity (`DirectoryTree` and future widgets).
-   - PR 3: CSS/parser closure items required for final tooltip/help styling parity.
-   - PR8A (2026-02-11): landed all three baseline primitives:
-     - focused-help metadata pipeline via `Widget::help_markup` + runtime focused-help dispatch + `HelpPanel` focused-help message handling;
-     - runtime async-task baseline with `AsyncTask*` messages plus `DirectoryTree` migration to async load/cancel flow;
-     - CSS/parser/style support for `hkey`/`vkey` borders with HelpPanel/KeyPanel default parity updates and parser/widget regressions.
-   - Exit criteria: widget plan no longer lists primitive blockers as external dependencies.
-
-3. Message bus completion (Phase 6, widget-coupled, historical reference)
-   - PR 1: Audit remaining widgets with state-changing interactions and add missing `Message` variants as part of widget closure slices.
-   - PR 2: Replace remaining direct internal event coupling with message emissions + `on_message` consumers (no compatibility shims).
-   - PR 3: Add per-widget regression tests asserting message emission order/content on interaction.
-   - PR8F (2026-02-11): closed remaining `Select` direct click/index coupling by routing dropdown selection through inner `OptionList` message emission and `Select::on_message` consumption; added explicit ordering regressions for `OptionList` (`OptionHighlighted` before `OptionSelected`), `Select` (`OptionSelected` before `SelectChanged`), and `SelectionList` (`SelectionListToggled` before `SelectionListSelectedChanged`).
-   - Exit criteria: no callback-style integration surfaces for widget interactions; roadmap row can move to `Done`. **Met (PR8F, 2026-02-11).**
-
-4. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled, historical reference)
-   - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
-   - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
-   - PR8E (2026-02-11): landed `MaskedInput` grapheme-aware cursor-x mapping and width-clamped render runs, plus `DataTable` and `Tree` ZWJ/combining/wide-cell regressions for hit-testing and wrapping width edges.
-   - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage. **Met (PR8E, 2026-02-11).**
-
-5. Dirty invalidation + style invalidation (Phases 2 + 5)
-   - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
-   - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
-   - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
-   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area. **Met (2026-02-11, pending-stream #1 closure).**
-
-6. One-shot timers + async task primitives (Phase 6)
-   - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
-   - PR 2: Introduce background-task API (`spawn` + completion message delivery + cancellation semantics).
-   - PR 3: Add demo/test proving non-blocking background work + timer-driven UI updates.
-   - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests. **Met (PR8J, 2026-02-11).**
-
-7. Terminal/golden coverage expansion (Phases 0.5 + 1)
-   - PR 1: Add metadata golden assertions for framebuffer->diff->output invariants (beyond current snapshot coverage).
-   - PR 2: Add raw terminal-output capture test harness for deterministic control-sequence checks.
-   - PR8I (2026-02-11): landed deterministic terminal-capture helper + framebuffer/diff/output golden stream snapshots and absolute-cursoring invariants.
-   - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`. **Met (PR8I, 2026-02-11).**
-
-8. Rich-rs integration contract closures (Phase 0.5)
-   - PR 1: Implement/document hyperlink ID policy usage (`StyleMeta.link`/`link_id`) where links are rendered.
-   - PR 2: Decide deterministic widget-id policy (explicitly keep runtime IDs non-deterministic, or add optional stable IDs for persistence/snapshots).
-   - PR8H (2026-02-11): deterministic widget-id policy closed by explicitly keeping runtime IDs process-local/non-deterministic across runs; stable/persistent IDs deferred until a concrete persistence/snapshot API requires them.
-   - Exit criteria: both Phase 0.5 `Todo` rows move to `Done` or to explicit `Won't do (for now)` notes.
-     **Met (PR8G + PR8H, 2026-02-11).**
-
-9. Compatibility/doc ergonomics (Phase 8 + 9)
-   - PR 1: Publish Python Textual ↔ textual-rs concept/API mapping doc (source-of-truth).
-   - PR 2: Add adapter utilities for common patterns (screen push/pop helpers, message convenience wrappers).
-   - PR 3: Scope/implement DevTools panel MVP (tree/focus/style inspection) or explicitly defer with rationale.
-   - Exit criteria: Phase 8 rows progress to `Done`; DevTools has concrete status (Done or deferred with decision note).
+### Doc Discipline
+- After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.
