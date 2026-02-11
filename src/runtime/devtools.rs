@@ -4,6 +4,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
+    mpsc::{self, Sender},
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
@@ -26,6 +27,7 @@ pub(crate) enum DevtoolsCommand {
 struct SharedState {
     snapshot: Mutex<String>,
     pending: Mutex<Vec<DevtoolsCommand>>,
+    watchers: Mutex<Vec<Sender<String>>>,
 }
 
 pub(crate) struct DevtoolsRuntime {
@@ -82,7 +84,10 @@ impl DevtoolsRuntime {
 
     pub(crate) fn publish_snapshot(&self, snapshot: String) {
         if let Ok(mut slot) = self.shared.snapshot.lock() {
-            *slot = snapshot;
+            *slot = snapshot.clone();
+        }
+        if let Ok(mut watchers) = self.shared.watchers.lock() {
+            watchers.retain(|watcher| watcher.send(snapshot.clone()).is_ok());
         }
     }
 
@@ -146,7 +151,14 @@ fn server_loop(
     while running.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, _)) => {
-                let _ = handle_client(stream, &shared, pid, &app_name, &addr);
+                let shared = Arc::clone(&shared);
+                let app_name = app_name.clone();
+                let addr = addr.clone();
+                let _ = thread::Builder::new()
+                    .name("textual-devtools-client".to_string())
+                    .spawn(move || {
+                        let _ = handle_client(stream, &shared, pid, &app_name, &addr);
+                    });
             }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(40));
@@ -193,6 +205,7 @@ fn handle_client(
             };
             write_data(&mut stream, payload.as_bytes())
         }
+        Ok(Request::Watch) => stream_watch(&mut stream, shared),
         Ok(Request::Focus(id)) => {
             if let Ok(mut pending) = shared.pending.lock() {
                 pending.push(DevtoolsCommand::Focus(WidgetId::from_u64(id)));
@@ -219,6 +232,7 @@ enum Request {
     Ping,
     Info,
     Snapshot,
+    Watch,
     Focus(u64),
     DebugLayout(bool),
     Quit,
@@ -234,6 +248,9 @@ fn parse_command(raw: &str) -> Result<Request, String> {
     }
     if line.eq_ignore_ascii_case("SNAPSHOT") {
         return Ok(Request::Snapshot);
+    }
+    if line.eq_ignore_ascii_case("WATCH") {
+        return Ok(Request::Watch);
     }
     if line.eq_ignore_ascii_case("QUIT") {
         return Ok(Request::Quit);
@@ -282,6 +299,25 @@ fn write_data(stream: &mut TcpStream, payload: &[u8]) -> io::Result<()> {
     stream.write_all(payload)
 }
 
+fn stream_watch(stream: &mut TcpStream, shared: &Arc<SharedState>) -> io::Result<()> {
+    let (tx, rx) = mpsc::channel::<String>();
+    if let Ok(mut watchers) = shared.watchers.lock() {
+        watchers.push(tx);
+    }
+    let initial = if let Ok(snapshot) = shared.snapshot.lock() {
+        snapshot.clone()
+    } else {
+        String::new()
+    };
+    write_data(stream, initial.as_bytes())?;
+    for payload in rx {
+        if write_data(stream, payload.as_bytes()).is_err() {
+            break;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +343,11 @@ mod tests {
     #[test]
     fn parse_command_rejects_bad_focus() {
         assert!(parse_command("FOCUS nope").is_err());
+    }
+
+    #[test]
+    fn parse_command_accepts_watch() {
+        let request = parse_command("WATCH").expect("watch should parse");
+        assert!(matches!(request, Request::Watch));
     }
 }

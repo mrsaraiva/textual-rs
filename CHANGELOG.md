@@ -10,6 +10,8 @@ until the API stabilizes.
 ### 2026-02-11
 - **DevTools closure (embedded runtime + external tooling plumbing)**
   - Added runtime devtools substrate in `textual-rs` (`src/runtime/devtools.rs`) with a local TCP control/snapshot server, instance registration files, and command queue integration.
+  - Added live `WATCH` push-stream support for devtools snapshots (server-side publish/subscribe) so attached consoles can consume incremental updates without polling.
+  - Updated devtools server connection handling to process clients concurrently, allowing long-lived watch sessions alongside command/snapshot requests.
   - `App::run_widget_tree` now publishes live widget/runtime snapshots (focus/hover/layout/debug state, widget tree metadata, binding hints) and consumes remote control commands (`focus`, `debug layout`, `quit`).
   - Added environment-gated activation for live inspection (`TEXTUAL_DEVTOOLS`, `TEXTUAL_DEVTOOLS_BIND`, `TEXTUAL_DEVTOOLS_ROOT`) without changing default runtime behavior when disabled.
   - Added focused runtime parser regressions for devtools command handling (`src/runtime/devtools.rs` tests).
