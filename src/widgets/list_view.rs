@@ -201,6 +201,20 @@ impl ListView {
         }
     }
 
+    fn emit_item_activated(&self, index: usize, ctx: &mut EventCtx) {
+        if self.is_selectable(index)
+            && let Some(item) = self.items.get(index)
+        {
+            ctx.post_message(
+                self.id,
+                Message::ListViewItemActivated {
+                    index,
+                    item: item.clone(),
+                },
+            );
+        }
+    }
+
     fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
         if self.selectable_count() == 0 {
             return;
@@ -315,6 +329,7 @@ impl Widget for ListView {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
                     self.select_index(index, ctx);
+                    self.emit_item_activated(index, ctx);
                     ctx.set_handled();
                 }
             }
@@ -366,8 +381,19 @@ impl Widget for ListView {
                     }
                     ctx.set_handled();
                 }
+                KeyCode::Enter => {
+                    self.emit_item_activated(self.selected, ctx);
+                    ctx.set_handled();
+                }
                 _ => {}
             },
+            Event::AppFocus(false) => {
+                if self.hovered || self.hovered_index.is_some() {
+                    self.hovered = false;
+                    self.hovered_index = None;
+                    ctx.request_repaint();
+                }
+            }
             _ => {}
         }
     }
@@ -393,6 +419,11 @@ impl Widget for ListView {
             delta_y.saturating_mul(self.scroll_step as i32) as isize,
             ctx,
         );
+    }
+
+    fn on_unmount(&mut self) {
+        self.hovered = false;
+        self.hovered_index = None;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -477,6 +508,11 @@ impl Renderable for ListView {
 #[cfg(test)]
 mod tests {
     use super::ListView;
+    use crate::event::{Event, EventCtx, MouseDownEvent};
+    use crate::keys::KeyEventData;
+    use crate::message::Message;
+    use crate::widgets::Widget;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn highlighted_item_uses_highlight_class_not_hover() {
@@ -484,5 +520,70 @@ mod tests {
         assert!(classes.contains(&"-highlighted"));
         assert!(classes.contains(&"-focus"));
         assert!(!classes.contains(&"-hover"));
+    }
+
+    #[test]
+    fn enter_activates_selected_item() {
+        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
+        list.set_focus(true);
+        list.set_selected(1);
+
+        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::Key(key), &mut ctx);
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::ListViewItemActivated {
+                index: 1,
+                ref item
+            } if item == "two"
+        ));
+    }
+
+    #[test]
+    fn mouse_click_activates_even_when_selection_unchanged() {
+        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
+        list.on_layout(20, 2);
+        let id = list.id();
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::ListViewItemActivated {
+                index: 0,
+                ref item
+            } if item == "one"
+        ));
+    }
+
+    #[test]
+    fn app_focus_loss_clears_hover_state() {
+        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
+        list.set_hovered(true);
+        assert!(list.on_mouse_move(0, 0));
+        assert_eq!(list.hovered_index, Some(0));
+
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::AppFocus(false), &mut ctx);
+
+        assert!(!list.is_hovered());
+        assert_eq!(list.hovered_index, None);
+        assert!(ctx.repaint_requested());
     }
 }

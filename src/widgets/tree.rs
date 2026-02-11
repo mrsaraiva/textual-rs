@@ -15,6 +15,7 @@ pub struct TreeNode {
     expanded: bool,
     allow_expand: bool,
     disabled: bool,
+    component_classes: Vec<String>,
     children: Vec<TreeNode>,
 }
 
@@ -25,6 +26,7 @@ impl TreeNode {
             expanded: true,
             allow_expand: false,
             disabled: false,
+            component_classes: Vec::new(),
             children: Vec::new(),
         }
     }
@@ -46,6 +48,11 @@ impl TreeNode {
 
     pub fn disabled(mut self, value: bool) -> Self {
         self.disabled = value;
+        self
+    }
+
+    pub fn with_component_class(mut self, class: impl Into<String>) -> Self {
+        self.component_classes.push(class.into());
         self
     }
 }
@@ -74,6 +81,7 @@ struct VisibleNode {
     expanded: bool,
     disabled: bool,
     expandable: bool,
+    component_classes: Vec<String>,
 }
 
 impl Tree {
@@ -125,6 +133,7 @@ impl Tree {
                     expanded: node.expanded,
                     disabled: node.disabled,
                     expandable: node.allow_expand || !node.children.is_empty(),
+                    component_classes: node.component_classes.clone(),
                 });
                 if node.expanded {
                     walk(&node.children, depth + 1, path, out);
@@ -222,6 +231,21 @@ impl Tree {
         }
     }
 
+    fn emit_activated(&self, ctx: &mut EventCtx, index: usize, nodes: &[VisibleNode]) {
+        if let Some(node) = nodes.get(index) {
+            if node.disabled {
+                return;
+            }
+            ctx.post_message(
+                self.id,
+                Message::TreeNodeActivated {
+                    index,
+                    label: node.label.clone(),
+                },
+            );
+        }
+    }
+
     fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
         ctx.post_message(
             self.id,
@@ -290,6 +314,24 @@ impl Tree {
         }
         self.ensure_visible();
         self.emit_toggled(ctx, self.selected, info.label, expanded);
+        ctx.request_repaint();
+    }
+
+    fn toggle_index(&mut self, index: usize, ctx: &mut EventCtx) {
+        let nodes = self.visible_nodes();
+        let Some(info) = nodes.get(index).cloned() else {
+            return;
+        };
+        if info.disabled || !info.expandable {
+            return;
+        }
+        let mut expanded = info.expanded;
+        if let Some(node) = Self::node_mut_by_path(&mut self.roots, &info.path) {
+            node.expanded = !node.expanded;
+            expanded = node.expanded;
+        }
+        self.ensure_visible();
+        self.emit_toggled(ctx, index, info.label, expanded);
         ctx.request_repaint();
     }
 
@@ -395,30 +437,31 @@ impl Tree {
         highlighted: bool,
         hovered: bool,
         focused: bool,
-    ) -> Vec<&'static str> {
-        let mut classes = vec!["tree--node"];
+    ) -> Vec<String> {
+        let mut classes = vec!["tree--node".to_string()];
         if highlighted {
-            classes.push("-highlighted");
+            classes.push("-highlighted".to_string());
         }
         if hovered && !highlighted {
-            classes.push("-hover");
+            classes.push("-hover".to_string());
         }
         if highlighted && focused {
-            classes.push("-focus");
+            classes.push("-focus".to_string());
         }
         if node.expandable {
-            classes.push("-branch");
+            classes.push("-branch".to_string());
         } else {
-            classes.push("-leaf");
+            classes.push("-leaf".to_string());
         }
         if node.expanded {
-            classes.push("-expanded");
+            classes.push("-expanded".to_string());
         } else {
-            classes.push("-collapsed");
+            classes.push("-collapsed".to_string());
         }
         if node.disabled {
-            classes.push("-disabled");
+            classes.push("-disabled".to_string());
         }
+        classes.extend(node.component_classes.iter().cloned());
         classes
     }
 }
@@ -465,10 +508,12 @@ impl Widget for Tree {
                     if node.disabled {
                         return;
                     }
-                    self.select_index(index, ctx);
                     let twist_col = node.depth.saturating_mul(2) + 2;
                     if node.expandable && (mouse.x as usize) <= twist_col {
-                        self.toggle_selected(ctx);
+                        self.toggle_index(index, ctx);
+                    } else {
+                        self.select_index(index, ctx);
+                        self.emit_activated(ctx, index, &nodes);
                     }
                     ctx.set_handled();
                 }
@@ -532,12 +577,24 @@ impl Widget for Tree {
                     self.expand_or_child(ctx);
                     ctx.set_handled();
                 }
-                KeyCode::Enter | KeyCode::Char(' ') => {
+                KeyCode::Enter => {
+                    let nodes = self.visible_nodes();
+                    self.emit_activated(ctx, self.selected, &nodes);
+                    ctx.set_handled();
+                }
+                KeyCode::Char(' ') => {
                     self.toggle_selected(ctx);
                     ctx.set_handled();
                 }
                 _ => {}
             },
+            Event::AppFocus(false) => {
+                if self.hovered || self.hovered_index.is_some() {
+                    self.hovered = false;
+                    self.hovered_index = None;
+                    ctx.request_repaint();
+                }
+            }
             _ => {}
         }
     }
@@ -568,6 +625,11 @@ impl Widget for Tree {
         );
     }
 
+    fn on_unmount(&mut self) {
+        self.hovered = false;
+        self.hovered_index = None;
+    }
+
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -592,7 +654,8 @@ impl Widget for Tree {
                     "▸"
                 };
                 let classes = Self::node_classes(node, highlighted, hovered, self.focused);
-                style = crate::css::resolve_component_style(self, &classes)
+                let class_refs: Vec<&str> = classes.iter().map(String::as_str).collect();
+                style = crate::css::resolve_component_style(self, &class_refs)
                     .to_rich()
                     .unwrap_or(style);
                 let marker = if highlighted { "› " } else { "  " };
@@ -651,6 +714,11 @@ impl Renderable for Tree {
 #[cfg(test)]
 mod tests {
     use super::{Tree, TreeNode, VisibleNode};
+    use crate::event::{Event, EventCtx, MouseDownEvent};
+    use crate::keys::KeyEventData;
+    use crate::message::Message;
+    use crate::widgets::Widget;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn highlighted_node_uses_highlight_class_not_hover() {
@@ -662,12 +730,114 @@ mod tests {
             expanded: true,
             disabled: false,
             expandable: false,
+            component_classes: Vec::new(),
         };
         let classes = Tree::node_classes(&node, true, true, true);
-        assert!(classes.contains(&"-highlighted"));
-        assert!(classes.contains(&"-focus"));
-        assert!(!classes.contains(&"-hover"));
-        assert!(classes.contains(&"-leaf"));
+        assert!(classes.iter().any(|class| class == "-highlighted"));
+        assert!(classes.iter().any(|class| class == "-focus"));
+        assert!(!classes.iter().any(|class| class == "-hover"));
+        assert!(classes.iter().any(|class| class == "-leaf"));
         let _ = tree;
+    }
+
+    #[test]
+    fn node_classes_include_component_classes() {
+        let node = VisibleNode {
+            path: vec![0],
+            depth: 0,
+            label: "entry.txt".to_string(),
+            expanded: false,
+            disabled: false,
+            expandable: false,
+            component_classes: vec![
+                "directory-tree--file".to_string(),
+                "directory-tree--extension".to_string(),
+            ],
+        };
+        let classes = Tree::node_classes(&node, false, false, false);
+        assert!(classes.iter().any(|class| class == "directory-tree--file"));
+        assert!(
+            classes
+                .iter()
+                .any(|class| class == "directory-tree--extension")
+        );
+    }
+
+    #[test]
+    fn enter_activates_selected_node_without_toggling() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Root")
+                .expanded(false)
+                .with_child(TreeNode::new("Child")),
+        ]);
+        tree.set_focus(true);
+        tree.on_layout(24, 4);
+
+        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        tree.on_event(&Event::Key(key), &mut ctx);
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::TreeNodeActivated {
+                index: 0,
+                ref label
+            } if label == "Root"
+        ));
+
+        // Enter should not expand/collapse.
+        let visible_labels: Vec<String> =
+            tree.visible_nodes().into_iter().map(|n| n.label).collect();
+        assert_eq!(visible_labels, vec!["Root".to_string()]);
+    }
+
+    #[test]
+    fn mouse_twisty_click_toggles_without_emitting_activation() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Root")
+                .expanded(true)
+                .with_child(TreeNode::new("Child")),
+        ]);
+        tree.on_layout(24, 4);
+        let id = tree.id();
+
+        let mut ctx = EventCtx::default();
+        tree.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::TreeNodeToggled {
+                index: 0,
+                expanded: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn app_focus_loss_clears_hover_state() {
+        let mut tree = Tree::new(vec![TreeNode::new("Root")]);
+        tree.set_hovered(true);
+        assert!(tree.on_mouse_move(0, 0));
+        assert_eq!(tree.hovered_index, Some(0));
+
+        let mut ctx = EventCtx::default();
+        tree.on_event(&Event::AppFocus(false), &mut ctx);
+
+        assert!(!tree.is_hovered());
+        assert_eq!(tree.hovered_index, None);
+        assert!(ctx.repaint_requested());
     }
 }

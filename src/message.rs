@@ -42,6 +42,10 @@ pub enum Message {
         index: usize,
         item: String,
     },
+    ListViewItemActivated {
+        index: usize,
+        item: String,
+    },
     TabActivated {
         index: usize,
         title: String,
@@ -49,6 +53,7 @@ pub enum Message {
     HeaderToggled {
         tall: bool,
     },
+    HeaderIconPressed,
     FooterBindingsUpdated {
         count: usize,
     },
@@ -63,6 +68,10 @@ pub enum Message {
         variant: String,
     },
     TreeNodeSelected {
+        index: usize,
+        label: String,
+    },
+    TreeNodeActivated {
         index: usize,
         label: String,
     },

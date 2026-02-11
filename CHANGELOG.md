@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Widget closure follow-up (`PR7J`)**
+  - `ListView`/`Tree` interaction semantics:
+    - added explicit activation messages (`ListViewItemActivated`, `TreeNodeActivated`) for enter/click activation paths.
+    - refined tree click semantics so twisty clicks toggle without forcing activation.
+    - added focus-loss/unmount hover cleanup regressions for both widgets.
+  - `Header`/`Footer` lifecycle/message polish:
+    - header icon clicks now emit `HeaderIconPressed`.
+    - footer unmount now resets focus-tracking state to avoid stale deferred-binding behavior across remount.
 - **Widget closure push (`PR7I`)**
   - Tier-A hardening:
     - `DataTable` now keeps fixed columns pinned while shifting non-fixed columns for far-cursor visibility, and header hit-testing maps correctly under shifted columns.

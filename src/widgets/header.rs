@@ -165,6 +165,7 @@ impl Widget for Header {
                 if (mouse.x as usize) < self.icon_width {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
+                    ctx.post_message(self.id, Message::HeaderIconPressed);
                     ctx.set_handled();
                     return;
                 }
@@ -365,7 +366,9 @@ mod tests {
         );
 
         assert!(ctx.handled());
-        assert!(ctx.take_messages().is_empty());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].message, Message::HeaderIconPressed));
     }
 
     #[test]

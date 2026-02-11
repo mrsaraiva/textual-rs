@@ -334,6 +334,7 @@ impl Widget for Footer {
     }
 
     fn on_unmount(&mut self) {
+        self.app_focused = true;
         self.deferred_bindings = None;
     }
 
@@ -461,6 +462,26 @@ mod tests {
         let mut focus_ctx = EventCtx::default();
         footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
         let messages = focus_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::FooterBindingsUpdated { count: 1 }
+        ));
+    }
+
+    #[test]
+    fn unmount_resets_focus_tracking_state() {
+        let mut footer = Footer::new();
+        let mut unfocus_ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+        footer.on_unmount();
+
+        let mut ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
