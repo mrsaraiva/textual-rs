@@ -55,6 +55,14 @@ pub struct FrameBuffer {
     cells: Vec<Cell>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DirtyRegion {
+    pub x0: usize,
+    pub y0: usize,
+    pub x1: usize,
+    pub y1: usize,
+}
+
 impl FrameBuffer {
     pub fn new(width: usize, height: usize, style: Option<Style>) -> Self {
         let width = width.max(1);
@@ -348,6 +356,48 @@ impl FrameBuffer {
 
         out
     }
+
+    /// Compute an update sequence limited to the given dirty regions.
+    ///
+    /// Cells outside `dirty_regions` are treated as unchanged.
+    pub fn diff_to_segments_in_regions(
+        &self,
+        previous: &FrameBuffer,
+        dirty_regions: &[DirtyRegion],
+    ) -> Segments {
+        assert_eq!(self.width, previous.width, "buffer widths differ");
+        assert_eq!(self.height, previous.height, "buffer heights differ");
+        if dirty_regions.is_empty() {
+            return Segments::new();
+        }
+
+        let mut dirty_mask = vec![false; self.width * self.height];
+        for region in dirty_regions {
+            if self.width == 0 || self.height == 0 {
+                continue;
+            }
+            let x0 = region.x0.min(self.width.saturating_sub(1));
+            let y0 = region.y0.min(self.height.saturating_sub(1));
+            let x1 = region.x1.min(self.width.saturating_sub(1));
+            let y1 = region.y1.min(self.height.saturating_sub(1));
+            if x0 > x1 || y0 > y1 {
+                continue;
+            }
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    dirty_mask[self.idx(x, y)] = true;
+                }
+            }
+        }
+
+        let mut masked_previous = previous.clone();
+        for (idx, dirty) in dirty_mask.iter().enumerate() {
+            if !*dirty {
+                masked_previous.cells[idx] = self.cells[idx].clone();
+            }
+        }
+        self.diff_to_segments(&masked_previous)
+    }
 }
 
 fn cell_len(text: &str) -> usize {
@@ -387,5 +437,45 @@ mod tests {
         }
 
         assert!(saw_move_to, "expected at least one MoveTo in diff stream");
+    }
+
+    #[test]
+    fn region_diff_ignores_changes_outside_dirty_region() {
+        let previous = FrameBuffer::from_lines(
+            &[vec![Segment::new("abcd")], vec![Segment::new("wxyz")]],
+            4,
+            2,
+            None,
+        );
+        let next = FrameBuffer::from_lines(
+            &[vec![Segment::new("abXd")], vec![Segment::new("wXyz")]],
+            4,
+            2,
+            None,
+        );
+
+        let diff = next.diff_to_segments_in_regions(
+            &previous,
+            &[DirtyRegion {
+                x0: 2,
+                y0: 0,
+                x1: 2,
+                y1: 0,
+            }],
+        );
+
+        let mut move_tos = Vec::new();
+        let mut text = String::new();
+        for segment in diff.iter() {
+            if let Some(rich_rs::ControlType::MoveTo { x, y }) = segment.control.as_ref() {
+                move_tos.push((*x, *y));
+            }
+            if segment.control.is_none() {
+                text.push_str(segment.text.as_ref());
+            }
+        }
+
+        assert_eq!(move_tos, vec![(2, 0)]);
+        assert_eq!(text, "X");
     }
 }

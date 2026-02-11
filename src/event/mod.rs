@@ -1,7 +1,7 @@
 use crate::debug::debug_message;
 use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
-use crate::message::{Message, MessageEvent};
+use crate::message::{AsyncTaskRequest, Message, MessageEvent};
 use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
@@ -274,9 +274,49 @@ impl ActionMap {
 pub struct EventCtx {
     handled: bool,
     repaint_requested: bool,
+    invalidation: InvalidationFlags,
     stop_requested: bool,
     messages: Vec<MessageEvent>,
     animation_requests: Vec<AnimationRequest>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InvalidationFlags {
+    pub content: bool,
+    pub style: bool,
+    pub layout: bool,
+}
+
+impl InvalidationFlags {
+    pub fn content() -> Self {
+        Self {
+            content: true,
+            style: false,
+            layout: false,
+        }
+    }
+
+    pub fn style() -> Self {
+        Self {
+            content: true,
+            style: true,
+            layout: false,
+        }
+    }
+
+    pub fn layout() -> Self {
+        Self {
+            content: true,
+            style: true,
+            layout: true,
+        }
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.content |= other.content;
+        self.style |= other.style;
+        self.layout |= other.layout;
+    }
 }
 
 impl EventCtx {
@@ -294,10 +334,27 @@ impl EventCtx {
     /// mark the event as handled.
     pub fn request_repaint(&mut self) {
         self.repaint_requested = true;
+        self.invalidation.merge(InvalidationFlags::content());
     }
 
     pub fn repaint_requested(&self) -> bool {
         self.repaint_requested
+    }
+
+    pub fn invalidation(&self) -> InvalidationFlags {
+        self.invalidation
+    }
+
+    /// Request style recomputation (without forcing a full relayout).
+    pub fn request_style_invalidation(&mut self) {
+        self.repaint_requested = true;
+        self.invalidation.merge(InvalidationFlags::style());
+    }
+
+    /// Request a layout/style/content invalidation.
+    pub fn request_layout_invalidation(&mut self) {
+        self.repaint_requested = true;
+        self.invalidation.merge(InvalidationFlags::layout());
     }
 
     /// Request the runtime event loop to stop after current dispatch finishes.
@@ -315,6 +372,65 @@ impl EventCtx {
             sender.as_u64()
         ));
         self.messages.push(MessageEvent { sender, message });
+    }
+
+    pub fn spawn_async_task(
+        &mut self,
+        sender: WidgetId,
+        task_id: u64,
+        target: WidgetId,
+        request: AsyncTaskRequest,
+    ) {
+        self.post_message(
+            sender,
+            Message::AsyncTaskSpawn {
+                task_id,
+                target,
+                request,
+            },
+        );
+    }
+
+    pub fn spawn_async_task_for(
+        &mut self,
+        sender: WidgetId,
+        task_id: u64,
+        request: AsyncTaskRequest,
+    ) {
+        self.spawn_async_task(sender, task_id, sender, request);
+    }
+
+    pub fn cancel_async_task(&mut self, sender: WidgetId, task_id: u64) {
+        self.post_message(sender, Message::AsyncTaskCancel { task_id });
+    }
+
+    pub fn cancel_async_tasks_for(&mut self, sender: WidgetId, target: WidgetId) {
+        self.post_message(sender, Message::AsyncTaskCancelTarget { target });
+    }
+
+    pub fn schedule_timer(
+        &mut self,
+        sender: WidgetId,
+        timer_id: u64,
+        target: WidgetId,
+        delay: Duration,
+    ) {
+        self.post_message(
+            sender,
+            Message::TimerSchedule {
+                timer_id,
+                target,
+                delay,
+            },
+        );
+    }
+
+    pub fn schedule_timer_for(&mut self, sender: WidgetId, timer_id: u64, delay: Duration) {
+        self.schedule_timer(sender, timer_id, sender, delay);
+    }
+
+    pub fn cancel_timer(&mut self, sender: WidgetId, timer_id: u64) {
+        self.post_message(sender, Message::TimerCancel { timer_id });
     }
 
     pub fn request_animation(&mut self, request: AnimationRequest) {
@@ -339,6 +455,7 @@ impl EventCtx {
         if other.repaint_requested {
             self.repaint_requested = true;
         }
+        self.invalidation.merge(other.invalidation);
         if other.stop_requested {
             self.stop_requested = true;
         }
@@ -353,5 +470,58 @@ impl EventCtx {
 
     pub(crate) fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
         std::mem::take(&mut self.animation_requests)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EventCtx;
+    use crate::message::{AsyncTaskRequest, Message};
+    use crate::widgets::WidgetId;
+    use std::time::Duration;
+
+    #[test]
+    fn helper_methods_emit_runtime_control_messages() {
+        let sender = WidgetId::from_u64(12);
+        let mut ctx = EventCtx::default();
+
+        ctx.spawn_async_task_for(
+            sender,
+            5,
+            AsyncTaskRequest::Sleep {
+                duration: Duration::from_millis(10),
+                label: "work".to_string(),
+            },
+        );
+        ctx.schedule_timer_for(sender, 9, Duration::from_millis(25));
+        ctx.cancel_async_task(sender, 5);
+        ctx.cancel_timer(sender, 9);
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 4);
+        assert!(matches!(
+            &messages[0].message,
+            Message::AsyncTaskSpawn {
+                task_id,
+                target,
+                request: AsyncTaskRequest::Sleep { label, .. },
+            } if *task_id == 5 && *target == sender && label == "work"
+        ));
+        assert!(matches!(
+            messages[1].message,
+            Message::TimerSchedule {
+                timer_id: 9,
+                target,
+                ..
+            } if target == sender
+        ));
+        assert!(matches!(
+            messages[2].message,
+            Message::AsyncTaskCancel { task_id: 5 }
+        ));
+        assert!(matches!(
+            messages[3].message,
+            Message::TimerCancel { timer_id: 9 }
+        ));
     }
 }

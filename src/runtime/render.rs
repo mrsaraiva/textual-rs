@@ -1,6 +1,6 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::debug_render;
-use crate::render::FrameBuffer;
+use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
@@ -65,6 +65,15 @@ impl App {
     }
 
     pub fn render_widget(&mut self, widget: &mut dyn Widget) -> crate::Result<()> {
+        self.render_widget_with_regions(widget, None, true)
+    }
+
+    pub(super) fn render_widget_with_regions(
+        &mut self,
+        widget: &mut dyn Widget,
+        dirty_regions: Option<&[DirtyRegion]>,
+        layout_invalidation: bool,
+    ) -> crate::Result<()> {
         self.refresh_size()?;
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
@@ -84,7 +93,14 @@ impl App {
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
         let clear_before_draw = self.clear_on_next_render;
-        let diff = prepend_clear_if_needed(next.diff_to_segments(&self.frame), clear_before_draw);
+        let diff_body = if clear_before_draw {
+            next.diff_to_segments(&self.frame)
+        } else if let Some(regions) = dirty_regions {
+            next.diff_to_segments_in_regions(&self.frame, regions)
+        } else {
+            next.diff_to_segments(&self.frame)
+        };
+        let diff = prepend_clear_if_needed(diff_body, clear_before_draw);
         let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
             "[render_widget] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
@@ -124,8 +140,12 @@ impl App {
         self.print_segments(&diff)?;
         self.resized_since_last_render = false;
         self.clear_on_next_render = false;
-        self.hit_test = HitTestMap::from_frame(&next);
-        self.apply_layout_info(widget);
+        let next_hit_test = HitTestMap::from_frame(&next);
+        let geometry_changed = self.hit_test != next_hit_test;
+        self.hit_test = next_hit_test;
+        if layout_invalidation || geometry_changed {
+            self.apply_layout_info(widget, &self.hit_test);
+        }
         self.frame = next;
         Ok(())
     }
@@ -179,7 +199,7 @@ impl App {
         }
     }
 
-    pub(super) fn apply_layout_info(&self, root: &mut dyn Widget) {
+    pub(super) fn apply_layout_info(&self, root: &mut dyn Widget, hit_test: &HitTestMap) {
         fn visit(w: &mut dyn Widget, hit_test: &HitTestMap) {
             if let Some(rect) = hit_test.rect(w.id()) {
                 let meta = crate::css::selector_meta_generic(w);
@@ -197,7 +217,7 @@ impl App {
             }
             w.visit_children_mut(&mut |child| visit(child, hit_test));
         }
-        visit(root, &self.hit_test);
+        visit(root, hit_test);
     }
 
     pub(super) fn print_segments(&mut self, diff: &rich_rs::Segments) -> crate::Result<()> {

@@ -34,7 +34,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Done | Define handler metadata schema | `MetaValue::Int` keyed as `textual:widget_id` for hit-testing and event routing |
 | Done | Preserve metadata through rendering | Metadata survives clipping/diffing; verified by `tests/render_metadata.rs` |
 | Done | Hyperlink id policy | Link widget now emits OSC8 metadata via `StyleMeta.link` and relies on `rich-rs` per-Console URL→id registry when `link_id` is omitted (PR8G, 2026-02-11) |
-| Todo | Deterministic ids (open) | Widget IDs are random (`WidgetId::new()`); consider hash-based IDs if needed for persistence/snapshots |
+| Done | Deterministic widget-id policy | `WidgetId::new()` remains process-local and monotonic (global atomic allocator); stable/persistent IDs are explicitly deferred for now to avoid locking in a premature persistence contract (PR8H, 2026-02-11) |
 | Done | Integration golden tests | Metadata-specific coverage now includes direct assertions and snapshots for metadata preservation across framebuffer + diff (`tests/render_metadata.rs`) |
 
 ---
@@ -50,7 +50,7 @@ The goal here is a framework capable of powering real applications, eventually e
 | Done | Frame diff algorithm | `diff_to_segments` produces minimal repaint with cursor-move controls |
 | Done | Deterministic renderer | Same tree produces same frame; verified by snapshot tests |
 | Done | Synchronized output | DECSET 2026 bracketing + line-wrap disable to prevent resize tearing |
-| Partial | Golden tests | SVG snapshots exist; no raw TTY capture tests yet |
+| Done | Golden tests | SVG snapshots plus deterministic raw TTY capture coverage for framebuffer->diff->output invariants (`tests/render_metadata.rs`, `tests/terminal_output_golden.rs`, `tests/support/terminal_capture.rs`) |
 
 Deliverable: ~~an app that can render a full-screen view and update it on a timer without flicker/garbling.~~ **Done.**
 
@@ -66,7 +66,7 @@ Deliverable: ~~an app that can render a full-screen view and update it on a time
 | Done | Mount/unmount lifecycle | `on_mount`/`on_unmount`, `visit_children_mut` for tree traversal |
 | Done | Composition helpers | Vertical, Horizontal, Dock, Frame, Constrained, ScrollView, VerticalScroll, Grid |
 | Done | Per-widget styles API | `WidgetStyles` for inline overrides; `style_classes()` for CSS class resolution |
-| Partial | Invalidation model | **MVP dirty flag**: render on invalidation (input/hover/style reload/active), not every tick; still re-renders whole frame when dirty (no dirty regions / selective relayout yet) |
+| Done | Invalidation model | Dirty-region tracking is now wired through runtime + framebuffer region-scoped diffing; runtime tracks layout/style/content invalidation flags and limits repaint scope to affected widget regions where feasible. |
 
 Deliverable: ~~compose a view with multiple widgets and update state to trigger re-render.~~ **Done.**
 
@@ -122,7 +122,7 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 | Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
 | Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
 | Partial | Computed styles | On-demand style resolution (selector match + cascade + inline + inheritance) exists in render path; no cached per-widget computed-style tree yet |
-| Partial | Style invalidation | Stylesheet watch reload is applied in the runtime tick loop; app still uses full-frame dirty redraw (no selective style invalidation / dirty regions) |
+| Done | Style invalidation | Stylesheet hot-reload now computes changed rules and invalidates matching widgets/selectors (including descendant/child selector matches) with selective region redraw where feasible; falls back to full redraw for layout-affecting or broad changes. |
 
 Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**
 
@@ -137,9 +137,9 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Done | Tick system | Adaptive tick cadence (idle 100ms / active ~16ms) with `on_tick` propagation and event-loop repaint scheduling |
 | Done | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message` are now the widget interaction integration surface. PR8F (2026-02-11) closed remaining `Select` direct-coupling paths by routing open-dropdown selection through `OptionList` message flow (`OptionSelected` -> `SelectChanged`) and added ordering regressions across `OptionList`/`Select`/`SelectionList`. |
 | Done | Grapheme-aware text editing model | Shared text-edit command core drives `Input` / `MaskedInput` / `TextArea`, with grapheme-sensitive follow-up closure for `MaskedInput` cursor/render paths plus `DataTable`/`Tree` width-hit-testing and wrapping edge regressions (`ZWJ`, combining marks, wide-cell labels) landed in PR8E (2026-02-11) |
-| Todo | One-shot timers | No timer API beyond the tick counter |
+| Done | One-shot timers | Runtime one-shot timers are available via `TimerSchedule` / `TimerCancel` with `TimerFired` / `TimerCancelled` delivery and event-loop timeout integration |
 | Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
-| Partial | Async tasks | Runtime async task baseline (`AsyncTaskSpawn`/`AsyncTaskCancel`/`AsyncTaskCompleted`/`AsyncTaskCancelled`) is landed via PR8A and used by `DirectoryTree`; broader task API surface and richer cancellation semantics remain open |
+| Done | Async tasks | Runtime async task API now covers spawn/cancel/cancel-by-target/completion, replacement cancellation signaling, and broader utility requests beyond directory reads |
 
 Deliverable: progress/spinner + animated UI element without blocking input.
 
@@ -492,23 +492,26 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
    - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.
    - PR 2: Add selective relayout invalidation flags (layout/style/content) instead of global dirty redraw.
    - PR 3: Wire stylesheet reload to selective style invalidation (affected subtree/type/class), not full-app redraw.
-   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area.
+   - Exit criteria: unchanged screenshots and focused performance tests for reduced redraw area. **Met (2026-02-11, pending-stream #1 closure).**
 
 6. One-shot timers + async task primitives (Phase 6)
    - PR 1: Introduce one-shot timer API (schedule/cancel) integrated with runtime loop.
    - PR 2: Introduce background-task API (`spawn` + completion message delivery + cancellation semantics).
    - PR 3: Add demo/test proving non-blocking background work + timer-driven UI updates.
-   - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests.
+   - Exit criteria: timers/tasks rows move to `Done`, with runtime-level tests. **Met (PR8J, 2026-02-11).**
 
 7. Terminal/golden coverage expansion (Phases 0.5 + 1)
    - PR 1: Add metadata golden assertions for framebuffer->diff->output invariants (beyond current snapshot coverage).
    - PR 2: Add raw terminal-output capture test harness for deterministic control-sequence checks.
-   - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`.
+   - PR8I (2026-02-11): landed deterministic terminal-capture helper + framebuffer/diff/output golden stream snapshots and absolute-cursoring invariants.
+   - Exit criteria: “Golden tests” row in Phase 1 can move to `Done`. **Met (PR8I, 2026-02-11).**
 
 8. Rich-rs integration contract closures (Phase 0.5)
    - PR 1: Implement/document hyperlink ID policy usage (`StyleMeta.link`/`link_id`) where links are rendered.
    - PR 2: Decide deterministic widget-id policy (explicitly keep runtime IDs non-deterministic, or add optional stable IDs for persistence/snapshots).
+   - PR8H (2026-02-11): deterministic widget-id policy closed by explicitly keeping runtime IDs process-local/non-deterministic across runs; stable/persistent IDs deferred until a concrete persistence/snapshot API requires them.
    - Exit criteria: both Phase 0.5 `Todo` rows move to `Done` or to explicit `Won't do (for now)` notes.
+     **Met (PR8G + PR8H, 2026-02-11).**
 
 9. Compatibility/doc ergonomics (Phase 8 + 9)
    - PR 1: Publish Python Textual ↔ textual-rs concept/API mapping doc (source-of-truth).

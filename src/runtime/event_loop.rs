@@ -8,6 +8,7 @@ use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
 use rich_rs::Renderable;
+use std::collections::HashSet;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -19,8 +20,8 @@ use super::routing::{
     dispatch_mouse_scroll, dispatch_mouse_scroll_to_target, dispatch_scroll_action,
     focused_help_metadata, is_priority_action, is_scroll_action,
 };
-use super::types::DispatchOutcome;
-use crate::widgets::Widget;
+use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
+use crate::widgets::{Widget, WidgetId};
 
 fn should_dispatch_binding_hints(
     last_hints: &[crate::event::BindingHint],
@@ -132,18 +133,205 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
                 target,
                 request,
             } => {
-                app.async_tasks.spawn(task_id, target, request);
+                if let Some(cancelled) = app.async_tasks.spawn(task_id, target, request) {
+                    pass.generated.push(cancelled);
+                }
             }
             Message::AsyncTaskCancel { task_id } => {
                 if let Some(cancelled) = app.async_tasks.cancel(task_id) {
                     pass.generated.push(cancelled);
                 }
             }
+            Message::AsyncTaskCancelTarget { target } => {
+                pass.generated
+                    .extend(app.async_tasks.cancel_for_target(target));
+            }
+            Message::TimerSchedule {
+                timer_id,
+                target,
+                delay,
+            } => {
+                if let Some(cancelled) = app.one_shot_timers.schedule(timer_id, target, delay) {
+                    pass.generated.push(cancelled);
+                }
+            }
+            Message::TimerCancel { timer_id } => {
+                if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
+                    pass.generated.push(cancelled);
+                }
+            }
             _ => pass.deliver.push(event),
         }
     }
+    pass.generated
+        .extend(app.one_shot_timers.drain_ready(Instant::now()));
     pass.generated.extend(app.async_tasks.drain_completed());
     pass
+}
+
+#[derive(Clone)]
+struct SelectorSnapshot {
+    id: WidgetId,
+    type_name: String,
+    style_id: Option<String>,
+    classes: Vec<String>,
+    disabled: bool,
+    focused: bool,
+    hovered: bool,
+    active: bool,
+}
+
+fn snapshot_for(widget: &mut dyn Widget, app_active: bool) -> SelectorSnapshot {
+    SelectorSnapshot {
+        id: widget.id(),
+        type_name: widget.style_type().to_string(),
+        style_id: widget.style_id().map(str::to_string),
+        classes: widget.style_classes().to_vec(),
+        disabled: widget.is_disabled(),
+        focused: widget.has_focus() && app_active,
+        hovered: widget.is_hovered(),
+        active: widget.is_active(),
+    }
+}
+
+fn selector_matches_snapshot(
+    selector: &crate::css::StyleSelector,
+    meta: &SelectorSnapshot,
+) -> bool {
+    if let Some(type_name) = selector.type_name() {
+        if meta.type_name != type_name {
+            return false;
+        }
+    }
+    if let Some(id) = selector.id_name() {
+        if meta.style_id.as_deref() != Some(id) {
+            return false;
+        }
+    }
+    if !selector.classes().is_empty() {
+        if !selector
+            .classes()
+            .iter()
+            .all(|class| meta.classes.iter().any(|value| value == class))
+        {
+            return false;
+        }
+    }
+    for pseudo in selector.pseudos() {
+        let ok = match pseudo {
+            crate::css::PseudoClass::Disabled => meta.disabled,
+            crate::css::PseudoClass::Focus => meta.focused,
+            crate::css::PseudoClass::Hover => meta.hovered,
+            crate::css::PseudoClass::Active => meta.active,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+fn rule_matches_snapshot_chain(
+    rule: &crate::css::StyleRule,
+    current: &SelectorSnapshot,
+    ancestors: &[SelectorSnapshot],
+) -> bool {
+    let chain = rule.selector_chain();
+    let parts = chain.parts();
+    if parts.is_empty() {
+        return false;
+    }
+    let last = parts.last().expect("parts not empty");
+    if !selector_matches_snapshot(last, current) {
+        return false;
+    }
+    if parts.len() == 1 {
+        return true;
+    }
+
+    let combinators = chain.combinators();
+    let mut idx = ancestors.len() as isize - 1;
+    if idx < 0 {
+        return false;
+    }
+    for (part_index, selector) in parts[..parts.len() - 1].iter().rev().enumerate() {
+        let combinator = combinators[combinators.len() - 1 - part_index];
+        match combinator {
+            crate::css::Combinator::Child => {
+                let meta = &ancestors[idx as usize];
+                if !selector_matches_snapshot(selector, meta) {
+                    return false;
+                }
+                idx -= 1;
+            }
+            crate::css::Combinator::Descendant => {
+                let mut found = false;
+                let mut current_idx = idx;
+                while current_idx >= 0 {
+                    let meta = &ancestors[current_idx as usize];
+                    if selector_matches_snapshot(selector, meta) {
+                        found = true;
+                        idx = current_idx - 1;
+                        break;
+                    }
+                    current_idx -= 1;
+                }
+                if !found {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn collect_stylesheet_affected_widgets(
+    root: &mut dyn Widget,
+    changed_rules: &[crate::css::StyleRule],
+    app_active: bool,
+) -> Vec<WidgetId> {
+    if changed_rules.is_empty() {
+        return Vec::new();
+    }
+
+    fn visit(
+        widget: &mut dyn Widget,
+        rules: &[crate::css::StyleRule],
+        app_active: bool,
+        ancestors: &mut Vec<SelectorSnapshot>,
+        affected: &mut HashSet<WidgetId>,
+    ) {
+        let current = snapshot_for(widget, app_active);
+        if rules
+            .iter()
+            .any(|rule| rule_matches_snapshot_chain(rule, &current, ancestors))
+        {
+            affected.insert(current.id);
+        }
+        ancestors.push(current);
+        widget
+            .visit_children_mut(&mut |child| visit(child, rules, app_active, ancestors, affected));
+        ancestors.pop();
+    }
+
+    let mut affected = HashSet::new();
+    let mut ancestors = Vec::new();
+    visit(
+        root,
+        changed_rules,
+        app_active,
+        &mut ancestors,
+        &mut affected,
+    );
+    let mut out = affected.into_iter().collect::<Vec<_>>();
+    out.sort_by_key(|id| id.as_u64());
+    out
+}
+
+#[derive(Clone, Copy)]
+enum InvalidationScope {
+    Global,
+    Widget(WidgetId),
 }
 
 fn copy_to_system_clipboard(text: &str) -> bool {
@@ -269,6 +457,7 @@ impl App {
             };
             aggregate.handled |= outcome.handled;
             aggregate.repaint_requested |= outcome.repaint_requested;
+            aggregate.invalidation.merge(outcome.invalidation);
             aggregate.stop_requested |= outcome.stop_requested;
             aggregate.messages.append(&mut outcome.messages);
             aggregate
@@ -284,7 +473,8 @@ impl App {
     }
 
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
-        let queue = self.async_tasks.drain_completed();
+        let mut queue = self.one_shot_timers.drain_ready(Instant::now());
+        queue.extend(self.async_tasks.drain_completed());
         self.dispatch_message_queue_with_runtime(root, queue)
     }
 
@@ -362,9 +552,14 @@ impl App {
         let mut tick: u64 = 0;
         let idle_tick_rate = Duration::from_millis(100);
         let active_tick_rate = Duration::from_millis(16);
-        let mut dirty = initial_help_outcome.should_repaint();
+        let mut pending_invalidation = PendingInvalidation::default();
+        pending_invalidation.request_flags(initial_help_outcome.invalidation);
+        if initial_help_outcome.should_repaint() {
+            pending_invalidation.request_full_content();
+        }
         let mut prev_any_active = false;
         self.render_widget(root)?;
+        pending_invalidation = PendingInvalidation::default();
         let mut last_render = Instant::now();
 
         'event_loop: loop {
@@ -381,6 +576,11 @@ impl App {
                 .next_timeout(now)
                 .map(|anim_timeout| tick_timeout.min(anim_timeout))
                 .unwrap_or(tick_timeout);
+            let timeout = self
+                .one_shot_timers
+                .next_timeout(now)
+                .map(|timer_timeout| timeout.min(timer_timeout))
+                .unwrap_or(timeout);
             if event::poll(timeout)? {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
@@ -416,10 +616,18 @@ impl App {
                                 outcome.repaint_requested,
                                 outcome.messages.len()
                             ));
-                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             let mut msg_outcome =
                                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
                             }
@@ -436,10 +644,18 @@ impl App {
                             key_outcome.repaint_requested,
                             key_outcome.messages.len()
                         ));
-                        self.absorb_outcome(&mut key_outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut key_outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         let mut msg_outcome =
                             self.dispatch_message_queue_with_runtime(root, key_outcome.messages);
-                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut msg_outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         if key_outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -448,7 +664,7 @@ impl App {
                             {
                                 if action == Action::HelpQuit {
                                     self.notify_help_quit();
-                                    dirty = true;
+                                    pending_invalidation.request_full_content();
                                     continue;
                                 }
                                 debug_input(&format!(
@@ -467,10 +683,18 @@ impl App {
                                     outcome.repaint_requested,
                                     outcome.messages.len()
                                 ));
-                                self.absorb_outcome(&mut outcome, &mut dirty);
+                                self.absorb_outcome(
+                                    &mut outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
                                 let mut msg_outcome = self
                                     .dispatch_message_queue_with_runtime(root, outcome.messages);
-                                self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
                                 }
@@ -481,8 +705,16 @@ impl App {
                     }
                     CrosstermEvent::Mouse(mouse) => match mouse.kind {
                         MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+                            let before = self.hovered;
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                dirty = true;
+                                if let Some(id) = before {
+                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                }
+                                if let Some(id) = self.hovered {
+                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                } else {
+                                    pending_invalidation.request_full_content();
+                                }
                             }
                         }
                         MouseEventKind::Down(_) => {
@@ -513,10 +745,18 @@ impl App {
                                         y,
                                     }),
                                 );
-                                self.absorb_outcome(&mut outcome, &mut dirty);
+                                self.absorb_outcome(
+                                    &mut outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
                                 let mut msg_outcome = self
                                     .dispatch_message_queue_with_runtime(root, outcome.messages);
-                                self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
                                 }
@@ -544,10 +784,18 @@ impl App {
                                     y,
                                 }),
                             );
-                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             let mut msg_outcome =
                                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
                             }
@@ -560,8 +808,16 @@ impl App {
                                 "[input] mouse scroll kind={:?} mods={:?} x={} y={}",
                                 mouse.kind, mouse.modifiers, mouse.column, mouse.row
                             ));
+                            let before = self.hovered;
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                dirty = true;
+                                if let Some(id) = before {
+                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                }
+                                if let Some(id) = self.hovered {
+                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                } else {
+                                    pending_invalidation.request_full_content();
+                                }
                             }
                             let (delta_x, delta_y) =
                                 mouse_scroll_deltas(mouse.kind, mouse.modifiers);
@@ -612,10 +868,20 @@ impl App {
                                     }),
                                 )
                             };
-                            self.absorb_outcome(&mut diag_outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut diag_outcome,
+                                &mut pending_invalidation,
+                                target
+                                    .map(InvalidationScope::Widget)
+                                    .unwrap_or(InvalidationScope::Global),
+                            );
                             let mut msg_outcome = self
                                 .dispatch_message_queue_with_runtime(root, diag_outcome.messages);
-                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             let mut outcome = if let Some(target) = target {
                                 dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
                             } else {
@@ -627,10 +893,20 @@ impl App {
                                 outcome.repaint_requested,
                                 outcome.messages.len()
                             ));
-                            self.absorb_outcome(&mut outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut outcome,
+                                &mut pending_invalidation,
+                                target
+                                    .map(InvalidationScope::Widget)
+                                    .unwrap_or(InvalidationScope::Global),
+                            );
                             let mut msg_outcome =
                                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                            self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
                             if diag_outcome.stop_requested
                                 || outcome.stop_requested
                                 || msg_outcome.stop_requested
@@ -647,10 +923,18 @@ impl App {
                         root.on_resize(size.width, size.height);
                         let mut outcome =
                             dispatch_event(root, Event::Resize(size.width, size.height));
-                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         let mut msg_outcome =
                             self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut msg_outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -659,10 +943,18 @@ impl App {
                         self.app_active = false;
                         debug_input("[event] FocusLost");
                         let mut outcome = dispatch_event(root, Event::AppFocus(false));
-                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         let mut msg_outcome =
                             self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut msg_outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -671,10 +963,18 @@ impl App {
                         self.app_active = true;
                         debug_input("[event] FocusGained");
                         let mut outcome = dispatch_event(root, Event::AppFocus(true));
-                        self.absorb_outcome(&mut outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         let mut msg_outcome =
                             self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                        self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                        self.absorb_outcome(
+                            &mut msg_outcome,
+                            &mut pending_invalidation,
+                            InvalidationScope::Global,
+                        );
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -684,32 +984,54 @@ impl App {
             }
 
             let mut background_outcome = self.dispatch_background_runtime_messages(root);
-            self.absorb_outcome(&mut background_outcome, &mut dirty);
+            self.absorb_outcome(
+                &mut background_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
             if background_outcome.stop_requested {
                 break 'event_loop;
             }
 
             let mut focused_help_outcome = self.dispatch_focused_help_changed(root);
-            self.absorb_outcome(&mut focused_help_outcome, &mut dirty);
+            self.absorb_outcome(
+                &mut focused_help_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
             if focused_help_outcome.stop_requested {
                 break 'event_loop;
             }
 
             let mut binding_outcome = self.dispatch_binding_hints_changed(root);
-            self.absorb_outcome(&mut binding_outcome, &mut dirty);
+            self.absorb_outcome(
+                &mut binding_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
             if binding_outcome.stop_requested {
                 break 'event_loop;
             }
 
             let mut animation_outcome = self.dispatch_animation_frame(root);
-            self.absorb_outcome(&mut animation_outcome, &mut dirty);
+            self.absorb_outcome(
+                &mut animation_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
             if animation_outcome.stop_requested {
                 break 'event_loop;
             }
 
-            if dirty || self.resized_since_last_render {
-                self.render_widget(root)?;
-                dirty = false;
+            if pending_invalidation.is_dirty() || self.resized_since_last_render {
+                let regions = pending_invalidation
+                    .content_regions
+                    .as_render_regions(self.frame.width, self.frame.height);
+                let layout_invalidation = pending_invalidation.flags.layout
+                    || pending_invalidation.flags.style
+                    || self.resized_since_last_render;
+                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                pending_invalidation = PendingInvalidation::default();
                 last_render = Instant::now();
             }
 
@@ -718,30 +1040,50 @@ impl App {
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
                 let _guard = set_style_context(sheet);
-                self.poll_stylesheet();
+                if let Some(reload) = self.poll_stylesheet() {
+                    self.absorb_stylesheet_reload(root, reload, &mut pending_invalidation);
+                }
                 root.on_tick(tick);
                 // `on_tick` mutates widget state without an `EventCtx`, so request a repaint
                 // for this frame to keep tick-driven widgets (e.g. counters/cursors) in sync.
-                dirty = true;
+                pending_invalidation.request_full_content();
                 let mut outcome = dispatch_event(root, Event::Tick(tick));
-                self.absorb_outcome(&mut outcome, &mut dirty);
+                self.absorb_outcome(
+                    &mut outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
                 let mut msg_outcome =
                     self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                self.absorb_outcome(&mut msg_outcome, &mut dirty);
+                self.absorb_outcome(
+                    &mut msg_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
                 let notifications_before = self.notifications.len();
                 let now = Instant::now();
                 self.notifications.retain(|note| note.expires_at > now);
                 if self.notifications.len() != notifications_before {
-                    dirty = true;
+                    pending_invalidation.request_full_content();
                 }
                 if outcome.stop_requested || msg_outcome.stop_requested {
                     break 'event_loop;
                 }
 
                 let any_active = any_widget_active(root);
-                if dirty || self.resized_since_last_render || any_active || prev_any_active {
-                    self.render_widget(root)?;
-                    dirty = false;
+                if pending_invalidation.is_dirty()
+                    || self.resized_since_last_render
+                    || any_active
+                    || prev_any_active
+                {
+                    let regions = pending_invalidation
+                        .content_regions
+                        .as_render_regions(self.frame.width, self.frame.height);
+                    let layout_invalidation = pending_invalidation.flags.layout
+                        || pending_invalidation.flags.style
+                        || self.resized_since_last_render;
+                    self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                    pending_invalidation = PendingInvalidation::default();
                     last_render = Instant::now();
                 }
                 prev_any_active = any_active;
@@ -774,9 +1116,12 @@ impl App {
         self.last_binding_hint_sources = current_sources;
         let outcome = dispatch_event(root, Event::BindingsChanged(current));
         let msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
+        let mut invalidation = outcome.invalidation;
+        invalidation.merge(msg_outcome.invalidation);
         DispatchOutcome {
             handled: outcome.handled || msg_outcome.handled,
             repaint_requested: outcome.repaint_requested || msg_outcome.repaint_requested,
+            invalidation,
             stop_requested: outcome.stop_requested || msg_outcome.stop_requested,
             messages: msg_outcome.messages,
             animation_requests: {
@@ -817,10 +1162,50 @@ impl App {
         self.animator.enqueue_many(requests, Instant::now());
     }
 
-    pub(super) fn absorb_outcome(&mut self, outcome: &mut DispatchOutcome, dirty: &mut bool) {
-        *dirty |= outcome.should_repaint();
+    fn absorb_outcome(
+        &mut self,
+        outcome: &mut DispatchOutcome,
+        pending: &mut PendingInvalidation,
+        scope: InvalidationScope,
+    ) {
+        pending.request_flags(outcome.invalidation);
+        if outcome.should_repaint() {
+            match scope {
+                InvalidationScope::Global => pending.request_full_content(),
+                InvalidationScope::Widget(id) => pending.request_widget_rect(&self.hit_test, id),
+            }
+        }
         let requests = std::mem::take(&mut outcome.animation_requests);
         self.enqueue_animation_requests(requests);
+    }
+
+    fn absorb_stylesheet_reload(
+        &mut self,
+        root: &mut dyn Widget,
+        reload: StylesheetReload,
+        pending: &mut PendingInvalidation,
+    ) {
+        if reload.previous == reload.next {
+            return;
+        }
+        let affected =
+            collect_stylesheet_affected_widgets(root, &reload.changed_rules, self.app_active);
+        if affected.is_empty() {
+            return;
+        }
+
+        pending.request_flags(if reload.layout_affected {
+            crate::event::InvalidationFlags::layout()
+        } else {
+            crate::event::InvalidationFlags::style()
+        });
+        if reload.layout_affected || affected.len() > 128 {
+            pending.request_full_content();
+            return;
+        }
+        for id in affected {
+            pending.request_widget_rect(&self.hit_test, id);
+        }
     }
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
@@ -841,15 +1226,25 @@ impl App {
                     done: update.done,
                 }),
             );
-            self.absorb_outcome(&mut outcome, &mut aggregate.repaint_requested);
+            aggregate.handled |= outcome.handled;
+            aggregate.repaint_requested |= outcome.repaint_requested;
+            aggregate.invalidation.merge(outcome.invalidation);
             let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
-            self.absorb_outcome(&mut msg_outcome, &mut aggregate.repaint_requested);
+            aggregate.handled |= msg_outcome.handled;
+            aggregate.repaint_requested |= msg_outcome.repaint_requested;
+            aggregate.invalidation.merge(msg_outcome.invalidation);
+            let requests = std::mem::take(&mut outcome.animation_requests);
+            aggregate.animation_requests.extend(requests);
+            let msg_requests = std::mem::take(&mut msg_outcome.animation_requests);
+            aggregate.animation_requests.extend(msg_requests);
 
-            aggregate.handled |= outcome.handled || msg_outcome.handled;
             aggregate.stop_requested |= outcome.stop_requested || msg_outcome.stop_requested;
             aggregate.messages.extend(msg_outcome.messages);
         }
         aggregate.repaint_requested = true;
+        aggregate
+            .invalidation
+            .merge(crate::event::InvalidationFlags::content());
         aggregate
     }
 }
@@ -857,12 +1252,15 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClipboardBackend, collect_clipboard_runtime_messages_with_backend, focused_help_message,
-        should_dispatch_binding_hints, should_dispatch_focused_help,
+        ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
+        collect_stylesheet_affected_widgets, focused_help_message, should_dispatch_binding_hints,
+        should_dispatch_focused_help,
     };
+    use crate::css::StyleSheet;
     use crate::event::BindingHint;
     use crate::message::{Message, MessageEvent};
-    use crate::widgets::WidgetId;
+    use crate::widgets::{Widget, WidgetId};
+    use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
 
     #[derive(Default)]
@@ -1058,5 +1456,104 @@ mod tests {
             &generated[0].message,
             Message::TextEditClipboardPaste { target: t, text } if *t == target && text == "system"
         ));
+    }
+
+    struct StyleNode {
+        id: WidgetId,
+        type_name: &'static str,
+        style_id: Option<String>,
+        classes: Vec<String>,
+        focused: bool,
+        children: Vec<StyleNode>,
+    }
+
+    impl StyleNode {
+        fn new(type_name: &'static str) -> Self {
+            Self {
+                id: WidgetId::new(),
+                type_name,
+                style_id: None,
+                classes: Vec::new(),
+                focused: false,
+                children: Vec::new(),
+            }
+        }
+
+        fn with_class(mut self, class: &str) -> Self {
+            self.classes.push(class.to_string());
+            self
+        }
+
+        fn with_focus(mut self, focused: bool) -> Self {
+            self.focused = focused;
+            self
+        }
+
+        fn with_child(mut self, child: StyleNode) -> Self {
+            self.children.push(child);
+            self
+        }
+    }
+
+    impl Widget for StyleNode {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            self.type_name
+        }
+
+        fn style_id(&self) -> Option<&str> {
+            self.style_id.as_deref()
+        }
+
+        fn style_classes(&self) -> &[String] {
+            &self.classes
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            for child in &mut self.children {
+                f(child);
+            }
+        }
+    }
+
+    #[test]
+    fn stylesheet_invalidation_matches_descendant_selectors_selectively() {
+        let button = StyleNode::new("Button").with_class("special");
+        let button_id = button.id();
+        let mut root = StyleNode::new("Container")
+            .with_class("panel")
+            .with_child(button)
+            .with_child(StyleNode::new("Label"));
+
+        let changed = StyleSheet::parse("Container.panel > Button.special { bg: #334455; }");
+        let affected = collect_stylesheet_affected_widgets(&mut root, changed.rules(), true);
+
+        assert_eq!(affected, vec![button_id]);
+    }
+
+    #[test]
+    fn stylesheet_invalidation_respects_focus_pseudo_state() {
+        let button = StyleNode::new("Button").with_focus(true);
+        let button_id = button.id();
+        let mut root = StyleNode::new("Container").with_child(button);
+
+        let changed = StyleSheet::parse("Button:focus { fg: #ffffff; }");
+        let affected_active = collect_stylesheet_affected_widgets(&mut root, changed.rules(), true);
+        let affected_inactive =
+            collect_stylesheet_affected_widgets(&mut root, changed.rules(), false);
+
+        assert_eq!(affected_active, vec![button_id]);
+        assert!(affected_inactive.is_empty());
     }
 }

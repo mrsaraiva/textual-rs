@@ -7,7 +7,8 @@ mod resolver;
 mod segments;
 
 // Public re-exports (used by `src/css/mod.rs` and external consumers)
-pub use ast::{StyleRule, StyleSelector, StyleSheet};
+pub(crate) use ast::Combinator;
+pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
 pub use context::{AppActiveGuard, StyleContextGuard, set_app_active, set_style_context};
 
 // Crate-internal re-exports

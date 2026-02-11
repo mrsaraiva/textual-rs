@@ -8,6 +8,39 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Dirty/style invalidation closure (`pending-stream #1`)**
+  - Added region-scoped framebuffer diff support (`FrameBuffer::diff_to_segments_in_regions`) and runtime dirty-region accumulation to reduce repaint scope for localized updates.
+  - Replaced coarse runtime dirty bool flow with typed invalidation flags (`content` / `style` / `layout`) carried by `EventCtx`/`DispatchOutcome`, and used these flags to drive selective relayout and repaint behavior.
+  - Updated widget-tree rendering path to use selective dirty regions when safe, while falling back to full redraw for layout/style-wide invalidations and resize paths.
+  - Stylesheet hot-reload now computes changed rules and selectively invalidates affected widgets by selector matching (including descendant/child selector chains), with full fallback for broad or layout-affecting changes.
+  - Added focused regressions for:
+    - region-limited diff behavior (`src/render/mod.rs`),
+    - dirty-region expansion/fallback behavior (`src/runtime/types.rs`),
+    - stylesheet selector-targeted invalidation behavior (`src/runtime/event_loop.rs`).
+- **Timer/task runtime closure (`PR8J`)**
+  - Added one-shot timer runtime controls and delivery on the message bus:
+    - `TimerSchedule` / `TimerCancel` requests with `TimerFired` / `TimerCancelled` runtime events.
+    - integrated timer wakeups into runtime loop timeout selection.
+  - Expanded async task semantics and utility surface:
+    - added `AsyncTaskCancelTarget` for target-wide cancellation.
+    - replacing an in-flight `task_id` now emits `AsyncTaskCancelled` for the replaced task.
+    - added general-purpose `AsyncTaskRequest::Sleep` with `AsyncTaskResult::SleepFinished`.
+    - added `EventCtx` helper methods for async task and timer schedule/cancel flows.
+  - Added runtime-level regressions:
+    - `src/runtime/tasks.rs`: replacement cancellation, cancel-by-target, and sleep completion.
+    - `src/runtime/timers.rs`: timer schedule/replace/cancel plus timer+async non-blocking progression.
+    - `src/event/mod.rs`: `EventCtx` helper emits expected runtime control messages.
+  - Added concrete usage path in `examples/hello.rs` (`BackgroundStatusLabel`) showing async background work chained with one-shot timers for progressive UI updates.
+- **Terminal/golden coverage expansion (`PR8I`)**
+  - Added a deterministic raw terminal-output capture helper for CI (`tests/support/terminal_capture.rs`) that snapshots escaped bytes and control/text segment streams.
+  - Expanded metadata integration coverage from framebuffer-only snapshots to framebuffer->diff->raw-terminal-output invariants (`tests/render_metadata.rs`).
+  - Added focused golden tests for sparse diff output and no-op frame output invariants, including absolute cursor-control assertions and raw-output snapshots (`tests/terminal_output_golden.rs`).
+  - Updated `ROADMAP.md` Phase 1 Golden tests row from `Partial` to `Done`.
+- **Deterministic widget-id policy closure (`PR8H`)**
+  - Closed Phase 0.5 deterministic ID contract decision by explicitly keeping `WidgetId::new()` as a process-local monotonic allocator (no cross-run determinism guarantee).
+  - Stable/persistent widget IDs are deferred for now until a concrete persistence/snapshot requirement exists, avoiding premature ID-contract lock-in.
+  - Added focused `WidgetId` regression coverage in `src/widgets/core.rs` (uniqueness/monotonicity and explicit `from_u64` round-trip invariants).
+  - Updated `ROADMAP.md` to move the deterministic widget-id row to `Done` and mark Phase 0.5 rich-rs contract closures as met.
 - **Rich-rs integration closure follow-up (`PR8G`)**
   - `Link` now emits hyperlink metadata (`StyleMeta.link`) in render output, enabling OSC8 links through the existing `rich-rs` terminal pipeline.
   - Hyperlink policy is now explicit and tested: no explicit `link_id` is set by widgets; `rich-rs` assigns stable per-Console link IDs when needed.

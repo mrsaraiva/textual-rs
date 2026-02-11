@@ -280,6 +280,9 @@ impl DirectoryTree {
                     node.loaded = false;
                 }
             }
+            AsyncTaskResult::SleepFinished { .. } => {
+                // DirectoryTree only consumes directory-entry task payloads.
+            }
         }
     }
 

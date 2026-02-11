@@ -1,5 +1,6 @@
 use crate::validation::ValidationResult;
 use crate::widgets::WidgetId;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPaletteCommand {
@@ -18,6 +19,7 @@ pub struct AsyncDirectoryEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AsyncTaskRequest {
     ReadDirectory { path: String, show_hidden: bool },
+    Sleep { duration: Duration, label: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +27,10 @@ pub enum AsyncTaskResult {
     DirectoryEntries {
         path: String,
         entries: Vec<AsyncDirectoryEntry>,
+    },
+    SleepFinished {
+        label: String,
+        elapsed: Duration,
     },
     Failed {
         path: String,
@@ -215,6 +221,25 @@ pub enum Message {
     },
     AsyncTaskCancel {
         task_id: u64,
+    },
+    AsyncTaskCancelTarget {
+        target: WidgetId,
+    },
+    TimerSchedule {
+        timer_id: u64,
+        target: WidgetId,
+        delay: Duration,
+    },
+    TimerCancel {
+        timer_id: u64,
+    },
+    TimerFired {
+        timer_id: u64,
+        target: WidgetId,
+    },
+    TimerCancelled {
+        timer_id: u64,
+        target: WidgetId,
     },
     AsyncTaskCompleted {
         task_id: u64,

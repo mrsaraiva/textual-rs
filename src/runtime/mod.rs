@@ -3,6 +3,7 @@ mod helpers;
 mod render;
 mod routing;
 mod tasks;
+mod timers;
 mod types;
 
 use crate::animation::{Animator, animation_level_from_env};
@@ -23,8 +24,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
+use timers::OneShotTimerRuntime;
 use types::{
-    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetWatcher,
+    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
+    StylesheetWatcher,
 };
 
 use helpers::{apply_size, default_action_map};
@@ -65,6 +68,7 @@ pub struct App {
     notifications: Vec<AppNotification>,
     clipboard: Option<String>,
     async_tasks: AsyncTaskRuntime,
+    one_shot_timers: OneShotTimerRuntime,
 }
 
 impl App {
@@ -128,6 +132,7 @@ impl App {
             notifications: Vec::new(),
             clipboard: None,
             async_tasks: AsyncTaskRuntime::default(),
+            one_shot_timers: OneShotTimerRuntime::default(),
         };
         Ok(app)
     }
@@ -368,6 +373,7 @@ impl App {
         self.stylesheet_watch = Some(StylesheetWatcher {
             path,
             last_modified,
+            last_css: css,
             interval: interval.max(Duration::from_millis(50)),
             last_checked: Instant::now(),
         });
@@ -512,32 +518,84 @@ impl App {
         Ok(())
     }
 
-    fn poll_stylesheet(&mut self) -> bool {
+    fn poll_stylesheet(&mut self) -> Option<StylesheetReload> {
         let Some(watch) = &mut self.stylesheet_watch else {
-            return false;
+            return None;
         };
         if watch.last_checked.elapsed() < watch.interval {
-            return false;
+            return None;
         }
         watch.last_checked = Instant::now();
         let Ok(meta) = fs::metadata(&watch.path) else {
-            return false;
+            return None;
         };
         let Ok(modified) = meta.modified() else {
-            return false;
+            return None;
         };
         let changed = watch
             .last_modified
             .map(|prev| modified > prev)
             .unwrap_or(true);
         if !changed {
-            return false;
+            return None;
         }
-        if let Ok(css) = fs::read_to_string(&watch.path) {
-            self.stylesheet = StyleSheet::parse(&css);
+        let Ok(css) = fs::read_to_string(&watch.path) else {
+            return None;
+        };
+        if css == watch.last_css {
             watch.last_modified = Some(modified);
-            return true;
+            return None;
         }
-        false
+        let previous = self.stylesheet.clone();
+        let next = StyleSheet::parse(&css);
+        let changed_rules = changed_rules_between(&previous, &next);
+        let layout_affected = changed_rules
+            .iter()
+            .any(|rule| style_affects_layout(rule.style()));
+        self.stylesheet = next.clone();
+        watch.last_css = css;
+        watch.last_modified = Some(modified);
+        Some(StylesheetReload {
+            previous,
+            next,
+            changed_rules,
+            layout_affected,
+        })
     }
+}
+
+fn changed_rules_between(previous: &StyleSheet, next: &StyleSheet) -> Vec<crate::css::StyleRule> {
+    let old_rules = previous.rules();
+    let new_rules = next.rules();
+    let limit = old_rules.len().max(new_rules.len());
+    let mut changed = Vec::new();
+    for idx in 0..limit {
+        let old = old_rules.get(idx);
+        let new = new_rules.get(idx);
+        if old == new {
+            continue;
+        }
+        if let Some(rule) = old {
+            changed.push(rule.clone());
+        }
+        if let Some(rule) = new {
+            changed.push(rule.clone());
+        }
+    }
+    changed
+}
+
+fn style_affects_layout(style: crate::style::Style) -> bool {
+    style.margin.is_some()
+        || style.line_pad.is_some()
+        || style.border_top != crate::style::BorderEdge::Unset
+        || style.border_right != crate::style::BorderEdge::Unset
+        || style.border_bottom != crate::style::BorderEdge::Unset
+        || style.border_left != crate::style::BorderEdge::Unset
+        || style.width_auto.is_some()
+        || style.height_auto.is_some()
+        || style.min_width.is_some()
+        || style.max_width.is_some()
+        || style.min_height.is_some()
+        || style.max_height.is_some()
 }

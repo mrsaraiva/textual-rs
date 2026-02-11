@@ -2,7 +2,7 @@ use super::ast::{Combinator, SelectorMeta, StyleRule, StyleSelector};
 use super::context::SELECTOR_STACK;
 
 impl StyleSelector {
-    pub(super) fn matches(&self, meta: &SelectorMeta) -> bool {
+    pub(crate) fn matches(&self, meta: &SelectorMeta) -> bool {
         if let Some(type_name) = &self.type_name {
             if meta.type_name != *type_name {
                 return false;

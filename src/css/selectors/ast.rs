@@ -1,6 +1,6 @@
 use crate::style::Style;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StyleSelector {
     pub(super) type_name: Option<String>,
     pub(super) id: Option<String>,
@@ -40,27 +40,43 @@ impl StyleSelector {
         self.pseudos.push(pseudo);
         self
     }
+
+    pub(crate) fn type_name(&self) -> Option<&str> {
+        self.type_name.as_deref()
+    }
+
+    pub(crate) fn id_name(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    pub(crate) fn classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    pub(crate) fn pseudos(&self) -> &[PseudoClass] {
+        &self.pseudos
+    }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum Combinator {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Combinator {
     Descendant,
     Child,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct SelectorChain {
-    pub(super) parts: Vec<StyleSelector>,
-    pub(super) combinators: Vec<Combinator>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SelectorChain {
+    pub(crate) parts: Vec<StyleSelector>,
+    pub(crate) combinators: Vec<Combinator>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyleRule {
     pub(super) selector_chain: SelectorChain,
     pub(super) style: Style,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StyleSheet {
     pub(super) rules: Vec<StyleRule>,
 }
@@ -94,6 +110,30 @@ impl StyleSheet {
 
     pub fn add_class(&mut self, class: impl Into<String>, style: Style) {
         self.add_rule(StyleSelector::default().class(class), style);
+    }
+
+    pub(crate) fn rules(&self) -> &[StyleRule] {
+        &self.rules
+    }
+}
+
+impl StyleRule {
+    pub(crate) fn selector_chain(&self) -> &SelectorChain {
+        &self.selector_chain
+    }
+
+    pub(crate) fn style(&self) -> Style {
+        self.style
+    }
+}
+
+impl SelectorChain {
+    pub(crate) fn parts(&self) -> &[StyleSelector] {
+        &self.parts
+    }
+
+    pub(crate) fn combinators(&self) -> &[Combinator] {
+        &self.combinators
     }
 }
 

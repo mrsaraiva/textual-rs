@@ -16,6 +16,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
     let outcome = DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
+        invalidation: ctx.invalidation(),
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
@@ -216,6 +217,7 @@ pub(crate) fn dispatch_event_to_target(
     DispatchOutcome {
         handled,
         repaint_requested,
+        invalidation: ctx.invalidation(),
         stop_requested: ctx.stop_requested(),
         messages,
         animation_requests,
@@ -283,6 +285,7 @@ pub(crate) fn dispatch_mouse_scroll(
     DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
+        invalidation: ctx.invalidation(),
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
@@ -317,6 +320,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target(
     DispatchOutcome {
         handled,
         repaint_requested,
+        invalidation: ctx.invalidation(),
         stop_requested: ctx.stop_requested(),
         messages,
         animation_requests,
@@ -358,6 +362,7 @@ pub(crate) fn dispatch_message_queue(
 
     let mut handled = false;
     let mut repaint_requested = false;
+    let mut invalidation = crate::event::InvalidationFlags::default();
     let mut stop_requested = false;
     let mut queue: VecDeque<MessageEvent> = initial.into();
     let mut emitted: Vec<MessageEvent> = Vec::new();
@@ -389,6 +394,7 @@ pub(crate) fn dispatch_message_queue(
         handled |= ctx.handled();
 
         repaint_requested |= ctx.repaint_requested();
+        invalidation.merge(ctx.invalidation());
         stop_requested |= ctx.stop_requested();
         let next = ctx.take_messages();
         let mut next_animation_requests = ctx.take_animation_requests();
@@ -411,6 +417,7 @@ pub(crate) fn dispatch_message_queue(
     let outcome = DispatchOutcome {
         handled,
         repaint_requested,
+        invalidation,
         stop_requested,
         messages: emitted,
         animation_requests,

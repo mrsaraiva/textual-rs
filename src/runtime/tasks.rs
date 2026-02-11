@@ -43,12 +43,26 @@ impl Default for AsyncTaskRuntime {
 }
 
 impl AsyncTaskRuntime {
-    pub(crate) fn spawn(&mut self, task_id: u64, target: WidgetId, request: AsyncTaskRequest) {
-        let previous_generation = if let Some(previous) = self.running.remove(&task_id) {
+    pub(crate) fn spawn(
+        &mut self,
+        task_id: u64,
+        target: WidgetId,
+        request: AsyncTaskRequest,
+    ) -> Option<MessageEvent> {
+        let (previous_generation, replaced) = if let Some(previous) = self.running.remove(&task_id) {
             previous.cancel_flag.store(true, Ordering::Relaxed);
-            previous.generation
+            (
+                previous.generation,
+                Some(MessageEvent {
+                    sender: super::App::runtime_message_sender(),
+                    message: Message::AsyncTaskCancelled {
+                        task_id,
+                        target: previous.target,
+                    },
+                }),
+            )
         } else {
-            0
+            (0, None)
         };
         let generation = previous_generation + 1;
         let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -78,6 +92,7 @@ impl AsyncTaskRuntime {
                 result,
             });
         });
+        replaced
     }
 
     pub(crate) fn cancel(&mut self, task_id: u64) -> Option<MessageEvent> {
@@ -90,6 +105,21 @@ impl AsyncTaskRuntime {
                 target: task.target,
             },
         })
+    }
+
+    pub(crate) fn cancel_for_target(&mut self, target: WidgetId) -> Vec<MessageEvent> {
+        let ids = self
+            .running
+            .iter()
+            .filter_map(|(task_id, task)| (task.target == target).then_some(*task_id))
+            .collect::<Vec<_>>();
+        let mut cancelled = Vec::new();
+        for task_id in ids {
+            if let Some(event) = self.cancel(task_id) {
+                cancelled.push(event);
+            }
+        }
+        cancelled
     }
 
     pub(crate) fn drain_completed(&mut self) -> Vec<MessageEvent> {
@@ -126,6 +156,14 @@ fn execute_request(request: AsyncTaskRequest) -> AsyncTaskResult {
     match request {
         AsyncTaskRequest::ReadDirectory { path, show_hidden } => {
             read_directory_request(path, show_hidden)
+        }
+        AsyncTaskRequest::Sleep { duration, label } => {
+            let start = std::time::Instant::now();
+            std::thread::sleep(duration);
+            AsyncTaskResult::SleepFinished {
+                label,
+                elapsed: start.elapsed(),
+            }
         }
     }
 }
