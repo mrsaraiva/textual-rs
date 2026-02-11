@@ -221,7 +221,7 @@ impl CommandPalette {
         let panel_y = 2usize.min(height.saturating_sub(1));
         let panel_width = width.max(1);
         let max_panel_height = height.saturating_sub(panel_y).max(1);
-        let panel_height = max_panel_height.min(14).max(8);
+        let panel_height = max_panel_height.min(14).max(1);
         (panel_x, panel_y, panel_width, panel_height)
     }
 
@@ -505,6 +505,10 @@ impl Widget for CommandPalette {
 
         let (results_x, results_y, results_w, results_h) =
             self.palette_results_geometry(panel_x, panel_y, panel_width, panel_height);
+        let mut result_line_options = options.clone();
+        result_line_options.size = (results_w.max(1), 1);
+        result_line_options.max_width = results_w.max(1);
+        result_line_options.max_height = 1;
         let visible_items = (results_h / 2).max(1);
         let selected = self
             .list
@@ -523,35 +527,44 @@ impl Widget for CommandPalette {
             }
             let command = &self.commands[self.filtered[index]];
             let active = index == selected;
-            let title_line = rich_rs::set_cell_size(&command.title, results_w);
-            let help_line = rich_rs::set_cell_size(&command.help, results_w);
             let title_cell_style = if active { selected_style } else { title_style };
             let help_cell_style = if active { selected_style } else { help_style };
-
-            for (col, ch) in title_line.chars().enumerate() {
+            let mut title_text = console.render_str(&command.title, Some(true), None, None, None);
+            title_text.stylize_before(title_cell_style, 0, None);
+            let title_buffer =
+                FrameBuffer::from_renderable(console, &result_line_options, &title_text, None);
+            for col in 0..results_w {
                 let tx = results_x.saturating_add(col);
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, ty_title) = Cell {
-                    text: ch.to_string(),
-                    style: Some(title_cell_style),
-                    meta: None,
-                    continuation: false,
-                };
+                *overlay.get_mut(tx, ty_title) = Cell::blank(Some(title_cell_style));
+            }
+            for col in 0..title_buffer.width.min(results_w) {
+                let tx = results_x.saturating_add(col);
+                if tx >= width {
+                    break;
+                }
+                *overlay.get_mut(tx, ty_title) = title_buffer.get(col, 0).clone();
             }
             if ty_help < height {
-                for (col, ch) in help_line.chars().enumerate() {
+                let mut help_text = console.render_str(&command.help, Some(true), None, None, None);
+                help_text.stylize_before(help_cell_style, 0, None);
+                let help_buffer =
+                    FrameBuffer::from_renderable(console, &result_line_options, &help_text, None);
+                for col in 0..results_w {
                     let tx = results_x.saturating_add(col);
                     if tx >= width {
                         break;
                     }
-                    *overlay.get_mut(tx, ty_help) = Cell {
-                        text: ch.to_string(),
-                        style: Some(help_cell_style),
-                        meta: None,
-                        continuation: false,
-                    };
+                    *overlay.get_mut(tx, ty_help) = Cell::blank(Some(help_cell_style));
+                }
+                for col in 0..help_buffer.width.min(results_w) {
+                    let tx = results_x.saturating_add(col);
+                    if tx >= width {
+                        break;
+                    }
+                    *overlay.get_mut(tx, ty_help) = help_buffer.get(col, 0).clone();
                 }
             }
         }

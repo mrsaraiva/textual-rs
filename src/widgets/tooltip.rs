@@ -7,8 +7,8 @@ use crate::render::FrameBuffer;
 use crate::style::parse_color_like;
 
 use super::{
-    Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
 };
 
 /// Tooltip overlay wrapper for a child widget.
@@ -403,12 +403,22 @@ impl Widget for Tooltip {
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);
                     ctx.set_handled();
+                } else {
+                    self.child.on_message(message, ctx);
                 }
             }
             _ => {
                 self.child.on_message(message, ctx);
             }
         }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.child.on_mouse_move(x, y)
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn focusable(&self) -> bool {

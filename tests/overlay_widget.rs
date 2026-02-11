@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use rich_rs::{ConsoleOptions, Segment, Segments};
+use textual::event::MouseDownEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -112,4 +113,33 @@ fn overlay_dismiss_message_hides_modal() {
 
     let buf = FrameBuffer::from_renderable(&console, &options, &overlay, None);
     assert!(buf.debug_dump().contains("base"));
+}
+
+#[test]
+fn toast_with_zero_timeout_dismisses_on_first_tick() {
+    let mut toast = Toast::new("hello", ToastSeverity::Information).with_timeout(0);
+    let mut ctx = EventCtx::default();
+    toast.on_event(&Event::Tick(1), &mut ctx);
+
+    assert!(ctx.handled());
+    assert!(ctx.repaint_requested());
+}
+
+#[test]
+fn toast_click_dismisses_and_posts_message() {
+    let mut toast = Toast::new("click me", ToastSeverity::Warning);
+    let mut ctx = EventCtx::default();
+    toast.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: toast.id(),
+            screen_x: 0,
+            screen_y: 0,
+            x: 0,
+            y: 0,
+        }),
+        &mut ctx,
+    );
+
+    assert!(ctx.handled());
+    assert!(ctx.repaint_requested());
 }

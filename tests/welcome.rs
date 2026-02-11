@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
+use textual::event::MouseDownEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -53,6 +54,47 @@ fn welcome_key_press_is_forwarded_to_close_button() {
     let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
     welcome.on_event(&Event::Key(enter), &mut ctx);
+
+    assert!(ctx.handled());
+}
+
+#[test]
+fn welcome_resize_updates_close_row_hit_testing() {
+    let mut welcome = Welcome::new();
+    welcome.on_layout(32, 6);
+    welcome.on_resize(32, 2);
+
+    let mut ctx = EventCtx::default();
+    welcome.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: welcome.id(),
+            screen_x: 1,
+            screen_y: 1,
+            x: 1,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(ctx.handled());
+}
+
+#[test]
+fn welcome_single_row_layout_routes_mouse_to_close_button() {
+    let mut welcome = Welcome::new();
+    welcome.on_layout(32, 1);
+
+    let mut ctx = EventCtx::default();
+    welcome.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: welcome.id(),
+            screen_x: 2,
+            screen_y: 0,
+            x: 2,
+            y: 0,
+        }),
+        &mut ctx,
+    );
 
     assert!(ctx.handled());
 }

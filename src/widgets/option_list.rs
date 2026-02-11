@@ -7,8 +7,8 @@ use crate::message::Message;
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
 use super::{
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     Widget, WidgetId, WidgetStyles,
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 use toggle_option::OptionCursorState;
 pub use toggle_option::{OptionId, OptionItem};
@@ -22,6 +22,7 @@ pub struct OptionList {
     id: WidgetId,
     items: Vec<OptionItem>,
     cursor: OptionCursorState,
+    disabled: bool,
     offset: usize,
     focused: bool,
     hovered: bool,
@@ -40,6 +41,7 @@ impl OptionList {
             id: WidgetId::new(),
             items: Vec::new(),
             cursor: OptionCursorState::default(),
+            disabled: false,
             offset: 0,
             focused: false,
             hovered: false,
@@ -63,6 +65,15 @@ impl OptionList {
     /// Builder: set the scroll step (number of rows per scroll tick).
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.scroll_step = step.max(1);
+        self
+    }
+
+    /// Builder: set disabled state for the entire list.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        if disabled {
+            self.focused = false;
+        }
         self
     }
 
@@ -222,6 +233,17 @@ impl OptionList {
         if self.selectable_count() == 0 {
             return;
         }
+        if self.cursor.highlighted().is_none() {
+            let target = if delta.is_negative() {
+                self.last_selectable()
+            } else {
+                self.first_selectable()
+            };
+            if let Some(target) = target {
+                self.highlight_index(target, ctx);
+            }
+            return;
+        }
         let current = self.cursor.highlighted().unwrap_or(0) as isize;
         let max = (self.items.len() - 1) as isize;
         let mut target = (current + delta).clamp(0, max) as usize;
@@ -275,11 +297,15 @@ impl Widget for OptionList {
     }
 
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.focused = focused && !self.disabled;
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     fn has_focus(&self) -> bool {
@@ -303,6 +329,9 @@ impl Widget for OptionList {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 let index = self.offset.saturating_add(mouse.y as usize);
@@ -322,11 +351,23 @@ impl Widget for OptionList {
                     ctx.set_handled();
                 }
                 Action::ScrollPageUp => {
-                    self.move_highlight(-(self.page_step() as isize), ctx);
+                    if self.cursor.highlighted().is_none() {
+                        if let Some(first) = self.first_selectable() {
+                            self.highlight_index(first, ctx);
+                        }
+                    } else {
+                        self.move_highlight(-(self.page_step() as isize), ctx);
+                    }
                     ctx.set_handled();
                 }
                 Action::ScrollPageDown => {
-                    self.move_highlight(self.page_step() as isize, ctx);
+                    if self.cursor.highlighted().is_none() {
+                        if let Some(last) = self.last_selectable() {
+                            self.highlight_index(last, ctx);
+                        }
+                    } else {
+                        self.move_highlight(self.page_step() as isize, ctx);
+                    }
                     ctx.set_handled();
                 }
                 _ => {}
@@ -341,11 +382,23 @@ impl Widget for OptionList {
                     ctx.set_handled();
                 }
                 KeyCode::PageUp => {
-                    self.move_highlight(-(self.page_step() as isize), ctx);
+                    if self.cursor.highlighted().is_none() {
+                        if let Some(first) = self.first_selectable() {
+                            self.highlight_index(first, ctx);
+                        }
+                    } else {
+                        self.move_highlight(-(self.page_step() as isize), ctx);
+                    }
                     ctx.set_handled();
                 }
                 KeyCode::PageDown => {
-                    self.move_highlight(self.page_step() as isize, ctx);
+                    if self.cursor.highlighted().is_none() {
+                        if let Some(last) = self.last_selectable() {
+                            self.highlight_index(last, ctx);
+                        }
+                    } else {
+                        self.move_highlight(self.page_step() as isize, ctx);
+                    }
                     ctx.set_handled();
                 }
                 KeyCode::Home => {
@@ -371,6 +424,9 @@ impl Widget for OptionList {
     }
 
     fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+        if self.disabled {
+            return false;
+        }
         if self.items.is_empty() {
             return false;
         }
@@ -388,6 +444,9 @@ impl Widget for OptionList {
     }
 
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         if delta_y == 0 {
             return;
         }
@@ -581,9 +640,11 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.confirm_selection(&mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::OptionSelected { index: 0 })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::OptionSelected { index: 0 }))
+        );
     }
 
     #[test]
@@ -601,5 +662,64 @@ mod tests {
     fn option_item_with_typed_id_round_trips() {
         let item = OptionItem::with_id("Alpha", "alpha");
         assert_eq!(item.string_id(), Some("alpha"));
+    }
+
+    #[test]
+    fn option_list_up_from_none_selects_last_enabled() {
+        let items = vec![
+            OptionItem::new("Alpha"),
+            OptionItem::disabled("Bravo"),
+            OptionItem::new("Charlie"),
+        ];
+        let mut list = OptionList::with_items(items);
+        list.cursor.set_highlighted(None);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let mut ctx = EventCtx::default();
+        list.move_highlight(-1, &mut ctx);
+        assert_eq!(list.highlighted(), Some(2));
+    }
+
+    #[test]
+    fn option_list_page_down_from_none_selects_last_enabled() {
+        let items = vec![
+            OptionItem::new("Alpha"),
+            OptionItem::disabled("Bravo"),
+            OptionItem::new("Charlie"),
+        ];
+        let mut list = OptionList::with_items(items);
+        list.cursor.set_highlighted(None);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            KeyCode::PageDown,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::Key(key), &mut ctx);
+        assert_eq!(list.highlighted(), Some(2));
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn option_list_disabled_ignores_input() {
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
+        let mut list = OptionList::with_items(items).disabled(true);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let before = list.highlighted();
+        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::Key(key), &mut ctx);
+
+        assert_eq!(list.highlighted(), before);
+        assert!(!ctx.handled());
+        assert!(!list.focusable());
     }
 }

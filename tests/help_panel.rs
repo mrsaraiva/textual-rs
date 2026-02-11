@@ -90,15 +90,34 @@ fn help_panel_hides_help_section_when_app_is_inactive() {
     panel.on_event(&Event::AppFocus(false), &mut EventCtx::default());
     let inactive = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let inactive_lines = inactive.as_plain_lines();
-    assert!(
-        inactive_lines
-            .iter()
-            .all(|line| !line.contains("Widget help"))
-    );
+    assert!(inactive_lines
+        .iter()
+        .all(|line| !line.contains("Widget help")));
     assert!(inactive_lines.iter().any(|line| line.contains("Keys")));
 
     panel.on_event(&Event::AppFocus(true), &mut EventCtx::default());
     let active = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let active_lines = active.as_plain_lines();
     assert!(active_lines.iter().any(|line| line.contains("Widget help")));
+}
+
+#[test]
+fn help_panel_show_help_class_tracks_app_focus_state() {
+    let mut panel = HelpPanel::new().with_help("## Widget help");
+    assert!(panel
+        .style_classes()
+        .iter()
+        .any(|class| class == "-show-help"));
+
+    panel.on_event(&Event::AppFocus(false), &mut EventCtx::default());
+    assert!(!panel
+        .style_classes()
+        .iter()
+        .any(|class| class == "-show-help"));
+
+    panel.on_event(&Event::AppFocus(true), &mut EventCtx::default());
+    assert!(panel
+        .style_classes()
+        .iter()
+        .any(|class| class == "-show-help"));
 }

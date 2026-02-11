@@ -8,6 +8,19 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-10
+- **Tier-A/Tier-C widget hardening follow-up (`PR7H`)**
+  - `DataTable`/`Tabs`/`TabbedContent` parity hardening:
+    - added focused message/lifecycle regressions for activation, no-op activation paths, and content-height forwarding behavior.
+  - `RichLog` parity improvements:
+    - added markup/renderable write paths (`write_markup`, `write_renderable`) and focused coverage.
+  - `CommandPalette` rendering polish:
+    - improved small-viewport resilience and markup-aware result rendering, with focused snapshot coverage.
+  - Utility/lifecycle polish:
+    - `Log` now preserves viewport anchor when `max_lines` pruning trims head rows and includes default CSS regression coverage.
+    - `Markdown` wrapped heading component-style coverage added.
+    - `Tooltip`/`HelpPanel`/`DirectoryTree`/`Welcome` gained additional lifecycle delegation regressions and behavior fixes.
+  - Runtime clipboard bridge:
+    - clipboard runtime now attempts OS clipboard copy/paste first and falls back to in-app clipboard buffer when unavailable.
 - **Container-family parity baseline (`containers.py` alignment pass)**
   - Added new container aliases/classes: `Vertical`, `Center`, `Right`, `Middle`, `VerticalGroup`, `HorizontalGroup`, `ScrollableContainer`, `CenterMiddle`, and `ItemGrid`.
   - Added `ScrollHome` / `ScrollEnd` actions and key bindings (`home`, `end`) plus `ctrl+pageup` / `ctrl+pagedown` horizontal paging bindings.

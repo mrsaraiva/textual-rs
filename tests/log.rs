@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -74,4 +75,44 @@ fn log_scrolls_via_actions() {
 
     let after = FrameBuffer::from_renderable(&console, &options, &log, None);
     assert!(after.as_plain_lines()[0].starts_with("line 2"));
+}
+
+#[test]
+fn log_preserves_viewport_anchor_when_max_lines_prunes() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = Log::new().auto_scroll(false).max_lines(3);
+    log.write_lines(["line 1", "line 2", "line 3"]);
+    let _ = FrameBuffer::from_renderable(&console, &options, &log, None);
+
+    let mut scroll_ctx = EventCtx::default();
+    log.on_event(&Event::Action(Action::ScrollDown), &mut scroll_ctx);
+    assert!(scroll_ctx.handled());
+
+    let anchored = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(anchored.as_plain_lines()[0].starts_with("line 2"));
+    assert!(anchored.as_plain_lines()[1].starts_with("line 3"));
+
+    log.write_line("line 4");
+    let after = FrameBuffer::from_renderable(&console, &options, &log, None);
+    assert!(after.as_plain_lines()[0].starts_with("line 2"));
+    assert!(after.as_plain_lines()[1].starts_with("line 3"));
+}
+
+#[test]
+fn log_default_css_sets_surface_background() {
+    let _guard = set_style_context(default_widget_stylesheet());
+    let console = Console::new();
+    let options = options_for(&console, 12, 2);
+
+    let mut log = Log::new();
+    log.write_line("line");
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&log), None);
+    let style = buf
+        .get(0, 0)
+        .style
+        .expect("expected style metadata on rendered log cell");
+    assert!(style.bgcolor.is_some());
 }

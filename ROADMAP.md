@@ -433,6 +433,7 @@ Reference plan:
 - Landed (2026-02-10): widget follow-up slices for `Header`/`Footer` lifecycle polish, tooltip/help-panel positioning and default CSS parity pass, and `DirectoryTree` lazy-loader fidelity improvements.
 - Landed (2026-02-10): container-family parity baseline slice (`PR7F`) with new `Vertical`/`Center`/`Right`/`Middle` aliases, focusable scroll containers, and Home/End + ctrl+PageUp/PageDown scroll bindings.
 - Landed (2026-02-10): Tier-B/C polish slice (`PR7G`) with highlighted-vs-selected semantics for `ListView`/`Tree`, runtime clipboard store plumbing, and lifecycle polish for `Welcome`/`Tooltip`/`HelpPanel`.
+- Landed (2026-02-10): Tier-A/Tier-C follow-up slice (`PR7H`) with DataTable/Tabs message+lifecycle hardening, RichLog markup/renderable support, CommandPalette small-viewport/markup rendering polish, and additional overlay/widget lifecycle regressions.
 - Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps plus container-family parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
@@ -453,11 +454,12 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
      - PR7D (2026-02-10): `Tooltip`/`HelpPanel` parity pass landed with anchor-aware tooltip positioning (clamp + inflection), help-panel split/lifecycle fixes, and default CSS component updates.
      - PR7E (2026-02-10): `DirectoryTree` lazy-loader fidelity landed with expandable-directory support in `Tree`, message-driven lazy child loading, and refresh behavior that preserves expanded paths.
    - PR 4: Container-family parity closure (Python `containers.py` alignment: behavior/default CSS/lifecycle for missing or partial container semantics).
-     - PR7F (planned): audit current container set against Python `containers.py`, classify missing semantics vs missing APIs, then land focused parity slices with targeted tests.
      - PR7F (2026-02-10): baseline parity slice landed: new `Vertical`/`Center`/`Right`/`Middle` aliases plus `VerticalGroup`/`HorizontalGroup`/`ScrollableContainer`/`CenterMiddle`/`ItemGrid` compatibility classes, `ScrollView`/`HorizontalScroll` focusability, and key/action parity additions (`ScrollHome`/`ScrollEnd`, `ctrl+pageup/pagedown` horizontal paging bindings) with focused regression tests.
    - PR 5: Tier-B/C polish follow-up.
      - PR7G (2026-02-10): landed highlighted-vs-selected class semantics for `ListView`/`Tree`, app/runtime clipboard request/response plumbing for text-edit widgets, `Welcome` close-lifecycle polish, and runtime-driven tooltip/help-panel lifecycle updates.
-   - PR 6: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
+   - PR 6: Tier-A/Tier-C hardening follow-up.
+     - PR7H (2026-02-10): landed additional parity hardening for `DataTable`/`Tabs`/`TabbedContent` (message/lifecycle regressions), `RichLog` (markup/renderable input paths), `CommandPalette` (small viewport + markup result rendering), and overlay/widget lifecycle delegation regressions.
+   - PR 7: Per-slice doc sync checkpoint: update `docs/devel/WIDGET_PORTING_PLAN.md` matrix + relevant `ROADMAP.md` checklist rows in the same commit series.
    - Exit criteria: widget plan matrix has no unowned `Partial` items for the current target tier, and each closed slice has focused behavior tests.
 
 2. Message bus completion (Phase 6, widget-coupled)

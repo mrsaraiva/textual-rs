@@ -21,6 +21,7 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     options: Vec<(String, T)>,
     cursor: OptionCursorState,
     prompt: String,
+    disabled: bool,
     open: bool,
     list: OptionList,
     focused: bool,
@@ -50,6 +51,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             options,
             cursor: OptionCursorState::default(),
             prompt: prompt.into(),
+            disabled: false,
             open: false,
             list,
             focused: false,
@@ -85,6 +87,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     /// Whether the dropdown overlay is currently open.
     pub fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// Builder: set disabled state for the entire select.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        if disabled {
+            self.focused = false;
+            self.open = false;
+            self.list.set_focus(false);
+        }
+        self
     }
 
     /// Replace all options. Clears the current selection.
@@ -194,11 +207,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.focused = focused && !self.disabled;
         if !focused && self.open {
             // Close dropdown when focus is lost.
             self.open = false;
@@ -208,6 +221,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
 
     fn has_focus(&self) -> bool {
         self.focused
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     fn is_hovered(&self) -> bool {
@@ -228,6 +245,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         if self.open {
             // When the overlay is open, handle its events first.
             match event {
@@ -327,6 +347,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.disabled {
+            return false;
+        }
         if self.open {
             // Forward to the list if the mouse is within the dropdown area.
             let (_, panel_y, _, panel_h) = self.dropdown_geometry();
@@ -339,6 +362,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         if self.open {
             self.list.on_mouse_scroll(delta_x, delta_y, ctx);
             if !ctx.handled() {
@@ -551,9 +577,11 @@ mod tests {
         assert_eq!(sel.value(), Some(&2)); // Beta
 
         let messages = ctx3.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
+        );
     }
 
     #[test]
@@ -584,9 +612,11 @@ mod tests {
         assert_eq!(sel.value(), Some(&2));
         assert!(click_ctx.handled());
         let messages = click_ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
+        );
     }
 
     #[test]
@@ -634,5 +664,33 @@ mod tests {
 
         assert!(sel.value().is_none());
         assert!(sel.is_open());
+    }
+
+    #[test]
+    fn select_disabled_ignores_open_input() {
+        let mut sel = make_select().disabled(true);
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut key_ctx = EventCtx::default();
+        sel.on_event(&Event::Key(key), &mut key_ctx);
+        assert!(!sel.is_open());
+        assert!(!key_ctx.handled());
+
+        let mut click_ctx = EventCtx::default();
+        sel.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: sel.id(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut click_ctx,
+        );
+        assert!(!sel.is_open());
+        assert!(!click_ctx.handled());
+        assert!(!sel.focusable());
     }
 }

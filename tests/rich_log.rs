@@ -97,3 +97,32 @@ fn rich_log_renders_all_explicit_lines_from_styled_segments() {
     assert!(lines[0].starts_with("line 1"));
     assert!(lines[1].starts_with("line 2"));
 }
+
+#[test]
+fn rich_log_write_markup_renders_without_literal_markup_tags() {
+    let console = Console::new();
+    let options = options_for(&console, 24, 1);
+
+    let mut log = RichLog::new();
+    log.write_markup("[bold]warn[/] [red]error[/]");
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("warn error"));
+    assert!(!lines[0].contains("[bold]"));
+    assert!(!lines[0].contains("[red]"));
+}
+
+#[test]
+fn rich_log_renders_multiline_renderable_entries() {
+    let console = Console::new();
+    let options = options_for(&console, 16, 2);
+
+    let mut log = RichLog::new();
+    log.write_renderable(rich_rs::Text::plain("line 1\nline 2"));
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &log, None);
+    let lines = buf.as_plain_lines();
+    assert!(lines[0].starts_with("line 1"));
+    assert!(lines[1].starts_with("line 2"));
+}

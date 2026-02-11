@@ -635,7 +635,8 @@ impl Widget for TabbedContent {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
-            pane.child.on_resize(width, height);
+            pane.child
+                .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
@@ -886,5 +887,112 @@ impl Widget for TabbedContent {
 impl Renderable for TabbedContent {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::MouseDownEvent;
+    use crate::keys::KeyEventData;
+    use crate::prelude::Label;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct ProbeWidget {
+        id: WidgetId,
+        resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+    }
+
+    impl ProbeWidget {
+        fn new(resize_calls: Arc<Mutex<Vec<(u16, u16)>>>) -> Self {
+            Self {
+                id: WidgetId::new(),
+                resize_calls,
+            }
+        }
+    }
+
+    impl Widget for ProbeWidget {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_resize(&mut self, width: u16, height: u16) {
+            self.resize_calls
+                .lock()
+                .expect("resize_calls lock")
+                .push((width, height));
+        }
+    }
+
+    #[test]
+    fn keyboard_activation_posts_message_and_requests_repaint() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+        tabs.set_focus(true);
+        tabs.on_layout(40, 6);
+
+        let mut ctx = EventCtx::default();
+        tabs.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::TabActivated { index: 1, ref title } if title == "Two"
+        ));
+        assert_eq!(ctx.take_animation_requests().len(), 2);
+    }
+
+    #[test]
+    fn clicking_active_tab_is_handled_but_emits_no_activation_message() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+        tabs.on_layout(40, 6);
+
+        let mut ctx = EventCtx::default();
+        tabs.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: tabs.id(),
+                screen_x: 1,
+                screen_y: 0,
+                x: 1,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(ctx.take_messages().is_empty());
+        assert!(!ctx.repaint_requested());
+        assert!(ctx.take_animation_requests().is_empty());
+    }
+
+    #[test]
+    fn on_resize_forwards_content_height_to_active_pane() {
+        let resize_calls = Arc::new(Mutex::new(Vec::new()));
+        let probe = ProbeWidget::new(resize_calls.clone());
+        let mut tabs = TabbedContent::new().with_pane(TabPane::new("One", probe).id("one"));
+
+        tabs.on_resize(80, 10);
+
+        let calls = resize_calls.lock().expect("resize_calls lock");
+        assert_eq!(*calls, vec![(80, 8)]);
     }
 }

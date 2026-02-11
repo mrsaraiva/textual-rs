@@ -79,3 +79,41 @@ fn markdown_heading_style_matches_emoji_heading_text() {
     assert_eq!(style.bold, Some(true));
     assert_eq!(style.underline, Some(true));
 }
+
+#[test]
+fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
+    let _guard = set_style_context(default_widget_stylesheet());
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (12, 4);
+    options.max_width = 12;
+    options.max_height = 4;
+
+    let mut markdown = Markdown::new("# Heading wraps nicely");
+    markdown.on_layout(12, 4);
+    let buf =
+        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+
+    let wrapped_line = buf.as_plain_lines()[1].clone();
+    assert!(
+        wrapped_line.contains("wraps") || wrapped_line.contains("nicely"),
+        "expected wrapped heading content on line 2, got {wrapped_line:?}"
+    );
+
+    let mut styled_cell = None;
+    for x in 0..buf.width {
+        let cell = buf.get(x, 1);
+        if cell.text.trim().is_empty() {
+            continue;
+        }
+        styled_cell = Some(cell.clone());
+        break;
+    }
+    let styled_cell = styled_cell.expect("expected styled wrapped heading cell");
+    let style = styled_cell
+        .style
+        .expect("expected style on wrapped heading cell");
+    assert_eq!(style.bold, Some(true));
+    assert_eq!(style.underline, Some(true));
+}

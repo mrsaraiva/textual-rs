@@ -117,6 +117,18 @@ impl Markdown {
     pub fn set_markup(&mut self, markup: impl Into<String>) {
         self.markup = markup.into();
     }
+
+    fn consume_heading_fragment<'a>(remaining: &'a str, fragment: &str) -> Option<&'a str> {
+        let remaining = remaining.trim_start();
+        let fragment = fragment.trim();
+        if fragment.is_empty() {
+            return Some(remaining);
+        }
+        if remaining == fragment {
+            return Some("");
+        }
+        remaining.strip_prefix(fragment)
+    }
 }
 
 impl Widget for Markdown {
@@ -149,6 +161,7 @@ impl Widget for Markdown {
         }
 
         let mut lines = rich_rs::Segment::split_lines(rendered);
+        let mut active_heading: Option<(usize, String)> = None;
         for line in &mut lines {
             if headings.is_empty() {
                 break;
@@ -158,16 +171,40 @@ impl Widget for Markdown {
                 .filter(|segment| segment.control.is_none())
                 .map(|segment| segment.text.as_ref())
                 .collect::<String>();
-            if plain.trim().is_empty() {
-                continue;
-            }
-            let Some((level, title)) = headings.front() else {
-                break;
-            };
-            if plain.trim() != title {
+            let trimmed = plain.trim();
+            if trimmed.is_empty() {
                 continue;
             }
 
+            let mut matched_level: Option<usize> = None;
+            if let Some((level, remaining)) = active_heading.take() {
+                if let Some(rest) = Self::consume_heading_fragment(&remaining, trimmed) {
+                    matched_level = Some(level);
+                    if rest.is_empty() {
+                        headings.pop_front();
+                    } else {
+                        active_heading = Some((level, rest.to_string()));
+                    }
+                }
+            }
+
+            if matched_level.is_none() {
+                let Some((level, title)) = headings.front() else {
+                    break;
+                };
+                if let Some(rest) = Self::consume_heading_fragment(title, trimmed) {
+                    matched_level = Some(*level);
+                    if rest.is_empty() {
+                        headings.pop_front();
+                    } else {
+                        active_heading = Some((*level, rest.to_string()));
+                    }
+                } else {
+                    continue;
+                }
+            }
+
+            let level = matched_level.expect("matched heading level must be set");
             let class_name = format!("markdown--h{level}");
             let style = crate::css::resolve_component_style(self, &[class_name.as_str()])
                 .to_rich()
@@ -175,7 +212,6 @@ impl Widget for Markdown {
             for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
                 segment.style = Some(segment.style.unwrap_or_default().combine(&style));
             }
-            headings.pop_front();
         }
 
         let mut out = Segments::new();

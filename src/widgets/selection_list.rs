@@ -6,8 +6,8 @@ use crate::message::Message;
 
 use super::option_list::{OptionItem, OptionList};
 use super::{
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     Widget, WidgetId, WidgetStyles,
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
@@ -75,6 +75,7 @@ impl Selection {
 pub struct SelectionList {
     id: WidgetId,
     inner: OptionList,
+    disabled: bool,
     /// The string values associated with each selection.
     values: Vec<String>,
     /// Per-index selection state.
@@ -99,6 +100,7 @@ impl SelectionList {
         Self {
             id: WidgetId::new(),
             inner: OptionList::new(),
+            disabled: false,
             values: Vec::new(),
             selected_set: Vec::new(),
             focused: false,
@@ -132,6 +134,15 @@ impl SelectionList {
         list.values = values;
         list.selected_set = selected;
         list
+    }
+
+    /// Builder: set disabled state for the entire list.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        if disabled {
+            self.focused = false;
+        }
+        self
     }
 
     // ── Public API ──────────────────────────────────────────────────
@@ -256,12 +267,6 @@ impl SelectionList {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    fn toggle_highlighted(&mut self, ctx: &mut EventCtx) {
-        if let Some(index) = self.inner.highlighted() {
-            self.toggle(index, ctx);
-        }
-    }
-
     fn item_is_selectable(&self, index: usize) -> bool {
         self.inner
             .get_option(index)
@@ -280,12 +285,16 @@ impl Widget for SelectionList {
     }
 
     fn focusable(&self) -> bool {
-        true
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        self.inner.set_focus(focused);
+        self.focused = focused && !self.disabled;
+        self.inner.set_focus(self.focused);
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     fn has_focus(&self) -> bool {
@@ -309,6 +318,9 @@ impl Widget for SelectionList {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 // Compute the item index from the click position.
@@ -316,7 +328,7 @@ impl Widget for SelectionList {
                     .inner
                     .offset_for_click()
                     .saturating_add(mouse.y as usize);
-                if index < self.inner.option_count() {
+                if index < self.inner.option_count() && self.item_is_selectable(index) {
                     // First, highlight the clicked item via the inner list.
                     self.inner.set_highlighted(index);
                     // Then toggle it.
@@ -325,13 +337,21 @@ impl Widget for SelectionList {
                 }
             }
             Event::Action(Action::Toggle) if self.focused => {
-                self.toggle_highlighted(ctx);
-                ctx.set_handled();
+                if let Some(index) = self.inner.highlighted() {
+                    if self.item_is_selectable(index) {
+                        self.toggle(index, ctx);
+                        ctx.set_handled();
+                    }
+                }
             }
             Event::Key(key) if self.focused => match key.code {
                 KeyCode::Char(' ') | KeyCode::Enter => {
-                    self.toggle_highlighted(ctx);
-                    ctx.set_handled();
+                    if let Some(index) = self.inner.highlighted() {
+                        if self.item_is_selectable(index) {
+                            self.toggle(index, ctx);
+                            ctx.set_handled();
+                        }
+                    }
                 }
                 // Delegate navigation keys to the inner OptionList.
                 KeyCode::Up
@@ -358,6 +378,9 @@ impl Widget for SelectionList {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.disabled {
+            return false;
+        }
         let index = self.inner.offset_for_click().saturating_add(y as usize);
         let hovered = if index < self.inner.option_count() {
             Some(index)
@@ -372,6 +395,9 @@ impl Widget for SelectionList {
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
         self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
@@ -620,5 +646,49 @@ mod tests {
         assert!(!list.is_selected(0));
         assert!(list.is_selected(1));
         assert!(list.is_selected(2));
+    }
+
+    #[test]
+    fn selection_list_disabled_widget_ignores_keyboard_toggle() {
+        let mut list =
+            SelectionList::with_selections(vec![Selection::new("A", "a"), Selection::new("B", "b")])
+                .disabled(true);
+        list.set_focus(true);
+
+        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            KeyCode::Char(' '),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::Key(key), &mut ctx);
+
+        assert_eq!(list.selected(), Vec::<usize>::new());
+        assert!(!ctx.handled());
+        assert!(!list.focusable());
+    }
+
+    #[test]
+    fn selection_list_click_on_disabled_item_is_not_handled() {
+        let mut list = SelectionList::with_selections(vec![
+            Selection::disabled("A", "a"),
+            Selection::new("B", "b"),
+        ]);
+        list.set_focus(true);
+        list.on_layout(40, 5);
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: list.id(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(!ctx.handled());
+        assert!(!list.is_selected(0));
     }
 }

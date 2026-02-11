@@ -29,10 +29,22 @@ pub struct RichLog {
     styles: WidgetStyles,
 }
 
-#[derive(Debug, Clone)]
 enum LogLine {
     Plain(String),
+    Markup(String),
     Styled(Vec<Segment>),
+    Renderable(Box<dyn Renderable>),
+}
+
+impl std::fmt::Debug for LogLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLine::Plain(content) => f.debug_tuple("Plain").field(content).finish(),
+            LogLine::Markup(content) => f.debug_tuple("Markup").field(content).finish(),
+            LogLine::Styled(segments) => f.debug_tuple("Styled").field(&segments.len()).finish(),
+            LogLine::Renderable(_) => f.write_str("Renderable(..)"),
+        }
+    }
 }
 
 impl RichLog {
@@ -101,6 +113,38 @@ impl RichLog {
 
     pub fn write_segments(&mut self, segments: Vec<Segment>) -> &mut Self {
         self.lines.push(LogLine::Styled(segments));
+        self.trim_to_max_lines();
+        if self.auto_scroll {
+            self.scroll_end();
+        } else {
+            self.clamp_offset();
+        }
+        self
+    }
+
+    pub fn write_markup(&mut self, content: impl Into<String>) -> &mut Self {
+        let content = content.into();
+        if content.is_empty() {
+            self.lines.push(LogLine::Markup(String::new()));
+        } else {
+            self.lines.extend(
+                content
+                    .split('\n')
+                    .map(std::string::ToString::to_string)
+                    .map(LogLine::Markup),
+            );
+        }
+        self.trim_to_max_lines();
+        if self.auto_scroll {
+            self.scroll_end();
+        } else {
+            self.clamp_offset();
+        }
+        self
+    }
+
+    pub fn write_renderable(&mut self, renderable: impl Renderable + 'static) -> &mut Self {
+        self.lines.push(LogLine::Renderable(Box::new(renderable)));
         self.trim_to_max_lines();
         if self.auto_scroll {
             self.scroll_end();
@@ -210,9 +254,38 @@ impl RichLog {
                         }
                     }
                 }
+                LogLine::Markup(content) => {
+                    let rendered = console.render_str(content, Some(true), None, None, None);
+                    let split = Segment::split_and_crop_lines(
+                        rendered.render(console, options),
+                        width,
+                        None,
+                        true,
+                        false,
+                    );
+                    if split.is_empty() {
+                        out.push(vec![Segment::new(String::new())]);
+                    } else {
+                        out.extend(split);
+                    }
+                }
                 LogLine::Styled(segments) => {
                     let split =
                         Segment::split_and_crop_lines(segments.clone(), width, None, true, false);
+                    if split.is_empty() {
+                        out.push(vec![Segment::new(String::new())]);
+                    } else {
+                        out.extend(split);
+                    }
+                }
+                LogLine::Renderable(renderable) => {
+                    let split = Segment::split_and_crop_lines(
+                        renderable.render(console, options),
+                        width,
+                        None,
+                        true,
+                        false,
+                    );
                     if split.is_empty() {
                         out.push(vec![Segment::new(String::new())]);
                     } else {

@@ -1,5 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rich_rs::Console;
+use rich_rs::{Console, ConsoleOptions, Segment, Segments, Style};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
@@ -11,6 +15,53 @@ fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::Conso
     options.max_width = width;
     options.max_height = height;
     options
+}
+
+struct SpyWidget {
+    id: WidgetId,
+    dismiss_messages: Arc<AtomicUsize>,
+    mouse_moves: Arc<AtomicUsize>,
+    mouse_scrolls: Arc<AtomicUsize>,
+}
+
+impl SpyWidget {
+    fn new(
+        dismiss_messages: Arc<AtomicUsize>,
+        mouse_moves: Arc<AtomicUsize>,
+        mouse_scrolls: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            id: WidgetId::new(),
+            dismiss_messages,
+            mouse_moves,
+            mouse_scrolls,
+        }
+    }
+}
+
+impl Widget for SpyWidget {
+    fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        vec![Segment::styled("spy", Style::new())].into()
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+        if matches!(message.message, Message::OverlayDismissRequested { .. }) {
+            self.dismiss_messages.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
+        self.mouse_moves.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {
+        self.mouse_scrolls.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[test]
@@ -140,4 +191,45 @@ fn tooltip_updates_anchor_from_runtime_mouse_events() {
     let after_x = after_line.find("tip").expect("tip x after");
 
     assert!(after_x > before_x);
+}
+
+#[test]
+fn tooltip_forwards_non_matching_overlay_dismiss_to_child() {
+    let dismiss_messages = Arc::new(AtomicUsize::new(0));
+    let mouse_moves = Arc::new(AtomicUsize::new(0));
+    let mouse_scrolls = Arc::new(AtomicUsize::new(0));
+    let spy = SpyWidget::new(Arc::clone(&dismiss_messages), mouse_moves, mouse_scrolls);
+    let mut tooltip = Tooltip::new(spy, "tip").visible(true);
+
+    tooltip.on_message(
+        &MessageEvent {
+            sender: WidgetId::new(),
+            message: Message::OverlayDismissRequested {
+                overlay: Some(WidgetId::new()),
+            },
+        },
+        &mut EventCtx::default(),
+    );
+
+    assert_eq!(dismiss_messages.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn tooltip_delegates_mouse_hooks_to_child() {
+    let dismiss_messages = Arc::new(AtomicUsize::new(0));
+    let mouse_moves = Arc::new(AtomicUsize::new(0));
+    let mouse_scrolls = Arc::new(AtomicUsize::new(0));
+    let spy = SpyWidget::new(
+        dismiss_messages,
+        Arc::clone(&mouse_moves),
+        Arc::clone(&mouse_scrolls),
+    );
+    let mut tooltip = Tooltip::new(spy, "tip").visible(true);
+
+    assert!(tooltip.on_mouse_move(3, 2));
+    let mut ctx = EventCtx::default();
+    tooltip.on_mouse_scroll(0, 1, &mut ctx);
+
+    assert_eq!(mouse_moves.load(Ordering::Relaxed), 1);
+    assert_eq!(mouse_scrolls.load(Ordering::Relaxed), 1);
 }

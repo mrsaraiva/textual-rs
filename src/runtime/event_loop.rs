@@ -8,6 +8,8 @@ use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
 use rich_rs::Renderable;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::App;
@@ -33,14 +35,56 @@ fn collect_clipboard_runtime_messages(
     clipboard: &mut Option<String>,
     messages: &[MessageEvent],
 ) -> Vec<MessageEvent> {
+    let mut system_clipboard = SystemClipboardBackend;
+    collect_clipboard_runtime_messages_with_backend(clipboard, messages, &mut system_clipboard)
+}
+
+trait ClipboardBackend {
+    fn copy(&mut self, text: &str) -> bool;
+    fn paste(&mut self) -> Option<String>;
+}
+
+struct SystemClipboardBackend;
+
+impl ClipboardBackend for SystemClipboardBackend {
+    fn copy(&mut self, text: &str) -> bool {
+        copy_to_system_clipboard(text)
+    }
+
+    fn paste(&mut self) -> Option<String> {
+        paste_from_system_clipboard()
+    }
+}
+
+fn collect_clipboard_runtime_messages_with_backend(
+    clipboard: &mut Option<String>,
+    messages: &[MessageEvent],
+    backend: &mut impl ClipboardBackend,
+) -> Vec<MessageEvent> {
     let mut generated = Vec::new();
     for event in messages {
         match &event.message {
             Message::TextEditClipboardCopyRequested { text, .. } => {
                 *clipboard = Some(text.clone());
+                if !backend.copy(text) {
+                    debug_input("[clipboard] system copy unavailable; runtime fallback updated");
+                }
             }
             Message::TextEditClipboardPasteRequested { target } => {
-                if let Some(text) = clipboard.clone() {
+                let text = if let Some(system_text) = backend.paste() {
+                    *clipboard = Some(system_text.clone());
+                    Some(system_text)
+                } else {
+                    if clipboard.is_some() {
+                        debug_input("[clipboard] system paste unavailable; using runtime fallback");
+                    } else {
+                        debug_input(
+                            "[clipboard] paste requested with no system data and empty fallback",
+                        );
+                    }
+                    clipboard.clone()
+                };
+                if let Some(text) = text {
                     generated.push(App::clipboard_message_event(*target, text));
                 }
             }
@@ -48,6 +92,109 @@ fn collect_clipboard_runtime_messages(
         }
     }
     generated
+}
+
+fn copy_to_system_clipboard(text: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return run_copy_command("pbcopy", &[], text);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return run_copy_command(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+            ],
+            text,
+        ) || run_copy_command("cmd", &["/C", "clip"], text);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return run_copy_command("wl-copy", &[], text)
+            || run_copy_command("xclip", &["-selection", "clipboard"], text)
+            || run_copy_command("xsel", &["--clipboard", "--input"], text);
+    }
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        let _ = text;
+        false
+    }
+}
+
+fn paste_from_system_clipboard() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        return run_paste_command("pbpaste", &[]);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return run_paste_command(
+            "powershell",
+            &["-NoProfile", "-Command", "Get-Clipboard -Raw"],
+        )
+        .or_else(|| run_paste_command("powershell", &["-NoProfile", "-Command", "Get-Clipboard"]));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return run_paste_command("wl-paste", &["-n"])
+            .or_else(|| run_paste_command("xclip", &["-selection", "clipboard", "-o"]))
+            .or_else(|| run_paste_command("xsel", &["--clipboard", "--output"]));
+    }
+
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        None
+    }
+}
+
+fn run_copy_command(program: &str, args: &[&str], text: &str) -> bool {
+    let mut child = match Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+
+    let write_ok = match child.stdin.take() {
+        Some(mut stdin) => stdin.write_all(text.as_bytes()).is_ok(),
+        None => false,
+    };
+    if !write_ok {
+        let _ = child.kill();
+        let _ = child.wait();
+        return false;
+    }
+
+    matches!(child.wait(), Ok(status) if status.success())
+}
+
+fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    if text.is_empty() {
+        return None;
+    }
+    Some(text)
 }
 
 impl App {
@@ -608,10 +755,32 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_clipboard_runtime_messages, should_dispatch_binding_hints};
+    use super::{
+        ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
+        should_dispatch_binding_hints,
+    };
     use crate::event::BindingHint;
     use crate::message::{Message, MessageEvent};
     use crate::widgets::WidgetId;
+    use std::collections::VecDeque;
+
+    #[derive(Default)]
+    struct StubClipboardBackend {
+        copy_results: VecDeque<bool>,
+        paste_results: VecDeque<Option<String>>,
+        copied: Vec<String>,
+    }
+
+    impl ClipboardBackend for StubClipboardBackend {
+        fn copy(&mut self, text: &str) -> bool {
+            self.copied.push(text.to_string());
+            self.copy_results.pop_front().unwrap_or(false)
+        }
+
+        fn paste(&mut self) -> Option<String> {
+            self.paste_results.pop_front().unwrap_or(None)
+        }
+    }
 
     #[test]
     fn binding_hints_dispatch_when_hint_payload_changes() {
@@ -659,7 +828,12 @@ mod tests {
     fn clipboard_runtime_handles_copy_then_paste_request() {
         let target = WidgetId::from_u64(42);
         let mut clipboard = None;
-        let generated = collect_clipboard_runtime_messages(
+        let mut backend = StubClipboardBackend {
+            copy_results: VecDeque::from(vec![true]),
+            paste_results: VecDeque::from(vec![None]),
+            copied: Vec::new(),
+        };
+        let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
             &[
                 MessageEvent {
@@ -674,8 +848,10 @@ mod tests {
                     message: Message::TextEditClipboardPasteRequested { target },
                 },
             ],
+            &mut backend,
         );
         assert_eq!(clipboard.as_deref(), Some("hello"));
+        assert_eq!(backend.copied, vec!["hello".to_string()]);
         assert_eq!(generated.len(), 1);
         assert!(matches!(
             &generated[0].message,
@@ -690,13 +866,42 @@ mod tests {
     fn clipboard_runtime_ignores_paste_without_buffered_text() {
         let target = WidgetId::from_u64(7);
         let mut clipboard = None;
-        let generated = collect_clipboard_runtime_messages(
+        let mut backend = StubClipboardBackend::default();
+        let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
             &[MessageEvent {
                 sender: WidgetId::from_u64(2),
                 message: Message::TextEditClipboardPasteRequested { target },
             }],
+            &mut backend,
         );
         assert!(generated.is_empty());
+    }
+
+    #[test]
+    fn clipboard_runtime_prefers_system_clipboard_on_paste() {
+        let target = WidgetId::from_u64(9);
+        let mut clipboard = Some("fallback".to_string());
+        let mut backend = StubClipboardBackend {
+            copy_results: VecDeque::new(),
+            paste_results: VecDeque::from(vec![Some("system".to_string())]),
+            copied: Vec::new(),
+        };
+
+        let generated = collect_clipboard_runtime_messages_with_backend(
+            &mut clipboard,
+            &[MessageEvent {
+                sender: WidgetId::from_u64(2),
+                message: Message::TextEditClipboardPasteRequested { target },
+            }],
+            &mut backend,
+        );
+
+        assert_eq!(clipboard.as_deref(), Some("system"));
+        assert_eq!(generated.len(), 1);
+        assert!(matches!(
+            &generated[0].message,
+            Message::TextEditClipboardPaste { target: t, text } if *t == target && text == "system"
+        ));
     }
 }

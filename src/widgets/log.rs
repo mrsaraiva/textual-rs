@@ -152,6 +152,7 @@ impl Log {
             if self.lines.len() > max_lines {
                 let remove_lines = self.lines.len() - max_lines;
                 self.lines.drain(0..remove_lines);
+                self.offset_y = self.offset_y.saturating_sub(remove_lines);
                 self.max_line_width = self
                     .lines
                     .iter()

@@ -5,10 +5,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 
 use super::{
+    Widget, WidgetId, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
-    Widget, WidgetId, WidgetStyles,
 };
 
 /// A container widget that groups `RadioButton` children for mutual exclusion.
@@ -22,6 +22,7 @@ pub struct RadioSet {
     id: WidgetId,
     buttons: Vec<RadioButton>,
     cursor: OptionCursorState,
+    disabled: bool,
     focused: bool,
     hovered: bool,
     hovered_index: Option<usize>,
@@ -37,6 +38,7 @@ impl RadioSet {
             id: WidgetId::new(),
             buttons: Vec::new(),
             cursor: OptionCursorState::default(),
+            disabled: false,
             focused: false,
             hovered: false,
             hovered_index: None,
@@ -52,11 +54,17 @@ impl RadioSet {
         for label in labels {
             set.buttons.push(RadioButton::new(*label));
         }
-        // Select the first button by default if any exist.
-        if !set.buttons.is_empty() {
-            set.cursor.set_highlighted(Some(0));
-        }
+        set.cursor.set_highlighted(set.first_enabled_index());
         set
+    }
+
+    /// Builder: set disabled state for the entire set.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        if disabled {
+            self.focused = false;
+        }
+        self
     }
 
     /// Builder: add a RadioButton to the set.
@@ -83,7 +91,7 @@ impl RadioSet {
         }
         self.buttons.push(button);
         if self.cursor.highlighted().is_none() {
-            self.cursor.set_highlighted(Some(0));
+            self.cursor.set_highlighted(self.first_enabled_index());
         }
     }
 
@@ -122,19 +130,47 @@ impl RadioSet {
         if self.buttons.is_empty() {
             return;
         }
-        let len = self.buttons.len() as isize;
-        let current = self.cursor.highlighted().unwrap_or(0) as isize;
-        let next = ((current + delta) % len + len) % len;
-        self.cursor.set_highlighted(Some(next as usize));
+        let enabled_indices: Vec<usize> = self
+            .buttons
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, button)| (!button.is_disabled()).then_some(idx))
+            .collect();
+        if enabled_indices.is_empty() {
+            self.cursor.set_highlighted(None);
+            return;
+        }
+        let current_pos = self
+            .cursor
+            .highlighted()
+            .and_then(|idx| enabled_indices.iter().position(|&enabled| enabled == idx));
+        let next_pos = if let Some(pos) = current_pos {
+            let len = enabled_indices.len() as isize;
+            ((pos as isize + if delta.is_negative() { -1 } else { 1 }) % len + len) % len
+        } else if delta.is_negative() {
+            enabled_indices.len() as isize - 1
+        } else {
+            0
+        };
+        self.cursor
+            .set_highlighted(Some(enabled_indices[next_pos as usize]));
     }
 
     /// Toggle the currently selected button. Enforces mutual exclusion:
     /// if the selected button is being turned on, turn off the previously pressed one.
     fn toggle_selected(&mut self, ctx: &mut EventCtx) {
-        if self.buttons.is_empty() {
+        if self.disabled || self.buttons.is_empty() {
             return;
         }
         let index = self.cursor.highlighted().unwrap_or(0);
+        if self
+            .buttons
+            .get(index)
+            .map(Widget::is_disabled)
+            .unwrap_or(true)
+        {
+            return;
+        }
         let already_pressed = self.cursor.selected() == Some(index);
 
         if already_pressed {
@@ -162,6 +198,14 @@ impl RadioSet {
         ctx.request_repaint();
         ctx.set_handled();
     }
+
+    fn first_enabled_index(&self) -> Option<usize> {
+        self.buttons.iter().position(|button| !button.is_disabled())
+    }
+
+    fn has_enabled_button(&self) -> bool {
+        self.buttons.iter().any(|button| !button.is_disabled())
+    }
 }
 
 impl Widget for RadioSet {
@@ -170,11 +214,15 @@ impl Widget for RadioSet {
     }
 
     fn focusable(&self) -> bool {
-        !self.buttons.is_empty()
+        !self.disabled && self.has_enabled_button()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+        self.focused = focused && !self.disabled;
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     fn has_focus(&self) -> bool {
@@ -193,14 +241,14 @@ impl Widget for RadioSet {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.buttons.is_empty() {
+        if self.disabled || self.buttons.is_empty() {
             return;
         }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
                 // Determine which button was clicked by y coordinate.
                 let index = mouse.y as usize;
-                if index < self.buttons.len() {
+                if index < self.buttons.len() && !self.buttons[index].is_disabled() {
                     self.cursor.set_highlighted(Some(index));
                     self.toggle_selected(ctx);
                 }
@@ -260,11 +308,12 @@ impl Widget for RadioSet {
     }
 
     fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
-        if self.buttons.is_empty() {
+        if self.disabled || self.buttons.is_empty() {
             return false;
         }
         let index = y as usize;
-        let hovered = (index < self.buttons.len()).then_some(index);
+        let hovered =
+            (index < self.buttons.len() && !self.buttons[index].is_disabled()).then_some(index);
         if hovered != self.hovered_index {
             self.hovered_index = hovered;
             return true;
@@ -424,9 +473,11 @@ mod tests {
         set.on_event(&Event::Key(space), &mut ctx2);
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| matches!(m.message, Message::RadioSetChanged { index: 1, .. })));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::RadioSetChanged { index: 1, .. }))
+        );
     }
 
     #[test]
@@ -438,5 +489,55 @@ mod tests {
         let mut ctx = EventCtx::default();
         set.on_event(&Event::Key(space), &mut ctx);
         assert_eq!(set.pressed_index(), Some(0));
+    }
+
+    #[test]
+    fn radio_set_navigation_skips_disabled_buttons() {
+        let mut set = RadioSet::new()
+            .with_button(RadioButton::new("A").disabled(true))
+            .with_button(RadioButton::new("B"))
+            .with_button(RadioButton::new("C").disabled(true))
+            .with_button(RadioButton::new("D"));
+        set.set_focus(true);
+        assert_eq!(set.selected_index(), 1);
+
+        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        set.on_event(&Event::Key(down), &mut ctx);
+        assert_eq!(set.selected_index(), 3);
+    }
+
+    #[test]
+    fn radio_set_click_on_disabled_button_is_ignored() {
+        let mut set = RadioSet::new()
+            .with_button(RadioButton::new("A"))
+            .with_button(RadioButton::new("B").disabled(true));
+        set.set_focus(true);
+
+        let mut ctx = EventCtx::default();
+        set.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: set.id(),
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut ctx,
+        );
+
+        assert!(!ctx.handled());
+        assert_eq!(set.pressed_index(), None);
+    }
+
+    #[test]
+    fn radio_set_disabled_ignores_input() {
+        let mut set = RadioSet::from_labels(&["A", "B"]).disabled(true);
+        set.set_focus(true);
+        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        set.on_event(&Event::Key(down), &mut ctx);
+        assert!(!ctx.handled());
+        assert!(!set.focusable());
     }
 }

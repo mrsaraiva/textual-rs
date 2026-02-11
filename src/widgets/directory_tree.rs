@@ -8,8 +8,8 @@ use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::{Message, MessageEvent};
 
 use super::{
-    Tree, TreeNode, Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Tree, TreeNode, Widget, WidgetId, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -209,12 +209,35 @@ impl Widget for DirectoryTree {
 
     fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered;
+        self.tree.set_hovered(hovered);
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_width = width.max(1);
         self.last_height = height.max(1);
         self.tree.on_layout(self.last_width, self.last_height);
+    }
+
+    fn on_mount(&mut self) {
+        self.tree.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.tree.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.tree.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_width = width.max(1);
+        self.last_height = height.max(1);
+        self.tree.on_resize(self.last_width, self.last_height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.tree.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -317,6 +340,10 @@ impl Widget for DirectoryTree {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(&mut self.tree);
     }
 }
 

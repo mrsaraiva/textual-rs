@@ -985,6 +985,7 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
+    use crate::message::Message;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1025,6 +1026,7 @@ mod tests {
                 vec!["row1".into(), "y".into()],
             ],
         );
+        table.on_layout(20, 4);
         table.set_hovered(true);
 
         table.on_mouse_move(0, 0);
@@ -1046,6 +1048,7 @@ mod tests {
             vec!["A".into()],
             vec![vec!["row0".into()], vec!["row1".into()]],
         );
+        table.on_layout(20, 4);
         table.set_hovered(true);
         table.on_mouse_move(0, 1);
         assert_eq!(table.hover_coordinate, Some((0, 0)));
@@ -1152,5 +1155,93 @@ mod tests {
             &mut ctx,
         );
         assert_eq!(table.cursor(), (4, 2));
+    }
+
+    #[test]
+    fn header_click_posts_header_selected_message() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![vec!["r0".into(), "c0".into()]],
+        );
+        let id = table.id();
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 4,
+                screen_y: 0,
+                x: 4,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::DataTableHeaderSelected { column: 1 }
+        ));
+    }
+
+    #[test]
+    fn keyboard_navigation_posts_cursor_moved_message() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        table.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Down,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::DataTableCursorMoved { row: 1, column: 0 }
+        ));
+    }
+
+    #[test]
+    fn enter_posts_cell_activated_message() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        table.set_focus(true);
+        table.set_cursor(1, 1);
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::DataTableCellActivated { row: 1, column: 1 }
+        ));
     }
 }

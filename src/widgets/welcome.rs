@@ -5,8 +5,8 @@ use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 
 use super::{
-    Button, ButtonVariant, Markdown, Widget, WidgetId, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Button, ButtonVariant, Markdown, Widget, WidgetId, WidgetStyles,
 };
 
 const WELCOME_MD: &str = r#"# Welcome!
@@ -84,7 +84,8 @@ impl Welcome {
     }
 
     fn translate_mouse_down(&self, mouse: MouseDownEvent) -> Event {
-        if mouse.target == self.id && self.last_height > 1 && mouse.y + 1 >= self.last_height {
+        let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
+        if mouse.target == self.id && on_close_row {
             Event::MouseDown(MouseDownEvent {
                 target: self.close.id(),
                 screen_x: mouse.screen_x,
@@ -98,8 +99,8 @@ impl Welcome {
     }
 
     fn translate_mouse_up(&self, mouse: MouseUpEvent) -> Event {
-        if mouse.target == Some(self.id) && self.last_height > 1 && mouse.y + 1 >= self.last_height
-        {
+        let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
+        if mouse.target == Some(self.id) && on_close_row {
             Event::MouseUp(MouseUpEvent {
                 target: Some(self.close.id()),
                 screen_x: mouse.screen_x,
@@ -147,6 +148,36 @@ impl Widget for Welcome {
         self.close.on_layout(self.last_width, 1);
     }
 
+    fn on_mount(&mut self) {
+        self.markdown.on_mount();
+        self.close.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.markdown.on_unmount();
+        self.close.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.markdown.on_tick(tick);
+        self.close.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_width = width.max(1);
+        self.last_height = height.max(1);
+        let body_height = self.body_height();
+        self.markdown.on_resize(self.last_width, body_height);
+        self.close.on_resize(self.last_width, 1);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.markdown.on_event_capture(event, ctx);
+        if !ctx.handled() {
+            self.close.on_event_capture(event, ctx);
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::MouseDown(mouse) => {
@@ -166,6 +197,10 @@ impl Widget for Welcome {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if message.sender != self.close.id() {
+            self.markdown.on_message(message, ctx);
+            if !ctx.handled() {
+                self.close.on_message(message, ctx);
+            }
             return;
         }
 
@@ -187,6 +222,10 @@ impl Widget for Welcome {
         } else {
             false
         }
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.close.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -260,6 +299,11 @@ impl Widget for Welcome {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+
+    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+        f(&mut self.markdown);
+        f(&mut self.close);
     }
 }
 

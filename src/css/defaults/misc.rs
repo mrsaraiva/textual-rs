@@ -12,6 +12,15 @@ Markdown > .markdown--h4 { fg: $primary; text-style: italic; }
 Markdown > .markdown--h5 { text-style: italic; }
 Markdown > .markdown--h6 { fg: $text-disabled; text-style: dim; }
 
+Log {
+    bg: $surface;
+    fg: $text;
+}
+
+Log:focus {
+    background-tint: $foreground 5%;
+}
+
 Pretty { fg: $foreground; }
 
 RichLog {
