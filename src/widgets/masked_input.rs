@@ -9,9 +9,11 @@ use crate::validation::{ValidationResult, ValidatorRef};
 
 use super::{
     Widget, WidgetId, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
+    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
-    text_edit::{EditCommand, MoveUnit, edit_command_from_key, first_clipboard_line},
+    text_edit::{
+        EditCommand, MoveUnit, byte_index_from_cell_x, edit_command_from_key, first_clipboard_line,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -622,8 +624,23 @@ impl MaskedInput {
     }
 
     fn cursor_from_x(&self, x: u16) -> usize {
-        // Masked input characters are single-cell-wide ASCII.
-        (x as usize).min(self.value.len())
+        let slots = self.display_slots();
+        let display: String = slots.iter().collect();
+        let byte_idx = byte_index_from_cell_x(&display, x as usize);
+        display[..byte_idx].chars().count().min(self.template.len())
+    }
+
+    fn display_slots(&self) -> Vec<char> {
+        let mut slots = self.template.mask();
+        let display_chars = self.template.display(&self.value);
+        for (idx, ch) in display_chars.into_iter().enumerate() {
+            if idx < slots.len() {
+                slots[idx] = ch;
+            } else {
+                slots.push(ch);
+            }
+        }
+        slots
     }
 
     // --- masked actions (ported from Python _masked_input.py) ---------------
@@ -957,7 +974,6 @@ impl Widget for MaskedInput {
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let mut out = Segments::new();
 
         let base_meta = crate::css::selector_meta_generic(self);
         let base_style = crate::css::resolve_style(self, &base_meta);
@@ -987,72 +1003,55 @@ impl Widget for MaskedInput {
         let cursor_style = resolve_component_rich("input--cursor");
         let placeholder_style = resolve_component_rich("input--placeholder");
 
-        // Display value: spaces replaced by placeholder chars from template.
-        let display_chars = self.template.display(&self.value);
-        let mask_chars = self.template.mask();
-        let value_len = self.value.len();
-
-        let mut cells_used: usize = 0;
-
-        // Render the value portion (positions 0..value_len).
-        for (i, &ch) in display_chars.iter().enumerate() {
-            if cells_used >= width {
-                break;
-            }
-
-            let is_cursor =
-                self.chrome.has_focus() && self.chrome.cursor_visible() && i == self.cursor;
-            let original_is_space = i < self.value.len() && self.value[i] == ' ';
-
-            let style = if is_cursor {
-                cursor_style
-            } else if original_is_space {
-                placeholder_style
-            } else {
-                rich_rs::Style::new()
-            };
-
-            out.push(rich_rs::Segment::styled(ch.to_string(), style));
-            cells_used += 1;
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum SlotVisual {
+            Normal,
+            Placeholder,
+            Cursor,
         }
 
-        // Render mask tail (positions value_len..template_len) in placeholder style.
-        for (j, &ch) in mask_chars.iter().enumerate().skip(value_len) {
-            if cells_used >= width {
-                break;
+        let mut runs: Vec<(SlotVisual, String)> = Vec::new();
+        let mut push_char = |visual: SlotVisual, ch: char| {
+            if let Some((last_visual, text)) = runs.last_mut()
+                && *last_visual == visual
+            {
+                text.push(ch);
+                return;
             }
+            runs.push((visual, ch.to_string()));
+        };
+
+        for (idx, ch) in self.display_slots().into_iter().enumerate() {
             let is_cursor =
-                self.chrome.has_focus() && self.chrome.cursor_visible() && j == self.cursor;
-
-            let style = if is_cursor {
-                cursor_style
+                self.chrome.has_focus() && self.chrome.cursor_visible() && idx == self.cursor;
+            let original_is_space = idx < self.value.len() && self.value[idx] == ' ';
+            let visual = if is_cursor {
+                SlotVisual::Cursor
+            } else if original_is_space || idx >= self.value.len() {
+                SlotVisual::Placeholder
             } else {
-                placeholder_style
+                SlotVisual::Normal
             };
-
-            out.push(rich_rs::Segment::styled(ch.to_string(), style));
-            cells_used += 1;
+            push_char(visual, ch);
         }
 
-        // Cursor past end of mask.
         if self.chrome.has_focus()
             && self.chrome.cursor_visible()
             && self.cursor >= self.template.len()
-            && cells_used < width
         {
-            out.push(rich_rs::Segment::styled(" ".to_string(), cursor_style));
-            cells_used += 1;
+            push_char(SlotVisual::Cursor, ' ');
         }
 
-        // Pad remaining width.
-        if cells_used < width {
-            out.push(rich_rs::Segment::styled(
-                " ".repeat(width - cells_used),
-                rich_rs::Style::new(),
-            ));
+        let mut out: Vec<rich_rs::Segment> = Vec::new();
+        for (visual, text) in runs {
+            let style = match visual {
+                SlotVisual::Normal => rich_rs::Style::new(),
+                SlotVisual::Placeholder => placeholder_style,
+                SlotVisual::Cursor => cursor_style,
+            };
+            out.push(rich_rs::Segment::styled(text, style));
         }
-
-        out
+        adjust_line_length_no_bg(&out, width).into()
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -1095,6 +1094,7 @@ mod tests {
     use super::*;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rich_rs::Console;
 
     #[test]
     fn template_parse_phone() {
@@ -1398,5 +1398,30 @@ mod tests {
 
         assert_eq!(input.text(), "9876");
         assert!(ctx.handled());
+    }
+
+    #[test]
+    fn cursor_from_x_handles_zwj_and_combining_clusters() {
+        let zwj_input = MaskedInput::new("👩‍🚀9");
+        assert_eq!(zwj_input.cursor_from_x(0), 0);
+        assert_eq!(zwj_input.cursor_from_x(1), 0);
+        assert_eq!(zwj_input.cursor_from_x(2), 3);
+
+        let combining_input = MaskedInput::new("e\u{0301}9");
+        assert_eq!(combining_input.cursor_from_x(0), 0);
+        assert_eq!(combining_input.cursor_from_x(1), 2);
+    }
+
+    #[test]
+    fn render_clamps_wide_cells_to_viewport_width() {
+        let input = MaskedInput::new("中9");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (1, 1);
+        options.max_width = 1;
+        options.max_height = 1;
+
+        let rendered = Widget::render(&input, &console, &options);
+        assert_eq!(rendered.cell_len(), 1);
     }
 }

@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Grapheme closure follow-up (`PR8E`)**
+  - `MaskedInput`:
+    - cursor placement from mouse `x` now maps through grapheme/cell boundaries instead of ASCII indexing assumptions.
+    - render output now uses grapheme-aware styled runs and width clamping to avoid wide/ZWJ overflow artifacts.
+  - `DataTable`:
+    - added regressions for combining-mark and wide-cell column-width / header-hit mapping behavior.
+  - `Tree`:
+    - row width/hit-testing now derive from rendered prefix cell width (including twisty/indent), improving wide/ZWJ/combining behavior.
+    - added wrapping-width and viewport-clamp regressions for grapheme-heavy labels.
+  - `ROADMAP.md` now marks grapheme-aware text editing as `Done` with cross-widget closure notes.
 - **Tier-B/Tier-C closure follow-up (`PR8D`)**
   - `ListView`/`Tree` interaction polish:
     - moved row activation to press/release semantics (emit on matching `MouseUp`), preserving selection/twist-toggle behavior and tightening hover synchronization on click.

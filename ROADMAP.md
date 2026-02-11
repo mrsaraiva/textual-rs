@@ -136,7 +136,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 |--------|------|-------|
 | Done | Tick system | Adaptive tick cadence (idle 100ms / active ~16ms) with `on_tick` propagation and event-loop repaint scheduling |
 | Partial | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message`. `Input` / `MaskedInput` / `TextArea` / `Button` / `Checkbox` / `DataTable` / `Header` / `Placeholder` / `Footer` / `KeyPanel` / `RichLog` / `Log` emit messages (including binding/scroll interaction state); broader migration for remaining non-text widgets is ongoing. |
-| Partial | Grapheme-aware text editing model | Shared text-edit command core now drives `Input` / `MaskedInput` / `TextArea` (grapheme-safe movement, word ops, and keyboard selection baseline) with targeted regressions; broader cross-widget text-model migration remains open |
+| Done | Grapheme-aware text editing model | Shared text-edit command core drives `Input` / `MaskedInput` / `TextArea`, with grapheme-sensitive follow-up closure for `MaskedInput` cursor/render paths plus `DataTable`/`Tree` width-hit-testing and wrapping edge regressions (`ZWJ`, combining marks, wide-cell labels) landed in PR8E (2026-02-11) |
 | Todo | One-shot timers | No timer API beyond the tick counter |
 | Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
 | Todo | Async tasks | `run_widget_tree` is async but no `spawn`/`select!` patterns for background work |
@@ -509,7 +509,8 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
 4. Grapheme model completion beyond `Input`/`TextArea` (Phase 6, widget-coupled)
    - PR 1: Migrate remaining text-heavy widgets (`MaskedInput`, then `DataTable`/`Tree`/wrapping edge-cases) to shared grapheme-safe helpers.
    - PR 2: Add combining-mark + ZWJ + wide-cell regression tests for editing/hit-testing/truncation.
-   - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage.
+   - PR8E (2026-02-11): landed `MaskedInput` grapheme-aware cursor-x mapping and width-clamped render runs, plus `DataTable` and `Tree` ZWJ/combining/wide-cell regressions for hit-testing and wrapping width edges.
+   - Exit criteria: grapheme row moves from `Partial` to `Done` with cross-widget regression coverage. **Met (PR8E, 2026-02-11).**
 
 5. Dirty invalidation + style invalidation (Phases 2 + 5)
    - PR 1: Add dirty-region tracking in `FrameBuffer`/runtime and repaint only touched regions.

@@ -399,10 +399,8 @@ impl Tree {
     fn max_line_width(&self) -> usize {
         let mut max_width = 1usize;
         for node in self.visible_nodes() {
-            let width = 2usize
-                .saturating_add(node.depth.saturating_mul(2))
-                .saturating_add(2)
-                .saturating_add(rich_rs::cell_len(&node.label));
+            let prefix = Self::row_prefix(&node, false);
+            let width = rich_rs::cell_len(&prefix).saturating_add(rich_rs::cell_len(&node.label));
             max_width = max_width.max(width);
         }
         max_width
@@ -467,6 +465,31 @@ impl Tree {
         classes.extend(node.component_classes.iter().cloned());
         classes
     }
+
+    fn twisty(node: &VisibleNode) -> &'static str {
+        if !node.expandable {
+            " "
+        } else if node.expanded {
+            "▾"
+        } else {
+            "▸"
+        }
+    }
+
+    fn row_prefix(node: &VisibleNode, highlighted: bool) -> String {
+        let marker = if highlighted { "› " } else { "  " };
+        format!(
+            "{}{}{} ",
+            marker,
+            "  ".repeat(node.depth),
+            Self::twisty(node)
+        )
+    }
+
+    fn twisty_hit_max_x(node: &VisibleNode) -> usize {
+        let prefix = format!("{}{}{}", "  ", "  ".repeat(node.depth), Self::twisty(node));
+        rich_rs::cell_len(&prefix).saturating_sub(1)
+    }
 }
 
 impl Widget for Tree {
@@ -511,7 +534,7 @@ impl Widget for Tree {
                     if node.disabled {
                         return;
                     }
-                    let twist_col = node.depth.saturating_mul(2) + 2;
+                    let twist_col = Self::twisty_hit_max_x(node);
                     if node.expandable && (mouse.x as usize) <= twist_col {
                         self.pressed_activation_index = None;
                         self.toggle_index(index, ctx);
@@ -665,26 +688,12 @@ impl Widget for Tree {
             if let Some(node) = nodes.get(index) {
                 let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
-                let twist = if !node.expandable {
-                    " "
-                } else if node.expanded {
-                    "▾"
-                } else {
-                    "▸"
-                };
                 let classes = Self::node_classes(node, highlighted, hovered, self.focused);
                 let class_refs: Vec<&str> = classes.iter().map(String::as_str).collect();
                 style = crate::css::resolve_component_style(self, &class_refs)
                     .to_rich()
                     .unwrap_or(style);
-                let marker = if highlighted { "› " } else { "  " };
-                text = format!(
-                    "{}{}{} {}",
-                    marker,
-                    "  ".repeat(node.depth),
-                    twist,
-                    node.label
-                );
+                text = format!("{}{}", Self::row_prefix(node, highlighted), node.label);
             }
             let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
             out.extend(line);
@@ -738,6 +747,7 @@ mod tests {
     use crate::message::Message;
     use crate::widgets::Widget;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rich_rs::Console;
 
     #[test]
     fn highlighted_node_uses_highlight_class_not_hover() {
@@ -900,5 +910,34 @@ mod tests {
         assert!(!tree.is_hovered());
         assert_eq!(tree.hovered_index, None);
         assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn content_width_accounts_for_grapheme_cell_width() {
+        let tree = Tree::new(vec![
+            TreeNode::new("e\u{0301}"),
+            TreeNode::new("👩‍🚀"),
+            TreeNode::new("中中"),
+        ]);
+
+        let expected = ["e\u{0301}", "👩‍🚀", "中中"]
+            .iter()
+            .map(|label| rich_rs::cell_len("  ▸ ").saturating_add(rich_rs::cell_len(label)))
+            .max()
+            .unwrap_or(1);
+        assert_eq!(tree.content_width(), Some(expected.max(1)));
+    }
+
+    #[test]
+    fn render_clamps_grapheme_rows_to_viewport_width() {
+        let tree = Tree::new(vec![TreeNode::new("👩‍🚀中中e\u{0301}")]);
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (8, 1);
+        options.max_width = 8;
+        options.max_height = 1;
+
+        let rendered = Widget::render(&tree, &console, &options);
+        assert_eq!(rendered.cell_len(), 8);
     }
 }

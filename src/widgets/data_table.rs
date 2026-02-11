@@ -1494,6 +1494,31 @@ mod tests {
     }
 
     #[test]
+    fn column_widths_use_combining_cluster_cell_width() {
+        let table = DataTable::new(
+            vec!["e\u{0301}e\u{0301}e\u{0301}e\u{0301}".into()],
+            vec![vec!["x".into()]],
+        );
+        assert_eq!(table.column_widths()[0], 4);
+    }
+
+    #[test]
+    fn mouse_move_column_mapping_uses_cell_width_for_wide_cjk_headers() {
+        let mut table = DataTable::new(
+            vec!["中中".into(), "B".into()],
+            vec![vec!["x".into(), "y".into()]],
+        );
+        table.set_hovered(true);
+
+        table.on_mouse_move(0, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+        table.on_mouse_move(3, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+        table.on_mouse_move(4, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
+    }
+
+    #[test]
     fn supports_keyed_rows_and_columns_lookup() {
         let mut table = DataTable::empty();
         let col = table
