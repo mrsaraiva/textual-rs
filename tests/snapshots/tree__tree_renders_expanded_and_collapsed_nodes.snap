@@ -4,8 +4,8 @@ assertion_line: 30
 expression: buf.debug_dump()
 ---
 lines:
-0: "›     Child A           "
-1: "    ▸ Child B           "
+0: "› ├──   Child A         "
+1: "  └── ▸ Child B         "
 2: "    Other               "
 3: "                        "
 4: "                        "

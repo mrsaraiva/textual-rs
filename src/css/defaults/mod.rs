@@ -9,6 +9,7 @@
 mod base;
 mod button;
 mod checkbox;
+mod data_table;
 mod header_footer;
 mod input;
 mod list_view;
@@ -33,6 +34,7 @@ pub fn default_widget_stylesheet() -> StyleSheet {
         tree::DEFAULT_CSS,
         tabs::DEFAULT_CSS,
         button::DEFAULT_CSS,
+        data_table::DEFAULT_CSS,
     ]
     .join("\n");
     StyleSheet::parse(&combined)

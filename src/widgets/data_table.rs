@@ -67,6 +67,9 @@ pub struct DataTable {
     hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
     drag_h: Option<usize>,
+    show_header: bool,
+    show_row_labels: bool,
+    zebra_stripes: bool,
     styles: WidgetStyles,
 }
 
@@ -103,6 +106,9 @@ impl DataTable {
             hovered: false,
             hover_coordinate: None,
             drag_h: None,
+            show_header: true,
+            show_row_labels: true,
+            zebra_stripes: false,
             styles: WidgetStyles::default(),
         };
         for header in headers {
@@ -283,6 +289,128 @@ impl DataTable {
     pub fn cursor_type(mut self, ct: CursorType) -> Self {
         self.cursor_type = ct;
         self
+    }
+
+    // --- Config setters (QW-12) ---
+
+    pub fn show_header(&self) -> bool {
+        self.show_header
+    }
+
+    pub fn set_show_header(&mut self, show: bool) {
+        self.show_header = show;
+    }
+
+    pub fn show_row_labels(&self) -> bool {
+        self.show_row_labels
+    }
+
+    pub fn set_show_row_labels(&mut self, show: bool) {
+        self.show_row_labels = show;
+    }
+
+    pub fn zebra_stripes(&self) -> bool {
+        self.zebra_stripes
+    }
+
+    pub fn set_zebra_stripes(&mut self, enabled: bool) {
+        self.zebra_stripes = enabled;
+    }
+
+    // --- API methods (QW-10) ---
+
+    /// Remove a row by key. Returns the row data if found, or `None` if the
+    /// key doesn't exist in the table.
+    pub fn remove_row(&mut self, row_key: &RowKey) -> Option<Vec<String>> {
+        let index = self.row_keys.iter().position(|k| k == row_key)?;
+        self.row_keys.remove(index);
+        let row_data = self.rows.remove(index);
+        self.clamp_indices();
+        self.recompute_column_widths();
+        Some(row_data)
+    }
+
+    /// Remove a row by index. Returns the row data if the index is valid.
+    pub fn remove_row_at(&mut self, index: usize) -> Option<Vec<String>> {
+        if index >= self.rows.len() {
+            return None;
+        }
+        self.row_keys.remove(index);
+        let row_data = self.rows.remove(index);
+        self.clamp_indices();
+        self.recompute_column_widths();
+        Some(row_data)
+    }
+
+    /// Remove all rows (and optionally all columns).
+    pub fn clear(&mut self, clear_columns: bool) {
+        self.rows.clear();
+        self.row_keys.clear();
+        self.next_row_key = 0;
+        if clear_columns {
+            self.headers.clear();
+            self.column_keys.clear();
+            self.column_widths.clear();
+            self.next_column_key = 0;
+        }
+        self.selected = 0;
+        self.offset = 0;
+        self.cursor_column = 0;
+        self.horizontal_offset = 0;
+        self.hover_coordinate = None;
+        self.recompute_column_widths();
+    }
+
+    /// Sort rows by a given column index. If `reverse` is true, the order is
+    /// descending. Columns are compared lexicographically by cell text.
+    pub fn sort(&mut self, column: usize, reverse: bool) {
+        if column >= self.headers.len() || self.rows.is_empty() {
+            return;
+        }
+        // Build index-based permutation so we can reorder row_keys in sync.
+        let mut indices: Vec<usize> = (0..self.rows.len()).collect();
+        indices.sort_by(|&a, &b| {
+            let va = self.rows[a].get(column).map(String::as_str).unwrap_or("");
+            let vb = self.rows[b].get(column).map(String::as_str).unwrap_or("");
+            if reverse { vb.cmp(va) } else { va.cmp(vb) }
+        });
+        let sorted_rows: Vec<Vec<String>> = indices.iter().map(|&i| self.rows[i].clone()).collect();
+        let sorted_keys: Vec<RowKey> = indices.iter().map(|&i| self.row_keys[i].clone()).collect();
+        self.rows = sorted_rows;
+        self.row_keys = sorted_keys;
+        self.clamp_indices();
+    }
+
+    /// Update the value of a specific cell. Returns `true` if the cell existed
+    /// and was updated, `false` if the coordinates are out of bounds.
+    pub fn update_cell(&mut self, row: usize, col: usize, value: impl ToString) -> bool {
+        if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(col)) {
+            *cell = value.to_string();
+            self.recompute_column_widths();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the value of a specific cell, or `None` if out of bounds.
+    pub fn get_cell(&self, row: usize, col: usize) -> Option<&str> {
+        self.rows.get(row).and_then(|r| r.get(col)).map(String::as_str)
+    }
+
+    /// Get all values in a row, or `None` if the row index is out of bounds.
+    pub fn get_row(&self, row: usize) -> Option<&[String]> {
+        self.rows.get(row).map(Vec::as_slice)
+    }
+
+    /// Number of rows in the table.
+    pub fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Number of columns in the table.
+    pub fn column_count(&self) -> usize {
+        self.headers.len()
     }
 
     fn generate_row_key(&mut self) -> RowKey {
@@ -626,7 +754,8 @@ impl DataTable {
     }
 
     fn visible_rows_for_viewport(&self, width: usize, height: usize) -> usize {
-        let mut rows = height.saturating_sub(1);
+        let header_rows = if self.show_header { 1 } else { 0 };
+        let mut rows = height.saturating_sub(header_rows);
         if self.horizontal_scrollbar_state(width, height).is_some() {
             rows = rows.saturating_sub(1);
         }
@@ -664,10 +793,11 @@ impl DataTable {
     }
 
     fn row_index_from_y(&self, y: usize, visible_rows: usize) -> Option<usize> {
-        if y == 0 {
+        let header_rows = if self.show_header { 1 } else { 0 };
+        if y < header_rows {
             return None;
         }
-        let data_y = y - 1;
+        let data_y = y - header_rows;
         let fixed_visible = self.visible_fixed_rows(visible_rows);
         if data_y < fixed_visible {
             return Some(data_y);
@@ -707,6 +837,9 @@ impl Default for DataTable {
             hovered: false,
             hover_coordinate: None,
             drag_h: None,
+            show_header: true,
+            show_row_labels: true,
+            zebra_stripes: false,
             styles: WidgetStyles::default(),
         };
         out.recompute_column_widths();
@@ -779,7 +912,7 @@ impl Widget for DataTable {
         let rendered_columns = self.rendered_column_indices();
         let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
         let visible_rows = self.visible_rows();
-        let next = if y == 0 {
+        let next = if self.show_header && y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
             Some((usize::MAX, col_idx))
         } else {
@@ -843,7 +976,8 @@ impl Widget for DataTable {
                     }
                 }
 
-                if mouse.y > 0 {
+                let header_rows = if self.show_header { 1 } else { 0 };
+                if mouse.y >= header_rows {
                     if let Some(clicked_row) = self.row_index_from_y(mouse.y as usize, visible_rows)
                     {
                         if self.selected != clicked_row {
@@ -851,7 +985,7 @@ impl Widget for DataTable {
                             selection_changed = true;
                         }
                     }
-                } else {
+                } else if self.show_header {
                     header_clicked = Some(clicked_col);
                 }
                 if selection_changed {
@@ -1227,34 +1361,47 @@ impl Widget for DataTable {
                 }
             };
 
+        // Zebra stripes: resolve alternate row background (even rows).
+        let zebra_stripes = self.zebra_stripes;
+        let zebra_style = if zebra_stripes {
+            let zebra_bg = parse_color_like("$surface-darken-1")
+                .map(|c| c.flatten_over(row_base))
+                .unwrap_or(row_base);
+            rich_rs::Style::new().with_bgcolor(zebra_bg.to_simple_opaque())
+        } else {
+            normal_style
+        };
+
         let fixed_data_rows = self.fixed_data_rows();
         let fixed_visible = self.visible_fixed_rows(visible_rows);
 
         // Header line (headers use usize::MAX as their row sentinel).
-        emit_row_per_cell(
-            &self.headers,
-            column_widths,
-            &rendered_columns,
-            width,
-            |col_idx| {
-                let target = (usize::MAX, col_idx);
-                if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
-                    return selected_style.with_bold(true);
-                }
-                if let Some(hc) = hover_coord
-                    && should_highlight(hc, target, cursor_type)
-                {
-                    return header_hover_style;
-                }
-                if col_idx < self.fixed_columns {
-                    return fixed_style.with_bold(true);
-                }
-                header_style
-            },
-            header_style,
-            &mut out,
-        );
-        out.push(Segment::line());
+        if self.show_header {
+            emit_row_per_cell(
+                &self.headers,
+                column_widths,
+                &rendered_columns,
+                width,
+                |col_idx| {
+                    let target = (usize::MAX, col_idx);
+                    if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
+                        return selected_style.with_bold(true);
+                    }
+                    if let Some(hc) = hover_coord
+                        && should_highlight(hc, target, cursor_type)
+                    {
+                        return header_hover_style;
+                    }
+                    if col_idx < self.fixed_columns {
+                        return fixed_style.with_bold(true);
+                    }
+                    header_style
+                },
+                header_style,
+                &mut out,
+            );
+            out.push(Segment::line());
+        }
         let mut rendered_rows = 0usize;
 
         let mut emit_data_row = |row_idx: usize, out: &mut Segments| {
@@ -1263,6 +1410,12 @@ impl Widget for DataTable {
             }
             let Some(row) = self.rows.get(row_idx) else {
                 return;
+            };
+            let is_even_row = row_idx % 2 == 0;
+            let row_base_style = if zebra_stripes && is_even_row {
+                zebra_style
+            } else {
+                normal_style
             };
             emit_row_per_cell(
                 row,
@@ -1275,7 +1428,7 @@ impl Widget for DataTable {
                     let base = if is_fixed_target {
                         fixed_style
                     } else {
-                        normal_style
+                        row_base_style
                     };
                     if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
                         return selected_style;
@@ -1287,7 +1440,7 @@ impl Widget for DataTable {
                     }
                     base
                 },
-                normal_style,
+                row_base_style,
                 out,
             );
             out.push(Segment::line());
@@ -1335,7 +1488,8 @@ impl Widget for DataTable {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let intrinsic = 1usize.saturating_add(self.rows.len().max(1));
+        let header_rows = if self.show_header { 1 } else { 0 };
+        let intrinsic = header_rows + self.rows.len().max(1);
         fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
     }
 

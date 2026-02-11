@@ -9,6 +9,7 @@ mod error;
 pub mod event;
 pub mod keys;
 pub mod message;
+pub mod node_id;
 pub mod render;
 pub mod runtime;
 pub mod style;
@@ -19,6 +20,7 @@ pub mod widgets;
 pub use error::{Error, Result};
 pub use event::BindingHint;
 pub use keys::KeyEventData;
+pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use runtime::App;
 pub use style::{Color, Style, Theme};
 pub use textual_app::{
@@ -33,7 +35,7 @@ pub mod prelude {
     pub use crate::animation::{Animator, animation_level_from_env};
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
-    pub use crate::event::{Action, ActionMap, BindingHint, Event, EventCtx, KeyBind};
+    pub use crate::event::{Action, ActionMap, BindingHint, Event, EventCtx, KeyBind, WidgetCtx};
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::{Message, MessageEvent};
     pub use crate::runtime::App;
@@ -60,5 +62,6 @@ pub mod prelude {
         Widget, WidgetId, WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
+    pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
     pub use crate::{Error, Result};
 }

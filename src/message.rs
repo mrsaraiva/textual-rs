@@ -250,6 +250,36 @@ pub enum Message {
         task_id: u64,
         target: WidgetId,
     },
+    // Tree: separate expand/collapse + highlight messages
+    TreeNodeCollapsed {
+        index: usize,
+        label: String,
+    },
+    TreeNodeExpanded {
+        index: usize,
+        label: String,
+    },
+    TreeNodeHighlighted {
+        index: usize,
+        label: String,
+    },
+    // DataTable highlight/select messages
+    DataTableCellHighlighted {
+        row: usize,
+        col: usize,
+    },
+    DataTableRowHighlighted {
+        row: usize,
+    },
+    DataTableRowSelected {
+        row: usize,
+    },
+    DataTableColumnHighlighted {
+        col: usize,
+    },
+    DataTableColumnSelected {
+        col: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Parity Sprint 1: Bootstrap + DataTable/Tree quick wins**
+  - Added `slotmap`, `regex`, `open` crate dependencies.
+  - Scaffolded `textual-macros` proc-macro crate for future `#[reactive]`/`#[on()]` macros.
+  - Added `NodeId` type alias (`slotmap::DefaultKey`) with `node_id_to_ffi()`/`node_id_from_ffi()` round-trip helpers for hit-test metadata compatibility.
+  - Added `WidgetCtx<'a>` zero-cost borrow wrapper providing `ctx.node_id()` identity-through-context API (arena owns identity, not widgets).
+  - DataTable: added default CSS, `remove_row`/`clear`/`sort`/`update_cell`/`get_cell`/`get_row` API, `show_header`/`show_row_labels`/`zebra_stripes` config, 5 new highlight/select messages.
+  - Tree: added `clear`/`move_cursor`/`select_node`/`toggle_all` API, `show_root`/`show_guides`/`guide_depth` config, Unicode guide rendering, shift+arrow/space bindings, 3 new messages (Collapsed/Expanded/Highlighted).
+  - DirectoryTree: added folder/extension/hidden CSS classes, `filter_paths`/`reload_node` APIs.
 - **RichLog demo parity + core composition/scroll polish**
   - Added `examples/rich_log.rs` as a Python Textual parity port (`widgets/rich_log.py`) with syntax block, table renderable, markup line, and styled key-event logging in the RichLog stream.
   - Fixed style composition so `rich-rs` default terminal background (`SimpleColor::Default`) is treated as transparent/inheritable during widget style application, preventing terminal-background bleed in composed widget surfaces.

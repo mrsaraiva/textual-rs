@@ -2,6 +2,7 @@ use crate::debug::debug_message;
 use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
+use crate::node_id::NodeId;
 use crate::widgets::WidgetId;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
@@ -521,6 +522,86 @@ impl EventCtx {
 
     pub(crate) fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
         std::mem::take(&mut self.animation_requests)
+    }
+}
+
+/// Widget-facing context provided by the runtime during event dispatch and rendering.
+///
+/// **Key design principle:** Widgets do NOT own or store their canonical identity.
+/// The arena (`WidgetTree`) owns node identity; widgets receive it through this
+/// context when they need it (event handlers, watchers, render).
+///
+/// `WidgetCtx` wraps an `EventCtx` plus the caller's `NodeId`, so widgets can
+/// post messages, request repaints, and query their own identity without owning
+/// a `WidgetId` field.
+///
+/// # Lifecycle
+///
+/// The runtime constructs a `WidgetCtx` before each widget callback (event,
+/// render, mount, etc.) and reads side-effects out of it afterwards. Widgets
+/// never construct one themselves.
+///
+/// # Migration path
+///
+/// During Pillar 1 migration, `WidgetCtx` will gradually replace direct
+/// `EventCtx` + `WidgetId` parameters in widget trait methods.
+#[derive(Debug)]
+pub struct WidgetCtx<'a> {
+    node_id: NodeId,
+    event_ctx: &'a mut EventCtx,
+}
+
+impl<'a> WidgetCtx<'a> {
+    /// Create a new widget context. Called by the runtime, not by widgets.
+    pub(crate) fn new(node_id: NodeId, event_ctx: &'a mut EventCtx) -> Self {
+        Self { node_id, event_ctx }
+    }
+
+    /// The arena-assigned identity of this widget.
+    #[inline]
+    pub fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    /// Access the underlying `EventCtx` for repaint/stop/invalidation requests.
+    #[inline]
+    pub fn event_ctx(&self) -> &EventCtx {
+        self.event_ctx
+    }
+
+    /// Mutable access to the underlying `EventCtx`.
+    #[inline]
+    pub fn event_ctx_mut(&mut self) -> &mut EventCtx {
+        self.event_ctx
+    }
+
+    // ── Convenience delegates ──────────────────────────────────────────
+
+    /// Mark the event as handled.
+    #[inline]
+    pub fn set_handled(&mut self) {
+        self.event_ctx.set_handled();
+    }
+
+    /// Request a repaint after event dispatch.
+    #[inline]
+    pub fn request_repaint(&mut self) {
+        self.event_ctx.request_repaint();
+    }
+
+    /// Request the runtime to stop.
+    #[inline]
+    pub fn request_stop(&mut self) {
+        self.event_ctx.request_stop();
+    }
+
+    /// Post a message from this widget (sender = self).
+    #[inline]
+    pub fn post_message(&mut self, message: Message) {
+        // During migration, bridge NodeId -> WidgetId for the existing message bus.
+        // Once Pillar 1 is complete, MessageEvent.sender will become NodeId directly.
+        let legacy_id = WidgetId::from_u64(crate::node_id::node_id_to_ffi(self.node_id));
+        self.event_ctx.post_message(legacy_id, message);
     }
 }
 

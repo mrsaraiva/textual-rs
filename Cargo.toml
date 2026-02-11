@@ -18,6 +18,10 @@ unicode-segmentation = "1.12"
 tree-sitter = "0.23"
 tree-sitter-python = "0.23"
 tree-sitter-java = "0.23"
+slotmap = "1.1"
+regex = "1.12"
+open = "5.3"
+textual-macros = { path = "textual-macros" }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }

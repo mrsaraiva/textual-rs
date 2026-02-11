@@ -46,6 +46,27 @@ impl DirectoryNode {
         let mut node = TreeNode::new(self.label.clone())
             .expanded(self.expanded)
             .allow_expand(self.is_dir);
+
+        // Component classes (QW-24)
+        if self.is_dir {
+            node = node.with_component_class("directory-tree--folder");
+        } else {
+            node = node.with_component_class("directory-tree--file");
+            if let Some(ext) = Path::new(&self.label)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                node = node.with_component_class("directory-tree--extension");
+                node = node.with_component_class(format!(
+                    "directory-tree--extension-{}",
+                    ext.to_lowercase()
+                ));
+            }
+        }
+        if self.label.starts_with('.') {
+            node = node.with_component_class("directory-tree--hidden");
+        }
+
         for child in &self.children {
             node = node.with_child(child.to_tree_node());
         }
@@ -69,6 +90,8 @@ pub struct DirectoryTree {
     inflight_loads_by_task: HashMap<u64, PathBuf>,
     next_task_id: u64,
     show_hidden: bool,
+    /// Optional path filter predicate; paths for which the predicate returns false are excluded.
+    filter: Option<fn(&Path) -> bool>,
     focused: bool,
     hovered: bool,
     last_width: u16,
@@ -82,7 +105,8 @@ impl DirectoryTree {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let root_path = path.into();
         let show_hidden = false;
-        let root = build_root(root_path.clone(), show_hidden, true, &HashSet::new());
+        let filter: Option<fn(&Path) -> bool> = None;
+        let root = build_root(root_path.clone(), show_hidden, true, &HashSet::new(), filter);
 
         let mut tree = Tree::new(vec![root.to_tree_node()]);
         tree.on_layout(1, 1);
@@ -97,6 +121,7 @@ impl DirectoryTree {
             inflight_loads_by_task: HashMap::new(),
             next_task_id: 1,
             show_hidden,
+            filter,
             focused: false,
             hovered: false,
             last_width: 1,
@@ -152,6 +177,7 @@ impl DirectoryTree {
             self.show_hidden,
             self.root.expanded,
             &expanded_paths,
+            self.filter,
         );
         self.root = root;
         self.rebuild_tree(selected);
@@ -291,6 +317,51 @@ impl DirectoryTree {
             return;
         };
         self.inflight_loads_by_path.remove(&path);
+    }
+
+    // ── QW-25: DirectoryTree APIs ────────────────────────────────────────
+
+    /// Set a path filter predicate. Paths for which the predicate returns `false`
+    /// are excluded from the tree. Call [`refresh`](Self::refresh) after to apply.
+    pub fn filter_paths(&mut self, predicate: fn(&Path) -> bool) {
+        self.filter = Some(predicate);
+        self.refresh();
+    }
+
+    /// Remove the path filter, showing all paths again.
+    pub fn clear_filter(&mut self) {
+        if self.filter.is_some() {
+            self.filter = None;
+            self.refresh();
+        }
+    }
+
+    /// Reload a specific directory node's children. If the node at `node_index`
+    /// is a directory and was expanded, its children are cleared and re-read
+    /// (spawning an async load if needed).
+    pub fn reload_node(&mut self, node_index: usize, ctx: &mut EventCtx) {
+        let Some(entry) = self.visible_entries.get(node_index) else {
+            return;
+        };
+        let entry_path = entry.path.clone();
+
+        let was_expanded = {
+            let Some(node) = find_node_mut(&mut self.root, &entry_path) else {
+                return;
+            };
+            if !node.is_dir {
+                return;
+            }
+            let expanded = node.expanded;
+            node.children.clear();
+            node.loaded = false;
+            expanded
+        };
+
+        self.rebuild_tree(Some(entry_path.clone()));
+        if was_expanded {
+            self.spawn_directory_load(&entry_path, ctx);
+        }
     }
 }
 
@@ -488,7 +559,11 @@ impl Renderable for DirectoryTree {
     }
 }
 
-fn read_children(path: &Path, show_hidden: bool) -> Vec<DirectoryNode> {
+fn read_children(
+    path: &Path,
+    show_hidden: bool,
+    filter: Option<fn(&Path) -> bool>,
+) -> Vec<DirectoryNode> {
     let mut entries = Vec::new();
     let Ok(read_dir) = fs::read_dir(path) else {
         return entries;
@@ -501,6 +576,9 @@ fn read_children(path: &Path, show_hidden: bool) -> Vec<DirectoryNode> {
         };
         let label = name.to_string();
         if !show_hidden && name.starts_with('.') {
+            continue;
+        }
+        if filter.is_some_and(|pred| !pred(&path)) {
             continue;
         }
 
@@ -542,13 +620,14 @@ fn build_root(
     show_hidden: bool,
     expanded: bool,
     expanded_paths: &HashSet<PathBuf>,
+    filter: Option<fn(&Path) -> bool>,
 ) -> DirectoryNode {
     let mut root = DirectoryNode::from_path(root_path);
     if !root.is_dir {
         return root;
     }
     root.expanded = expanded;
-    populate_expanded_children(&mut root, show_hidden, expanded_paths);
+    populate_expanded_children(&mut root, show_hidden, expanded_paths, filter);
     root
 }
 
@@ -556,6 +635,7 @@ fn populate_expanded_children(
     node: &mut DirectoryNode,
     show_hidden: bool,
     expanded_paths: &HashSet<PathBuf>,
+    filter: Option<fn(&Path) -> bool>,
 ) {
     if !node.is_dir {
         return;
@@ -567,12 +647,12 @@ fn populate_expanded_children(
         return;
     }
 
-    node.children = read_children(&node.path, show_hidden);
+    node.children = read_children(&node.path, show_hidden, filter);
     node.loaded = true;
     for child in &mut node.children {
         if child.is_dir {
             child.expanded = expanded_paths.contains(&child.path);
-            populate_expanded_children(child, show_hidden, expanded_paths);
+            populate_expanded_children(child, show_hidden, expanded_paths, filter);
         }
     }
 }
