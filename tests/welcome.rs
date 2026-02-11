@@ -98,3 +98,34 @@ fn welcome_single_row_layout_routes_mouse_to_close_button() {
 
     assert!(ctx.handled());
 }
+
+#[test]
+fn welcome_clears_close_hover_when_pointer_leaves_close_row() {
+    let mut welcome = Welcome::new();
+    welcome.on_layout(32, 6);
+    let close_id = welcome.close_button_id();
+
+    welcome.visit_children_mut(&mut |child| {
+        if child.id() == close_id {
+            child.set_hovered(true);
+        }
+    });
+
+    let mut close_hovered_before = false;
+    welcome.visit_children_mut(&mut |child| {
+        if child.id() == close_id {
+            close_hovered_before = child.is_hovered();
+        }
+    });
+    assert!(close_hovered_before);
+
+    assert!(welcome.on_mouse_move(2, 1));
+
+    let mut close_hovered_after = false;
+    welcome.visit_children_mut(&mut |child| {
+        if child.id() == close_id {
+            close_hovered_after = child.is_hovered();
+        }
+    });
+    assert!(!close_hovered_after);
+}

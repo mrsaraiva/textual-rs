@@ -52,6 +52,13 @@ pub enum Message {
     FooterBindingsUpdated {
         count: usize,
     },
+    HelpPanelSetHelp {
+        panel: WidgetId,
+        markup: String,
+    },
+    HelpPanelClearHelp {
+        panel: WidgetId,
+    },
     PlaceholderVariantChanged {
         variant: String,
     },
@@ -64,9 +71,25 @@ pub enum Message {
         label: String,
         expanded: bool,
     },
+    DirectoryTreeFileSelected {
+        index: usize,
+        path: String,
+    },
+    DirectoryTreeDirectorySelected {
+        index: usize,
+        path: String,
+    },
     OverlaySetVisible {
         overlay: WidgetId,
         visible: bool,
+    },
+    OverlaySetAnchor {
+        overlay: WidgetId,
+        x: usize,
+        y: usize,
+    },
+    OverlayClearAnchor {
+        overlay: WidgetId,
     },
     OverlayToggle {
         overlay: WidgetId,

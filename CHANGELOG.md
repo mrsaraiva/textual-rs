@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-11
+- **Widget closure push (`PR7I`)**
+  - Tier-A hardening:
+    - `DataTable` now keeps fixed columns pinned while shifting non-fixed columns for far-cursor visibility, and header hit-testing maps correctly under shifted columns.
+    - `Tabs`/`TabbedContent` now reapply latest content geometry on activation so newly active targets receive immediate resize/layout with current dimensions.
+    - `CommandPalette` open-panel hit-testing now uses screen-space coordinates and animated panel position, preventing false outside-click dismissals from child-target mouse events.
+    - `RichLog:focus` default CSS now uses background tint (no border-chrome focus glyphs), with focused regression coverage.
+  - Tier-B/Tier-C polish:
+    - Added runtime-driven `Tooltip`/`HelpPanel` message APIs (`OverlaySetAnchor`/`OverlayClearAnchor`, `HelpPanelSetHelp`/`HelpPanelClearHelp`) and parity regressions.
+    - `DirectoryTree` now emits typed selection messages for file vs directory selection paths.
+    - `Welcome` hover/close-row lifecycle polish and baseline default CSS parity updates.
+    - `ListView`/`Tree` avoid highlighted/selected markers when all candidates are disabled.
+    - Shared text-edit key mapping now supports `SUPER+X`/`SUPER+V` clipboard commands alongside existing bindings.
+    - `Footer` deferred-bindings lifecycle now preserves pending updates across repeated focus-loss events.
+
 ### 2026-02-10
 - **Tier-A/Tier-C widget hardening follow-up (`PR7H`)**
   - `DataTable`/`Tabs`/`TabbedContent` parity hardening:

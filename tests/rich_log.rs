@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -125,4 +126,22 @@ fn rich_log_renders_multiline_renderable_entries() {
     let lines = buf.as_plain_lines();
     assert!(lines[0].starts_with("line 1"));
     assert!(lines[1].starts_with("line 2"));
+}
+
+#[test]
+fn rich_log_focus_style_does_not_draw_border_chrome() {
+    let _guard = set_style_context(default_widget_stylesheet());
+    let console = Console::new();
+    let options = options_for(&console, 12, 2);
+
+    let mut log = RichLog::new();
+    log.set_focus(true);
+    log.write("line 1");
+    log.write("line 2");
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&log), None);
+    let lines = buf.as_plain_lines();
+    assert!(lines.iter().all(|line| !line.contains('│')));
+    assert!(lines.iter().all(|line| !line.contains('─')));
+    assert!(lines[0].starts_with("line 1"));
 }

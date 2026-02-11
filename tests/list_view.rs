@@ -127,3 +127,26 @@ fn list_view_mouse_click_ignores_disabled_items() {
     assert!(!ctx.handled());
     assert_eq!(list.selected(), 0);
 }
+
+#[test]
+fn list_view_all_disabled_rows_do_not_render_highlight_marker() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (12, 3);
+    options.max_width = 12;
+    options.max_height = 3;
+
+    let mut list = ListView::new(vec![
+        "one".to_string(),
+        "two".to_string(),
+        "three".to_string(),
+    ]);
+    list.set_item_disabled(0, true);
+    list.set_item_disabled(1, true);
+    list.set_item_disabled(2, true);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &list, None);
+    for line in buf.as_plain_lines() {
+        assert!(!line.contains("›"));
+    }
+}

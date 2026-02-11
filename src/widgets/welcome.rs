@@ -5,8 +5,8 @@ use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
     Button, ButtonVariant, Markdown, Widget, WidgetId, WidgetStyles,
+    helpers::{empty_classes, fixed_height_from_constraints},
 };
 
 const WELCOME_MD: &str = r#"# Welcome!
@@ -138,6 +138,9 @@ impl Widget for Welcome {
 
     fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered;
+        if !hovered {
+            self.close.set_hovered(false);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -220,7 +223,11 @@ impl Widget for Welcome {
         if self.last_height > 1 && y + 1 >= self.last_height {
             self.close.on_mouse_move(x, 0)
         } else {
-            false
+            let was_hovered = self.close.is_hovered();
+            if was_hovered {
+                self.close.set_hovered(false);
+            }
+            was_hovered
         }
     }
 

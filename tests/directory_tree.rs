@@ -149,6 +149,29 @@ fn directory_tree_handles_forwarded_selection_messages() {
 }
 
 #[test]
+fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
+    let temp = TempTreeDir::new("directory-tree-directory-message");
+    fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
+
+    let mut tree = DirectoryTree::new(&temp.path);
+    tree.on_layout(40, 4);
+
+    let mut message_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent {
+            sender: tree.tree_id(),
+            message: Message::TreeNodeSelected {
+                index: 1,
+                label: "nested".to_string(),
+            },
+        },
+        &mut message_ctx,
+    );
+
+    assert!(message_ctx.handled());
+}
+
+#[test]
 fn directory_tree_keyboard_navigation_is_forwarded_to_inner_tree() {
     let temp = TempTreeDir::new("directory-tree-key");
     fs::write(temp.path.join("alpha.txt"), "alpha").expect("write file");

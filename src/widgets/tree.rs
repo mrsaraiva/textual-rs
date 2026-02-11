@@ -582,7 +582,7 @@ impl Widget for Tree {
             let mut text = String::new();
             let mut style = base_style;
             if let Some(node) = nodes.get(index) {
-                let highlighted = index == self.selected;
+                let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
                 let twist = if !node.expandable {
                     " "

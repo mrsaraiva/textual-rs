@@ -58,6 +58,7 @@ pub struct DataTable {
     cursor_type: CursorType,
     fixed_rows: usize,
     fixed_columns: usize,
+    horizontal_offset: usize,
     next_row_key: usize,
     next_column_key: usize,
     content_width: u16,
@@ -83,6 +84,7 @@ impl DataTable {
             cursor_type: CursorType::Cell,
             fixed_rows: 0,
             fixed_columns: 0,
+            horizontal_offset: 0,
             next_row_key: 0,
             next_column_key: 0,
             content_width: 0,
@@ -241,6 +243,7 @@ impl DataTable {
         } else {
             self.cursor_column = column.min(self.headers.len() - 1);
         }
+        self.ensure_cursor_column_visible(self.content_width as usize);
     }
 
     pub fn set_cursor_type(&mut self, ct: CursorType) {
@@ -254,6 +257,8 @@ impl DataTable {
 
     pub fn set_fixed_columns(&mut self, count: usize) {
         self.fixed_columns = count;
+        self.clamp_horizontal_offset();
+        self.ensure_cursor_column_visible(self.content_width as usize);
     }
 
     pub fn fixed_rows(&self) -> usize {
@@ -301,6 +306,109 @@ impl DataTable {
         } else if self.cursor_column >= self.headers.len() {
             self.cursor_column = self.headers.len().saturating_sub(1);
         }
+        self.clamp_horizontal_offset();
+    }
+
+    fn fixed_column_count(&self) -> usize {
+        self.fixed_columns.min(self.headers.len())
+    }
+
+    fn scrollable_column_count(&self) -> usize {
+        self.headers.len().saturating_sub(self.fixed_column_count())
+    }
+
+    fn clamp_horizontal_offset(&mut self) {
+        let scrollable = self.scrollable_column_count();
+        self.horizontal_offset = if scrollable == 0 {
+            0
+        } else {
+            self.horizontal_offset.min(scrollable.saturating_sub(1))
+        };
+    }
+
+    fn rendered_column_indices_with_offset(&self, offset: usize) -> Vec<usize> {
+        let total = self.headers.len();
+        if total == 0 {
+            return Vec::new();
+        }
+        let fixed = self.fixed_column_count();
+        let mut columns: Vec<usize> = (0..fixed).collect();
+        if fixed < total {
+            let clamped_offset = offset.min(total - fixed - 1);
+            columns.extend((fixed + clamped_offset)..total);
+        }
+        columns
+    }
+
+    fn rendered_column_indices(&self) -> Vec<usize> {
+        self.rendered_column_indices_with_offset(self.horizontal_offset)
+    }
+
+    fn column_is_visible_at_width(&self, column: usize, width: usize, offset: usize) -> bool {
+        if width == 0 {
+            return false;
+        }
+        let columns = self.rendered_column_indices_with_offset(offset);
+        let mut pos = 0usize;
+        for (idx, col) in columns.iter().enumerate() {
+            if idx > 0 {
+                pos = pos.saturating_add(2);
+            }
+            let col_width = *self.column_widths.get(*col).unwrap_or(&0);
+            let start = pos;
+            let end = start.saturating_add(col_width);
+            if *col == column {
+                return start < width && end > 0;
+            }
+            pos = end;
+        }
+        false
+    }
+
+    fn ensure_cursor_column_visible(&mut self, width: usize) {
+        if self.headers.is_empty() {
+            self.horizontal_offset = 0;
+            return;
+        }
+        if self.cursor_column < self.fixed_column_count() {
+            self.horizontal_offset = 0;
+            return;
+        }
+        let max_offset = self.scrollable_column_count().saturating_sub(1);
+        self.horizontal_offset = self.horizontal_offset.min(max_offset);
+        while self.horizontal_offset < max_offset
+            && !self.column_is_visible_at_width(self.cursor_column, width, self.horizontal_offset)
+        {
+            self.horizontal_offset += 1;
+        }
+        while self.horizontal_offset > 0
+            && self.column_is_visible_at_width(
+                self.cursor_column,
+                width,
+                self.horizontal_offset - 1,
+            )
+        {
+            self.horizontal_offset -= 1;
+        }
+    }
+
+    fn column_at_x_in_rendered_columns(&self, x: usize, rendered_columns: &[usize]) -> usize {
+        if rendered_columns.is_empty() {
+            return 0;
+        }
+        let mut pos = 0usize;
+        for (idx, col) in rendered_columns.iter().enumerate() {
+            if idx > 0 {
+                pos = pos.saturating_add(2);
+            }
+            let width = *self.column_widths.get(*col).unwrap_or(&0);
+            let end = pos.saturating_add(width);
+            if x < end {
+                return *col;
+            }
+            pos = end;
+        }
+        *rendered_columns.last().unwrap_or(&0)
     }
 
     fn fixed_data_rows(&self) -> usize {
@@ -338,19 +446,6 @@ impl DataTable {
     /// Return cached column widths (recomputed on mutation).
     fn column_widths(&self) -> &[usize] {
         &self.column_widths
-    }
-
-    /// Map an x coordinate to a column index, given column widths with 2-space gap.
-    fn column_at_x(&self, x: usize, column_widths: &[usize]) -> usize {
-        let mut pos = 0;
-        for (i, &w) in column_widths.iter().enumerate() {
-            let end = pos + w;
-            if x < end {
-                return i;
-            }
-            pos = end + 2; // 2-space gap between columns
-        }
-        column_widths.len().saturating_sub(1)
     }
 
     fn ensure_visible(&mut self, height: usize) {
@@ -446,6 +541,7 @@ impl Default for DataTable {
             cursor_type: CursorType::Cell,
             fixed_rows: 0,
             fixed_columns: 0,
+            horizontal_offset: 0,
             next_row_key: 0,
             next_column_key: 0,
             content_width: 0,
@@ -496,11 +592,12 @@ impl Widget for DataTable {
         self.content_width = width;
         self.content_height = height;
         self.ensure_visible(self.visible_rows());
+        self.ensure_cursor_column_visible(width as usize);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        let widths = self.column_widths();
-        let col_idx = self.column_at_x(x as usize, widths);
+        let rendered_columns = self.rendered_column_indices();
+        let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
         let visible_rows = self.visible_rows();
         let next = if y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
@@ -523,8 +620,9 @@ impl Widget for DataTable {
         // Handle mouse events regardless of focus state.
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
-                let widths = self.column_widths();
-                let clicked_col = self.column_at_x(mouse.x as usize, widths);
+                let rendered_columns = self.rendered_column_indices();
+                let clicked_col =
+                    self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
                     if self.cursor_column != clicked_col {
                         self.cursor_column = clicked_col;
@@ -762,6 +860,9 @@ impl Widget for DataTable {
         if selection_changed {
             self.ensure_visible(visible_rows);
         }
+        if cursor_changed {
+            self.ensure_cursor_column_visible(self.content_width as usize);
+        }
         if (selection_changed || cursor_changed)
             && !self.rows.is_empty()
             && !self.headers.is_empty()
@@ -786,6 +887,7 @@ impl Widget for DataTable {
         let offset = self.effective_offset(visible_rows);
 
         let column_widths = self.column_widths();
+        let rendered_columns = self.rendered_column_indices();
         let cursor_type = self.cursor_type;
         let show_cursor = self.focused && cursor_type != CursorType::None;
 
@@ -848,6 +950,7 @@ impl Widget for DataTable {
         emit_row_per_cell(
             &self.headers,
             column_widths,
+            &rendered_columns,
             width,
             |col_idx| {
                 let target = (usize::MAX, col_idx);
@@ -880,6 +983,7 @@ impl Widget for DataTable {
             emit_row_per_cell(
                 row,
                 column_widths,
+                &rendered_columns,
                 width,
                 |col_idx| {
                     let target = (row_idx, col_idx);
@@ -958,20 +1062,22 @@ impl Renderable for DataTable {
 fn emit_row_per_cell(
     values: &[String],
     column_widths: &[usize],
+    rendered_columns: &[usize],
     total_width: usize,
     style_for_col: impl Fn(usize) -> rich_rs::Style,
     gap_style: rich_rs::Style,
     out: &mut Segments,
 ) {
     let mut used = 0usize;
-    for (i, col_w) in column_widths.iter().copied().enumerate() {
+    for (i, col_idx) in rendered_columns.iter().copied().enumerate() {
+        let col_w = column_widths.get(col_idx).copied().unwrap_or(0);
         if i > 0 {
             out.push(Segment::styled("  ", gap_style));
             used += 2;
         }
-        let val = values.get(i).map(String::as_str).unwrap_or("");
+        let val = values.get(col_idx).map(String::as_str).unwrap_or("");
         let cell_text = rich_rs::set_cell_size(val, col_w);
-        out.push(Segment::styled(cell_text, style_for_col(i)));
+        out.push(Segment::styled(cell_text, style_for_col(col_idx)));
         used += col_w;
     }
     // Pad remainder to full width.
@@ -1105,6 +1211,60 @@ mod tests {
         // y=1 is fixed row 0, y=2 is the first scrolled row.
         assert_eq!(table.row_index_from_y(1, table.visible_rows()), Some(0));
         assert_eq!(table.row_index_from_y(2, table.visible_rows()), Some(4));
+    }
+
+    #[test]
+    fn fixed_column_stays_visible_when_cursor_moves_to_far_columns() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (12, 3);
+        options.max_width = 12;
+        options.max_height = 3;
+
+        let mut table = DataTable::new(
+            vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
+            vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
+        );
+        table.set_fixed_columns(1);
+        table.set_focus(true);
+        table.on_layout(12, 3);
+        table.set_cursor(0, 3);
+
+        let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &table, None);
+        let header = &buf.as_plain_lines()[0];
+        assert!(header.contains("C0"));
+        assert!(header.contains("C3"));
+        assert!(!header.contains("C1"));
+    }
+
+    #[test]
+    fn header_click_uses_shifted_horizontal_column_mapping() {
+        let mut table = DataTable::new(
+            vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
+            vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
+        );
+        table.set_fixed_columns(1);
+        table.on_layout(12, 3);
+        table.set_cursor(0, 3);
+        let mut ctx = EventCtx::default();
+
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: table.id(),
+                screen_x: 4,
+                screen_y: 0,
+                x: 4,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::DataTableHeaderSelected { column: 2 }
+        ));
     }
 
     #[test]

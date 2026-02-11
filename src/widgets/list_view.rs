@@ -409,7 +409,7 @@ impl Widget for ListView {
             let mut text = String::new();
             let mut style = base_style;
             if let Some(item) = self.items.get(index) {
-                let highlighted = index == self.selected;
+                let highlighted = index == self.selected && self.is_selectable(index);
                 let hovered = self.hovered_index == Some(index);
                 let classes = Self::item_classes(
                     highlighted,

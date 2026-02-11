@@ -23,6 +23,7 @@ pub struct Tabs {
     hovered_tab: Option<usize>,
     layout_width: usize,
     tab_row_height: usize,
+    last_size: Option<(u16, u16)>,
     underline_start: f32,
     underline_end: f32,
     classes: Vec<String>,
@@ -53,6 +54,7 @@ impl Tabs {
             hovered_tab: None,
             layout_width: 1,
             tab_row_height: 2,
+            last_size: None,
             underline_start: 0.0,
             underline_end: 0.0,
             classes: vec!["tabs".to_string()],
@@ -180,6 +182,11 @@ impl Tabs {
             self.active = Some(next);
             if let Some(tab) = self.tabs.get_mut(next) {
                 tab.child.set_focus(self.focused);
+                if let Some((width, height)) = self.last_size {
+                    let content_height = height.saturating_sub(self.tab_row_height as u16);
+                    tab.child.on_resize(width, content_height);
+                    tab.child.on_layout(width, content_height);
+                }
             }
             let target_span = self.span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {
@@ -575,6 +582,7 @@ impl Widget for Tabs {
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_size = Some((width, height));
         if let Some(tab) = self.active.and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child
                 .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
@@ -582,6 +590,7 @@ impl Widget for Tabs {
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
+        self.last_size = Some((width, height));
         let next_layout_width = usize::from(width).max(1);
         if next_layout_width != self.layout_width {
             self.layout_width = next_layout_width;
@@ -848,13 +857,18 @@ mod tests {
     struct ProbeWidget {
         id: WidgetId,
         resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+        layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
     }
 
     impl ProbeWidget {
-        fn new(resize_calls: Arc<Mutex<Vec<(u16, u16)>>>) -> Self {
+        fn new(
+            resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+            layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
+        ) -> Self {
             Self {
                 id: WidgetId::new(),
                 resize_calls,
+                layout_calls,
             }
         }
     }
@@ -872,6 +886,13 @@ mod tests {
             self.resize_calls
                 .lock()
                 .expect("resize_calls lock")
+                .push((width, height));
+        }
+
+        fn on_layout(&mut self, width: u16, height: u16) {
+            self.layout_calls
+                .lock()
+                .expect("layout_calls lock")
                 .push((width, height));
         }
     }
@@ -932,12 +953,40 @@ mod tests {
     #[test]
     fn on_resize_forwards_content_height_to_active_tab() {
         let resize_calls = Arc::new(Mutex::new(Vec::new()));
-        let probe = ProbeWidget::new(resize_calls.clone());
+        let layout_calls = Arc::new(Mutex::new(Vec::new()));
+        let probe = ProbeWidget::new(resize_calls.clone(), layout_calls);
         let mut tabs = Tabs::new().with_tab("One", probe);
 
         tabs.on_resize(80, 10);
 
         let calls = resize_calls.lock().expect("resize_calls lock");
         assert_eq!(*calls, vec![(80, 8)]);
+    }
+
+    #[test]
+    fn activation_after_layout_forwards_latest_geometry_to_new_active_tab() {
+        let first_resize_calls = Arc::new(Mutex::new(Vec::new()));
+        let first_layout_calls = Arc::new(Mutex::new(Vec::new()));
+        let second_resize_calls = Arc::new(Mutex::new(Vec::new()));
+        let second_layout_calls = Arc::new(Mutex::new(Vec::new()));
+        let first = ProbeWidget::new(first_resize_calls, first_layout_calls);
+        let second = ProbeWidget::new(second_resize_calls.clone(), second_layout_calls.clone());
+        let mut tabs = Tabs::new().with_tab("One", first).with_tab("Two", second);
+        tabs.on_layout(60, 9);
+        tabs.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        tabs.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let resize_calls = second_resize_calls.lock().expect("resize_calls lock");
+        let layout_calls = second_layout_calls.lock().expect("layout_calls lock");
+        assert_eq!(*resize_calls, vec![(60, 7)]);
+        assert_eq!(*layout_calls, vec![(60, 7)]);
     }
 }

@@ -36,11 +36,15 @@ pub(crate) fn edit_command_from_key(key: &KeyEventData, multiline: bool) -> Opti
 
     match key.code {
         KeyCode::Char('u') if ctrl && !multiline => Some(EditCommand::DeleteToStart),
-        KeyCode::Char(ch) if ctrl && ch.eq_ignore_ascii_case(&'x') => Some(EditCommand::Cut),
+        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'x') => {
+            Some(EditCommand::Cut)
+        }
         KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'c') => {
             Some(EditCommand::Copy)
         }
-        KeyCode::Char(ch) if ctrl && ch.eq_ignore_ascii_case(&'v') => Some(EditCommand::Paste),
+        KeyCode::Char(ch) if (ctrl || super_key) && ch.eq_ignore_ascii_case(&'v') => {
+            Some(EditCommand::Paste)
+        }
         KeyCode::Char(_) if !ctrl => key
             .character
             .filter(|_| key.is_printable)
@@ -333,5 +337,23 @@ mod tests {
             false,
         );
         assert_eq!(paste, Some(EditCommand::Paste));
+
+        let cut_super = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::SUPER,
+            )),
+            false,
+        );
+        assert_eq!(cut_super, Some(EditCommand::Cut));
+
+        let paste_super = edit_command_from_key(
+            &crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('v'),
+                KeyModifiers::SUPER,
+            )),
+            false,
+        );
+        assert_eq!(paste_super, Some(EditCommand::Paste));
     }
 }

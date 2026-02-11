@@ -1,8 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Segment, Segments, Style};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
@@ -191,6 +191,55 @@ fn tooltip_updates_anchor_from_runtime_mouse_events() {
     let after_x = after_line.find("tip").expect("tip x after");
 
     assert!(after_x > before_x);
+}
+
+#[test]
+fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
+    let console = Console::new();
+    let options = options_for(&console, 30, 8);
+    let mut tooltip = Tooltip::new(Label::new("base"), "tip")
+        .visible(true)
+        .with_anchor(2, 0);
+
+    tooltip.on_message(
+        &MessageEvent {
+            sender: WidgetId::new(),
+            message: Message::OverlaySetAnchor {
+                overlay: tooltip.id(),
+                x: 22,
+                y: 1,
+            },
+        },
+        &mut EventCtx::default(),
+    );
+
+    let after_set = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let set_lines = after_set.as_plain_lines();
+    let set_line = set_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line after set-anchor");
+    let set_x = set_line.find("tip").expect("tip x after set-anchor");
+
+    tooltip.on_message(
+        &MessageEvent {
+            sender: WidgetId::new(),
+            message: Message::OverlayClearAnchor {
+                overlay: tooltip.id(),
+            },
+        },
+        &mut EventCtx::default(),
+    );
+
+    let after_clear = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
+    let clear_lines = after_clear.as_plain_lines();
+    let clear_line = clear_lines
+        .iter()
+        .find(|line| line.contains("tip"))
+        .expect("tip line after clear-anchor");
+    let clear_x = clear_line.find("tip").expect("tip x after clear-anchor");
+
+    assert!(set_x > clear_x);
 }
 
 #[test]

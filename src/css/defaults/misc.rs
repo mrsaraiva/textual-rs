@@ -29,7 +29,7 @@ RichLog {
 }
 
 RichLog:focus {
-    border: tall $border;
+    background-tint: $foreground 5%;
 }
 
 KeyPanel {
@@ -64,22 +64,15 @@ HelpPanel > KeyPanel {
 }
 
 Welcome {
-    width: 76;
-    min-width: 40;
-    max-width: 100%;
-    height: auto;
-    bg: $panel;
+    width: 100%;
+    height: 100%;
+    bg: $surface;
     fg: $foreground;
-    border: tall $border;
     line-pad: 1;
 }
 
-Welcome:focus {
-    border: tall $primary;
-}
-
 Welcome > Markdown {
-    bg: $panel;
+    bg: $surface;
     fg: $foreground;
 }
 

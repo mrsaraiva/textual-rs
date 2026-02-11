@@ -8,8 +8,8 @@ use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::{Message, MessageEvent};
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
     Tree, TreeNode, Widget, WidgetId, WidgetStyles,
+    helpers::{empty_classes, fixed_height_from_constraints},
 };
 
 #[derive(Debug, Clone)]
@@ -266,13 +266,19 @@ impl Widget for DirectoryTree {
         match &message.message {
             Message::TreeNodeSelected { index, .. } => {
                 if let Some(entry) = self.visible_entries.get(*index) {
-                    ctx.post_message(
-                        self.id,
-                        Message::TreeNodeSelected {
+                    let path = entry.path.display().to_string();
+                    let forwarded = if entry.path.is_dir() {
+                        Message::DirectoryTreeDirectorySelected {
                             index: *index,
-                            label: entry.path.display().to_string(),
-                        },
-                    );
+                            path,
+                        }
+                    } else {
+                        Message::DirectoryTreeFileSelected {
+                            index: *index,
+                            path,
+                        }
+                    };
+                    ctx.post_message(self.id, forwarded);
                     ctx.set_handled();
                 }
             }
@@ -467,4 +473,95 @@ fn find_node_mut<'a>(node: &'a mut DirectoryNode, path: &Path) -> Option<&'a mut
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempTreeDir {
+        path: PathBuf,
+    }
+
+    impl TempTreeDir {
+        fn new(label: &str) -> Self {
+            let mut path = std::env::temp_dir();
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock before epoch")
+                .as_nanos();
+            path.push(format!("textual-rs-{label}-{}-{stamp}", std::process::id()));
+            fs::create_dir_all(&path).expect("create temp test directory");
+            Self { path }
+        }
+    }
+
+    impl Drop for TempTreeDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn directory_tree_selection_forwards_file_specific_message() {
+        let temp = TempTreeDir::new("directory-tree-file-selected");
+        fs::write(temp.path.join("alpha.txt"), "alpha").expect("write file");
+
+        let mut tree = DirectoryTree::new(&temp.path);
+        tree.on_layout(40, 4);
+
+        let mut ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeSelected {
+                    index: 1,
+                    label: "alpha.txt".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let emitted = ctx.take_messages();
+        assert!(emitted.iter().any(|event| {
+            matches!(
+                &event.message,
+                Message::DirectoryTreeFileSelected { index, path }
+                    if *index == 1 && path.ends_with("alpha.txt")
+            )
+        }));
+    }
+
+    #[test]
+    fn directory_tree_selection_forwards_directory_specific_message() {
+        let temp = TempTreeDir::new("directory-tree-dir-selected");
+        fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
+
+        let mut tree = DirectoryTree::new(&temp.path);
+        tree.on_layout(40, 4);
+
+        let mut ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeSelected {
+                    index: 1,
+                    label: "nested".to_string(),
+                },
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let emitted = ctx.take_messages();
+        assert!(emitted.iter().any(|event| {
+            matches!(
+                &event.message,
+                Message::DirectoryTreeDirectorySelected { index, path }
+                    if *index == 1 && path.ends_with("nested")
+            )
+        }));
+    }
 }

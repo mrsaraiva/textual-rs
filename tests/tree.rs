@@ -191,3 +191,21 @@ fn tree_allows_expansion_without_preloaded_children() {
     let after_lines = after.as_plain_lines();
     assert!(after_lines.iter().any(|line| line.contains("▾ Lazy Root")));
 }
+
+#[test]
+fn tree_all_disabled_nodes_do_not_render_highlight_marker() {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (24, 3);
+    options.max_width = 24;
+    options.max_height = 3;
+
+    let tree = Tree::new(vec![
+        TreeNode::new("Root").disabled(true),
+        TreeNode::new("Other").disabled(true),
+    ]);
+    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    for line in buf.as_plain_lines() {
+        assert!(!line.contains("›"));
+    }
+}

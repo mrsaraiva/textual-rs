@@ -1,12 +1,12 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{BindingHint, Event, EventCtx};
-use crate::message::MessageEvent;
+use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
     FooterBinding, KeyPanel, Markdown, Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    helpers::{empty_classes, fixed_height_from_constraints},
 };
 
 /// Context-sensitive help panel baseline.
@@ -203,6 +203,22 @@ impl Widget for HelpPanel {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        match &message.message {
+            Message::HelpPanelSetHelp { panel, markup } if *panel == self.id => {
+                self.set_help(markup.clone());
+                ctx.request_repaint();
+                ctx.set_handled();
+                return;
+            }
+            Message::HelpPanelClearHelp { panel } if *panel == self.id => {
+                self.clear_help();
+                ctx.request_repaint();
+                ctx.set_handled();
+                return;
+            }
+            _ => {}
+        }
+
         self.markdown.on_message(message, ctx);
         if !ctx.handled() {
             self.key_panel.on_message(message, ctx);
@@ -255,34 +271,42 @@ mod tests {
     fn help_panel_toggles_show_help_class() {
         let mut panel = HelpPanel::new();
         assert!(!panel.showing_help());
-        assert!(!panel
-            .style_classes()
-            .iter()
-            .any(|class| class == "-show-help"));
+        assert!(
+            !panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
 
         panel.set_help("# Help\nSome text");
         assert!(panel.showing_help());
-        assert!(panel
-            .style_classes()
-            .iter()
-            .any(|class| class == "-show-help"));
+        assert!(
+            panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
     }
 
     #[test]
     fn help_panel_clear_help_removes_show_help_class() {
         let mut panel = HelpPanel::new().with_help("## Help\nbody");
         assert!(panel.showing_help());
-        assert!(panel
-            .style_classes()
-            .iter()
-            .any(|class| class == "-show-help"));
+        assert!(
+            panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
 
         panel.clear_help();
         assert!(!panel.showing_help());
-        assert!(!panel
-            .style_classes()
-            .iter()
-            .any(|class| class == "-show-help"));
+        assert!(
+            !panel
+                .style_classes()
+                .iter()
+                .any(|class| class == "-show-help")
+        );
     }
 
     #[test]

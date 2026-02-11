@@ -319,8 +319,6 @@ impl Widget for Footer {
                     if let Some(next) = self.deferred_bindings.take() {
                         self.apply_bindings(next, ctx);
                     }
-                } else {
-                    self.deferred_bindings = None;
                 }
             }
             Event::BindingsChanged(bindings) => {
@@ -447,5 +445,26 @@ mod tests {
             Message::FooterBindingsUpdated { count: 2 }
         ));
         assert!(focus_ctx.repaint_requested());
+    }
+
+    #[test]
+    fn repeated_focus_loss_does_not_drop_deferred_bindings() {
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(false), &mut ctx);
+        footer.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
+            &mut ctx,
+        );
+        footer.on_event(&Event::AppFocus(false), &mut ctx);
+
+        let mut focus_ctx = EventCtx::default();
+        footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
+        let messages = focus_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::FooterBindingsUpdated { count: 1 }
+        ));
     }
 }
