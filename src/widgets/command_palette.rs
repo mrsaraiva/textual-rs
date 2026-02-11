@@ -629,6 +629,12 @@ impl Widget for CommandPalette {
         self.query.on_unmount();
         self.list.on_unmount();
         self.key_panel.on_unmount();
+        self.open = false;
+        self.panel_visible = false;
+        self.panel_render_y = Self::CLOSED_PANEL_Y;
+        self.query.set_focus(false);
+        self.list.set_focus(false);
+        self.previously_focused_child = None;
     }
 
     fn on_tick(&mut self, tick: u64) {
@@ -775,6 +781,20 @@ impl Widget for CommandPalette {
             self.set_open(!self.open, ctx);
             ctx.set_handled();
             return;
+        }
+
+        if !self.open && self.panel_visible {
+            if matches!(
+                event,
+                Event::MouseDown(_)
+                    | Event::MouseUp(_)
+                    | Event::MouseScroll(_)
+                    | Event::Key(_)
+                    | Event::Action(_)
+            ) {
+                ctx.set_handled();
+                return;
+            }
         }
 
         if !self.open {
@@ -970,7 +990,7 @@ mod tests {
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     struct FocusProbe {
         id: WidgetId,
@@ -1005,6 +1025,36 @@ mod tests {
 
         fn has_focus(&self) -> bool {
             self.focused.load(Ordering::Relaxed)
+        }
+    }
+
+    struct EventProbe {
+        id: WidgetId,
+        mouse_downs: Arc<AtomicUsize>,
+    }
+
+    impl EventProbe {
+        fn new(mouse_downs: Arc<AtomicUsize>) -> Self {
+            Self {
+                id: WidgetId::new(),
+                mouse_downs,
+            }
+        }
+    }
+
+    impl Widget for EventProbe {
+        fn id(&self) -> WidgetId {
+            self.id
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            if matches!(event, Event::MouseDown(_)) {
+                self.mouse_downs.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -1400,5 +1450,80 @@ mod tests {
 
         assert!(palette.is_open());
         assert!(click_ctx.handled());
+    }
+
+    #[test]
+    fn command_palette_blocks_child_clicks_while_close_animation_visible() {
+        let _guard = set_style_context(StyleSheet::parse(
+            "CommandPalette > .command-palette--panel { transition: command-palette.panel-y 180ms ease-out; }",
+        ));
+        let mouse_downs = Arc::new(AtomicUsize::new(0));
+        let child = EventProbe::new(mouse_downs.clone());
+        let mut palette = CommandPalette::new(child);
+        palette.on_layout(80, 20);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let mut close_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        assert!(!palette.is_open());
+        assert!(palette.panel_visible);
+
+        let mut click_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: WidgetId::new(),
+                screen_x: 1,
+                screen_y: 1,
+                x: 1,
+                y: 1,
+            }),
+            &mut click_ctx,
+        );
+        assert!(click_ctx.handled());
+        assert_eq!(mouse_downs.load(Ordering::Relaxed), 0);
+
+        let mut settle_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::AnimationValue(AnimationValueEvent {
+                target: palette.id(),
+                attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
+                value: CommandPalette::CLOSED_PANEL_Y,
+                done: true,
+            }),
+            &mut settle_ctx,
+        );
+        assert!(!palette.panel_visible);
+
+        let mut click_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: WidgetId::new(),
+                screen_x: 1,
+                screen_y: 1,
+                x: 1,
+                y: 1,
+            }),
+            &mut click_ctx,
+        );
+        assert_eq!(mouse_downs.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn command_palette_unmount_resets_open_and_panel_visibility_state() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+        assert!(palette.panel_visible);
+
+        palette.on_unmount();
+
+        assert!(!palette.is_open());
+        assert!(!palette.panel_visible);
+        assert_eq!(palette.panel_render_y, CommandPalette::CLOSED_PANEL_Y);
     }
 }

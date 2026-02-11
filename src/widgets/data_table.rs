@@ -66,7 +66,17 @@ pub struct DataTable {
     focused: bool,
     hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
+    drag_h: Option<usize>,
     styles: WidgetStyles,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HorizontalScrollbarState {
+    row_y: usize,
+    viewport_width: usize,
+    content_width: usize,
+    pixel_offset: usize,
+    max_pixel_offset: usize,
 }
 
 impl DataTable {
@@ -92,6 +102,7 @@ impl DataTable {
             focused: false,
             hovered: false,
             hover_coordinate: None,
+            drag_h: None,
             styles: WidgetStyles::default(),
         };
         for header in headers {
@@ -417,6 +428,138 @@ impl DataTable {
         *rendered_columns.last().unwrap_or(&0)
     }
 
+    fn fixed_section_width(&self) -> usize {
+        let fixed = self.fixed_column_count();
+        if fixed == 0 {
+            return 0;
+        }
+        let mut width = 0usize;
+        for (idx, col) in (0..fixed).enumerate() {
+            if idx > 0 {
+                width = width.saturating_add(2);
+            }
+            width = width.saturating_add(*self.column_widths.get(col).unwrap_or(&0));
+        }
+        width
+    }
+
+    fn scrollable_content_width(&self) -> usize {
+        let fixed = self.fixed_column_count();
+        let scrollable = self.headers.len().saturating_sub(fixed);
+        if scrollable == 0 {
+            return 0;
+        }
+        let mut width = 0usize;
+        for index in 0..scrollable {
+            if index > 0 {
+                width = width.saturating_add(2);
+            }
+            width = width.saturating_add(*self.column_widths.get(fixed + index).unwrap_or(&0));
+        }
+        width
+    }
+
+    fn scrollable_viewport_width(&self, width: usize) -> usize {
+        let fixed = self.fixed_column_count();
+        if fixed >= self.headers.len() {
+            return 0;
+        }
+        let fixed_width = self.fixed_section_width();
+        let inter_gap = if fixed > 0 { 2 } else { 0 };
+        width.saturating_sub(fixed_width.saturating_add(inter_gap))
+    }
+
+    fn horizontal_offset_pixels(&self) -> usize {
+        let fixed = self.fixed_column_count();
+        let scrollable = self.scrollable_column_count();
+        let offset = self.horizontal_offset.min(scrollable.saturating_sub(1));
+        let mut pixels = 0usize;
+        for idx in 0..offset {
+            pixels = pixels
+                .saturating_add(*self.column_widths.get(fixed + idx).unwrap_or(&0))
+                .saturating_add(2);
+        }
+        pixels
+    }
+
+    fn horizontal_offset_from_pixels(&self, pixels: usize) -> usize {
+        let fixed = self.fixed_column_count();
+        let scrollable = self.scrollable_column_count();
+        if scrollable == 0 {
+            return 0;
+        }
+        let max_offset = scrollable.saturating_sub(1);
+        let mut offset = 0usize;
+        let mut consumed = 0usize;
+        while offset < max_offset {
+            let step = self
+                .column_widths
+                .get(fixed + offset)
+                .copied()
+                .unwrap_or(0)
+                .saturating_add(2);
+            if consumed.saturating_add(step) > pixels {
+                break;
+            }
+            consumed = consumed.saturating_add(step);
+            offset += 1;
+        }
+        offset
+    }
+
+    fn horizontal_scrollbar_state(
+        &self,
+        width: usize,
+        height: usize,
+    ) -> Option<HorizontalScrollbarState> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let viewport_width = self.scrollable_viewport_width(width);
+        let content_width = self.scrollable_content_width();
+        if viewport_width == 0 || content_width <= viewport_width {
+            return None;
+        }
+        let max_pixel_offset = content_width.saturating_sub(viewport_width);
+        let pixel_offset = self.horizontal_offset_pixels().min(max_pixel_offset);
+        Some(HorizontalScrollbarState {
+            row_y: height.saturating_sub(1),
+            viewport_width,
+            content_width,
+            pixel_offset,
+            max_pixel_offset,
+        })
+    }
+
+    fn page_horizontal_step(&self, width: usize) -> usize {
+        let visible = self
+            .rendered_column_indices_with_offset(self.horizontal_offset)
+            .len()
+            .saturating_sub(self.fixed_column_count());
+        visible.saturating_sub(1).max((width > 0) as usize)
+    }
+
+    fn scroll_horizontal_by_columns(&mut self, delta: i32) -> bool {
+        let scrollable = self.scrollable_column_count();
+        if scrollable == 0 {
+            self.horizontal_offset = 0;
+            return false;
+        }
+        let max_offset = scrollable.saturating_sub(1);
+        let next = if delta.is_negative() {
+            self.horizontal_offset
+                .saturating_sub(delta.unsigned_abs() as usize)
+        } else {
+            self.horizontal_offset.saturating_add(delta as usize)
+        }
+        .min(max_offset);
+        if next == self.horizontal_offset {
+            return false;
+        }
+        self.horizontal_offset = next;
+        true
+    }
+
     fn fixed_data_rows(&self) -> usize {
         self.fixed_rows.min(self.rows.len())
     }
@@ -482,8 +625,16 @@ impl DataTable {
         );
     }
 
+    fn visible_rows_for_viewport(&self, width: usize, height: usize) -> usize {
+        let mut rows = height.saturating_sub(1);
+        if self.horizontal_scrollbar_state(width, height).is_some() {
+            rows = rows.saturating_sub(1);
+        }
+        rows
+    }
+
     fn visible_rows(&self) -> usize {
-        self.content_height.saturating_sub(1) as usize
+        self.visible_rows_for_viewport(self.content_width as usize, self.content_height as usize)
     }
 
     fn effective_offset(&self, visible_rows: usize) -> usize {
@@ -555,6 +706,7 @@ impl Default for DataTable {
             focused: false,
             hovered: false,
             hover_coordinate: None,
+            drag_h: None,
             styles: WidgetStyles::default(),
         };
         out.recompute_column_widths();
@@ -597,11 +749,33 @@ impl Widget for DataTable {
     fn on_layout(&mut self, width: u16, height: u16) {
         self.content_width = width;
         self.content_height = height;
-        self.ensure_visible(self.visible_rows());
+        let visible_rows = self.visible_rows_for_viewport(width as usize, height as usize);
+        self.ensure_visible(visible_rows);
         self.ensure_cursor_column_visible(width as usize);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if let Some(grab_offset) = self.drag_h {
+            let width = self.content_width as usize;
+            let height = self.content_height as usize;
+            if let Some(state) = self.horizontal_scrollbar_state(width, height) {
+                let new_pixel_offset = ScrollView::line_drag_offset(
+                    x as usize,
+                    grab_offset,
+                    width,
+                    state.content_width,
+                    state.viewport_width,
+                    state.pixel_offset,
+                )
+                .min(state.max_pixel_offset);
+                let new_offset = self.horizontal_offset_from_pixels(new_pixel_offset);
+                if new_offset != self.horizontal_offset {
+                    self.horizontal_offset = new_offset;
+                    return true;
+                }
+            }
+            return false;
+        }
         let rendered_columns = self.rendered_column_indices();
         let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
         let visible_rows = self.visible_rows();
@@ -618,6 +792,13 @@ impl Widget for DataTable {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false))
+            && self.drag_h.take().is_some()
+        {
+            ctx.set_handled();
+            return;
+        }
+
         let visible_rows = self.visible_rows();
         let mut selection_changed = false;
         let mut cursor_changed = false;
@@ -626,6 +807,32 @@ impl Widget for DataTable {
         // Handle mouse events regardless of focus state.
         match event {
             Event::MouseDown(mouse) if mouse.target == self.id => {
+                let width = self.content_width as usize;
+                let height = self.content_height as usize;
+                if let Some(state) = self.horizontal_scrollbar_state(width, height)
+                    && mouse.y as usize == state.row_y
+                {
+                    let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                        width,
+                        state.content_width,
+                        state.viewport_width,
+                        state.pixel_offset,
+                    );
+                    let x = mouse.x as usize;
+                    if x >= thumb_start && x < thumb_start.saturating_add(thumb_len) {
+                        self.drag_h = Some(x.saturating_sub(thumb_start));
+                    } else if x < thumb_start {
+                        let step = self.page_horizontal_step(width) as i32;
+                        self.scroll_horizontal_by_columns(-step);
+                    } else {
+                        let step = self.page_horizontal_step(width) as i32;
+                        self.scroll_horizontal_by_columns(step);
+                    }
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+
                 let rendered_columns = self.rendered_column_indices();
                 let clicked_col =
                     self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
@@ -690,6 +897,9 @@ impl Widget for DataTable {
                 {
                     self.cursor_column = 0;
                     cursor_changed = true;
+                } else if self.horizontal_offset != 0 {
+                    self.horizontal_offset = 0;
+                    ctx.request_repaint();
                 }
                 handled = true;
             }
@@ -701,6 +911,12 @@ impl Widget for DataTable {
                     if self.cursor_column != col {
                         self.cursor_column = col;
                         cursor_changed = true;
+                    }
+                } else {
+                    let max_offset = self.scrollable_column_count().saturating_sub(1);
+                    if self.horizontal_offset != max_offset {
+                        self.horizontal_offset = max_offset;
+                        ctx.request_repaint();
                     }
                 }
                 handled = true;
@@ -721,6 +937,9 @@ impl Widget for DataTable {
                         cursor_changed = true;
                     }
                     handled = true;
+                } else if self.scroll_horizontal_by_columns(-1) {
+                    handled = true;
+                    ctx.request_repaint();
                 }
             }
             Event::Action(Action::ScrollRight) => {
@@ -730,6 +949,9 @@ impl Widget for DataTable {
                         cursor_changed = true;
                     }
                     handled = true;
+                } else if self.scroll_horizontal_by_columns(1) {
+                    handled = true;
+                    ctx.request_repaint();
                 }
             }
             Event::Action(Action::ScrollPageUp) => {
@@ -762,6 +984,12 @@ impl Widget for DataTable {
                         cursor_changed = true;
                     }
                     handled = true;
+                } else {
+                    let step = self.page_horizontal_step(self.content_width as usize) as i32;
+                    if self.scroll_horizontal_by_columns(-step) {
+                        handled = true;
+                        ctx.request_repaint();
+                    }
                 }
             }
             Event::Action(Action::ScrollPageRight) => {
@@ -772,6 +1000,12 @@ impl Widget for DataTable {
                         cursor_changed = true;
                     }
                     handled = true;
+                } else {
+                    let step = self.page_horizontal_step(self.content_width as usize) as i32;
+                    if self.scroll_horizontal_by_columns(step) {
+                        handled = true;
+                        ctx.request_repaint();
+                    }
                 }
             }
             Event::Key(key) => match key.code {
@@ -846,6 +1080,9 @@ impl Widget for DataTable {
                     {
                         self.cursor_column = 0;
                         cursor_changed = true;
+                    } else if self.horizontal_offset != 0 {
+                        self.horizontal_offset = 0;
+                        ctx.request_repaint();
                     }
                     handled = true;
                 }
@@ -867,6 +1104,12 @@ impl Widget for DataTable {
                         if self.cursor_column != col {
                             self.cursor_column = col;
                             cursor_changed = true;
+                        }
+                    } else {
+                        let max_offset = self.scrollable_column_count().saturating_sub(1);
+                        if self.horizontal_offset != max_offset {
+                            self.horizontal_offset = max_offset;
+                            ctx.request_repaint();
                         }
                     }
                     handled = true;
@@ -910,10 +1153,21 @@ impl Widget for DataTable {
         }
     }
 
+    fn on_mouse_scroll(&mut self, delta_x: i32, _delta_y: i32, ctx: &mut EventCtx) {
+        if delta_x == 0 {
+            return;
+        }
+        if self.scroll_horizontal_by_columns(delta_x) {
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
+    }
+
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let visible_rows = height.saturating_sub(1);
+        let show_h_scrollbar = self.horizontal_scrollbar_state(width, height).is_some();
+        let visible_rows = self.visible_rows_for_viewport(width, height);
         let offset = self.effective_offset(visible_rows);
 
         let column_widths = self.column_widths();
@@ -1047,6 +1301,34 @@ impl Widget for DataTable {
         let scrollable_slots = (visible_rows as usize).saturating_sub(fixed_visible);
         for row_offset in 0..scrollable_slots {
             emit_data_row(scroll_start + row_offset, &mut out);
+        }
+
+        if let Some(state) = self.horizontal_scrollbar_state(width, height)
+            && show_h_scrollbar
+        {
+            let (track_style, thumb_style, thumb_active_style) =
+                ScrollView::line_scrollbar_styles();
+            let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                width,
+                state.content_width,
+                state.viewport_width,
+                state.pixel_offset,
+            );
+            let thumb_style = if self.drag_h.is_some() {
+                thumb_active_style
+            } else {
+                thumb_style
+            };
+            let mut bar = Segments::new();
+            for x in 0..width {
+                let style = if x >= thumb_start && x < thumb_start.saturating_add(thumb_len) {
+                    thumb_style
+                } else {
+                    track_style
+                };
+                bar.push(Segment::styled(" ".to_string(), style));
+            }
+            out.extend(bar);
         }
 
         out
@@ -1499,5 +1781,110 @@ mod tests {
             messages[0].message,
             Message::DataTableCellActivated { row: 1, column: 1 }
         ));
+    }
+
+    #[test]
+    fn renders_horizontal_scrollbar_when_columns_overflow() {
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (12, 4);
+        options.max_width = 12;
+        options.max_height = 4;
+
+        let table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+
+        let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &table, None);
+        assert!(table.horizontal_scrollbar_state(12, 4).is_some());
+        assert_eq!(buf.as_plain_lines().len(), 4);
+    }
+
+    #[test]
+    fn horizontal_scrollbar_track_click_pages_viewport() {
+        let mut table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+        table.on_layout(12, 4);
+        assert_eq!(table.horizontal_offset, 0);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: table.id(),
+                screen_x: 11,
+                screen_y: 3,
+                x: 11,
+                y: 3,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(table.horizontal_offset > 0);
+    }
+
+    #[test]
+    fn row_cursor_scroll_right_action_moves_horizontal_viewport() {
+        let mut table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+        table.set_focus(true);
+        table.set_cursor_type(CursorType::Row);
+        table.on_layout(12, 4);
+        assert_eq!(table.horizontal_offset, 0);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(&Event::Action(Action::ScrollRight), &mut ctx);
+        assert!(ctx.handled());
+        assert!(table.horizontal_offset > 0);
+    }
+
+    #[test]
+    fn dragging_horizontal_scrollbar_thumb_updates_offset() {
+        let mut table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+        table.on_layout(12, 4);
+
+        let mut ctx = EventCtx::default();
+        table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: table.id(),
+                screen_x: 0,
+                screen_y: 3,
+                x: 0,
+                y: 3,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+
+        assert!(table.on_mouse_move(10, 3));
+        assert!(table.horizontal_offset > 0);
     }
 }

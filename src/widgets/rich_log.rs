@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use unicode_width::UnicodeWidthChar;
 
+use rich_rs::highlighter::repr_highlighter;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
@@ -16,6 +17,9 @@ pub struct RichLog {
     max_lines: Option<usize>,
     auto_scroll: bool,
     wrap: bool,
+    highlight: bool,
+    markup: bool,
+    highlighter: rich_rs::highlighter::RegexHighlighter,
     scroll_step: usize,
     offset_y: usize,
     focused: bool,
@@ -55,6 +59,9 @@ impl RichLog {
             max_lines: None,
             auto_scroll: true,
             wrap: false,
+            highlight: false,
+            markup: false,
+            highlighter: repr_highlighter(),
             scroll_step: 1,
             offset_y: 0,
             focused: false,
@@ -82,6 +89,16 @@ impl RichLog {
 
     pub fn wrap(mut self, wrap: bool) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    pub fn highlight(mut self, highlight: bool) -> Self {
+        self.highlight = highlight;
+        self
+    }
+
+    pub fn markup(mut self, markup: bool) -> Self {
+        self.markup = markup;
         self
     }
 
@@ -245,9 +262,28 @@ impl RichLog {
         for line in &self.lines {
             match line {
                 LogLine::Plain(content) => {
+                    let text = console.render_str(
+                        content,
+                        Some(self.markup),
+                        None,
+                        Some(self.highlight),
+                        Some(&self.highlighter),
+                    );
                     if self.wrap {
                         for wrapped in wrap_line(content, width.max(1)) {
-                            let rendered = Text::plain(wrapped).render(console, options);
+                            let rendered = if self.markup || self.highlight {
+                                console
+                                    .render_str(
+                                        &wrapped,
+                                        Some(self.markup),
+                                        None,
+                                        Some(self.highlight),
+                                        Some(&self.highlighter),
+                                    )
+                                    .render(console, options)
+                            } else {
+                                Text::plain(wrapped).render(console, options)
+                            };
                             let split =
                                 Segment::split_and_crop_lines(rendered, width, None, true, false);
                             if let Some(first) = split.first() {
@@ -257,7 +293,7 @@ impl RichLog {
                             }
                         }
                     } else {
-                        let rendered = Text::plain(content).render(console, options);
+                        let rendered = text.render(console, options);
                         let split =
                             Segment::split_and_crop_lines(rendered, width, None, true, false);
                         if let Some(first) = split.first() {

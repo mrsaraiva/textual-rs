@@ -85,3 +85,34 @@ fn data_table_exposes_keyed_row_and_column_lookups() {
     assert_eq!(table.row_index_of(&row), Some(0));
     assert_eq!(table.cursor_cell_key(), Some((row, column)));
 }
+
+#[test]
+fn data_table_row_cursor_actions_can_scroll_horizontal_viewport() {
+    let mut table = DataTable::new(
+        vec![
+            "First".into(),
+            "Second".into(),
+            "Third".into(),
+            "Fourth".into(),
+        ],
+        vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+    );
+    table.set_focus(true);
+    table.set_cursor_type(CursorType::Row);
+    table.on_layout(12, 4);
+
+    let mut ctx = EventCtx::default();
+    table.on_event(&Event::Action(Action::ScrollRight), &mut ctx);
+    assert!(ctx.handled());
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (12, 4);
+    options.max_width = 12;
+    options.max_height = 4;
+    let buf = FrameBuffer::from_renderable(&console, &options, &table, None);
+    let lines = buf.as_plain_lines();
+    assert!(
+        lines[0].contains("Second") || lines[0].contains("Third") || lines[0].contains("Fourth")
+    );
+}

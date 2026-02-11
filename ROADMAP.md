@@ -438,6 +438,7 @@ Reference plan:
 - Landed (2026-02-11): widget closure follow-up (`PR7J`) with explicit activation-message paths for `ListView`/`Tree`, tree twisty-click toggle-vs-activate parity, header icon press message emission, and footer unmount lifecycle reset for deferred bindings.
 - Landed (2026-02-11): widget closure recovery batch (`PR7K`) with DataTable horizontal-offset stability fixes, Tabs/TabbedContent binding-hint + unmount lifecycle polish, CommandPalette local-coordinate hit-test hardening, RichLog multiline auto-scroll estimation, single-line clipboard paste normalization for Input/MaskedInput, and DirectoryTree deferred load queue with collapse-time cancellation.
 - Landed (2026-02-11): widget primitive closure batch (`PR8A`: A/B/C) with focused HELP metadata pipeline, runtime async task primitive baseline (`spawn`/`cancel`/completion delivery), DirectoryTree async-task migration, and `hkey`/`vkey` CSS border parser+renderer support used by HelpPanel/KeyPanel parity defaults.
+- Landed (2026-02-11): Tier-A final closure batch (`PR8C`) with DataTable horizontal viewport/scrollbar + key-lifecycle parity hardening, RichLog default markup/highlighter semantics, and CommandPalette close-animation interaction gating + unmount lifecycle reset.
 - Next (widget-first): close remaining widget parity/hardening slices before non-widget streams, prioritizing Tier-A/B gaps plus container-family parity gaps tracked in `docs/devel/WIDGET_PORTING_PLAN.md`.
 - During widget-first execution: land message-bus and grapheme follow-ups as part of each widget PR slice (no callback shims; alpha breakage is acceptable when it improves fundamentals).
 - Then: remaining infrastructure closures (dirty/style invalidation, timers/async, golden coverage, integration-contract closures, compatibility/docs).
@@ -452,9 +453,6 @@ High-confidence widget work already landed in recent commits (`112c29a`..`25b2de
 - No missing widget ports remain; remaining widget work is parity/polish/fundamentals closure.
 
 Still-open widget gaps are now concentrated in:
-- `DataTable`: full horizontal viewport/scrollbar parity + final key-lifecycle alignment.
-- `RichLog`: deeper highlighter/default-markup fidelity.
-- `CommandPalette`: remaining interaction/UX/polish closure.
 - `HelpPanel`: focused-widget HELP metadata source parity.
 - `DirectoryTree`: deeper async scheduling parity (beyond tick-queued deferred load).
 - `Tooltip`: deeper CSS/parser-feature parity.
@@ -469,6 +467,7 @@ Order is prioritized for widget-first execution while keeping fundamentals and r
      - PR7A (2026-02-10): `RichLog` now preserves scroll-anchor behavior when max-line trimming drops head rows and keeps explicit multi-line styled writes intact; `CommandPalette` now emits `CommandPaletteCommandSelected` for built-ins (`keys`, `quit`) before close, with focused regressions.
      - PR7I (2026-02-11): additional Tier-A closure hardening landed: `DataTable` fixed-column-preserving horizontal shift + shifted header hit-test mapping; `Tabs`/`TabbedContent` activation now replays latest geometry to newly active content; `CommandPalette` click hit-testing corrected to screen-space coordinates and animated panel Y; `RichLog` focus-style parity moved to background-tint with regression coverage.
      - PR7K (2026-02-11): Tier-A recovery polish landed: `DataTable` horizontal-offset stability + home/end cursor visibility alignment, switchable-target binding-hint gating and unmount lifecycle reset for `Tabs`/`TabbedContent`, local-coordinate-safe `CommandPalette` hit-testing, and multiline auto-scroll estimation for `RichLog`.
+     - PR8C (2026-02-11): Tier-A final closure landed: `DataTable` now has horizontal viewport scrollbar parity (render/track/drag/action-wheel) with key-lifecycle alignment, `RichLog.write(...)` now honors default markup/highlighter semantics, and `CommandPalette` blocks child interaction while close-animation panel remains visible plus unmount lifecycle reset coverage.
    - PR 2: Tier-B closure slices (`ListView`/`Tree`, text-edit follow-up including clipboard hooks, `Header`/`Footer` lifecycle polish) aligned to Python semantics.
      - PR7B (2026-02-10): `ListView`/`Tree` now support disabled-item/node navigation semantics (keyboard + mouse skip/ignore + disabled classes); shared text-edit clipboard hooks are message-bus-first via `TextEditClipboard*` messages with focused regressions for `Input`/`MaskedInput`/`TextArea`.
      - PR7C (2026-02-10): `Header`/`Footer` lifecycle polish landed: hover state cleanup on focus/unmount for `Header`, and deferred `BindingsChanged` handling in `Footer` while app is unfocused with focused replay on regain.

@@ -115,6 +115,44 @@ fn rich_log_write_markup_renders_without_literal_markup_tags() {
 }
 
 #[test]
+fn rich_log_write_respects_default_markup_setting() {
+    let console = Console::new();
+    let options = options_for(&console, 24, 1);
+
+    let mut plain = RichLog::new();
+    plain.write("[bold]warn[/]");
+    let plain_buf = FrameBuffer::from_renderable(&console, &options, &plain, None);
+    assert!(plain_buf.as_plain_lines()[0].contains("[bold]warn[/]"));
+
+    let mut markup = RichLog::new().markup(true);
+    markup.write("[bold]warn[/]");
+    let markup_buf = FrameBuffer::from_renderable(&console, &options, &markup, None);
+    assert!(markup_buf.as_plain_lines()[0].starts_with("warn"));
+    assert!(!markup_buf.as_plain_lines()[0].contains("[bold]"));
+}
+
+#[test]
+fn rich_log_write_applies_default_highlighter_when_enabled() {
+    let console = Console::new();
+    let options = options_for(&console, 32, 1);
+
+    let mut plain = RichLog::new();
+    plain.write("None 123");
+    let plain_buf = FrameBuffer::from_renderable(&console, &options, &plain, None);
+
+    let mut highlighted = RichLog::new().highlight(true);
+    highlighted.write("None 123");
+    let highlighted_buf = FrameBuffer::from_renderable(&console, &options, &highlighted, None);
+
+    let plain_styled = (0..32).filter_map(|x| plain_buf.get(x, 0).style).count();
+    let highlighted_styled = (0..32)
+        .filter_map(|x| highlighted_buf.get(x, 0).style)
+        .count();
+
+    assert!(highlighted_styled >= plain_styled);
+}
+
+#[test]
 fn rich_log_renders_multiline_renderable_entries() {
     let console = Console::new();
     let options = options_for(&console, 16, 2);

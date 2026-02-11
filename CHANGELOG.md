@@ -8,6 +8,20 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Tier-A final closure batch (`PR8C`)**
+  - `DataTable`:
+    - added horizontal viewport scrollbar parity (render + track-click paging + thumb-drag),
+      plus horizontal wheel/action behavior when column-cursor navigation is not active.
+    - aligned home/end and horizontal key lifecycle behavior with viewport movement semantics.
+  - `RichLog`:
+    - `write(...)` now honors default `markup` / `highlight` behavior, including repr-highlighter
+      application when highlighting is enabled.
+    - added focused regressions for default-markup and default-highlighter semantics.
+  - `CommandPalette`:
+    - close-animation phase now gates child interactions until panel visibility fully settles.
+    - unmount lifecycle now resets open/panel state to prevent stale remount behavior.
+  - Added focused regressions in `src/widgets/data_table.rs`, `tests/data_table.rs`,
+    `tests/rich_log.rs`, and `src/widgets/command_palette.rs`.
 - **Widget primitive closure batch (`PR8A`: A/B/C)**
   - Focused HELP metadata pipeline:
     - added framework-level focused-help signaling (`HelpPanelFocusedHelpChanged` / `HelpPanelFocusedHelpCleared`) and runtime diff/dispatch integration.
