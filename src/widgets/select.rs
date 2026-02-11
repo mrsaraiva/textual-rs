@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 
@@ -271,10 +271,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                         return;
                     }
                     KeyCode::Enter => {
-                        if let Some(index) = self.list.highlighted() {
-                            self.apply_selection(index, ctx);
-                        } else {
+                        if self.list.highlighted().is_none() {
                             self.set_open(false, ctx);
+                        } else {
+                            // Route selection through OptionList message flow.
+                            self.list.on_event(event, ctx);
+                            self.cursor.set_highlighted(self.list.highlighted());
                         }
                         ctx.set_handled();
                         return;
@@ -290,28 +292,27 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     }
                     if mouse.target == self.list.id() {
                         // Click inside dropdown list coordinates.
-                        let index = self
-                            .list
-                            .offset_for_click()
-                            .saturating_add(mouse.y as usize);
-                        if let Some(item) = self.list.get_option(index) {
-                            if item.is_selectable() {
-                                self.apply_selection(index, ctx);
-                            }
-                        }
+                        self.list.on_event(event, ctx);
+                        self.cursor.set_highlighted(self.list.highlighted());
                     } else {
                         // Click within Select — check if it's in the dropdown area.
                         let (_, panel_y, _, panel_h) = self.dropdown_geometry();
                         let click_y = mouse.y as usize;
                         if click_y >= panel_y && click_y < panel_y + panel_h {
-                            // Translate click to OptionList coordinates and select.
+                            // Translate click to OptionList coordinates and route through its
+                            // message flow.
                             let list_y = click_y - panel_y;
-                            let index = self.list.offset_for_click().saturating_add(list_y);
-                            if let Some(item) = self.list.get_option(index) {
-                                if item.is_selectable() {
-                                    self.apply_selection(index, ctx);
-                                }
-                            }
+                            self.list.on_event(
+                                &Event::MouseDown(MouseDownEvent {
+                                    target: self.list.id(),
+                                    screen_x: mouse.screen_x,
+                                    screen_y: mouse.screen_y,
+                                    x: mouse.x,
+                                    y: list_y as u16,
+                                }),
+                                ctx,
+                            );
+                            self.cursor.set_highlighted(self.list.highlighted());
                         } else {
                             // Click on the closed-state bar area — toggle closed.
                             self.set_open(false, ctx);
@@ -512,6 +513,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
 mod tests {
     use super::*;
     use crate::event::{Event, EventCtx, MouseDownEvent};
+    use crate::message::MessageEvent;
     use crate::keys::KeyEventData;
     use crate::message::Message;
     use crossterm::event::{KeyEvent, KeyModifiers};
@@ -525,6 +527,21 @@ mod tests {
             ],
             "Pick one...",
         )
+    }
+
+    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut EventCtx) -> Vec<MessageEvent> {
+        let mut delivered = Vec::new();
+        loop {
+            let batch = ctx.take_messages();
+            if batch.is_empty() {
+                break;
+            }
+            delivered.extend(batch.clone());
+            for message in batch {
+                sel.on_message(&message, ctx);
+            }
+        }
+        delivered
     }
 
     #[test]
@@ -586,14 +603,20 @@ mod tests {
         // Confirm with Enter
         let mut ctx3 = EventCtx::default();
         sel.on_event(&Event::Key(enter), &mut ctx3);
+        let delivered = dispatch_messages(&mut sel, &mut ctx3);
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2)); // Beta
 
-        let messages = ctx3.take_messages();
+        let option_selected_pos = delivered
+            .iter()
+            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+        let select_changed_pos = delivered
+            .iter()
+            .position(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }));
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
+            option_selected_pos.is_some()
+                && select_changed_pos.is_some()
+                && option_selected_pos < select_changed_pos
         );
     }
 
@@ -620,15 +643,21 @@ mod tests {
             }),
             &mut click_ctx,
         );
+        let delivered = dispatch_messages(&mut sel, &mut click_ctx);
 
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2));
         assert!(click_ctx.handled());
-        let messages = click_ctx.take_messages();
+        let option_selected_pos = delivered
+            .iter()
+            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+        let select_changed_pos = delivered
+            .iter()
+            .position(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }));
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }))
+            option_selected_pos.is_some()
+                && select_changed_pos.is_some()
+                && option_selected_pos < select_changed_pos
         );
     }
 

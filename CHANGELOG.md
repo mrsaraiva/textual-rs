@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-11
+- **Message-bus closure follow-up (`PR8F`)**
+  - `Select` open-dropdown Enter/click selection now routes through inner `OptionList`
+    message flow (`OptionSelected` consumed in `on_message`) instead of direct click/index coupling.
+  - Added explicit ordering regressions for:
+    - `OptionList`: `OptionHighlighted` before `OptionSelected`,
+    - `Select`: `OptionSelected` before `SelectChanged`,
+    - `SelectionList`: `SelectionListToggled` before `SelectionListSelectedChanged`.
+  - Updated roadmap/widget source-of-truth docs to mark message-bus closure as done in the
+    current widget scope.
 - **Grapheme closure follow-up (`PR8E`)**
   - `MaskedInput`:
     - cursor placement from mouse `x` now maps through grapheme/cell boundaries instead of ASCII indexing assumptions.

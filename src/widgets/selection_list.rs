@@ -581,6 +581,26 @@ mod tests {
     }
 
     #[test]
+    fn selection_list_toggle_emits_ordered_messages() {
+        let selections = vec![Selection::new("Alpha", "a")];
+        let mut list = SelectionList::with_selections(selections);
+        let mut ctx = EventCtx::default();
+
+        list.toggle(0, &mut ctx);
+        let messages = ctx.take_messages();
+        let toggled_pos = messages
+            .iter()
+            .position(|m| matches!(m.message, crate::message::Message::SelectionListToggled { .. }));
+        let changed_pos = messages.iter().position(|m| {
+            matches!(
+                m.message,
+                crate::message::Message::SelectionListSelectedChanged
+            )
+        });
+        assert!(toggled_pos.is_some() && changed_pos.is_some() && toggled_pos < changed_pos);
+    }
+
+    #[test]
     fn selection_list_select_all_deselect_all() {
         let selections = vec![
             Selection::new("A", "a"),

@@ -671,6 +671,38 @@ mod tests {
     }
 
     #[test]
+    fn option_list_mouse_click_emits_highlighted_before_selected() {
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
+        let mut list = OptionList::with_items(items);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: list.id(),
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        let highlighted_pos = messages
+            .iter()
+            .position(|m| matches!(m.message, Message::OptionHighlighted { index: 1 }));
+        let selected_pos = messages
+            .iter()
+            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+        assert!(
+            highlighted_pos.is_some() && selected_pos.is_some() && highlighted_pos < selected_pos
+        );
+    }
+
+    #[test]
     fn option_list_clear_resets_state() {
         let items = vec![OptionItem::new("A"), OptionItem::new("B")];
         let mut list = OptionList::with_items(items);
