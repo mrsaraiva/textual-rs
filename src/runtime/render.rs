@@ -372,15 +372,46 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 }
 
 // ===========================================================================
-// P1-12: Arena-tree-based render scaffold
+// P1-12 / P2-18a: Arena-tree-based render scaffold + layout integration
 //
-// These standalone functions demonstrate the tree-walk render pattern using
-// `WidgetTree`. They are added alongside the existing `impl App` methods;
-// the runtime will switch to these once the render pipeline is wired to the
-// arena tree (P1-05).
+// These standalone functions implement tree-walk render and layout patterns
+// using `WidgetTree`. The layout pass (`run_layout_pass`) computes CSS-based
+// `layout_rect`/`content_rect` for every tree node before rendering.
 // ===========================================================================
 
+/// Run the CSS-layout pass on the widget tree.
+///
+/// Sets the root node's `layout_rect`/`content_rect` to the full viewport,
+/// then calls [`resolve_layout`](crate::layout::resolve_layout) to compute
+/// rects for the root's children. Call this before rendering so that
+/// precomputed rects are available for widget sizing and positioning.
+///
+/// **Note:** The caller must ensure the CSS stylesheet context is active
+/// (via [`set_style_context`](crate::css::set_style_context)) before calling
+/// this function, because the layout solver resolves styles from the stylesheet.
+pub(crate) fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
+    let root_id = match tree.root() {
+        Some(r) => r,
+        None => return,
+    };
+
+    let available = crate::layout::Region::new(0, 0, viewport.0, viewport.1);
+
+    // Set root's own rects to the full viewport.
+    if let Some(root) = tree.get_mut(root_id) {
+        root.layout_rect = available.to_rect();
+        root.content_rect = available.to_rect();
+    }
+
+    // Resolve children's layout rects.
+    crate::layout::resolve_layout(tree, root_id, available, viewport);
+}
+
 /// Render the widget tree via depth-first traversal, producing styled segments.
+///
+/// When the layout solver has already run (`run_layout_pass`), uses the root's
+/// precomputed `content_rect` to set `ConsoleOptions.size` for the render call.
+/// Falls back to the caller-provided options when rects are not populated.
 ///
 /// # Current limitations
 ///
@@ -391,9 +422,6 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 /// render loop (where the *tree traversal* drives individual widget render
 /// calls and composites their segments externally) is a deeper change for a
 /// future sprint.
-///
-/// This function demonstrates the integration point: tree walk → root render
-/// → `NodeHitTestMap` from the result, bridging the old and new worlds.
 pub(crate) fn render_tree_scaffold(
     tree: &mut WidgetTree,
     console: &rich_rs::Console,
@@ -404,11 +432,22 @@ pub(crate) fn render_tree_scaffold(
     if !node.display {
         return Some(Segments::new());
     }
-    // Delegate to the root widget's existing render_styled pipeline.
-    // Once the tree-driven per-widget render is implemented, this will
-    // iterate `tree.walk_depth_first(root_id)` and composite each
-    // visible node's segments into a unified frame.
-    Some(node.widget.render_styled(console, options))
+
+    // Use precomputed content_rect from the layout solver to set render size.
+    // Falls back to the caller-provided options when rects are not populated.
+    let cr = node.content_rect;
+    let content_w = cr.x1.saturating_sub(cr.x0) as usize;
+    let content_h = cr.y1.saturating_sub(cr.y0) as usize;
+
+    if content_w > 0 && content_h > 0 {
+        let mut render_options = options.clone();
+        render_options.size = (content_w, content_h);
+        render_options.max_width = content_w;
+        render_options.max_height = content_h;
+        Some(node.widget.render_styled(console, &render_options))
+    } else {
+        Some(node.widget.render_styled(console, options))
+    }
 }
 
 /// Walk visible nodes in depth-first order and collect render metadata.

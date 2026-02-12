@@ -1,5 +1,6 @@
 //! Textual-inspired reactive TUI framework built on rich-rs.
 
+pub mod action;
 pub mod animation;
 pub mod compose;
 pub mod css;
@@ -39,7 +40,11 @@ pub mod prelude {
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
-    pub use crate::event::{Action, ActionMap, BindingHint, Event, EventCtx, KeyBind, WidgetCtx};
+    pub use crate::action::{ActionDecl, ActionHandler, ParsedAction, parse_action};
+    pub use crate::event::{
+        Action, ActionMap, AnimationEase, BindingHint, ClickEvent, Event, EventCtx, KeyBind,
+        MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
+    };
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::{Message, MessageEvent};
     pub use crate::runtime::App;

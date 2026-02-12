@@ -40,6 +40,44 @@ pub struct MouseScrollEvent {
     pub modifiers: KeyModifiers,
 }
 
+/// Fired when the pointer enters a widget's region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseEnterEvent {
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates.
+    pub x: u16,
+    pub y: u16,
+}
+
+/// Fired when the pointer leaves a widget's region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseLeaveEvent {
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates.
+    pub x: u16,
+    pub y: u16,
+}
+
+/// Fired when a mousedown+mouseup pair hits the same widget (synthesised click).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClickEvent {
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates.
+    pub x: u16,
+    pub y: u16,
+    /// 0=left, 1=middle, 2=right.
+    pub button: u8,
+}
+
+/// Fired when the terminal delivers a bracketed-paste payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasteEvent {
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationLevel {
     None,
@@ -54,6 +92,40 @@ pub enum AnimationEase {
     Linear,
     InOutCubic,
     OutCubic,
+    // Quad
+    InQuad,
+    OutQuad,
+    InOutQuad,
+    // Cubic (In only — Out and InOut already exist above)
+    InCubic,
+    // Quart
+    InQuart,
+    OutQuart,
+    InOutQuart,
+    // Quint
+    InQuint,
+    OutQuint,
+    InOutQuint,
+    // Expo
+    InExpo,
+    OutExpo,
+    InOutExpo,
+    // Circ
+    InCirc,
+    OutCirc,
+    InOutCirc,
+    // Back (overshoot)
+    InBack,
+    OutBack,
+    InOutBack,
+    // Bounce
+    InBounce,
+    OutBounce,
+    InOutBounce,
+    // Elastic
+    InElastic,
+    OutElastic,
+    InOutElastic,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -120,6 +192,10 @@ pub enum Event {
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
     MouseScroll(MouseScrollEvent),
+    Enter(MouseEnterEvent),
+    Leave(MouseLeaveEvent),
+    Click(ClickEvent),
+    Paste(PasteEvent),
     AnimationValue(AnimationValueEvent),
     AppFocus(bool),
     Tick(u64),
@@ -612,7 +688,7 @@ impl<'a> WidgetCtx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::EventCtx;
+    use super::*;
     use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message};
     use crate::node_id::node_id_from_ffi;
     use std::time::Duration;
@@ -718,5 +794,93 @@ mod tests {
             Message::CommandPaletteCommandSelected { id, title } if id == "open" && title == "Open"
         ));
         assert!(matches!(messages[7].message, Message::CommandPaletteClosed));
+    }
+
+    // ── New event struct construction tests ──────────────────────────
+
+    #[test]
+    fn mouse_enter_event_construction() {
+        let e = MouseEnterEvent { x: 5, y: 10, screen_x: 20, screen_y: 30 };
+        assert_eq!(e.x, 5);
+        assert_eq!(e.y, 10);
+        assert_eq!(e.screen_x, 20);
+        assert_eq!(e.screen_y, 30);
+        let ev = Event::Enter(e);
+        assert!(matches!(ev, Event::Enter(MouseEnterEvent { x: 5, y: 10, .. })));
+    }
+
+    #[test]
+    fn mouse_leave_event_construction() {
+        let e = MouseLeaveEvent { x: 1, y: 2, screen_x: 3, screen_y: 4 };
+        let ev = Event::Leave(e);
+        assert!(matches!(
+            ev,
+            Event::Leave(MouseLeaveEvent { x: 1, y: 2, screen_x: 3, screen_y: 4 })
+        ));
+    }
+
+    #[test]
+    fn click_event_construction() {
+        let e = ClickEvent { x: 10, y: 20, screen_x: 50, screen_y: 60, button: 0 };
+        assert_eq!(e.button, 0);
+        let ev = Event::Click(e);
+        assert!(matches!(ev, Event::Click(ClickEvent { button: 0, .. })));
+    }
+
+    #[test]
+    fn click_event_right_button() {
+        let e = ClickEvent { x: 0, y: 0, screen_x: 0, screen_y: 0, button: 2 };
+        assert_eq!(e.button, 2);
+    }
+
+    #[test]
+    fn paste_event_construction() {
+        let e = PasteEvent { text: "hello world".to_string() };
+        assert_eq!(e.text, "hello world");
+        let ev = Event::Paste(e);
+        assert!(matches!(ev, Event::Paste(PasteEvent { .. })));
+    }
+
+    #[test]
+    fn paste_event_empty_text() {
+        let e = PasteEvent { text: String::new() };
+        assert!(e.text.is_empty());
+    }
+
+    #[test]
+    fn animation_ease_has_all_variants() {
+        let variants = [
+            AnimationEase::None,
+            AnimationEase::Round,
+            AnimationEase::Linear,
+            AnimationEase::InOutCubic,
+            AnimationEase::OutCubic,
+            AnimationEase::InQuad,
+            AnimationEase::OutQuad,
+            AnimationEase::InOutQuad,
+            AnimationEase::InCubic,
+            AnimationEase::InQuart,
+            AnimationEase::OutQuart,
+            AnimationEase::InOutQuart,
+            AnimationEase::InQuint,
+            AnimationEase::OutQuint,
+            AnimationEase::InOutQuint,
+            AnimationEase::InExpo,
+            AnimationEase::OutExpo,
+            AnimationEase::InOutExpo,
+            AnimationEase::InCirc,
+            AnimationEase::OutCirc,
+            AnimationEase::InOutCirc,
+            AnimationEase::InBack,
+            AnimationEase::OutBack,
+            AnimationEase::InOutBack,
+            AnimationEase::InBounce,
+            AnimationEase::OutBounce,
+            AnimationEase::InOutBounce,
+            AnimationEase::InElastic,
+            AnimationEase::OutElastic,
+            AnimationEase::InOutElastic,
+        ];
+        assert_eq!(variants.len(), 30);
     }
 }

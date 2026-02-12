@@ -477,6 +477,25 @@ impl App {
         self.running = false;
     }
 
+    /// Run the CSS-layout pass on the arena tree (if present).
+    ///
+    /// Computes `layout_rect`/`content_rect` for all tree nodes using the
+    /// CSS layout solvers. Call before rendering so precomputed rects are
+    /// available for widget sizing and positioning.
+    ///
+    /// Sets its own CSS stylesheet context for the duration of the layout
+    /// resolve, so the caller does not need to manage context guards.
+    pub(crate) fn run_layout_pass(&mut self) {
+        if let Some(tree) = self.widget_tree.as_mut() {
+            let mut sheet = self.default_stylesheet.clone();
+            sheet.extend(&self.stylesheet);
+            let _active = crate::css::set_app_active(self.app_active);
+            let _guard = crate::css::set_style_context(sheet);
+            let (w, h) = self.options.size;
+            render::run_layout_pass(tree, (w as u16, h as u16));
+        }
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         if !self.running {
             return Err(Error::RuntimeStopped);

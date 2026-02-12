@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 11: Action system + Layout-render integration + New events + Easing library**
+  - **P4-07 complete:** New `src/action.rs` module — `ActionDecl`, `ActionHandler` trait, `ParsedAction` struct, `parse_action()` string parser (namespace.name(args) format), `APP_ACTIONS` built-in declarations (quit, toggle_dark, bell, push_screen, pop_screen, focus, focus_next, focus_previous), `find_action()` lookup. 28 tests.
+  - **P2-18a complete:** Layout-render integration — `run_layout_pass()` computes `layout_rect`/`content_rect` for all tree nodes via CSS layout solvers before rendering. `render_tree_scaffold()` uses precomputed rects to set render options. `App::run_layout_pass()` convenience method with automatic stylesheet context.
+  - **P4-12 complete:** Mouse Enter/Leave/Click events — `MouseEnterEvent`, `MouseLeaveEvent`, `ClickEvent` structs + `Event::Enter`/`Event::Leave`/`Event::Click` variants. `generate_enter_leave_events()` helper for hover-change detection. `ClickTracker` for mousedown+mouseup→click synthesis. 14 tests.
+  - **P4-13 complete:** Paste event — `PasteEvent` struct + `Event::Paste` variant for bracketed-paste support.
+  - **P5-10 complete:** Expanded `AnimationEase` from 5 → 30 variants: added Quad, Cubic-in, Quart, Quint, Expo, Circ, Back, Bounce, Elastic families (In/Out/InOut each). Standard easing equations from easings.net. 22 tests.
+  - Updated prelude: exports new event types (`ClickEvent`, `MouseEnterEvent`, `MouseLeaveEvent`, `PasteEvent`, `AnimationEase`) and action types (`ActionDecl`, `ActionHandler`, `ParsedAction`, `parse_action`).
+  - Build: 0 errors. Tests: 774 passed (+76 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 10: WidgetId deletion (P1-14g) + Grid solver (P2-11)**
   - **P1-14g complete:** Deleted `WidgetId` struct, deprecated Widget trait methods (`id()`, `visit_children_mut()`, `set_focus_target()`), all 4 legacy stub functions (`collect_focus_ids`, `set_focus_by_id`, `set_hover_by_id`, `dispatch_event_to_focus`). Zero `WidgetId` references remain in the codebase.
   - Replaced 5 production `visit_children_mut` callers with tree-based walks (stylesheet invalidation, WATCH devtools snapshot) or root-only fallbacks (apply_layout_info, hit-test coords).

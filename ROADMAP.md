@@ -78,12 +78,13 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Done | Event types | Key, MouseDown, MouseUp, Tick, Resize, Action |
+| Done | Event types | Key, MouseDown, MouseUp, Enter, Leave, Click, Paste, Tick, Resize, Action |
 | Done | Event routing | Capture phase (`on_event_capture`) + bubble phase (`on_event`) |
 | Done | Focus system | Tab/Shift-Tab traversal, `focusable()`, focus-on-click, focus chain logging |
 | Done | Key bindings | `ActionMap` with default bindings (arrows, hjkl, space/enter, tab, page up/down) |
 | Done | Resize handling | `on_resize` propagated to tree; framebuffer reset + sync output to prevent tearing |
 | Done | Mouse hover + pointer | Hit-testing via framebuffer metadata; hover state propagation; Kitty pointer shape feedback |
+| Done | String action system | `ActionDecl` + `ActionHandler` trait + `parse_action()` parser + `APP_ACTIONS` built-in declarations. Runtime dispatch deferred (P4-08). |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 
@@ -138,7 +139,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 | Done | Message bus | `Message` / `MessageEvent` + runtime message queue + bubble delivery via `Widget::on_message` are now the widget interaction integration surface. PR8F (2026-02-11) closed remaining `Select` direct-coupling paths by routing open-dropdown selection through `OptionList` message flow (`OptionSelected` -> `SelectChanged`) and added ordering regressions across `OptionList`/`Select`/`SelectionList`. |
 | Done | Grapheme-aware text editing model | Shared text-edit command core drives `Input` / `MaskedInput` / `TextArea`, with grapheme-sensitive follow-up closure for `MaskedInput` cursor/render paths plus `DataTable`/`Tree` width-hit-testing and wrapping edge regressions (`ZWJ`, combining marks, wide-cell labels) landed in PR8E (2026-02-11) |
 | Done | One-shot timers | Runtime one-shot timers are available via `TimerSchedule` / `TimerCancel` with `TimerFired` / `TimerCancelled` delivery and event-loop timeout integration |
-| Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place |
+| Done | Animation framework | Animator/easing pipeline, runtime animation queue, CSS transition parsing, and widget integrations (tabs/tabbed/scroll/palette) are in place. 30 easing functions (Quad/Cubic/Quart/Quint/Expo/Circ/Back/Bounce/Elastic families). |
 | Done | Async tasks | Runtime async task API now covers spawn/cancel/cancel-by-target/completion, replacement cancellation signaling, and broader utility requests beyond directory reads |
 
 Deliverable: progress/spinner + animated UI element without blocking input.
