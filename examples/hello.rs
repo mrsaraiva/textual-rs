@@ -1,24 +1,18 @@
 use textual::prelude::*;
 
 struct TickLabel {
-    id: WidgetId,
     tick: u64,
 }
 
 impl TickLabel {
     fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             tick: 0,
         }
     }
 }
 
 impl Widget for TickLabel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn on_tick(&mut self, tick: u64) {
         self.tick = tick;
     }
@@ -33,24 +27,18 @@ impl Widget for TickLabel {
 }
 
 struct MountedLabel {
-    id: WidgetId,
     mounted: bool,
 }
 
 impl MountedLabel {
     fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             mounted: false,
         }
     }
 }
 
 impl Widget for MountedLabel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn on_mount(&mut self) {
         self.mounted = true;
     }
@@ -68,23 +56,15 @@ impl Widget for MountedLabel {
     }
 }
 
-struct SizeLabel {
-    id: WidgetId,
-}
+struct SizeLabel;
 
 impl SizeLabel {
     fn new() -> Self {
-        Self {
-            id: WidgetId::new(),
-        }
+        Self
     }
 }
 
 impl Widget for SizeLabel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(
         &self,
         console: &rich_rs::Console,

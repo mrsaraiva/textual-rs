@@ -577,10 +577,10 @@ mod tests {
     use crate::message::Message;
     use crate::node_id::node_id_from_ffi;
 
-    /// Legacy bridge: deprecated `Widget::id()` → `NodeId` for test code.
-    #[allow(deprecated)]
+    /// Derive a test-only NodeId from a widget's pointer address.
     fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
-        node_id_from_ffi(w.id().as_u64())
+        let ptr = (w as *const dyn Widget).cast::<()>() as u64;
+        node_id_from_ffi(ptr)
     }
     use crate::message::MessageEvent;
     use crossterm::event::{KeyEvent, KeyModifiers};

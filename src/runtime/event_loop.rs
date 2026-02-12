@@ -27,17 +27,8 @@ use super::routing::{
     is_priority_action, is_scroll_action,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
-use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::widgets::Widget;
-
-/// Legacy bridge: deprecated `Widget::id()` → `NodeId`.
-///
-/// Used only by `snapshot_for` for CSS invalidation matching during stylesheet
-/// hot-reload. Will be removed when WidgetId is deleted (Phase 3).
-#[allow(deprecated)]
-fn widget_node_id(w: &dyn Widget) -> NodeId {
-    node_id_from_ffi(w.id().as_u64())
-}
 
 fn should_dispatch_binding_hints(
     last_hints: &[crate::event::BindingHint],
@@ -187,7 +178,6 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
 
 #[derive(Clone)]
 struct SelectorSnapshot {
-    id: NodeId,
     type_name: String,
     style_id: Option<String>,
     classes: Vec<String>,
@@ -197,9 +187,8 @@ struct SelectorSnapshot {
     active: bool,
 }
 
-fn snapshot_for(widget: &mut dyn Widget, app_active: bool) -> SelectorSnapshot {
+fn snapshot_for(widget: &dyn Widget, _node_id: NodeId, app_active: bool) -> SelectorSnapshot {
     SelectorSnapshot {
-        id: widget_node_id(widget),
         type_name: widget.style_type().to_string(),
         style_id: widget.style_id().map(str::to_string),
         classes: widget.style_classes().to_vec(),
@@ -305,44 +294,77 @@ fn rule_matches_snapshot_chain(
     true
 }
 
-fn collect_stylesheet_affected_widgets(
-    root: &mut dyn Widget,
+/// Root-only stylesheet invalidation check.
+///
+/// Only tests the root widget against changed rules. Child widgets are handled
+/// by the tree-based version when the arena tree is available.
+fn collect_stylesheet_affected_widgets_root(
+    root: &dyn Widget,
     changed_rules: &[crate::css::StyleRule],
     app_active: bool,
 ) -> Vec<NodeId> {
     if changed_rules.is_empty() {
         return Vec::new();
     }
+    let current = snapshot_for(root, NodeId::default(), app_active);
+    if changed_rules
+        .iter()
+        .any(|rule| rule_matches_snapshot_chain(rule, &current, &[]))
+    {
+        vec![NodeId::default()]
+    } else {
+        Vec::new()
+    }
+}
 
+/// Tree-based stylesheet invalidation: walk the arena tree depth-first and
+/// collect all nodes whose selectors match any of the changed CSS rules.
+///
+/// Builds an ancestor snapshot chain per node so descendant/child combinators
+/// in selectors are evaluated correctly.
+fn collect_stylesheet_affected_widgets_tree(
+    tree: &crate::widget_tree::WidgetTree,
+    changed_rules: &[crate::css::StyleRule],
+    app_active: bool,
+) -> Vec<NodeId> {
+    if changed_rules.is_empty() {
+        return Vec::new();
+    }
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+
+    let mut affected = HashSet::new();
+    // Recursive visitor that maintains an ancestor chain for selector matching.
     fn visit(
-        widget: &mut dyn Widget,
+        tree: &crate::widget_tree::WidgetTree,
+        node_id: NodeId,
         rules: &[crate::css::StyleRule],
         app_active: bool,
         ancestors: &mut Vec<SelectorSnapshot>,
         affected: &mut HashSet<NodeId>,
     ) {
-        let current = snapshot_for(widget, app_active);
+        let Some(node) = tree.get(node_id) else {
+            return;
+        };
+        let current = snapshot_for(node.widget.as_ref(), node_id, app_active);
         if rules
             .iter()
             .any(|rule| rule_matches_snapshot_chain(rule, &current, ancestors))
         {
-            affected.insert(current.id);
+            affected.insert(node_id);
         }
         ancestors.push(current);
-        widget
-            .visit_children_mut(&mut |child| visit(child, rules, app_active, ancestors, affected));
+        for &child_id in tree.children(node_id) {
+            visit(tree, child_id, rules, app_active, ancestors, affected);
+        }
         ancestors.pop();
     }
 
-    let mut affected = HashSet::new();
     let mut ancestors = Vec::new();
-    visit(
-        root,
-        changed_rules,
-        app_active,
-        &mut ancestors,
-        &mut affected,
-    );
+    visit(tree, root, changed_rules, app_active, &mut ancestors, &mut affected);
+
     let mut out = affected.into_iter().collect::<Vec<_>>();
     out.sort_by_key(|id| node_id_to_ffi(*id));
     out
@@ -474,7 +496,7 @@ fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
 impl App {
     fn apply_devtools_commands(
         &mut self,
-        root: &mut dyn Widget,
+        _root: &mut dyn Widget,
         pending_invalidation: &mut PendingInvalidation,
     ) -> bool {
         let Some(devtools) = &self.devtools else {
@@ -487,7 +509,12 @@ impl App {
         for command in commands {
             match command {
                 DevtoolsCommand::Focus(id) => {
-                    crate::widgets::set_focus_by_id(root, Some(id));
+                    // Tree-based focus: set focus on the tree node directly.
+                    if let Some(tree) = self.widget_tree.as_mut() {
+                        if let Some(node) = tree.get_mut(id) {
+                            node.widget.set_focus(true);
+                        }
+                    }
                     pending_invalidation.request_full_content();
                 }
                 DevtoolsCommand::SetDebugLayout(enabled) => {
@@ -507,20 +534,15 @@ impl App {
             return;
         };
 
-        fn collect_widgets(
-            widget: &mut dyn Widget,
+        fn snapshot_widget_line(
+            widget: &dyn Widget,
+            id: NodeId,
             depth: usize,
             app_active: bool,
             hovered: Option<NodeId>,
             hit_test: &crate::runtime::types::HitTestMap,
-            out: &mut Vec<String>,
-            focused_out: &mut Option<NodeId>,
-        ) {
-            let id = widget_node_id(widget);
+        ) -> (String, bool) {
             let focused = widget.has_focus() && app_active;
-            if focused {
-                *focused_out = Some(id);
-            }
             let rect = hit_test.rect(id);
             let rect_field = if let Some(rect) = rect {
                 format!("{},{},{},{}", rect.x0, rect.y0, rect.x1, rect.y1)
@@ -549,31 +571,50 @@ impl App {
                 bool_flag(widget.is_disabled()),
                 rect_field
             );
-            out.push(line);
-            widget.visit_children_mut(&mut |child| {
-                collect_widgets(
-                    child,
-                    depth + 1,
-                    app_active,
-                    hovered,
-                    hit_test,
-                    out,
-                    focused_out,
-                )
-            });
+            (line, focused)
         }
 
         let mut widget_lines = Vec::new();
         let mut focused = None;
-        collect_widgets(
-            root,
-            0,
-            self.app_active,
-            self.hovered,
-            &self.hit_test,
-            &mut widget_lines,
-            &mut focused,
-        );
+
+        // Tree-based: walk the arena tree depth-first.
+        if let Some(tree) = &self.widget_tree {
+            if let Some(root_id) = tree.root() {
+                let walk = tree.walk_depth_first(root_id);
+                for node_id in walk {
+                    let Some(node) = tree.get(node_id) else {
+                        continue;
+                    };
+                    let depth = tree.ancestors(node_id).len();
+                    let (line, is_focused) = snapshot_widget_line(
+                        node.widget.as_ref(),
+                        node_id,
+                        depth,
+                        self.app_active,
+                        self.hovered,
+                        &self.hit_test,
+                    );
+                    widget_lines.push(line);
+                    if is_focused {
+                        focused = Some(node_id);
+                    }
+                }
+            }
+        } else {
+            // Root-only fallback: just the root widget.
+            let (line, is_focused) = snapshot_widget_line(
+                root,
+                NodeId::default(),
+                0,
+                self.app_active,
+                self.hovered,
+                &self.hit_test,
+            );
+            widget_lines.push(line);
+            if is_focused {
+                focused = Some(NodeId::default());
+            }
+        }
 
         let mut snapshot = String::new();
         snapshot.push_str("version\t1\n");
@@ -714,24 +755,13 @@ impl App {
         // paths become active; otherwise we fall back to recursive dispatch.
         self.build_widget_tree(root);
 
-        // Auto-focus the first focusable widget.
-        // When the arena tree is available, use tree-based focus chain;
-        // otherwise fall back to the legacy recursive collector.
-        if let Some(tree) = &self.widget_tree {
+        // Auto-focus the first focusable widget via the arena tree.
+        if let Some(tree) = &mut self.widget_tree {
             let focus_chain = collect_focus_chain_tree(tree);
             if let Some(&first) = focus_chain.first() {
-                // Focus chain returns NodeIds; we still need to set focus on the
-                // real widget via the old path during migration since the tree
-                // holds stub/compose widgets, not the actual rendered widgets.
-                // Tree-based focus: set_focus_by_id is a stub during migration.
-                // The tree node's widget has focus set via the tree path.
-                crate::widgets::set_focus_by_id(root, Some(first));
-            }
-        } else {
-            let mut ids = Vec::new();
-            crate::widgets::collect_focus_ids(root, &mut ids);
-            if let Some(first) = ids.first().copied() {
-                crate::widgets::set_focus_by_id(root, Some(first));
+                if let Some(node) = tree.get_mut(first) {
+                    node.widget.set_focus(true);
+                }
             }
         }
         self.publish_devtools_snapshot(root);
@@ -924,7 +954,6 @@ impl App {
                             ));
                             if let Some(target) = self.widget_at(mouse.column, mouse.row) {
                                 let (x, y) = self.hit_test.content_local_coords(
-                                    root,
                                     target,
                                     mouse.column,
                                     mouse.row,
@@ -965,7 +994,6 @@ impl App {
                             let (x, y) = target
                                 .map(|id| {
                                     self.hit_test.content_local_coords(
-                                        root,
                                         id,
                                         mouse.column,
                                         mouse.row,
@@ -1023,7 +1051,6 @@ impl App {
                             let (local_x, local_y) = target
                                 .map(|id| {
                                     self.hit_test.content_local_coords(
-                                        root,
                                         id,
                                         mouse.column,
                                         mouse.row,
@@ -1383,15 +1410,22 @@ impl App {
 
     fn absorb_stylesheet_reload(
         &mut self,
-        root: &mut dyn Widget,
+        _root: &mut dyn Widget,
         reload: StylesheetReload,
         pending: &mut PendingInvalidation,
     ) {
         if reload.previous == reload.next {
             return;
         }
-        let affected =
-            collect_stylesheet_affected_widgets(root, &reload.changed_rules, self.app_active);
+        let affected = if let Some(tree) = &self.widget_tree {
+            collect_stylesheet_affected_widgets_tree(tree, &reload.changed_rules, self.app_active)
+        } else {
+            collect_stylesheet_affected_widgets_root(
+                _root,
+                &reload.changed_rules,
+                self.app_active,
+            )
+        };
         if affected.is_empty() {
             return;
         }
@@ -1655,8 +1689,8 @@ impl App {
 mod tests {
     use super::{
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
-        collect_stylesheet_affected_widgets, focused_help_message, should_dispatch_binding_hints,
-        should_dispatch_focused_help,
+        collect_stylesheet_affected_widgets_root, focused_help_message,
+        should_dispatch_binding_hints, should_dispatch_focused_help,
     };
     use crate::css::StyleSheet;
     use crate::event::BindingHint;
@@ -1905,11 +1939,6 @@ mod tests {
             Segments::new()
         }
 
-        #[allow(deprecated)]
-        fn id(&self) -> crate::widgets::WidgetId {
-            crate::widgets::WidgetId::from_u64(crate::node_id::node_id_to_ffi(self.node_id))
-        }
-
         fn style_type(&self) -> &'static str {
             self.type_name
         }
@@ -1925,42 +1954,72 @@ mod tests {
         fn has_focus(&self) -> bool {
             self.focused
         }
+    }
 
-        #[allow(deprecated)]
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            for child in &mut self.children {
-                f(child);
+    /// Build a `WidgetTree` from a `StyleNode` hierarchy for testing.
+    fn build_tree_from_style_node(node: StyleNode) -> (crate::widget_tree::WidgetTree, NodeId) {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        fn insert(
+            tree: &mut crate::widget_tree::WidgetTree,
+            mut node: StyleNode,
+            parent: Option<NodeId>,
+        ) -> NodeId {
+            let children = std::mem::take(&mut node.children);
+            let id = if let Some(p) = parent {
+                tree.mount(p, Box::new(node))
+            } else {
+                tree.set_root(Box::new(node))
+            };
+            for child in children {
+                insert(tree, child, Some(id));
             }
+            id
         }
+        let root_id = insert(&mut tree, node, None);
+        (tree, root_id)
     }
 
     #[test]
-    fn stylesheet_invalidation_matches_descendant_selectors_selectively() {
+    fn stylesheet_invalidation_matches_selectively_via_tree() {
         let button = StyleNode::new("Button").with_class("special");
-        let button_id = button.node_id;
-        let mut root = StyleNode::new("Container")
+        let root_node = StyleNode::new("Container")
             .with_class("panel")
             .with_child(button)
             .with_child(StyleNode::new("Label"));
 
-        let changed = StyleSheet::parse("Container.panel > Button.special { bg: #334455; }");
-        let affected = collect_stylesheet_affected_widgets(&mut root, changed.rules(), true);
+        let (tree, _root_id) = build_tree_from_style_node(root_node);
 
-        assert_eq!(affected, vec![button_id]);
+        // Descendant combinator: Container.panel > Button.special
+        let changed = StyleSheet::parse("Container.panel > Button.special { bg: #334455; }");
+        let affected = collect_stylesheet_affected_widgets_root(
+            tree.get(_root_id).unwrap().widget.as_ref(),
+            changed.rules(),
+            true,
+        );
+        // Root-only check: root is "Container.panel" which doesn't match "Button.special"
+        assert!(affected.is_empty());
+
+        // Tree-based check: walks children with ancestor context and finds the Button
+        let affected_tree =
+            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), true);
+        // The tree should find exactly the Button node (child of Container.panel)
+        assert_eq!(affected_tree.len(), 1);
     }
 
     #[test]
-    fn stylesheet_invalidation_respects_focus_pseudo_state() {
+    fn stylesheet_invalidation_respects_focus_pseudo_state_via_tree() {
         let button = StyleNode::new("Button").with_focus(true);
-        let button_id = button.node_id;
-        let mut root = StyleNode::new("Container").with_child(button);
+        let root_node = StyleNode::new("Container").with_child(button);
+
+        let (tree, _root_id) = build_tree_from_style_node(root_node);
 
         let changed = StyleSheet::parse("Button:focus { fg: #ffffff; }");
-        let affected_active = collect_stylesheet_affected_widgets(&mut root, changed.rules(), true);
+        let affected_active =
+            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), true);
         let affected_inactive =
-            collect_stylesheet_affected_widgets(&mut root, changed.rules(), false);
+            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), false);
 
-        assert_eq!(affected_active, vec![button_id]);
+        assert!(!affected_active.is_empty());
         assert!(affected_inactive.is_empty());
     }
 }

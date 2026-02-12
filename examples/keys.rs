@@ -66,10 +66,6 @@ impl KeyLog {
 }
 
 impl Widget for KeyLog {
-    fn id(&self) -> WidgetId {
-        self.log.id()
-    }
-
     fn focusable(&self) -> bool {
         self.log.focusable()
     }
@@ -172,20 +168,17 @@ impl Widget for KeyLog {
     }
 }
 
-struct KeysApp {
-    key_log_id: Option<WidgetId>,
-}
+struct KeysApp;
 
 impl KeysApp {
     fn new() -> Self {
-        Self { key_log_id: None }
+        Self
     }
 }
 
 impl TextualApp for KeysApp {
     fn compose(&mut self) -> AppRoot {
         let key_log = KeyLog::new();
-        self.key_log_id = Some(key_log.id());
         preview_root_with_top_bottom(
             Some("Textual Keys"),
             Some(4),
@@ -234,10 +227,8 @@ impl TextualApp for KeysApp {
     fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
         match description {
             "Clear" => {
-                if self.key_log_id.is_some() {
-                    ctx.post_message(Message::ClearRequested);
-                    ctx.set_handled();
-                }
+                ctx.post_message(Message::ClearRequested);
+                ctx.set_handled();
             }
             "Quit" => {
                 ctx.request_stop();

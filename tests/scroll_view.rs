@@ -24,23 +24,15 @@ fn scroll_view_renders_offset_viewport() {
 }
 
 #[derive(Debug, Clone)]
-struct NoIntrinsicHeightWidget {
-    id: WidgetId,
-}
+struct NoIntrinsicHeightWidget;
 
 impl NoIntrinsicHeightWidget {
     fn new() -> Self {
-        Self {
-            id: WidgetId::new(),
-        }
+        Self
     }
 }
 
 impl Widget for NoIntrinsicHeightWidget {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(
         &self,
         _console: &rich_rs::Console,
@@ -79,23 +71,15 @@ fn scroll_view_scrolls_children_without_intrinsic_height() {
 }
 
 #[derive(Debug, Clone)]
-struct StretchWidget {
-    id: WidgetId,
-}
+struct StretchWidget;
 
 impl StretchWidget {
     fn new() -> Self {
-        Self {
-            id: WidgetId::new(),
-        }
+        Self
     }
 }
 
 impl Widget for StretchWidget {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(
         &self,
         _console: &rich_rs::Console,

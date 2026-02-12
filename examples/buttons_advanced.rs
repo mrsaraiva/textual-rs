@@ -88,24 +88,18 @@ impl TextualApp for ButtonsAdvancedApp {
 }
 
 struct StatusLine {
-    id: WidgetId,
     text: Arc<Mutex<String>>,
 }
 
 impl StatusLine {
     fn new(text: Arc<Mutex<String>>) -> Self {
         Self {
-            id: WidgetId::new(),
             text,
         }
     }
 }
 
 impl Widget for StatusLine {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let text = self.text.lock().unwrap_or_else(|e| e.into_inner());

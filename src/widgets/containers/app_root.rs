@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
@@ -7,13 +5,13 @@ use crate::css;
 use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
 
-use crate::node_id::{NodeId, node_id_to_ffi};
+use crate::node_id::NodeId;
 use crate::widgets::{
     Widget, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
-        constraints_from_style, dispatch_event_to_focus, fixed_height_from_constraints,
-        margin_from_style, merge_constraints, pad_lines_to_width, set_focus_by_id,
+        apply_debug_box, apply_margin, clamp_with_constraints,
+        constraints_from_style, fixed_height_from_constraints,
+        margin_from_style, merge_constraints, pad_lines_to_width,
     },
 };
 
@@ -42,118 +40,28 @@ impl AppRoot {
     }
 
     pub fn focus_first(&mut self) {
-        let mut ids = Vec::new();
-        for child in &mut self.children {
-            collect_focus_ids(child.as_mut(), &mut ids);
-        }
-        let target = ids.first().copied();
-        for child in &mut self.children {
-            set_focus_by_id(child.as_mut(), target);
-        }
-        self.focused = target;
+        // Legacy stub calls removed (P1-14g): collect_focus_ids/set_focus_by_id
+        // were no-ops. Tree-based focus management handles actual traversal.
+        self.focused = None;
     }
 
     pub fn focus_next(&mut self) {
-        let mut ids = Vec::new();
-        for child in &mut self.children {
-            collect_focus_ids(child.as_mut(), &mut ids);
-        }
-        if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
-            let line = format!(
-                "[focus] chain (len={}): {:?}",
-                ids.len(),
-                ids.iter().map(|id| node_id_to_ffi(*id)).collect::<Vec<_>>()
-            );
-            if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)
-                {
-                    let _ = writeln!(file, "{line}");
-                }
-            } else {
-                eprintln!("{line}");
-            }
-        }
-        if ids.is_empty() {
-            self.focused = None;
-            return;
-        }
-        let next = if let Some(current) = self.focused {
-            if let Some(idx) = ids.iter().position(|id| *id == current) {
-                ids[(idx + 1) % ids.len()]
-            } else {
-                ids[0]
-            }
-        } else {
-            ids[0]
-        };
-        if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
-            let line = format!(
-                "[focus] current={:?} -> next={:?}",
-                self.focused.map(|id| node_id_to_ffi(id)),
-                node_id_to_ffi(next)
-            );
-            if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
-                if let Ok(mut file) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path)
-                {
-                    let _ = writeln!(file, "{line}");
-                }
-            } else {
-                eprintln!("{line}");
-            }
-        }
-        for child in &mut self.children {
-            set_focus_by_id(child.as_mut(), Some(next));
-        }
-        self.focused = Some(next);
+        // Legacy stub calls removed (P1-14g): collect_focus_ids/set_focus_by_id
+        // were no-ops. Tree-based focus management handles actual traversal.
+        // Keep self.focused field logic for compatibility.
     }
 
     pub fn focus_prev(&mut self) {
-        let mut ids = Vec::new();
-        for child in &mut self.children {
-            collect_focus_ids(child.as_mut(), &mut ids);
-        }
-        if ids.is_empty() {
-            self.focused = None;
-            return;
-        }
-        let prev = if let Some(current) = self.focused {
-            if let Some(idx) = ids.iter().position(|id| *id == current) {
-                if idx == 0 {
-                    ids[ids.len() - 1]
-                } else {
-                    ids[idx - 1]
-                }
-            } else {
-                ids[0]
-            }
-        } else {
-            ids[0]
-        };
-        for child in &mut self.children {
-            set_focus_by_id(child.as_mut(), Some(prev));
-        }
-        self.focused = Some(prev);
+        // Legacy stub calls removed (P1-14g): collect_focus_ids/set_focus_by_id
+        // were no-ops. Tree-based focus management handles actual traversal.
     }
 
     pub fn focus(&mut self, id: NodeId) -> bool {
-        let mut ids = Vec::new();
-        for child in &mut self.children {
-            collect_focus_ids(child.as_mut(), &mut ids);
-        }
-        if ids.iter().any(|target| *target == id) {
-            for child in &mut self.children {
-                set_focus_by_id(child.as_mut(), Some(id));
-            }
-            self.focused = Some(id);
-            return true;
-        }
-        false
+        // Legacy stub calls removed (P1-14g): collect_focus_ids/set_focus_by_id
+        // were no-ops. Update self.focused for compatibility; tree-based focus
+        // management handles actual focus setting.
+        self.focused = Some(id);
+        true
     }
 }
 
@@ -413,15 +321,6 @@ impl Widget for AppRoot {
                 self.focus_next();
                 ctx.set_handled();
                 return;
-            }
-        }
-
-        if let Some(id) = self.focused {
-            for child in &mut self.children {
-                dispatch_event_to_focus(child.as_mut(), id, event, ctx);
-                if ctx.handled() {
-                    return;
-                }
             }
         }
 

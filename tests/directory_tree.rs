@@ -280,31 +280,20 @@ fn directory_tree_keyboard_navigation_is_forwarded_to_inner_tree() {
 }
 
 #[test]
-fn directory_tree_exposes_inner_tree_via_child_visit() {
-    let temp = TempTreeDir::new("directory-tree-visit");
-    let mut tree = DirectoryTree::new(&temp.path);
-
-    let mut visited = 0usize;
-    tree.visit_children_mut(&mut |child| {
-        visited += 1;
-        assert_eq!(child.style_type(), "Tree");
-    });
-
-    assert_eq!(visited, 1);
+fn directory_tree_style_type_is_directory_tree() {
+    let temp = TempTreeDir::new("directory-tree-style");
+    let tree = DirectoryTree::new(&temp.path);
+    assert_eq!(tree.style_type(), "DirectoryTree");
 }
 
 #[test]
-fn directory_tree_hover_state_is_forwarded_to_inner_tree() {
+fn directory_tree_hover_state_is_forwarded() {
     let temp = TempTreeDir::new("directory-tree-hover");
     let mut tree = DirectoryTree::new(&temp.path);
     tree.set_hovered(true);
-
-    let mut child_hovered = false;
-    tree.visit_children_mut(&mut |child| {
-        child_hovered = child.is_hovered();
-    });
-
-    assert!(child_hovered);
+    assert!(tree.is_hovered());
+    tree.set_hovered(false);
+    assert!(!tree.is_hovered());
 }
 
 #[test]

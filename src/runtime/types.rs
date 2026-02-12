@@ -3,7 +3,7 @@ use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
-use crate::widgets::{ToastSeverity, Widget, border_spacing_from_style};
+use crate::widgets::{ToastSeverity, border_spacing_from_style};
 use rich_rs::MetaValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -67,9 +67,14 @@ impl HitTestMap {
         self.bounds.get(&id).copied()
     }
 
+    /// Translate screen coordinates to content-local coordinates for `target`.
+    ///
+    /// Simplified root-only version: computes offset from the bounding rect
+    /// without CSS inset adjustment. The tree-based
+    /// [`NodeHitTestMap::content_local_coords`] provides full inset calculation
+    /// when the arena tree is available.
     pub(crate) fn content_local_coords(
         &self,
-        root: &mut dyn Widget,
         target: NodeId,
         screen_x: u16,
         screen_y: u16,
@@ -77,35 +82,9 @@ impl HitTestMap {
         let Some(rect) = self.rect(target) else {
             return (0, 0);
         };
-
-        let mut insets: Option<(u16, u16)> = None;
-        fn visit(w: &mut dyn Widget, id: NodeId, out: &mut Option<(u16, u16)>) {
-            if out.is_some() {
-                return;
-            }
-            #[allow(deprecated)]
-            let w_id = node_id_from_ffi(w.id().as_u64());
-            if w_id == id {
-                let meta = crate::css::selector_meta_generic(w);
-                let resolved = crate::css::resolve_style(w, &meta);
-                let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
-                let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
-                let inset_x = left.saturating_add(line_pad) as u16;
-                let inset_y = top as u16;
-                *out = Some((inset_x, inset_y));
-                return;
-            }
-            #[allow(deprecated)]
-            w.visit_children_mut(&mut |child| visit(child, id, out));
-        }
-        visit(root, target, &mut insets);
-        let (inset_x, inset_y) = insets.unwrap_or((0, 0));
-
-        let origin_x = rect.x0.saturating_add(inset_x);
-        let origin_y = rect.y0.saturating_add(inset_y);
         (
-            screen_x.saturating_sub(origin_x),
-            screen_y.saturating_sub(origin_y),
+            screen_x.saturating_sub(rect.x0),
+            screen_y.saturating_sub(rect.y0),
         )
     }
 }
@@ -114,11 +93,10 @@ impl HitTestMap {
 // NodeHitTestMap (P1-12: arena NodeId-keyed hit-test map)
 // ---------------------------------------------------------------------------
 
-/// Hit-test map keyed by arena `NodeId` instead of the legacy `WidgetId`.
+/// Hit-test map keyed by arena `NodeId`.
 ///
-/// This is the P1-12 replacement for [`HitTestMap`]. During migration both
-/// types exist side-by-side; the runtime will switch to `NodeHitTestMap` once
-/// the render pipeline is wired to the arena tree (P1-05).
+/// This is the primary hit-test map for the arena tree render pipeline.
+/// [`HitTestMap`] remains for the legacy root-only path.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct NodeHitTestMap {
     pub(crate) bounds: HashMap<NodeId, Rect>,
@@ -128,10 +106,7 @@ impl NodeHitTestMap {
     /// Build a `NodeHitTestMap` from a rendered frame buffer.
     ///
     /// Decodes the `textual:widget_id` metadata stored in each cell back to
-    /// `NodeId` via [`node_id_from_ffi`]. During the transition period the
-    /// same metadata value may represent either a `WidgetId` or a `NodeId`
-    /// depending on which render path produced the frame — callers must use
-    /// the correct map type.
+    /// `NodeId` via [`node_id_from_ffi`].
     pub(crate) fn from_frame(frame: &FrameBuffer) -> Self {
         let mut out = NodeHitTestMap::default();
         for y in 0..frame.height {

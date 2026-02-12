@@ -21,7 +21,6 @@ Son of Leto and Jessica.
 "#;
 
 struct TabbedDemo {
-    id: WidgetId,
     tabs: TabbedContent,
     footer: Footer,
 }
@@ -47,7 +46,6 @@ impl TabbedDemo {
             .with_pane(TabPane::new("Paul", Markdown::new(PAUL)).id("paul"));
 
         Self {
-            id: WidgetId::new(),
             tabs,
             footer: Footer::new(),
         }
@@ -55,10 +53,6 @@ impl TabbedDemo {
 }
 
 impl Widget for TabbedDemo {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -168,11 +162,6 @@ impl Widget for TabbedDemo {
         if !ctx.handled() {
             self.footer.on_message(message, ctx);
         }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.tabs);
-        f(&mut self.footer);
     }
 
     fn focusable(&self) -> bool {

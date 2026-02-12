@@ -12,7 +12,6 @@ use crate::node_id::NodeId;
 
 use super::{
     Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
-    helpers::{collect_focus_ids, set_focus_by_id},
 };
 
 /// Simple fuzzy matcher: scores a query against text based on character positions,
@@ -334,44 +333,17 @@ impl CommandPalette {
         self.list.set_selected(0);
     }
 
-    fn focused_widget_id(widget: &mut dyn Widget) -> Option<NodeId> {
+    fn focused_widget_id(widget: &dyn Widget) -> Option<NodeId> {
         if widget.has_focus() {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             return Some(NodeId::default());
         }
-        let mut out = None;
-        widget.visit_children_mut(&mut |child| {
-            if out.is_none() {
-                out = Self::focused_widget_id(child);
-            }
-        });
-        out
-    }
-
-    fn child_contains_id(widget: &mut dyn Widget, target: NodeId) -> bool {
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if NodeId::default() == target {
-            return true;
-        }
-        let mut found = false;
-        widget.visit_children_mut(&mut |child| {
-            if !found {
-                found = Self::child_contains_id(child, target);
-            }
-        });
-        found
+        None
     }
 
     fn restore_child_focus(&mut self) {
-        if let Some(target) = self.previously_focused_child.take() {
-            if Self::child_contains_id(self.child.as_mut(), target) {
-                set_focus_by_id(self.child.as_mut(), Some(target));
-                return;
-            }
-        }
-        let mut ids = Vec::new();
-        collect_focus_ids(self.child.as_mut(), &mut ids);
-        set_focus_by_id(self.child.as_mut(), ids.first().copied());
+        // Legacy stub calls removed (P1-14g). Tree-based focus management
+        // handles actual focus restoration. Consume the saved target.
+        let _ = self.previously_focused_child.take();
     }
 
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
@@ -385,8 +357,7 @@ impl CommandPalette {
         self.open = open;
         if self.open {
             self.panel_visible = true;
-            self.previously_focused_child = Self::focused_widget_id(self.child.as_mut());
-            set_focus_by_id(self.child.as_mut(), None);
+            self.previously_focused_child = Self::focused_widget_id(self.child.as_ref());
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
@@ -1360,7 +1331,6 @@ mod tests {
 
     #[test]
     fn command_palette_restores_child_focus_on_close() {
-        // NOTE: set_focus_by_id is currently a no-op (P1-14 migration).
         // This test verifies palette open/close lifecycle and focus-tracking
         // state. Full focus delegation tests require tree-based focus management.
         let child_focus = Arc::new(AtomicBool::new(true));

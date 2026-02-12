@@ -4,24 +4,18 @@ use textual::prelude::*;
 struct TextAreaExtendedApp;
 
 struct AutoParenEditor {
-    id: WidgetId,
     child: TextArea,
 }
 
 impl AutoParenEditor {
     fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: TextArea::code_editor("").with_language("python"),
         }
     }
 }
 
 impl Widget for AutoParenEditor {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         self.child.focusable()
     }

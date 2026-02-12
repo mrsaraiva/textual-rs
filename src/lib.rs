@@ -66,7 +66,7 @@ pub mod prelude {
         Switch, TabPane,
         TabbedContent, Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Toast,
         ToastSeverity, Tooltip, Tree, TreeNode, Vertical, VerticalGroup, VerticalScroll, Welcome,
-        Widget, WidgetId, WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
+        Widget, WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};

@@ -1,10 +1,9 @@
 use rich_rs::{Console, Segment, Style};
 use textual::render::FrameBuffer;
 use textual::style::parse_color_like;
-use textual::widgets::{Constrained, Horizontal, Widget, WidgetId, WidgetRenderable};
+use textual::widgets::{Constrained, Horizontal, Widget, WidgetRenderable};
 
 struct Swatch {
-    id: WidgetId,
     text: &'static str,
     style: Style,
 }
@@ -12,7 +11,6 @@ struct Swatch {
 impl Swatch {
     fn new(text: &'static str, style: Style) -> Self {
         Self {
-            id: WidgetId::new(),
             text,
             style,
         }
@@ -20,10 +18,6 @@ impl Swatch {
 }
 
 impl Widget for Swatch {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, _options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {
         vec![Segment::styled(self.text, self.style)].into()
     }

@@ -58,7 +58,7 @@ pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
 pub use content_switcher::ContentSwitcher;
-pub use core::{LayoutConstraints, Widget, WidgetId, WidgetStyles};
+pub use core::{LayoutConstraints, Widget, WidgetStyles};
 pub use data_table::{CursorType, DataTable};
 pub use digits::{Digits, DigitsAlign};
 pub use directory_tree::DirectoryTree;
@@ -67,7 +67,6 @@ pub use header::Header;
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::border_spacing_from_style;
-pub(crate) use helpers::{collect_focus_ids, set_focus_by_id, set_hover_by_id};
 pub use input::{Input, InputType};
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};

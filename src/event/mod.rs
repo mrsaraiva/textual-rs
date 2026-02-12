@@ -540,7 +540,7 @@ impl EventCtx {
 ///
 /// `WidgetCtx` wraps an `EventCtx` plus the caller's `NodeId`, so widgets can
 /// post messages, request repaints, and query their own identity without owning
-/// a `WidgetId` field.
+/// an identity field.
 ///
 /// # Lifecycle
 ///
@@ -550,8 +550,8 @@ impl EventCtx {
 ///
 /// # Migration path
 ///
-/// During Pillar 1 migration, `WidgetCtx` will gradually replace direct
-/// `EventCtx` + `WidgetId` parameters in widget trait methods.
+/// `WidgetCtx` will gradually replace direct `EventCtx` parameters in widget
+/// trait methods as the arena-tree dispatch matures.
 #[derive(Debug)]
 pub struct WidgetCtx<'a> {
     node_id: NodeId,

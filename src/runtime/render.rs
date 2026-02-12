@@ -2,16 +2,11 @@ use crate::css::{
     begin_style_render_pass, set_app_active, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::debug_render;
-use crate::node_id::{NodeId, node_id_from_ffi};
+use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
 
-/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
-#[allow(deprecated)]
-fn widget_node_id(w: &dyn Widget) -> NodeId {
-    node_id_from_ffi(w.id().as_u64())
-}
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
 use super::App;
@@ -211,25 +206,25 @@ impl App {
         }
     }
 
+    /// Distribute layout information to the root widget from the hit-test map.
+    ///
+    /// Root-only: child widgets receive layout info via the tree-based
+    /// [`apply_layout_info_tree`] path when the arena tree is available.
     pub(super) fn apply_layout_info(&self, root: &mut dyn Widget, hit_test: &HitTestMap) {
-        fn visit(w: &mut dyn Widget, hit_test: &HitTestMap) {
-            if let Some(rect) = hit_test.rect(widget_node_id(w)) {
-                let meta = crate::css::selector_meta_generic(w);
-                let resolved = crate::css::resolve_style(w, &meta);
-                let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
-                let (top, bottom, left, right) = border_spacing_from_style(&resolved);
-                let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
-                let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
-                let content_w = full_w
-                    .saturating_sub(left + right)
-                    .saturating_sub(line_pad.saturating_mul(2))
-                    .max(1) as u16;
-                let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
-                w.on_layout(content_w, content_h);
-            }
-            w.visit_children_mut(&mut |child| visit(child, hit_test));
+        if let Some(rect) = hit_test.rect(NodeId::default()) {
+            let meta = crate::css::selector_meta_generic(root);
+            let resolved = crate::css::resolve_style(root, &meta);
+            let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
+            let (top, bottom, left, right) = border_spacing_from_style(&resolved);
+            let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
+            let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
+            let content_w = full_w
+                .saturating_sub(left + right)
+                .saturating_sub(line_pad.saturating_mul(2))
+                .max(1) as u16;
+            let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
+            root.on_layout(content_w, content_h);
         }
-        visit(root, hit_test);
     }
 
     pub(super) fn print_segments(&mut self, diff: &rich_rs::Segments) -> crate::Result<()> {

@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
 
 use crate::compose::ComposeResult;
@@ -13,24 +11,6 @@ use super::helpers;
 
 const META_WIDGET_ID: &str = "textual:widget_id";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct WidgetId(u64);
-
-impl WidgetId {
-    pub fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
-    }
-
-    pub fn as_u64(self) -> u64 {
-        self.0
-    }
-
-    pub fn from_u64(value: u64) -> Self {
-        Self(value)
-    }
-}
-
 /// Behavior-only widget trait.
 ///
 /// Identity (NodeId) comes from the arena-based `WidgetTree`, not from the
@@ -42,26 +22,6 @@ impl WidgetId {
 /// wrappers `render_styled` / `render_styled_with_debug` use a null sentinel
 /// NodeId for backward-compatible widget-to-widget rendering during migration.
 pub trait Widget: Send + Sync {
-    /// Legacy identity accessor — will be removed once tree dispatch replaces legacy dispatch.
-    ///
-    /// Identity now comes from the arena-based `WidgetTree` (`NodeId`), not
-    /// from the widget itself. New code should use `NodeId` from context instead.
-    #[deprecated(note = "Identity comes from arena NodeId. Will be removed once legacy dispatch is gone.")]
-    fn id(&self) -> WidgetId {
-        WidgetId::default()
-    }
-
-    /// Legacy child visitor — will be removed once tree dispatch replaces legacy dispatch.
-    ///
-    /// The `WidgetTree` arena now owns parent/child structure. This method
-    /// remains so existing recursive traversal compiles.
-    #[deprecated(note = "Tree owns structure. Will be removed once legacy dispatch is gone.")]
-    fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
-
-    /// Legacy focus-target setter — will be removed once tree dispatch replaces legacy dispatch.
-    #[deprecated(note = "Focus target is tree-level. Will be removed once legacy dispatch is gone.")]
-    fn set_focus_target(&mut self, _target: Option<WidgetId>) {}
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
 
     /// Declare child widgets for this widget.
@@ -74,10 +34,8 @@ pub trait Widget: Send + Sync {
 
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
-    /// `_node_id` is the arena-assigned identity — reserved for future use when
-    /// the runtime renders via the arena tree (P1-12). During migration, metadata
-    /// tagging still uses the legacy `self.id()` (WidgetId) so hit-test lookups
-    /// remain compatible with `HitTestMap`.
+    /// `_node_id` is the arena-assigned identity used for metadata tagging so
+    /// hit-test lookups remain compatible with `HitTestMap` and `NodeHitTestMap`.
     fn render_styled_dyn_obj(
         &self,
         console: &Console,

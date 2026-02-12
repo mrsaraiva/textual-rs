@@ -507,7 +507,8 @@ impl App {
         let hovered_changed = hovered != self.hovered;
         if hovered_changed {
             self.hovered = hovered;
-            crate::widgets::set_hover_by_id(root, self.hovered);
+            // Hover state is tracked by the runtime (self.hovered).
+            // Tree-based hover is set during render; no recursive walk needed.
             let shape = self.pointer_shape_for_hover_auto(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
         }
@@ -517,7 +518,7 @@ impl App {
         if let Some(id) = self.hovered {
             let (lx, ly) = self
                 .hit_test
-                .content_local_coords(root, id, x as u16, y as u16);
+                .content_local_coords(id, x as u16, y as u16);
             moved_changed = self.call_on_mouse_move_auto(root, id, lx, ly);
         }
 

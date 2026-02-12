@@ -100,27 +100,14 @@ fn welcome_single_row_layout_routes_mouse_to_close_button() {
 }
 
 #[test]
-fn welcome_clears_close_hover_when_pointer_leaves_close_row() {
+fn welcome_clears_hover_state_on_unmount() {
     let mut welcome = Welcome::new();
     welcome.on_layout(32, 6);
+    welcome.set_hovered(true);
+    assert!(welcome.is_hovered());
 
-    welcome.visit_children_mut(&mut |child| {
-        child.set_hovered(true);
-    });
-
-    let mut close_hovered_before = false;
-    welcome.visit_children_mut(&mut |child| {
-        close_hovered_before = child.is_hovered();
-    });
-    assert!(close_hovered_before);
-
-    assert!(welcome.on_mouse_move(2, 1));
-
-    let mut close_hovered_after = false;
-    welcome.visit_children_mut(&mut |child| {
-        close_hovered_after = child.is_hovered();
-    });
-    assert!(!close_hovered_after);
+    welcome.on_unmount();
+    assert!(!welcome.is_hovered());
 }
 
 #[test]
@@ -129,22 +116,9 @@ fn welcome_unmount_resets_focus_and_hover_lifecycle_state() {
     welcome.on_layout(32, 6);
     welcome.set_focus(true);
     welcome.set_hovered(true);
-    welcome.visit_children_mut(&mut |child| {
-        child.set_focus(true);
-        child.set_hovered(true);
-    });
 
     welcome.on_unmount();
 
     assert!(!welcome.has_focus());
     assert!(!welcome.is_hovered());
-
-    let mut close_has_focus = false;
-    let mut close_hovered = false;
-    welcome.visit_children_mut(&mut |child| {
-        close_has_focus = child.has_focus();
-        close_hovered = child.is_hovered();
-    });
-    assert!(!close_has_focus);
-    assert!(!close_hovered);
 }

@@ -95,10 +95,6 @@ impl RichLogWidget {
 }
 
 impl Widget for RichLogWidget {
-    fn id(&self) -> WidgetId {
-        self.log.id()
-    }
-
     fn focusable(&self) -> bool {
         self.log.focusable()
     }

@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 10: WidgetId deletion (P1-14g) + Grid solver (P2-11)**
+  - **P1-14g complete:** Deleted `WidgetId` struct, deprecated Widget trait methods (`id()`, `visit_children_mut()`, `set_focus_target()`), all 4 legacy stub functions (`collect_focus_ids`, `set_focus_by_id`, `set_hover_by_id`, `dispatch_event_to_focus`). Zero `WidgetId` references remain in the codebase.
+  - Replaced 5 production `visit_children_mut` callers with tree-based walks (stylesheet invalidation, WATCH devtools snapshot) or root-only fallbacks (apply_layout_info, hit-test coords).
+  - Simplified ~20 stub callers in app_root (focus_first/next/prev), command_palette (restore focus), event_loop (initial focus).
+  - Replaced pointer-based CSS computed style cache key (was `widget_node_id(Widget::id())`).
+  - **P2-11 complete:** Implemented `layout_grid()` — 2D grid cell placement algorithm. Reads grid config from parent style, places children row-major with wrap at `grid_size_columns`, resolves column/row tracks via `layout_resolve_1d` with gutter spacing, applies margin/border/padding/min/max constraints per child. Scalar cycling for column/row definitions.
+  - Updated integration tests (welcome, directory_tree) to remove `visit_children_mut` usage.
+  - Build: 0 errors. Tests: 698 passed (686 lib + 12 integration), 0 failed. 1 pre-existing integration test failure (command_palette, from Sprint 8).
+
 - **Parity Sprint 9: Layout solvers + Grid CSS properties**
   - Created `src/layout.rs` module (1524 lines) with full layout solver infrastructure:
     - `layout_resolve_1d()`: core 1D space allocation algorithm ported from Python Textual's `_layout_resolve.py`. Uses pure integer arithmetic (no f32) with remainder cascading for deterministic rounding.

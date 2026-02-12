@@ -1,14 +1,13 @@
 //! Arena-based widget identity.
 //!
-//! `NodeId` is a generational key from `slotmap` that will replace the current
-//! `WidgetId` once the Pillar 1 (DOM/Tree) rewrite lands. It detects
-//! use-after-remove and round-trips through `u64` for hit-test metadata
-//! compatibility (`MetaValue::Int`).
+//! `NodeId` is a generational key from `slotmap` used by the arena-based
+//! `WidgetTree`. It detects use-after-remove and round-trips through `u64`
+//! for hit-test metadata compatibility (`MetaValue::Int`).
 
 /// Canonical identity for every node in the widget tree.
 ///
-/// Generational — detects use-after-remove. Will replace the current `WidgetId`
-/// once the arena-based `WidgetTree` lands (Pillar 1).
+/// Generational — detects use-after-remove. Used by the arena-based
+/// `WidgetTree` for all widget identity needs.
 ///
 /// Round-trips to `u64` via [`node_id_to_ffi`] / [`node_id_from_ffi`] for
 /// hit-test metadata compatibility.

@@ -9,10 +9,14 @@ use super::context::{
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
 
-/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
-#[allow(deprecated)]
-fn widget_node_id<T: Widget + ?Sized>(w: &T) -> NodeId {
-    node_id_from_ffi(w.id().as_u64())
+/// Derive a cache key from a widget reference.
+///
+/// Uses the data pointer of the widget reference as a unique identifier.
+/// This is valid because widgets are pinned in memory during style resolution
+/// and the cache is cleared per render pass.
+fn widget_cache_id<T: Widget + ?Sized>(w: &T) -> NodeId {
+    let ptr = (w as *const T).cast::<()>() as u64;
+    node_id_from_ffi(ptr)
 }
 
 impl StyleSheet {
@@ -127,7 +131,7 @@ pub(crate) fn current_parent_style() -> Option<Style> {
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
-    let widget_id = widget_node_id(widget);
+    let widget_id = widget_cache_id(widget);
     let key = super::context::ComputedStyleKey {
         meta: meta.clone(),
         ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),

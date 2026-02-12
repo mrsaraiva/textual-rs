@@ -2,11 +2,7 @@ use rich_rs::{Renderable, Segment, Segments};
 use std::sync::OnceLock;
 
 use crate::debug::{border_debug_matches, debug_border};
-use crate::event::{Event, EventCtx};
-
 use crate::style::{BorderEdge, Margin, Scalar, Style, parse_color_like};
-
-use crate::node_id::NodeId;
 
 use super::{LayoutConstraints, Widget};
 
@@ -130,31 +126,6 @@ pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize)
     }
 
     out
-}
-
-// TODO(P1-14 integration): These helpers used legacy WidgetId + visit_children_mut.
-// They are stubbed out during the WidgetId removal migration. The runtime will
-// replace this functionality with arena-tree traversal.
-
-pub(crate) fn collect_focus_ids(_widget: &mut dyn Widget, _out: &mut Vec<NodeId>) {
-    // TODO(P1-14 integration): traverse arena tree to collect focusable NodeIds
-}
-
-pub(crate) fn set_focus_by_id(_widget: &mut dyn Widget, _target: Option<NodeId>) {
-    // TODO(P1-14 integration): use arena tree to set focus by NodeId
-}
-
-pub(crate) fn set_hover_by_id(_widget: &mut dyn Widget, _target: Option<NodeId>) {
-    // TODO(P1-14 integration): use arena tree to set hover by NodeId
-}
-
-pub(crate) fn dispatch_event_to_focus(
-    _widget: &mut dyn Widget,
-    _target: NodeId,
-    _event: &Event,
-    _ctx: &mut EventCtx,
-) {
-    // TODO(P1-14 integration): use arena tree to dispatch events to focused widget
 }
 
 pub struct WidgetRenderable<'a> {
