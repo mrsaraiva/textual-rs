@@ -86,7 +86,10 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 | Done | Mouse hover + pointer | Hit-testing via framebuffer metadata; hover state propagation; Kitty pointer shape feedback |
 | Done | String action system | `ActionDecl` + `ActionHandler` trait + `parse_action()` parser + `APP_ACTIONS` built-in declarations + `resolve_action()` namespace resolution (bubble from focused to root). |
 | Done | CSS display/visibility/overflow | `display: none` hides from render+layout, `visibility: hidden` hides from render but preserves layout, `overflow` controls ScrollView scrollbar behavior. |
-| Done | Message envelope | `MessageEnvelope` with `stop()`, `prevent_default()`, `can_replace()` propagation control. Dispatch integration deferred (P4-02). |
+| Done | Message envelope + dispatch | `MessageEnvelope` with `stop()`, `prevent_default()`, `can_replace()` propagation control. Envelope-based bubble dispatch (sender→root) with stop semantics. Message queue coalescing deduplicates rapid-fire replaceable messages. |
+| Done | Signal system | `Signal<T>` lightweight typed pub/sub with subscribe/emit/unsubscribe. Function pointer handlers for Send+Sync safety. |
+| Done | CSS layer property | `layer: <name>` + `layers: <name1> <name2>` for z-ordering in render pipeline. Layers inherited, unknown names default bucket. |
+| Done | :focus-within pseudo-class | Matches when element or any descendant has focus. Thread-local focus-within set populated before style resolution. |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 

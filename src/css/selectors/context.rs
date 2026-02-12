@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::style::Style;
 use crate::node_id::NodeId;
@@ -14,6 +14,12 @@ thread_local! {
     pub(super) static COMPUTED_STYLE_CACHE: RefCell<ComputedStyleCache> =
         RefCell::new(ComputedStyleCache::default());
     pub(super) static THEME_DARK: Cell<bool> = Cell::new(false);
+    /// Set of `NodeId`s that match the `:focus-within` pseudo-class.
+    ///
+    /// Populated by the render pipeline before style resolution: the focused
+    /// widget and all of its ancestors are inserted into this set.
+    pub(super) static FOCUS_WITHIN_IDS: RefCell<HashSet<NodeId>> =
+        RefCell::new(HashSet::new());
 }
 
 pub struct AppActiveGuard(bool);
@@ -61,6 +67,37 @@ impl Drop for ThemeDarkGuard {
 
 pub(super) fn theme_is_dark() -> bool {
     THEME_DARK.with(|v| v.get())
+}
+
+// -- Focus-within context ---------------------------------------------------
+
+/// RAII guard that restores the previous `:focus-within` set on drop.
+pub struct FocusWithinGuard(HashSet<NodeId>);
+
+/// Set the `:focus-within` node set for the current render pass.
+///
+/// `ids` should contain the focused node's `NodeId` plus every ancestor's
+/// `NodeId`.  Returns a guard that restores the previous set on drop.
+pub fn set_focus_within(ids: HashSet<NodeId>) -> FocusWithinGuard {
+    let prev = FOCUS_WITHIN_IDS.with(|v| {
+        let mut guard = v.borrow_mut();
+        std::mem::replace(&mut *guard, ids)
+    });
+    FocusWithinGuard(prev)
+}
+
+impl Drop for FocusWithinGuard {
+    fn drop(&mut self) {
+        let prev = std::mem::take(&mut self.0);
+        FOCUS_WITHIN_IDS.with(|v| {
+            *v.borrow_mut() = prev;
+        });
+    }
+}
+
+/// Check whether a `NodeId` is in the current `:focus-within` set.
+pub(super) fn is_focus_within(node: NodeId) -> bool {
+    FOCUS_WITHIN_IDS.with(|v| v.borrow().contains(&node))
 }
 
 pub struct StyleContextGuard(Option<StyleSheet>);

@@ -27,6 +27,7 @@ impl StyleSelector {
                 let ok = match pseudo {
                     super::ast::PseudoClass::Disabled => meta.states.disabled,
                     super::ast::PseudoClass::Focus => meta.states.focused,
+                    super::ast::PseudoClass::FocusWithin => meta.states.focus_within,
                     super::ast::PseudoClass::Hover => meta.states.hovered,
                     super::ast::PseudoClass::Active => meta.states.active,
                     super::ast::PseudoClass::Dark => meta.states.dark,
@@ -341,5 +342,56 @@ mod tests {
         });
         assert!(first.matches(&meta));
         assert!(last.matches(&meta));
+    }
+
+    // -- :focus-within -------------------------------------------------------
+
+    #[test]
+    fn focus_within_matches_when_element_itself_has_focus() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::FocusWithin);
+        let meta = meta_with_states(SelectorStates {
+            focused: true,
+            focus_within: true,
+            ..Default::default()
+        });
+        assert!(selector.matches(&meta));
+    }
+
+    #[test]
+    fn focus_within_matches_when_descendant_has_focus() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::FocusWithin);
+        // The element itself doesn't have focus, but a descendant does.
+        let meta = meta_with_states(SelectorStates {
+            focused: false,
+            focus_within: true,
+            ..Default::default()
+        });
+        assert!(selector.matches(&meta));
+    }
+
+    #[test]
+    fn focus_within_does_not_match_when_nothing_focused() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::FocusWithin);
+        let meta = meta_with_states(SelectorStates::default());
+        assert!(!selector.matches(&meta));
+    }
+
+    #[test]
+    fn focus_within_does_not_match_unrelated_focus() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::FocusWithin);
+        // Neither focused nor focus_within — unrelated node has focus.
+        let meta = meta_with_states(SelectorStates {
+            focused: false,
+            focus_within: false,
+            ..Default::default()
+        });
+        assert!(!selector.matches(&meta));
+    }
+
+    #[test]
+    fn focus_within_specificity_same_as_other_pseudos() {
+        let focus_within = StyleSelector::new("Widget").pseudo(PseudoClass::FocusWithin);
+        let hover = StyleSelector::new("Widget").pseudo(PseudoClass::Hover);
+        assert_eq!(focus_within.specificity(), hover.specificity());
     }
 }

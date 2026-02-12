@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 13: Envelope dispatch + Layer property + Signal system + :focus-within**
+  - **P4-02 complete:** Envelope-based message dispatch — messages now bubble from sender → parent → … → root via `MessageEnvelope`. `stop()` halts propagation, `prevent_default()` skips default action (wired through `DispatchOutcome.default_prevented`). Falls back to depth-first broadcast for orphan/global messages.
+  - **P4-14 complete:** Message queue coalescing — rapid-fire replaceable messages (InputChanged, TextAreaChanged, DataTableCursorMoved, etc.) auto-marked replaceable. `coalesce_message_queue()` deduplicates by (sender, variant discriminant), keeping latest. Global re-coalesce after each dispatch round.
+  - **P2-17 complete:** CSS `layer` property for z-ordering — `layer: <name>` assigns widget to named layer, `layers: <name1> <name2> ...` on parent defines stacking order. `sort_children_by_layer()` in render pipeline. `layers` is inherited. Unknown layer names fall back to default bucket. 17 tests.
+  - **P4-15 complete:** `Signal<T>` observer pattern — lightweight typed pub/sub with `subscribe(node, handler)`, `emit(value)`, `unsubscribe(node)` cleanup. `SignalResponse::Stop` halts remaining subscribers. Function pointer handlers (Send+Sync safe). 13 tests.
+  - **P2-16 complete:** `:focus-within` pseudo-class — matches when element or any descendant has focus. Thread-local `FOCUS_WITHIN_IDS` set populated before style resolution. `is_ancestor_of()` helper on WidgetTree. Parser supports `:focus-within` and `:focus_within`. Wired into `apply_display_visibility_to_tree()`. 15 tests.
+  - Build: 0 errors. Tests: 862 passed (+47 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 12: CSS display/visibility/overflow + Action resolver + Lifecycle/focus events + MessageEnvelope**
   - **P2-13 complete:** `display: none` wired end-to-end — CSS resolver syncs resolved Display to WidgetNode.display via `apply_display_visibility_to_tree()`, runs before layout pass. Nodes with display:none are skipped in render + layout.
   - **P2-14 complete:** `visibility: hidden` — new `visibility` field on WidgetNode (default: Visible). Hidden nodes occupy space but don't render. Excluded from focus chain.

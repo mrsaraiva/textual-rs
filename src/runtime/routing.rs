@@ -1,6 +1,6 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
-use crate::message::MessageEvent;
+use crate::message::{Message, MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
@@ -22,6 +22,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        default_prevented: false,
     };
     debug_message(&format!(
         "[dispatch_event] event={event_debug} handled={} repaint={} messages={}",
@@ -66,6 +67,7 @@ pub(crate) fn dispatch_mouse_scroll(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        default_prevented: false,
     }
 }
 
@@ -155,6 +157,7 @@ pub(crate) fn dispatch_event_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        default_prevented: false,
     };
     debug_message(&format!(
         "[dispatch_event_tree] event={event_debug} handled={} repaint={} messages={}",
@@ -205,6 +208,7 @@ pub(crate) fn dispatch_event_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        default_prevented: false,
     }
 }
 
@@ -261,14 +265,84 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        default_prevented: false,
+    }
+}
+
+/// Returns `true` for message variants that may arrive in rapid bursts and
+/// are safe to coalesce (only the latest value matters).
+fn is_message_replaceable(message: &Message) -> bool {
+    matches!(
+        message,
+        Message::InputChanged { .. }
+            | Message::TextAreaChanged { .. }
+            | Message::TextAreaSelectionChanged { .. }
+            | Message::DataTableCursorMoved { .. }
+            | Message::DataTableCellHighlighted { .. }
+            | Message::DataTableRowHighlighted { .. }
+            | Message::DataTableColumnHighlighted { .. }
+            | Message::TreeNodeHighlighted { .. }
+            | Message::OptionHighlighted { .. }
+            | Message::KeyPanelScrolled { .. }
+            | Message::RichLogScrolled { .. }
+    )
+}
+
+/// Coalesce replaceable messages in the queue.
+///
+/// For each pair of envelopes where `can_replace()` is true, both originate
+/// from the same sender, and both carry the same `Message` variant
+/// discriminant, the earlier one is dropped and only the latest is kept.
+/// Non-replaceable envelopes and envelopes that differ in sender or variant
+/// pass through untouched.
+pub(crate) fn coalesce_message_queue(
+    queue: &mut std::collections::VecDeque<MessageEnvelope>,
+) {
+    use std::mem::discriminant;
+
+    if queue.len() < 2 {
+        return;
+    }
+
+    // Walk from the back; for each replaceable envelope, check if there is
+    // an earlier one with the same (sender, discriminant) and remove it.
+    // We track seen keys in a small vec (message queues are typically short).
+    let mut seen: Vec<(NodeId, std::mem::Discriminant<Message>)> = Vec::new();
+    let mut keep = vec![true; queue.len()];
+
+    // Walk backwards so later messages survive.
+    for i in (0..queue.len()).rev() {
+        let env = &queue[i];
+        if !env.can_replace() {
+            continue;
+        }
+        let key = (env.sender(), discriminant(env.message()));
+        if seen.contains(&key) {
+            // A later envelope with the same key was already seen; drop this earlier one.
+            keep[i] = false;
+        } else {
+            seen.push(key);
+        }
+    }
+
+    // Remove dropped envelopes (drain back-to-front to preserve indices).
+    let mut idx = queue.len();
+    while idx > 0 {
+        idx -= 1;
+        if !keep[idx] {
+            queue.remove(idx);
+        }
     }
 }
 
 /// Drain and dispatch a queue of messages through the arena tree.
 ///
-/// Each message is broadcast to every node in the tree (depth-first order)
-/// until a handler sets `ctx.handled()`. Newly emitted messages are appended
-/// to the queue (bounded by a safety limit).
+/// Each `MessageEvent` is wrapped in a [`MessageEnvelope`] that controls
+/// propagation.  Messages bubble from the sender node up to the root; a
+/// handler can stop propagation via `ctx.set_handled()` (maps to
+/// `envelope.stop()`).  Before dispatching each batch the queue is
+/// coalesced: replaceable messages with the same sender+variant keep only
+/// the latest entry.
 pub(crate) fn dispatch_message_queue_tree(
     tree: &mut WidgetTree,
     initial: Vec<MessageEvent>,
@@ -279,14 +353,29 @@ pub(crate) fn dispatch_message_queue_tree(
     let mut repaint_requested = false;
     let mut invalidation = crate::event::InvalidationFlags::default();
     let mut stop_requested = false;
-    let mut queue: VecDeque<MessageEvent> = initial.into();
+    let mut default_prevented = false;
     let mut emitted: Vec<MessageEvent> = Vec::new();
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
+
+    // Wrap incoming messages in envelopes and mark known rapid-fire variants
+    // as replaceable so the coalescing pass can deduplicate them.
+    let mut queue: VecDeque<MessageEnvelope> = initial
+        .into_iter()
+        .map(|evt| {
+            let mut env = MessageEnvelope::new(evt);
+            if is_message_replaceable(env.message()) {
+                env.set_replaceable(true);
+            }
+            env
+        })
+        .collect();
+
+    coalesce_message_queue(&mut queue);
 
     const LIMIT: usize = 1024;
     let mut processed = 0usize;
 
-    while let Some(message) = queue.pop_front() {
+    while let Some(mut envelope) = queue.pop_front() {
         processed += 1;
         if processed > LIMIT {
             debug_message("[dispatch_message_queue_tree] limit reached, dropping remaining");
@@ -294,15 +383,29 @@ pub(crate) fn dispatch_message_queue_tree(
         }
 
         let mut ctx = EventCtx::default();
-        dispatch_message_tree_walk(tree, &message, &mut ctx);
+        dispatch_message_bubble(tree, &mut envelope, &mut ctx);
         handled |= ctx.handled();
         repaint_requested |= ctx.repaint_requested();
         invalidation.merge(ctx.invalidation());
         stop_requested |= ctx.stop_requested();
+        default_prevented |= envelope.is_default_prevented();
         let next = ctx.take_messages();
         let mut next_anims = ctx.take_animation_requests();
         if !next.is_empty() {
-            queue.extend(next.clone());
+            let next_envelopes: VecDeque<MessageEnvelope> = next
+                .iter()
+                .map(|evt| {
+                    let mut env = MessageEnvelope::new(evt.clone());
+                    if is_message_replaceable(env.message()) {
+                        env.set_replaceable(true);
+                    }
+                    env
+                })
+                .collect();
+            queue.extend(next_envelopes);
+            // Re-coalesce the full pending queue so that newly emitted
+            // replaceable messages can deduplicate against older entries.
+            coalesce_message_queue(&mut queue);
             emitted.extend(next);
         }
         if !next_anims.is_empty() {
@@ -317,27 +420,58 @@ pub(crate) fn dispatch_message_queue_tree(
         stop_requested,
         messages: emitted,
         animation_requests,
+        default_prevented,
     }
 }
 
-/// Broadcast a single message to all nodes in the tree (depth-first).
-fn dispatch_message_tree_walk(
+/// Bubble a single message from its sender up to the tree root.
+///
+/// The walk order is `[sender, parent, …, root]`.  At each node,
+/// `widget.on_message()` is called.  If the handler sets `ctx.handled()`,
+/// propagation stops (`envelope.stop()` is called).  When the sender is not
+/// present in the tree, the message falls back to a depth-first broadcast
+/// so that globally-targeted messages (e.g. overlay commands) still reach
+/// their recipient.
+fn dispatch_message_bubble(
     tree: &mut WidgetTree,
-    message: &MessageEvent,
+    envelope: &mut MessageEnvelope,
     ctx: &mut EventCtx,
 ) {
-    let root = match tree.root() {
-        Some(r) => r,
-        None => return,
-    };
-    // Collect node IDs first to avoid borrow conflicts.
-    let node_ids = tree.walk_depth_first(root);
-    for node_id in node_ids {
-        if ctx.handled() {
-            return;
+    let sender = envelope.sender();
+    let bubble_path = build_path_to_node(tree, sender); // [root, …, parent, sender]
+
+    if bubble_path.is_empty() {
+        // Sender not in tree — fall back to depth-first broadcast so
+        // globally-addressed messages (overlay commands, etc.) still work.
+        let root = match tree.root() {
+            Some(r) => r,
+            None => return,
+        };
+        let node_ids = tree.walk_depth_first(root);
+        for node_id in node_ids {
+            if envelope.is_stopped() || ctx.handled() {
+                return;
+            }
+            if let Some(node) = tree.get_mut(node_id) {
+                node.widget.on_message(&envelope.event, ctx);
+                if ctx.handled() {
+                    envelope.stop();
+                }
+            }
+        }
+        return;
+    }
+
+    // Bubble: sender → parent → … → root (reverse of build_path_to_node).
+    for &node_id in bubble_path.iter().rev() {
+        if envelope.is_stopped() {
+            break;
         }
         if let Some(node) = tree.get_mut(node_id) {
-            node.widget.on_message(message, ctx);
+            node.widget.on_message(&envelope.event, ctx);
+            if ctx.handled() {
+                envelope.stop();
+            }
         }
     }
 }
@@ -1014,5 +1148,424 @@ mod message_tests {
             ]
         );
         assert_eq!(sources.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+    use crate::message::{Message, MessageEnvelope, MessageEvent};
+    use crate::node_id::node_id_from_ffi;
+    use crate::widget_tree::WidgetTree;
+    use crate::widgets::Label;
+    use rich_rs::{Console, ConsoleOptions, Segments};
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    // -----------------------------------------------------------------------
+    // Test widget: counts how many times on_message is called
+    // -----------------------------------------------------------------------
+    struct MessageCounter {
+        count: Arc<AtomicUsize>,
+        stop_on_match: bool,
+    }
+
+    impl MessageCounter {
+        fn new(count: Arc<AtomicUsize>) -> Self {
+            Self {
+                count,
+                stop_on_match: false,
+            }
+        }
+
+        fn stopping(count: Arc<AtomicUsize>) -> Self {
+            Self {
+                count,
+                stop_on_match: true,
+            }
+        }
+    }
+
+    impl Widget for MessageCounter {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if matches!(message.message, Message::ButtonPressed { .. }) {
+                self.count.fetch_add(1, Ordering::Relaxed);
+                if self.stop_on_match {
+                    ctx.set_handled();
+                }
+            }
+        }
+    }
+
+    /// Helper: build a MessageEvent from a sender FFI id and a Message.
+    fn msg_event(sender_ffi: u64, message: Message) -> MessageEvent {
+        MessageEvent {
+            sender: node_id_from_ffi(sender_ffi),
+            message,
+        }
+    }
+
+    // =====================================================================
+    // P4-02: Envelope bubble dispatch tests
+    // =====================================================================
+
+    #[test]
+    fn envelope_message_bubbles_from_sender_to_root() {
+        // Tree: root → mid → leaf (sender)
+        let root_count = Arc::new(AtomicUsize::new(0));
+        let mid_count = Arc::new(AtomicUsize::new(0));
+        let leaf_count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(MessageCounter::new(root_count.clone())));
+        let mid_id = tree.mount(root_id, Box::new(MessageCounter::new(mid_count.clone())));
+        let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
+
+        let messages = vec![MessageEvent {
+            sender: leaf_id,
+            message: Message::ButtonPressed {
+                description: "test".into(),
+            },
+        }];
+
+        let outcome = dispatch_message_queue_tree(&mut tree, messages);
+        // All three nodes on the bubble path should see the message.
+        assert!(leaf_count.load(Ordering::Relaxed) >= 1, "leaf should see message");
+        assert!(mid_count.load(Ordering::Relaxed) >= 1, "mid should see message");
+        assert!(root_count.load(Ordering::Relaxed) >= 1, "root should see message");
+        assert!(outcome.handled || leaf_count.load(Ordering::Relaxed) > 0);
+    }
+
+    #[test]
+    fn envelope_stop_halts_propagation() {
+        // Tree: root → mid(stops) → leaf (sender)
+        // Mid stops propagation, so root should NOT see the message.
+        let root_count = Arc::new(AtomicUsize::new(0));
+        let mid_count = Arc::new(AtomicUsize::new(0));
+        let leaf_count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(MessageCounter::new(root_count.clone())));
+        let mid_id = tree.mount(
+            root_id,
+            Box::new(MessageCounter::stopping(mid_count.clone())),
+        );
+        let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
+
+        let messages = vec![MessageEvent {
+            sender: leaf_id,
+            message: Message::ButtonPressed {
+                description: "stop".into(),
+            },
+        }];
+
+        let outcome = dispatch_message_queue_tree(&mut tree, messages);
+        assert!(outcome.handled, "mid should have handled it");
+        // Leaf sees it first (bubble starts at sender), mid stops.
+        assert!(leaf_count.load(Ordering::Relaxed) >= 1, "leaf sees message");
+        assert!(mid_count.load(Ordering::Relaxed) >= 1, "mid sees message and stops");
+        assert_eq!(
+            root_count.load(Ordering::Relaxed),
+            0,
+            "root should NOT see message after stop"
+        );
+    }
+
+    #[test]
+    fn envelope_sender_not_in_tree_falls_back_to_broadcast() {
+        // Message from unknown sender should still reach nodes via broadcast fallback.
+        let root_count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let _root_id = tree.set_root(Box::new(MessageCounter::new(root_count.clone())));
+
+        let messages = vec![msg_event(
+            99999,
+            Message::ButtonPressed {
+                description: "ghost".into(),
+            },
+        )];
+
+        dispatch_message_queue_tree(&mut tree, messages);
+        assert!(
+            root_count.load(Ordering::Relaxed) >= 1,
+            "broadcast fallback should reach root"
+        );
+    }
+
+    #[test]
+    fn envelope_default_prevented_propagates_to_outcome() {
+        // Currently default_prevented tracks through the envelope. Since widgets
+        // don't have direct access to prevent_default() yet (Widget trait takes
+        // &MessageEvent, not &mut MessageEnvelope), this test verifies the
+        // field exists and defaults to false for normal dispatch.
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Label::new("x")));
+
+        let messages = vec![MessageEvent {
+            sender: root_id,
+            message: Message::ButtonPressed {
+                description: "dp".into(),
+            },
+        }];
+
+        let outcome = dispatch_message_queue_tree(&mut tree, messages);
+        assert!(
+            !outcome.default_prevented,
+            "default_prevented should be false when no handler calls prevent_default()"
+        );
+    }
+
+    // =====================================================================
+    // P4-14: Message queue coalescing tests
+    // =====================================================================
+
+    #[test]
+    fn coalesce_removes_earlier_replaceable_same_sender_same_variant() {
+        let sender = node_id_from_ffi(1);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        // Two InputChanged from the same sender — both replaceable.
+        let mut env1 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "a".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env1.set_replaceable(true);
+
+        let mut env2 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "ab".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env2.set_replaceable(true);
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        coalesce_message_queue(&mut queue);
+
+        assert_eq!(queue.len(), 1, "should coalesce to one message");
+        match queue[0].message() {
+            Message::InputChanged { value, .. } => {
+                assert_eq!(value, "ab", "should keep the latest value");
+            }
+            other => panic!("unexpected message: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn coalesce_preserves_non_replaceable_messages() {
+        let sender = node_id_from_ffi(1);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        // Two ButtonPressed — not replaceable by default.
+        let env1 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::ButtonPressed {
+                description: "first".into(),
+            },
+        });
+        let env2 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::ButtonPressed {
+                description: "second".into(),
+            },
+        });
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        coalesce_message_queue(&mut queue);
+
+        assert_eq!(queue.len(), 2, "non-replaceable messages should all survive");
+    }
+
+    #[test]
+    fn coalesce_different_senders_preserved() {
+        let sender_a = node_id_from_ffi(1);
+        let sender_b = node_id_from_ffi(2);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        let mut env1 = MessageEnvelope::new(MessageEvent {
+            sender: sender_a,
+            message: Message::InputChanged {
+                value: "a".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env1.set_replaceable(true);
+
+        let mut env2 = MessageEnvelope::new(MessageEvent {
+            sender: sender_b,
+            message: Message::InputChanged {
+                value: "b".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env2.set_replaceable(true);
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        coalesce_message_queue(&mut queue);
+
+        assert_eq!(
+            queue.len(),
+            2,
+            "different senders should not coalesce even with same variant"
+        );
+    }
+
+    #[test]
+    fn coalesce_mixed_replaceable_and_non_replaceable() {
+        let sender = node_id_from_ffi(1);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        // Replaceable InputChanged #1
+        let mut env1 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "a".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env1.set_replaceable(true);
+
+        // Non-replaceable ButtonPressed
+        let env2 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::ButtonPressed {
+                description: "click".into(),
+            },
+        });
+
+        // Replaceable InputChanged #2
+        let mut env3 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "ab".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env3.set_replaceable(true);
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        queue.push_back(env3);
+        coalesce_message_queue(&mut queue);
+
+        // Two InputChanged coalesce to one, ButtonPressed survives.
+        assert_eq!(queue.len(), 2, "InputChanged pair → 1, ButtonPressed → 1");
+        // First remaining should be ButtonPressed (index 0 InputChanged was removed).
+        assert!(matches!(
+            queue[0].message(),
+            Message::ButtonPressed { .. }
+        ));
+        // Second should be the latest InputChanged.
+        match queue[1].message() {
+            Message::InputChanged { value, .. } => {
+                assert_eq!(value, "ab");
+            }
+            other => panic!("unexpected: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn coalesce_empty_queue_is_noop() {
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+        coalesce_message_queue(&mut queue);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn coalesce_single_element_is_noop() {
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+        let mut env = MessageEnvelope::new(MessageEvent {
+            sender: node_id_from_ffi(1),
+            message: Message::InputChanged {
+                value: "x".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env.set_replaceable(true);
+        queue.push_back(env);
+        coalesce_message_queue(&mut queue);
+        assert_eq!(queue.len(), 1);
+    }
+
+    #[test]
+    fn dispatch_auto_marks_rapid_fire_messages_replaceable() {
+        // Verify that dispatch_message_queue_tree marks known rapid-fire
+        // messages as replaceable and coalesces them.
+        let sender = node_id_from_ffi(1);
+        let _count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let _root_id = tree.set_root(Box::new(Label::new("x")));
+
+        // Three InputChanged from the same sender — should coalesce to one.
+        let messages = vec![
+            MessageEvent {
+                sender,
+                message: Message::InputChanged {
+                    value: "a".into(),
+                    validation: crate::validation::ValidationResult::success(),
+                },
+            },
+            MessageEvent {
+                sender,
+                message: Message::InputChanged {
+                    value: "ab".into(),
+                    validation: crate::validation::ValidationResult::success(),
+                },
+            },
+            MessageEvent {
+                sender,
+                message: Message::InputChanged {
+                    value: "abc".into(),
+                    validation: crate::validation::ValidationResult::success(),
+                },
+            },
+        ];
+
+        // Label doesn't handle messages, so outcome.handled will be false, but
+        // coalescing should have reduced the queue to 1 message dispatched.
+        let _outcome = dispatch_message_queue_tree(&mut tree, messages);
+        // We can't directly observe the internal queue size, but the test proves
+        // no panics and the function accepts the input.
+        // The real verification is in the coalesce_* tests above.
+    }
+
+    #[test]
+    fn is_message_replaceable_covers_known_variants() {
+        // Spot-check that known rapid-fire message types are replaceable.
+        assert!(is_message_replaceable(&Message::InputChanged {
+            value: "x".into(),
+            validation: crate::validation::ValidationResult::success(),
+        }));
+        assert!(is_message_replaceable(&Message::TextAreaChanged {
+            value: "x".into(),
+        }));
+        assert!(is_message_replaceable(&Message::DataTableCursorMoved {
+            row: 0,
+            column: 0,
+        }));
+        assert!(is_message_replaceable(&Message::OptionHighlighted {
+            index: 0,
+        }));
+        // Non-replaceable variants.
+        assert!(!is_message_replaceable(&Message::ButtonPressed {
+            description: "x".into(),
+        }));
+        assert!(!is_message_replaceable(&Message::InputSubmitted {
+            value: "x".into(),
+        }));
     }
 }

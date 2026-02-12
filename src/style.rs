@@ -818,6 +818,7 @@ pub struct Style {
 
     // --- Layer ---
     pub layer: Option<String>,
+    pub layers: Option<Vec<String>>,
 
     // --- Transitions ---
     pub transition_duration: Option<Duration>,
@@ -1091,6 +1092,7 @@ impl Style {
             grid_gutter_horizontal: other.grid_gutter_horizontal.or(self.grid_gutter_horizontal),
             grid_gutter_vertical: other.grid_gutter_vertical.or(self.grid_gutter_vertical),
             layer: other.layer.clone().or_else(|| self.layer.clone()),
+            layers: other.layers.clone().or_else(|| self.layers.clone()),
             transition_duration: other.transition_duration.or(self.transition_duration),
             transition_delay: other.transition_delay.or(self.transition_delay),
             transition_timing: other.transition_timing.or(self.transition_timing),
@@ -1163,6 +1165,8 @@ impl Style {
             grid_gutter_horizontal: self.grid_gutter_horizontal,
             grid_gutter_vertical: self.grid_gutter_vertical,
             layer: self.layer.clone(),
+            // `layers` IS inherited: nested containers see ancestor layer ordering.
+            layers: self.layers.clone().or_else(|| parent.layers.clone()),
             transition_duration: self.transition_duration,
             transition_delay: self.transition_delay,
             transition_timing: self.transition_timing,
@@ -1285,6 +1289,7 @@ impl Style {
             && self.grid_gutter_horizontal.is_none()
             && self.grid_gutter_vertical.is_none()
             && self.layer.is_none()
+            && self.layers.is_none()
             && self.transition_duration.is_none()
             && self.transition_delay.is_none()
             && self.transition_timing.is_none()
@@ -1578,6 +1583,78 @@ mod tests {
         let mut s = Style::new();
         assert!(s.is_empty());
         s.grid_size_columns = Some(2);
+        assert!(!s.is_empty());
+    }
+
+    // ---- layers field tests ----
+
+    #[test]
+    fn combine_layers_override() {
+        let base = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["a".into(), "b".into()]);
+            s
+        };
+        let overlay = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["x".into(), "y".into(), "z".into()]);
+            s
+        };
+        let combined = base.combine(&overlay);
+        let layers = combined.layers.expect("layers should be Some");
+        assert_eq!(layers, vec!["x", "y", "z"]);
+    }
+
+    #[test]
+    fn combine_layers_preserves_base_when_overlay_is_none() {
+        let base = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["a".into(), "b".into()]);
+            s
+        };
+        let overlay = Style::new();
+        let combined = base.combine(&overlay);
+        assert_eq!(
+            combined.layers.as_ref().map(|v| v.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn inherit_layers_inherits_from_parent() {
+        let parent = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["base".into(), "overlay".into()]);
+            s
+        };
+        let child = Style::new();
+        let inherited = child.inherit_from(&parent);
+        let layers = inherited.layers.expect("layers should inherit from parent");
+        assert_eq!(layers, vec!["base", "overlay"]);
+    }
+
+    #[test]
+    fn inherit_layers_child_overrides_parent() {
+        let parent = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["base".into(), "overlay".into()]);
+            s
+        };
+        let child = {
+            let mut s = Style::new();
+            s.layers = Some(vec!["x".into()]);
+            s
+        };
+        let inherited = child.inherit_from(&parent);
+        let layers = inherited.layers.expect("child layers should override");
+        assert_eq!(layers, vec!["x"]);
+    }
+
+    #[test]
+    fn layers_field_makes_style_not_empty() {
+        let mut s = Style::new();
+        assert!(s.is_empty());
+        s.layers = Some(vec!["default".into()]);
         assert!(!s.is_empty());
     }
 }

@@ -68,6 +68,7 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
             match name.as_str() {
                 "disabled" => Some(PseudoClass::Disabled),
                 "focus" | "focused" => Some(PseudoClass::Focus),
+                "focus-within" | "focus_within" => Some(PseudoClass::FocusWithin),
                 "hover" => Some(PseudoClass::Hover),
                 "active" => Some(PseudoClass::Active),
                 "dark" => Some(PseudoClass::Dark),
@@ -458,6 +459,22 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     _ => {}
                 }
             }
+            "layer" => {
+                let name = value.trim();
+                if !name.is_empty() {
+                    style.layer = Some(name.to_string());
+                }
+            }
+            "layers" => {
+                let names: Vec<String> = value
+                    .split_whitespace()
+                    .filter(|t| !t.is_empty())
+                    .map(|t| t.to_string())
+                    .collect();
+                if !names.is_empty() {
+                    style.layers = Some(names);
+                }
+            }
             _ => {}
         }
     }
@@ -821,5 +838,109 @@ mod tests {
     fn parse_grid_rows_rejects_invalid_token() {
         let style = parse_style_body("grid-rows: auto nope;");
         assert!(style.grid_rows.is_none());
+    }
+
+    // ---- Layer property parsing tests ----
+
+    #[test]
+    fn parse_layer_property() {
+        let style = parse_style_body("layer: foo;");
+        assert_eq!(style.layer.as_deref(), Some("foo"));
+    }
+
+    #[test]
+    fn parse_layer_property_trims_whitespace() {
+        let style = parse_style_body("layer:   bar  ;");
+        assert_eq!(style.layer.as_deref(), Some("bar"));
+    }
+
+    #[test]
+    fn parse_layer_empty_value_is_none() {
+        let style = parse_style_body("layer: ;");
+        assert!(style.layer.is_none());
+    }
+
+    #[test]
+    fn parse_layers_property() {
+        let style = parse_style_body("layers: base overlay dialog;");
+        let layers = style.layers.expect("layers should be Some");
+        assert_eq!(layers, vec!["base", "overlay", "dialog"]);
+    }
+
+    #[test]
+    fn parse_layers_single_name() {
+        let style = parse_style_body("layers: default;");
+        let layers = style.layers.expect("layers should be Some");
+        assert_eq!(layers, vec!["default"]);
+    }
+
+    #[test]
+    fn parse_layers_empty_value_is_none() {
+        let style = parse_style_body("layers: ;");
+        assert!(style.layers.is_none());
+    }
+
+    #[test]
+    fn parse_layer_and_layers_together() {
+        let style = parse_style_body("layer: overlay; layers: base overlay;");
+        assert_eq!(style.layer.as_deref(), Some("overlay"));
+        let layers = style.layers.expect("layers should be Some");
+        assert_eq!(layers, vec!["base", "overlay"]);
+    }
+
+    #[test]
+    fn parse_layer_via_stylesheet() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse(".dialog { layer: modal; }");
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(sheet.rules[0].style.layer.as_deref(), Some("modal"));
+    }
+
+    #[test]
+    fn parse_layers_via_stylesheet() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse("Screen { layers: base overlay; }");
+        assert_eq!(sheet.rules.len(), 1);
+        let layers = sheet.rules[0]
+            .style
+            .layers
+            .as_ref()
+            .expect("layers should be Some");
+        assert_eq!(layers, &["base", "overlay"]);
+    }
+
+    // -- :focus-within parsing -----------------------------------------------
+
+    #[test]
+    fn parse_focus_within_pseudo_class() {
+        let chain = parse_selector_chain("Container:focus-within").expect("should parse");
+        assert_eq!(chain.parts.len(), 1);
+        assert_eq!(chain.parts[0].pseudos(), &[PseudoClass::FocusWithin]);
+    }
+
+    #[test]
+    fn parse_focus_within_with_underscore() {
+        let chain = parse_selector_chain("Container:focus_within").expect("should parse");
+        assert_eq!(chain.parts[0].pseudos(), &[PseudoClass::FocusWithin]);
+    }
+
+    #[test]
+    fn parse_focus_within_combined_with_other_pseudo() {
+        let chain =
+            parse_selector_chain("Container:focus-within:dark").expect("should parse");
+        assert_eq!(chain.parts.len(), 1);
+        assert_eq!(
+            chain.parts[0].pseudos(),
+            &[PseudoClass::FocusWithin, PseudoClass::Dark]
+        );
+    }
+
+    #[test]
+    fn parse_focus_within_in_selector_chain() {
+        let chain =
+            parse_selector_chain("Form:focus-within > Input").expect("should parse");
+        assert_eq!(chain.parts.len(), 2);
+        assert_eq!(chain.parts[0].pseudos(), &[PseudoClass::FocusWithin]);
+        assert!(chain.parts[1].pseudos().is_empty());
     }
 }

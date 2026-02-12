@@ -15,6 +15,7 @@ pub mod message;
 pub mod node_id;
 pub mod render;
 pub mod runtime;
+pub mod signal;
 pub mod style;
 pub mod textual_app;
 pub mod validation;
@@ -75,6 +76,7 @@ pub mod prelude {
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+    pub use crate::signal::{Signal, SignalResponse};
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::{Error, Result};
 }

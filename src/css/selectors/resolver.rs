@@ -6,6 +6,7 @@ use crate::widgets::Widget;
 use super::ast::{SelectorMeta, SelectorStates, StyleSheet};
 use super::context::{
     COMPUTED_STYLE_CACHE, SELECTOR_STACK, STYLE_CONTEXT, STYLE_STACK, app_is_active,
+    is_focus_within,
 };
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
@@ -246,6 +247,8 @@ fn layout_fields_equal(a: &Style, b: &Style) -> bool {
         && a.grid_rows == b.grid_rows
         && a.grid_gutter_horizontal == b.grid_gutter_horizontal
         && a.grid_gutter_vertical == b.grid_gutter_vertical
+        && a.layer == b.layer
+        && a.layers == b.layers
 }
 
 pub(crate) fn begin_style_render_pass() {
@@ -267,13 +270,30 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
         Some(r) => r,
         None => return,
     };
+
+    // Build the :focus-within set: the focused node + all its ancestors.
+    let mut focus_within_ids = std::collections::HashSet::new();
+    for node_id in tree.walk_depth_first(root) {
+        if let Some(node) = tree.get(node_id) {
+            if node.widget.has_focus() {
+                focus_within_ids.insert(node_id);
+                for ancestor in tree.ancestors(node_id) {
+                    focus_within_ids.insert(ancestor);
+                }
+                break;
+            }
+        }
+    }
+    let _fw_guard = super::context::set_focus_within(focus_within_ids);
+
     let node_ids = tree.walk_depth_first(root);
     for node_id in node_ids {
         let (display_val, visibility_val) = {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
-            let meta = selector_meta_generic(node.widget.as_ref());
+            let mut meta = selector_meta_generic(node.widget.as_ref());
+            meta.states.focus_within = is_focus_within(node_id);
             let style = resolve_style(node.widget.as_ref(), &meta);
             (style.display, style.visibility)
         };

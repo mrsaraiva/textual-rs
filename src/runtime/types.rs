@@ -246,6 +246,14 @@ pub(crate) struct DispatchOutcome {
     pub(crate) stop_requested: bool,
     pub(crate) messages: Vec<MessageEvent>,
     pub(crate) animation_requests: Vec<AnimationRequest>,
+    /// True when at least one handler called `prevent_default()` on the envelope
+    /// during message dispatch, signalling the default action should be skipped.
+    ///
+    /// **Note:** Currently widgets receive `&MessageEvent` (not `&mut MessageEnvelope`),
+    /// so this flag cannot be set from widget code yet. It is wired end-to-end
+    /// in preparation for a future Widget trait update that passes envelopes
+    /// directly to `on_message()`.
+    pub(crate) default_prevented: bool,
 }
 
 impl DispatchOutcome {

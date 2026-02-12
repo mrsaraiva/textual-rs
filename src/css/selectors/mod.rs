@@ -9,7 +9,12 @@ mod segments;
 // Public re-exports (used by `src/css/mod.rs` and external consumers)
 pub(crate) use ast::{Combinator, SelectorChain, SelectorMeta};
 pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
-pub use context::{set_app_active, set_style_context, AppActiveGuard, StyleContextGuard};
+pub use context::{
+    set_app_active, set_style_context, AppActiveGuard, StyleContextGuard,
+};
+// Re-exported for future use by the event loop / monolithic render path.
+#[allow(unused_imports)]
+pub use context::{set_focus_within, FocusWithinGuard};
 pub(crate) use parser::parse_selector_list;
 
 // Crate-internal re-exports
@@ -33,7 +38,7 @@ mod tests {
     };
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
     use crate::css::{default_widget_stylesheet, StyleSheet};
-    use crate::node_id::{NodeId, node_id_from_ffi};
+    use crate::node_id::node_id_from_ffi;
     use crate::style::{Color, Style, TransitionTiming};
     use crate::widgets::{Button, Widget};
     use rich_rs::{Segment, Segments};

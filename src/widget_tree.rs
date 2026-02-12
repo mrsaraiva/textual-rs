@@ -378,6 +378,26 @@ impl WidgetTree {
             .unwrap_or(&[])
     }
 
+    /// Whether `ancestor` is a proper ancestor of `descendant`.
+    ///
+    /// Walks from `descendant` upward through parents.  Returns `true` if
+    /// `ancestor` is found along the way, `false` if the root is reached
+    /// without a match.  Returns `false` when `ancestor == descendant`
+    /// (self is not an ancestor of self).
+    pub fn is_ancestor_of(&self, ancestor: NodeId, descendant: NodeId) -> bool {
+        if ancestor == descendant {
+            return false;
+        }
+        let mut current = self.parent(descendant);
+        while let Some(id) = current {
+            if id == ancestor {
+                return true;
+            }
+            current = self.parent(id);
+        }
+        false
+    }
+
     /// Ancestor chain from `node` upward (not including `node` itself).
     /// Returns `[parent, grandparent, …, root]`.
     pub fn ancestors(&self, node: NodeId) -> Vec<NodeId> {
@@ -909,6 +929,61 @@ mod tests {
         assert!(!tree.toggle_class(bogus, "x"));
         assert!(!tree.has_class(bogus, "x"));
         tree.set_classes(bogus, &["x"]);
+    }
+
+    // -- is_ancestor_of ------------------------------------------------------
+
+    #[test]
+    fn is_ancestor_of_parent_child() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let child = tree.mount(root, TestWidget::boxed("Child"));
+        assert!(tree.is_ancestor_of(root, child));
+    }
+
+    #[test]
+    fn is_ancestor_of_grandparent() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let a = tree.mount(root, TestWidget::boxed("A"));
+        let b = tree.mount(a, TestWidget::boxed("B"));
+        assert!(tree.is_ancestor_of(root, b));
+        assert!(tree.is_ancestor_of(a, b));
+    }
+
+    #[test]
+    fn is_ancestor_of_self_returns_false() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        assert!(!tree.is_ancestor_of(root, root));
+    }
+
+    #[test]
+    fn is_ancestor_of_siblings_returns_false() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let a = tree.mount(root, TestWidget::boxed("A"));
+        let b = tree.mount(root, TestWidget::boxed("B"));
+        assert!(!tree.is_ancestor_of(a, b));
+        assert!(!tree.is_ancestor_of(b, a));
+    }
+
+    #[test]
+    fn is_ancestor_of_reverse_direction_returns_false() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let child = tree.mount(root, TestWidget::boxed("Child"));
+        // child is NOT an ancestor of root
+        assert!(!tree.is_ancestor_of(child, root));
+    }
+
+    #[test]
+    fn is_ancestor_of_missing_node_returns_false() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let bogus = slotmap::KeyData::from_ffi(0xDEAD).into();
+        assert!(!tree.is_ancestor_of(root, bogus));
+        assert!(!tree.is_ancestor_of(bogus, root));
     }
 
     // -- Traversal -----------------------------------------------------------

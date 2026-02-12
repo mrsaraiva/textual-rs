@@ -459,24 +459,105 @@ pub(crate) fn render_tree_scaffold(
 /// be rendered (displayed + visible), `false` if hidden via `display:none`
 /// or `visibility:hidden`. Nodes with `visibility:hidden` still participate
 /// in layout (their space is preserved) but produce no rendered output.
+///
+/// Children of each parent are ordered according to the parent's `layers`
+/// CSS property: children assigned to an earlier layer render first (lower
+/// z-index), children assigned to a later layer render last (on top).
+/// Children without a `layer` assignment come before any named layers.
 pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     let root = match tree.root() {
         Some(r) => r,
         None => return Vec::new(),
     };
-    tree.walk_depth_first(root)
-        .into_iter()
-        .map(|id| {
-            let render = tree
-                .get(id)
-                .map(|node| {
-                    node.display
-                        && node.visibility == crate::style::Visibility::Visible
-                })
-                .unwrap_or(false);
-            (id, render)
+    let mut result = Vec::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let render = tree
+            .get(id)
+            .map(|node| {
+                node.display && node.visibility == crate::style::Visibility::Visible
+            })
+            .unwrap_or(false);
+        result.push((id, render));
+
+        // Collect children in layer-sorted order.
+        let children = tree.children(id).to_vec();
+        if children.is_empty() {
+            continue;
+        }
+
+        let sorted = sort_children_by_layer(tree, id, &children);
+
+        // Push in reverse so the first child is processed first.
+        for &child in sorted.iter().rev() {
+            if tree.get(child).is_some() {
+                stack.push(child);
+            }
+        }
+    }
+    result
+}
+
+/// Sort a list of child `NodeId`s according to the parent's `layers` declaration.
+///
+/// The parent's `layers` property defines named layer ordering. Children are
+/// grouped by their `layer` CSS property:
+/// - Children without a `layer` assignment come first (default layer).
+/// - Children assigned to named layers are ordered according to the parent's
+///   `layers` list (earlier = rendered first = lower z-index).
+/// - Children assigned to a layer name not in the parent's `layers` list are
+///   placed after the default group but before any declared layers.
+///
+/// Within each group, the original DOM order is preserved (stable sort).
+fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]) -> Vec<NodeId> {
+    // Resolve the parent's `layers` declaration.
+    let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|node| {
+        let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+        let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
+        style.layers
+    });
+
+    let layer_order = match parent_layers {
+        Some(ref layers) if !layers.is_empty() => layers,
+        _ => return children.to_vec(), // No layers declaration — keep DOM order.
+    };
+
+    // Resolve each child's `layer` property.
+    let child_layers: Vec<Option<String>> = children
+        .iter()
+        .map(|&child| {
+            tree.get(child).and_then(|node| {
+                let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+                let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
+                style.layer
+            })
         })
-        .collect()
+        .collect();
+
+    // Assign a sort key: (group, original_index)
+    // group 0 = no layer / unknown layer name (default bucket, preserves DOM order),
+    // group 1..N = position in parent's layers list + 1
+    let mut indexed: Vec<(usize, usize)> = children
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let group = match &child_layers[i] {
+                None => 0,
+                Some(name) => {
+                    if let Some(pos) = layer_order.iter().position(|l| l == name) {
+                        pos + 1
+                    } else {
+                        0 // Unknown layer name falls back to default bucket
+                    }
+                }
+            };
+            (group, i)
+        })
+        .collect();
+
+    indexed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    indexed.iter().map(|&(_, i)| children[i]).collect()
 }
 
 /// Distribute layout information to widgets using the arena tree + `NodeHitTestMap`.
@@ -620,5 +701,154 @@ mod tests {
         // content origin == bound origin and (rect.x0, rect.y0) maps to (0, 0).
         let (lx, ly) = hit.content_local_coords(&mut tree, table_id, rect.x0, rect.y0);
         assert_eq!((lx, ly), (0, 0));
+    }
+
+    // ---- Layer sorting tests ----
+
+    #[test]
+    fn sort_children_by_layer_no_layers_preserves_dom_order() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let a = tree.mount(root, Box::new(Label::new("A")));
+        let b = tree.mount(root, Box::new(Label::new("B")));
+        let c = tree.mount(root, Box::new(Label::new("C")));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        assert_eq!(sorted, vec![a, b, c]);
+    }
+
+    #[test]
+    fn sort_children_by_layer_with_layers_declaration() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        // Create root with layers: "base overlay"
+        let mut root_widget = AppRoot::new();
+        {
+            let styles = root_widget.styles_mut().unwrap();
+            styles.style.layers = Some(vec!["base".into(), "overlay".into()]);
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(root_widget));
+
+        // Child A: layer = "overlay" (should be last)
+        let mut label_a = Label::new("A");
+        label_a.styles_mut().unwrap().style.layer = Some("overlay".into());
+        let a = tree.mount(root, Box::new(label_a));
+
+        // Child B: no layer (should be first = default)
+        let b = tree.mount(root, Box::new(Label::new("B")));
+
+        // Child C: layer = "base" (should be between default and overlay)
+        let mut label_c = Label::new("C");
+        label_c.styles_mut().unwrap().style.layer = Some("base".into());
+        let c = tree.mount(root, Box::new(label_c));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        // Expected: B (no layer=0), C (base=2), A (overlay=3)
+        assert_eq!(sorted, vec![b, c, a]);
+    }
+
+    #[test]
+    fn sort_children_by_layer_unknown_layer_falls_back_to_default() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut root_widget = AppRoot::new();
+        root_widget.styles_mut().unwrap().style.layers =
+            Some(vec!["base".into(), "overlay".into()]);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(root_widget));
+
+        // Child A: no layer (group 0 = default)
+        let a = tree.mount(root, Box::new(Label::new("A")));
+
+        // Child B: layer = "unknown" (group 0 = falls back to default, preserves DOM order)
+        let mut label_b = Label::new("B");
+        label_b.styles_mut().unwrap().style.layer = Some("unknown".into());
+        let b = tree.mount(root, Box::new(label_b));
+
+        // Child C: layer = "base" (group 1 = named)
+        let mut label_c = Label::new("C");
+        label_c.styles_mut().unwrap().style.layer = Some("base".into());
+        let c = tree.mount(root, Box::new(label_c));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        // Expected: A (default=0), B (unknown→default=0, DOM order), C (base=1)
+        assert_eq!(sorted, vec![a, b, c]);
+    }
+
+    #[test]
+    fn sort_children_by_layer_preserves_dom_order_within_same_layer() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut root_widget = AppRoot::new();
+        root_widget.styles_mut().unwrap().style.layers = Some(vec!["bg".into()]);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(root_widget));
+
+        // Both children in the same layer — DOM order preserved.
+        let mut label_a = Label::new("A");
+        label_a.styles_mut().unwrap().style.layer = Some("bg".into());
+        let a = tree.mount(root, Box::new(label_a));
+
+        let mut label_b = Label::new("B");
+        label_b.styles_mut().unwrap().style.layer = Some("bg".into());
+        let b = tree.mount(root, Box::new(label_b));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        assert_eq!(sorted, vec![a, b]);
+    }
+
+    #[test]
+    fn collect_render_nodes_respects_layer_order() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut root_widget = AppRoot::new();
+        root_widget.styles_mut().unwrap().style.layers =
+            Some(vec!["base".into(), "top".into()]);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(root_widget));
+
+        let mut label_top = Label::new("top");
+        label_top.styles_mut().unwrap().style.layer = Some("top".into());
+        let top_id = tree.mount(root, Box::new(label_top));
+
+        let mut label_base = Label::new("base");
+        label_base.styles_mut().unwrap().style.layer = Some("base".into());
+        let base_id = tree.mount(root, Box::new(label_base));
+
+        let nodes = collect_render_nodes(&tree);
+        let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
+        // Root first, then base (earlier layer), then top (later layer)
+        assert_eq!(ids, vec![root, base_id, top_id]);
     }
 }

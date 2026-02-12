@@ -673,6 +673,7 @@ impl App {
             aggregate.repaint_requested |= outcome.repaint_requested;
             aggregate.invalidation.merge(outcome.invalidation);
             aggregate.stop_requested |= outcome.stop_requested;
+            aggregate.default_prevented |= outcome.default_prevented;
             aggregate.messages.append(&mut outcome.messages);
             aggregate
                 .animation_requests
@@ -1501,6 +1502,7 @@ impl App {
                 requests.extend(msg_outcome.animation_requests);
                 requests
             },
+            default_prevented: outcome.default_prevented || msg_outcome.default_prevented,
         }
     }
 
@@ -1618,6 +1620,8 @@ impl App {
             aggregate.animation_requests.extend(msg_requests);
 
             aggregate.stop_requested |= outcome.stop_requested || msg_outcome.stop_requested;
+            aggregate.default_prevented |=
+                outcome.default_prevented || msg_outcome.default_prevented;
             aggregate.messages.extend(msg_outcome.messages);
         }
         aggregate.repaint_requested = true;
@@ -1743,6 +1747,7 @@ impl App {
                 stop_requested,
                 messages: emitted,
                 animation_requests,
+                default_prevented: false,
             }
         }
     }

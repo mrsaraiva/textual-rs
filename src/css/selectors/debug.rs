@@ -29,6 +29,7 @@ pub(super) fn selector_chain_string(chain: &SelectorChain) -> String {
             match pseudo {
                 PseudoClass::Disabled => out.push_str("disabled"),
                 PseudoClass::Focus => out.push_str("focus"),
+                PseudoClass::FocusWithin => out.push_str("focus-within"),
                 PseudoClass::Hover => out.push_str("hover"),
                 PseudoClass::Active => out.push_str("active"),
                 PseudoClass::Dark => out.push_str("dark"),
@@ -85,6 +86,7 @@ pub(super) fn style_debug_matches(meta: &SelectorMeta) -> bool {
             return match value.trim().to_ascii_lowercase().as_str() {
                 "disabled" => meta.states.disabled,
                 "focus" | "focused" => meta.states.focused,
+                "focus-within" | "focus_within" => meta.states.focus_within,
                 "hover" | "hovered" => meta.states.hovered,
                 "active" => meta.states.active,
                 "dark" => meta.states.dark,
@@ -118,6 +120,9 @@ pub(super) fn style_debug_meta_label(meta: &SelectorMeta) -> String {
     }
     if meta.states.focused {
         label.push_str(":focus");
+    }
+    if meta.states.focus_within {
+        label.push_str(":focus-within");
     }
     if meta.states.hovered {
         label.push_str(":hover");

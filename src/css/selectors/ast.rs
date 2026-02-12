@@ -12,6 +12,7 @@ pub struct StyleSelector {
 pub enum PseudoClass {
     Disabled,
     Focus,
+    FocusWithin,
     Hover,
     Active,
     Dark,
@@ -170,6 +171,7 @@ impl SelectorMeta {
 pub(super) struct SelectorStates {
     pub(super) disabled: bool,
     pub(super) focused: bool,
+    pub(super) focus_within: bool,
     pub(super) hovered: bool,
     pub(super) active: bool,
     pub(super) dark: bool,
