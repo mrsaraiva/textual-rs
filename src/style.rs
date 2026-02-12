@@ -808,6 +808,14 @@ pub struct Style {
     // --- Pointer ---
     pub pointer: Option<Pointer>,
 
+    // --- Grid ---
+    pub grid_size_columns: Option<u16>,
+    pub grid_size_rows: Option<u16>,
+    pub grid_columns: Option<Vec<Scalar>>,
+    pub grid_rows: Option<Vec<Scalar>>,
+    pub grid_gutter_horizontal: Option<u16>,
+    pub grid_gutter_vertical: Option<u16>,
+
     // --- Layer ---
     pub layer: Option<String>,
 
@@ -1076,6 +1084,12 @@ impl Style {
             align: other.align.or(self.align),
             offset: other.offset.or(self.offset),
             pointer: other.pointer.or(self.pointer),
+            grid_size_columns: other.grid_size_columns.or(self.grid_size_columns),
+            grid_size_rows: other.grid_size_rows.or(self.grid_size_rows),
+            grid_columns: other.grid_columns.clone().or_else(|| self.grid_columns.clone()),
+            grid_rows: other.grid_rows.clone().or_else(|| self.grid_rows.clone()),
+            grid_gutter_horizontal: other.grid_gutter_horizontal.or(self.grid_gutter_horizontal),
+            grid_gutter_vertical: other.grid_gutter_vertical.or(self.grid_gutter_vertical),
             layer: other.layer.clone().or_else(|| self.layer.clone()),
             transition_duration: other.transition_duration.or(self.transition_duration),
             transition_delay: other.transition_delay.or(self.transition_delay),
@@ -1141,6 +1155,13 @@ impl Style {
             align: self.align,
             offset: self.offset,
             pointer: self.pointer,
+            // grid fields are NOT inherited (layout properties).
+            grid_size_columns: self.grid_size_columns,
+            grid_size_rows: self.grid_size_rows,
+            grid_columns: self.grid_columns.clone(),
+            grid_rows: self.grid_rows.clone(),
+            grid_gutter_horizontal: self.grid_gutter_horizontal,
+            grid_gutter_vertical: self.grid_gutter_vertical,
             layer: self.layer.clone(),
             transition_duration: self.transition_duration,
             transition_delay: self.transition_delay,
@@ -1257,6 +1278,12 @@ impl Style {
             && self.align.is_none()
             && self.offset.is_none()
             && self.pointer.is_none()
+            && self.grid_size_columns.is_none()
+            && self.grid_size_rows.is_none()
+            && self.grid_columns.is_none()
+            && self.grid_rows.is_none()
+            && self.grid_gutter_horizontal.is_none()
+            && self.grid_gutter_vertical.is_none()
             && self.layer.is_none()
             && self.transition_duration.is_none()
             && self.transition_delay.is_none()
@@ -1500,5 +1527,57 @@ mod tests {
     #[test]
     fn scalar_cells_zero() {
         assert_eq!(resolve_scalar(&Scalar::Cells(0), 100, 200, 0.0, 0), 0);
+    }
+
+    // ---- Grid field combine/inherit tests ----
+
+    #[test]
+    fn combine_grid_fields_override() {
+        let base = {
+            let mut s = Style::new();
+            s.grid_size_columns = Some(3);
+            s.grid_gutter_horizontal = Some(1);
+            s
+        };
+        let overlay = {
+            let mut s = Style::new();
+            s.grid_size_columns = Some(5);
+            s.grid_columns = Some(vec![Scalar::Fraction(1.0), Scalar::Fraction(2.0)]);
+            s
+        };
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.grid_size_columns, Some(5)); // overridden
+        assert_eq!(combined.grid_gutter_horizontal, Some(1)); // kept from base
+        assert_eq!(combined.grid_columns.as_ref().map(|v| v.len()), Some(2)); // from overlay
+    }
+
+    #[test]
+    fn inherit_grid_fields_do_not_inherit() {
+        let parent = {
+            let mut s = Style::new();
+            s.grid_size_columns = Some(4);
+            s.grid_size_rows = Some(2);
+            s.grid_columns = Some(vec![Scalar::Fraction(1.0)]);
+            s.grid_rows = Some(vec![Scalar::Auto]);
+            s.grid_gutter_horizontal = Some(3);
+            s.grid_gutter_vertical = Some(1);
+            s
+        };
+        let child = Style::new();
+        let inherited = child.inherit_from(&parent);
+        assert_eq!(inherited.grid_size_columns, None);
+        assert_eq!(inherited.grid_size_rows, None);
+        assert_eq!(inherited.grid_columns, None);
+        assert_eq!(inherited.grid_rows, None);
+        assert_eq!(inherited.grid_gutter_horizontal, None);
+        assert_eq!(inherited.grid_gutter_vertical, None);
+    }
+
+    #[test]
+    fn grid_field_makes_style_not_empty() {
+        let mut s = Style::new();
+        assert!(s.is_empty());
+        s.grid_size_columns = Some(2);
+        assert!(!s.is_empty());
     }
 }

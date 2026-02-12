@@ -157,7 +157,7 @@ pub(super) fn style_debug_summary(style: &Style) -> String {
         .unwrap_or_else(|| "-".to_string());
 
     format!(
-        "fg={} fg_auto={} bg={} bold={:?} dim={:?} italic={:?} underline={:?} reverse={:?} text_opacity={:?} opacity={:?} padding={:?} width={:?} height={:?} min_width={:?} max_width={:?} min_height={:?} max_height={:?} layout={:?} display={:?} visibility={:?} dock={:?} tint={} bg_tint={}",
+        "fg={} fg_auto={} bg={} bold={:?} dim={:?} italic={:?} underline={:?} reverse={:?} text_opacity={:?} opacity={:?} padding={:?} width={:?} height={:?} min_width={:?} max_width={:?} min_height={:?} max_height={:?} layout={:?} display={:?} visibility={:?} dock={:?} grid_size_columns={:?} grid_size_rows={:?} grid_columns={:?} grid_rows={:?} grid_gutter_h={:?} grid_gutter_v={:?} tint={} bg_tint={}",
         fg,
         fg_auto,
         bg,
@@ -179,6 +179,12 @@ pub(super) fn style_debug_summary(style: &Style) -> String {
         style.display,
         style.visibility,
         style.dock,
+        style.grid_size_columns,
+        style.grid_size_rows,
+        style.grid_columns,
+        style.grid_rows,
+        style.grid_gutter_horizontal,
+        style.grid_gutter_vertical,
         tint,
         bg_tint,
     )

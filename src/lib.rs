@@ -4,6 +4,7 @@ pub mod animation;
 pub mod compose;
 pub mod css;
 pub mod debug;
+pub mod layout;
 pub mod demo_snapshot;
 pub mod driver;
 mod error;

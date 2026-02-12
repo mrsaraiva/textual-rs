@@ -375,6 +375,86 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     style.border_left = edges.3;
                 }
             }
+            "grid-size-columns" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.grid_size_columns = Some(n);
+                }
+            }
+            "grid-size-rows" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.grid_size_rows = Some(n);
+                }
+            }
+            "grid-size" => {
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                match parts.len() {
+                    1 => {
+                        if let Ok(cols) = parts[0].parse::<u16>() {
+                            style.grid_size_columns = Some(cols);
+                            style.grid_size_rows = Some(0);
+                        }
+                    }
+                    2 => {
+                        if let (Ok(cols), Ok(rows)) =
+                            (parts[0].parse::<u16>(), parts[1].parse::<u16>())
+                        {
+                            style.grid_size_columns = Some(cols);
+                            style.grid_size_rows = Some(rows);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "grid-columns" => {
+                let parsed: Vec<Option<Scalar>> = value
+                    .split_whitespace()
+                    .map(|token| parse_scalar(token))
+                    .collect();
+                if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
+                    style.grid_columns =
+                        Some(parsed.into_iter().map(|s| s.unwrap()).collect());
+                }
+            }
+            "grid-rows" => {
+                let parsed: Vec<Option<Scalar>> = value
+                    .split_whitespace()
+                    .map(|token| parse_scalar(token))
+                    .collect();
+                if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
+                    style.grid_rows =
+                        Some(parsed.into_iter().map(|s| s.unwrap()).collect());
+                }
+            }
+            "grid-gutter-horizontal" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.grid_gutter_horizontal = Some(n);
+                }
+            }
+            "grid-gutter-vertical" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.grid_gutter_vertical = Some(n);
+                }
+            }
+            "grid-gutter" => {
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                match parts.len() {
+                    1 => {
+                        if let Ok(v) = parts[0].parse::<u16>() {
+                            style.grid_gutter_horizontal = Some(v);
+                            style.grid_gutter_vertical = Some(v);
+                        }
+                    }
+                    2 => {
+                        if let (Ok(h), Ok(v)) =
+                            (parts[0].parse::<u16>(), parts[1].parse::<u16>())
+                        {
+                            style.grid_gutter_horizontal = Some(h);
+                            style.grid_gutter_vertical = Some(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -650,5 +730,84 @@ pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
         "in-out-cubic" | "in_out_cubic" => Some(TransitionTiming::InOutCubic),
         "out-cubic" | "out_cubic" => Some(TransitionTiming::OutCubic),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::Scalar;
+
+    #[test]
+    fn parse_grid_size_one_value() {
+        let style = parse_style_body("grid-size: 3;");
+        assert_eq!(style.grid_size_columns, Some(3));
+        assert_eq!(style.grid_size_rows, Some(0));
+    }
+
+    #[test]
+    fn parse_grid_size_two_values() {
+        let style = parse_style_body("grid-size: 3 2;");
+        assert_eq!(style.grid_size_columns, Some(3));
+        assert_eq!(style.grid_size_rows, Some(2));
+    }
+
+    #[test]
+    fn parse_grid_columns_scalars() {
+        let style = parse_style_body("grid-columns: 1fr 2fr 30;");
+        let cols = style.grid_columns.expect("grid_columns should be Some");
+        assert_eq!(cols.len(), 3);
+        assert_eq!(cols[0], Scalar::Fraction(1.0));
+        assert_eq!(cols[1], Scalar::Fraction(2.0));
+        assert_eq!(cols[2], Scalar::Cells(30));
+    }
+
+    #[test]
+    fn parse_grid_rows_scalars() {
+        let style = parse_style_body("grid-rows: auto 1fr;");
+        let rows = style.grid_rows.expect("grid_rows should be Some");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], Scalar::Auto);
+        assert_eq!(rows[1], Scalar::Fraction(1.0));
+    }
+
+    #[test]
+    fn parse_grid_gutter_one_value() {
+        let style = parse_style_body("grid-gutter: 1;");
+        assert_eq!(style.grid_gutter_horizontal, Some(1));
+        assert_eq!(style.grid_gutter_vertical, Some(1));
+    }
+
+    #[test]
+    fn parse_grid_gutter_two_values() {
+        let style = parse_style_body("grid-gutter: 2 1;");
+        assert_eq!(style.grid_gutter_horizontal, Some(2));
+        assert_eq!(style.grid_gutter_vertical, Some(1));
+    }
+
+    #[test]
+    fn parse_grid_gutter_individual() {
+        let style = parse_style_body("grid-gutter-horizontal: 3; grid-gutter-vertical: 5;");
+        assert_eq!(style.grid_gutter_horizontal, Some(3));
+        assert_eq!(style.grid_gutter_vertical, Some(5));
+    }
+
+    #[test]
+    fn parse_grid_size_individual() {
+        let style = parse_style_body("grid-size-columns: 4; grid-size-rows: 2;");
+        assert_eq!(style.grid_size_columns, Some(4));
+        assert_eq!(style.grid_size_rows, Some(2));
+    }
+
+    #[test]
+    fn parse_grid_columns_rejects_invalid_token() {
+        let style = parse_style_body("grid-columns: 1fr bogus 2fr;");
+        assert!(style.grid_columns.is_none());
+    }
+
+    #[test]
+    fn parse_grid_rows_rejects_invalid_token() {
+        let style = parse_style_body("grid-rows: auto nope;");
+        assert!(style.grid_rows.is_none());
     }
 }

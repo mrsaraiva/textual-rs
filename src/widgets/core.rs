@@ -85,9 +85,8 @@ pub trait Widget: Send + Sync {
         debug: Option<&DebugLayout>,
         _node_id: NodeId,
     ) -> Segments {
-        // TODO(P1-14 integration): use _node_id for metadata tagging once arena
-        // rendering is wired up. Currently uses a null WidgetId placeholder.
-        let widget_id = WidgetId::default();
+        // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
+        // checks this value, so it must match the tag used here.
         let meta = crate::css::selector_meta_generic(self);
         let debug_widget_label = {
             let mut label = self.style_type().to_string();
@@ -140,14 +139,14 @@ pub trait Widget: Send + Sync {
             Some(debug) => self.render_with_debug(console, &content_options, debug),
             None => self.render(console, &content_options),
         });
-        let segments = tag_widget_meta_legacy(widget_id, segments);
+        let segments = tag_widget_meta(_node_id, segments);
 
         let inner_width = content_width
             .saturating_add(line_pad.saturating_mul(2))
             .max(1);
         let segments = if line_pad > 0 {
             let padded = helpers::apply_line_pad(segments, content_width, inner_width, line_pad);
-            tag_widget_meta_legacy(widget_id, padded)
+            tag_widget_meta(_node_id, padded)
         } else {
             segments
         };
@@ -168,7 +167,7 @@ pub trait Widget: Send + Sync {
         } else {
             segments
         };
-        tag_widget_meta_legacy(widget_id, segments)
+        tag_widget_meta(_node_id, segments)
     }
     fn render_with_debug(
         &self,
@@ -325,18 +324,8 @@ pub trait Widget: Send + Sync {
     }
 }
 
-/// Legacy metadata tagger using `WidgetId` — used by `render_styled_dyn_obj` during migration.
-///
-/// Once the runtime switches to arena-tree rendering (P1-12), this will be
-/// replaced by `tag_widget_meta` which uses `NodeId`.
-fn tag_widget_meta_legacy(widget_id: WidgetId, segments: Segments) -> Segments {
-    let ffi_value = widget_id.as_u64() as i64;
-    tag_widget_meta_raw(ffi_value, segments)
-}
-
 /// Tag all segments that lack a `textual:widget_id` metadata entry with the
 /// given arena `NodeId` (encoded via `node_id_to_ffi` for FFI compatibility).
-#[allow(dead_code)]
 fn tag_widget_meta(node_id: NodeId, segments: Segments) -> Segments {
     let ffi_value = node_id::node_id_to_ffi(node_id) as i64;
     tag_widget_meta_raw(ffi_value, segments)

@@ -8,6 +8,18 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 9: Layout solvers + Grid CSS properties**
+  - Created `src/layout.rs` module (1524 lines) with full layout solver infrastructure:
+    - `layout_resolve_1d()`: core 1D space allocation algorithm ported from Python Textual's `_layout_resolve.py`. Uses pure integer arithmetic (no f32) with remainder cascading for deterministic rounding.
+    - `layout_vertical()` (P2-09): vertical stacking solver — resolves child heights via 1D resolver, assigns layout_rect/content_rect.
+    - `layout_horizontal()` (P2-10): horizontal row solver — resolves child widths via 1D resolver.
+    - `arrange_dock()` (P2-12): dock positioning — separates docked children (top/bottom/left/right), carves out regions, returns reduced available space for flow children.
+    - `resolve_layout()`: top-level dispatch by Layout enum (vertical/horizontal/grid). Grid falls back to vertical as stub.
+  - Added 6 grid CSS properties to Style struct: `grid_size_columns`, `grid_size_rows`, `grid_columns` (Vec<Scalar>), `grid_rows` (Vec<Scalar>), `grid_gutter_horizontal`, `grid_gutter_vertical` (partial P2-11).
+  - Added 8 CSS property parsers: `grid-size`, `grid-size-columns`, `grid-size-rows`, `grid-columns`, `grid-rows`, `grid-gutter`, `grid-gutter-horizontal`, `grid-gutter-vertical`.
+  - Fixed button_fill test regression: switched `render_styled_dyn_obj` from broken `tag_widget_meta_legacy` (WidgetId=0 mismatch) to `tag_widget_meta` (correct NodeId encoding). Removed dead `tag_widget_meta_legacy` function.
+  - Build: 0 errors. Tests: 673 passed (51 new: 38 layout solver + 13 grid CSS), 0 failed. 1 pre-existing integration test failure (command_palette, from Sprint 8).
+
 - **Parity Sprint 8: Pillar 2 foundation — types, Style rewrite, CSS parser, pseudo-classes**
   - Defined `Scalar` enum (Auto, Cells, Percent, Fraction, ViewWidth, ViewHeight) for CSS size values with unit support.
   - Defined 10 new layout/alignment/pointer enums: `Layout`, `Display`, `Visibility`, `Overflow`, `Dock`, `TextAlign`, `HorizontalAlign`, `VerticalAlign`, `ContentAlign`, `Align`, `Offset`, `Pointer`.

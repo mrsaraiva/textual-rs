@@ -235,6 +235,12 @@ fn layout_fields_equal(a: &Style, b: &Style) -> bool {
         && a.display == b.display
         && a.visibility == b.visibility
         && a.dock == b.dock
+        && a.grid_size_columns == b.grid_size_columns
+        && a.grid_size_rows == b.grid_size_rows
+        && a.grid_columns == b.grid_columns
+        && a.grid_rows == b.grid_rows
+        && a.grid_gutter_horizontal == b.grid_gutter_horizontal
+        && a.grid_gutter_vertical == b.grid_gutter_vertical
 }
 
 pub(crate) fn begin_style_render_pass() {
