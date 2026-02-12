@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::style::{
-    BorderEdge, BorderType, Margin, Style, Tint, TransitionTiming, parse_auto_color_like,
-    parse_color_like,
+    BorderEdge, BorderType, Display, Dock, Layout, Margin, Scalar, Style, Tint, TransitionTiming,
+    Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -24,7 +24,7 @@ impl StyleSheet {
                 for selector_chain in parse_selector_list(selector) {
                     sheet.rules.push(StyleRule {
                         selector_chain,
-                        style,
+                        style: style.clone(),
                     });
                 }
             }
@@ -70,6 +70,12 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
                 "focus" | "focused" => Some(PseudoClass::Focus),
                 "hover" => Some(PseudoClass::Hover),
                 "active" => Some(PseudoClass::Active),
+                "dark" => Some(PseudoClass::Dark),
+                "light" => Some(PseudoClass::Light),
+                "even" => Some(PseudoClass::Even),
+                "odd" => Some(PseudoClass::Odd),
+                "first-child" | "first_child" => Some(PseudoClass::FirstChild),
+                "last-child" | "last_child" => Some(PseudoClass::LastChild),
                 _ => None,
             }
         })
@@ -200,38 +206,51 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             "width" => {
-                if value.trim().eq_ignore_ascii_case("auto") {
-                    style.width_auto = Some(true);
-                } else if let Ok(value) = value.parse() {
-                    style = style.width(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.width(scalar);
                 }
             }
             "height" => {
-                if value.trim().eq_ignore_ascii_case("auto") {
-                    style.height_auto = Some(true);
-                } else if let Ok(value) = value.parse() {
-                    style = style.height(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.height(scalar);
                 }
             }
             "min-width" => {
-                if let Ok(value) = value.parse() {
-                    style = style.min_width(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.min_width(scalar);
                 }
             }
             "max-width" => {
-                if let Ok(value) = value.parse() {
-                    style = style.max_width(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.max_width(scalar);
                 }
             }
             "min-height" => {
-                if let Ok(value) = value.parse() {
-                    style = style.min_height(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.min_height(scalar);
                 }
             }
             "max-height" => {
-                if let Ok(value) = value.parse() {
-                    style = style.max_height(value);
+                if let Some(scalar) = parse_scalar(value) {
+                    style = style.max_height(scalar);
                 }
+            }
+            "padding" => {
+                if let Some(spacing) = parse_spacing(value) {
+                    style.padding = Some(spacing);
+                }
+            }
+            "layout" => {
+                style.layout = parse_layout(value);
+            }
+            "display" => {
+                style.display = parse_display(value);
+            }
+            "visibility" => {
+                style.visibility = parse_visibility(value);
+            }
+            "dock" => {
+                style.dock = parse_dock(value);
             }
             "margin" => {
                 if let Some(margin) = parse_margin(value) {
@@ -371,16 +390,20 @@ fn parse_bool(value: &str) -> Option<bool> {
 }
 
 fn parse_margin(value: &str) -> Option<Margin> {
+    parse_spacing(value)
+}
+
+fn parse_spacing(value: &str) -> Option<crate::style::Spacing> {
     let parts: Vec<&str> = value
         .split_whitespace()
         .filter(|part| !part.is_empty())
         .collect();
-    let nums: Vec<usize> = parts.iter().filter_map(|part| part.parse().ok()).collect();
+    let nums: Vec<u16> = parts.iter().filter_map(|part| part.parse().ok()).collect();
     match nums.len() {
-        1 => Some(Margin::all(nums[0])),
-        2 => Some(Margin::vertical_horizontal(nums[0], nums[1])),
-        3 => Some(Margin::new(nums[0], nums[1], nums[2], nums[1])),
-        4 => Some(Margin::new(nums[0], nums[1], nums[2], nums[3])),
+        1 => Some(crate::style::Spacing::all(nums[0])),
+        2 => Some(crate::style::Spacing::vertical_horizontal(nums[0], nums[1])),
+        3 => Some(crate::style::Spacing::new(nums[0], nums[1], nums[2], nums[1])),
+        4 => Some(crate::style::Spacing::new(nums[0], nums[1], nums[2], nums[3])),
         _ => None,
     }
 }
@@ -557,6 +580,64 @@ pub(super) fn parse_duration(value: &str) -> Option<Duration> {
         return Some(Duration::from_secs_f64(secs));
     }
     None
+}
+
+fn parse_scalar(value: &str) -> Option<Scalar> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.eq_ignore_ascii_case("auto") {
+        return Some(Scalar::Auto);
+    }
+    if let Some(raw) = value.strip_suffix('%') {
+        return raw.trim().parse::<f32>().ok().map(Scalar::Percent);
+    }
+    if let Some(raw) = value.strip_suffix("fr") {
+        return raw.trim().parse::<f32>().ok().map(Scalar::Fraction);
+    }
+    if let Some(raw) = value.strip_suffix("vw") {
+        return raw.trim().parse::<f32>().ok().map(Scalar::ViewWidth);
+    }
+    if let Some(raw) = value.strip_suffix("vh") {
+        return raw.trim().parse::<f32>().ok().map(Scalar::ViewHeight);
+    }
+    value.parse::<u16>().ok().map(Scalar::Cells)
+}
+
+fn parse_layout(value: &str) -> Option<Layout> {
+    match value.trim().to_lowercase().as_str() {
+        "horizontal" => Some(Layout::Horizontal),
+        "vertical" => Some(Layout::Vertical),
+        "grid" => Some(Layout::Grid),
+        _ => None,
+    }
+}
+
+fn parse_display(value: &str) -> Option<Display> {
+    match value.trim().to_lowercase().as_str() {
+        "block" => Some(Display::Block),
+        "none" => Some(Display::None),
+        _ => None,
+    }
+}
+
+fn parse_visibility(value: &str) -> Option<Visibility> {
+    match value.trim().to_lowercase().as_str() {
+        "visible" => Some(Visibility::Visible),
+        "hidden" => Some(Visibility::Hidden),
+        _ => None,
+    }
+}
+
+fn parse_dock(value: &str) -> Option<Dock> {
+    match value.trim().to_lowercase().as_str() {
+        "top" => Some(Dock::Top),
+        "right" => Some(Dock::Right),
+        "bottom" => Some(Dock::Bottom),
+        "left" => Some(Dock::Left),
+        _ => None,
+    }
 }
 
 pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {

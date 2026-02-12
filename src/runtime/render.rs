@@ -216,7 +216,7 @@ impl App {
             if let Some(rect) = hit_test.rect(widget_node_id(w)) {
                 let meta = crate::css::selector_meta_generic(w);
                 let resolved = crate::css::resolve_style(w, &meta);
-                let line_pad = resolved.line_pad.unwrap_or(0);
+                let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
                 let (top, bottom, left, right) = border_spacing_from_style(&resolved);
                 let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
                 let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
@@ -462,7 +462,7 @@ pub(crate) fn apply_layout_info_tree(
         };
         let meta = crate::css::selector_meta_generic(node.widget.as_ref());
         let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
-        let line_pad = resolved.line_pad.unwrap_or(0);
+        let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
         let (top, bottom, left, right) = border_spacing_from_style(&resolved);
         let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
         let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;

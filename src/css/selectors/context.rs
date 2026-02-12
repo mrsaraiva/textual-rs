@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use crate::style::Style;
@@ -13,6 +13,7 @@ thread_local! {
     pub(super) static APP_ACTIVE: RefCell<bool> = RefCell::new(true);
     pub(super) static COMPUTED_STYLE_CACHE: RefCell<ComputedStyleCache> =
         RefCell::new(ComputedStyleCache::default());
+    pub(super) static THEME_DARK: Cell<bool> = Cell::new(false);
 }
 
 pub struct AppActiveGuard(bool);
@@ -40,6 +41,28 @@ pub(super) fn app_is_active() -> bool {
     APP_ACTIVE.with(|v| *v.borrow())
 }
 
+pub struct ThemeDarkGuard(bool);
+
+pub fn set_theme_dark(dark: bool) -> ThemeDarkGuard {
+    let prev = THEME_DARK.with(|v| {
+        let prev = v.get();
+        v.set(dark);
+        prev
+    });
+    ThemeDarkGuard(prev)
+}
+
+impl Drop for ThemeDarkGuard {
+    fn drop(&mut self) {
+        let prev = self.0;
+        THEME_DARK.with(|v| v.set(prev));
+    }
+}
+
+pub(super) fn theme_is_dark() -> bool {
+    THEME_DARK.with(|v| v.get())
+}
+
 pub struct StyleContextGuard(Option<StyleSheet>);
 
 pub fn set_style_context(stylesheet: StyleSheet) -> StyleContextGuard {
@@ -57,7 +80,7 @@ impl Drop for StyleContextGuard {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ComputedStyleKey {
     pub(super) meta: SelectorMeta,
     pub(super) ancestors: Vec<SelectorMeta>,
@@ -109,7 +132,7 @@ impl ComputedStyleCache {
         if let Some(entry) = self.entries.get(&widget_id) {
             if &entry.key == key {
                 self.stats.hits = self.stats.hits.saturating_add(1);
-                return Some(entry.resolved);
+                return Some(entry.resolved.clone());
             }
         }
         self.stats.misses = self.stats.misses.saturating_add(1);
@@ -117,7 +140,7 @@ impl ComputedStyleCache {
     }
 
     pub(super) fn prior_resolved(&self, widget_id: NodeId) -> Option<Style> {
-        self.entries.get(&widget_id).map(|entry| entry.resolved)
+        self.entries.get(&widget_id).map(|entry| entry.resolved.clone())
     }
 
     pub(super) fn store(

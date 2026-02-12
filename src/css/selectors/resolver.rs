@@ -25,7 +25,7 @@ impl StyleSheet {
         let debug_style_meta = style_debug_matches(meta);
         for (idx, rule) in self.rules.iter().enumerate() {
             if let Some(score) = rule_specificity(rule, meta) {
-                matches.push((score, idx, rule.style));
+                matches.push((score, idx, rule.style.clone()));
                 if debug_style_meta {
                     crate::debug::debug_style(&format!(
                         "[style] match widget={} selector=\"{}\" score={} rule={}",
@@ -71,6 +71,7 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            ..Default::default()
         },
     }
 }
@@ -97,6 +98,7 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            ..SelectorStates::default()
         },
     }
 }
@@ -115,12 +117,13 @@ pub(crate) fn selector_meta_component_for_with_id<T: Widget + ?Sized>(
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            ..SelectorStates::default()
         },
     }
 }
 
 pub(crate) fn current_parent_style() -> Option<Style> {
-    STYLE_STACK.with(|stack| stack.borrow().last().copied())
+    STYLE_STACK.with(|stack| stack.borrow().last().cloned())
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
@@ -128,7 +131,7 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
     let key = super::context::ComputedStyleKey {
         meta: meta.clone(),
         ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),
-        parent_style: STYLE_STACK.with(|stack| stack.borrow().last().copied()),
+        parent_style: STYLE_STACK.with(|stack| stack.borrow().last().cloned()),
         inline_style: widget.style(),
     };
     if let Some(cached) = COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(widget_id, &key))
@@ -147,18 +150,16 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
     if let Some(inline) = widget.style() {
         style = style.combine(&inline);
     }
-    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().cloned()) {
         style = style.inherit_from(&parent);
     }
     let layout_affected_changed = COMPUTED_STYLE_CACHE
         .with(|cache| cache.borrow().prior_resolved(widget_id))
-        .is_some_and(|prior| {
-            layout_affecting_signature(prior) != layout_affecting_signature(style)
-        });
+        .is_some_and(|prior| !layout_fields_equal(&prior, &style));
     COMPUTED_STYLE_CACHE.with(|cache| {
         cache
             .borrow_mut()
-            .store(widget_id, key, style, layout_affected_changed)
+            .store(widget_id, key, style.clone(), layout_affected_changed)
     });
     style
 }
@@ -172,7 +173,7 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
         })
         .unwrap_or_default();
     let mut style = sheet_style;
-    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().copied()) {
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().cloned()) {
         style = style.inherit_from(&parent);
     }
     style
@@ -217,36 +218,23 @@ pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl F
     })
 }
 
-type LayoutAffectingSignature = (
-    Option<crate::style::Margin>,
-    crate::style::BorderEdge,
-    crate::style::BorderEdge,
-    crate::style::BorderEdge,
-    crate::style::BorderEdge,
-    Option<usize>,
-    Option<bool>,
-    Option<bool>,
-    Option<usize>,
-    Option<usize>,
-    Option<usize>,
-    Option<usize>,
-);
-
-fn layout_affecting_signature(style: Style) -> LayoutAffectingSignature {
-    (
-        style.margin,
-        style.border_top,
-        style.border_right,
-        style.border_bottom,
-        style.border_left,
-        style.line_pad,
-        style.width_auto,
-        style.height_auto,
-        style.min_width,
-        style.max_width,
-        style.min_height,
-        style.max_height,
-    )
+fn layout_fields_equal(a: &Style, b: &Style) -> bool {
+    a.margin == b.margin
+        && a.padding == b.padding
+        && a.border_top == b.border_top
+        && a.border_right == b.border_right
+        && a.border_bottom == b.border_bottom
+        && a.border_left == b.border_left
+        && a.width == b.width
+        && a.height == b.height
+        && a.min_width == b.min_width
+        && a.max_width == b.max_width
+        && a.min_height == b.min_height
+        && a.max_height == b.max_height
+        && a.layout == b.layout
+        && a.display == b.display
+        && a.visibility == b.visibility
+        && a.dock == b.dock
 }
 
 pub(crate) fn begin_style_render_pass() {

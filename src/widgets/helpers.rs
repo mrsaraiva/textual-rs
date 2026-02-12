@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use crate::debug::{border_debug_matches, debug_border};
 use crate::event::{Event, EventCtx};
 
-use crate::style::{BorderEdge, Margin, Style, parse_color_like};
+use crate::style::{BorderEdge, Margin, Scalar, Style, parse_color_like};
 
 use crate::node_id::NodeId;
 
@@ -239,12 +239,20 @@ pub(crate) fn margin_from_style(style: &crate::style::Style) -> Margin {
     style.margin.unwrap_or_default()
 }
 
+/// Extract a `Scalar::Cells` value as `usize`, returning `None` for other variants.
+pub(crate) fn scalar_cells_or(scalar: Option<Scalar>) -> Option<usize> {
+    match scalar {
+        Some(Scalar::Cells(n)) => Some(n as usize),
+        _ => None,
+    }
+}
+
 pub(crate) fn constraints_from_style(style: &Style) -> LayoutConstraints {
     LayoutConstraints {
-        min_width: style.min_width,
-        max_width: style.max_width,
-        min_height: style.min_height,
-        max_height: style.max_height,
+        min_width: scalar_cells_or(style.min_width),
+        max_width: scalar_cells_or(style.max_width),
+        min_height: scalar_cells_or(style.min_height),
+        max_height: scalar_cells_or(style.max_height),
     }
 }
 
@@ -664,22 +672,22 @@ pub(crate) fn apply_margin(
 ) -> Vec<Vec<Segment>> {
     let mut out: Vec<Vec<Segment>> = Vec::new();
     let pad_line = vec![Segment::new(" ".repeat(width))];
-    for _ in 0..margin.top {
+    for _ in 0..margin.top as usize {
         out.push(pad_line.clone());
     }
     for line in lines {
         let mut row: Vec<Segment> = Vec::new();
         if margin.left > 0 {
-            row.push(Segment::new(" ".repeat(margin.left)));
+            row.push(Segment::new(" ".repeat(margin.left as usize)));
         }
         row.extend(line);
         if margin.right > 0 {
-            row.push(Segment::new(" ".repeat(margin.right)));
+            row.push(Segment::new(" ".repeat(margin.right as usize)));
         }
         let adjusted = adjust_line_length_no_bg(&row, width);
         out.push(adjusted);
     }
-    for _ in 0..margin.bottom {
+    for _ in 0..margin.bottom as usize {
         out.push(pad_line.clone());
     }
     out

@@ -50,15 +50,15 @@ impl Widget for Container {
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let available_width = width.saturating_sub(margin.left + margin.right).max(1);
+            let available_width = width.saturating_sub(margin.left as usize + margin.right as usize).max(1);
             let mut render_width = clamp_with_constraints(
                 available_width,
                 constraints.min_width,
                 constraints.max_width,
                 available_width,
             );
-            if resolved.width_auto == Some(true) {
-                let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+            if matches!(resolved.width, Some(crate::style::Scalar::Auto)) {
+                let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
                 let (_, _, border_left, border_right) =
                     crate::widgets::helpers::border_spacing_from_style(&resolved);
                 let intrinsic = child
@@ -75,12 +75,12 @@ impl Widget for Container {
             }
             let render_height = clamp_with_constraints(
                 height_limit
-                    .saturating_sub(margin.top + margin.bottom)
+                    .saturating_sub(margin.top as usize + margin.bottom as usize)
                     .max(1),
                 constraints.min_height,
                 constraints.max_height,
                 height_limit
-                    .saturating_sub(margin.top + margin.bottom)
+                    .saturating_sub(margin.top as usize + margin.bottom as usize)
                     .max(1),
             );
             let render_height = if let Some(fixed_total) = child.layout_height() {
@@ -274,7 +274,7 @@ impl Widget for Container {
                 Some(height) => {
                     total = total
                         .saturating_add(height)
-                        .saturating_add(margin.top + margin.bottom);
+                        .saturating_add(margin.top as usize + margin.bottom as usize);
                 }
                 None => return None,
             }
@@ -290,7 +290,7 @@ impl Widget for Container {
             let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             if let Some(width) = child.content_width() {
-                widest = widest.max(width.saturating_add(margin.left + margin.right));
+                widest = widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
                 any = true;
             }
         }

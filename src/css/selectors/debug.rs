@@ -31,6 +31,12 @@ pub(super) fn selector_chain_string(chain: &SelectorChain) -> String {
                 PseudoClass::Focus => out.push_str("focus"),
                 PseudoClass::Hover => out.push_str("hover"),
                 PseudoClass::Active => out.push_str("active"),
+                PseudoClass::Dark => out.push_str("dark"),
+                PseudoClass::Light => out.push_str("light"),
+                PseudoClass::Even => out.push_str("even"),
+                PseudoClass::Odd => out.push_str("odd"),
+                PseudoClass::FirstChild => out.push_str("first-child"),
+                PseudoClass::LastChild => out.push_str("last-child"),
             }
         }
     }
@@ -81,6 +87,15 @@ pub(super) fn style_debug_matches(meta: &SelectorMeta) -> bool {
                 "focus" | "focused" => meta.states.focused,
                 "hover" | "hovered" => meta.states.hovered,
                 "active" => meta.states.active,
+                "dark" => meta.states.dark,
+                "light" => !meta.states.dark,
+                "even" => meta.states.child_index.map_or(false, |i| i % 2 == 0),
+                "odd" => meta.states.child_index.map_or(false, |i| i % 2 == 1),
+                "first-child" | "first_child" => meta.states.child_index == Some(0),
+                "last-child" | "last_child" => {
+                    matches!((meta.states.child_index, meta.states.sibling_count),
+                        (Some(idx), Some(count)) if count > 0 && idx == count - 1)
+                }
                 _ => false,
             };
         }
@@ -110,6 +125,12 @@ pub(super) fn style_debug_meta_label(meta: &SelectorMeta) -> String {
     if meta.states.active {
         label.push_str(":active");
     }
+    if meta.states.dark {
+        label.push_str(":dark");
+    }
+    if let Some(idx) = meta.states.child_index {
+        label.push_str(&format!(":child({})", idx));
+    }
     label
 }
 
@@ -136,7 +157,7 @@ pub(super) fn style_debug_summary(style: &Style) -> String {
         .unwrap_or_else(|| "-".to_string());
 
     format!(
-        "fg={} fg_auto={} bg={} bold={:?} dim={:?} italic={:?} underline={:?} reverse={:?} text_opacity={:?} opacity={:?} line_pad={:?} width=({:?},{:?},auto:{:?}) height=({:?},{:?},auto:{:?}) tint={} bg_tint={}",
+        "fg={} fg_auto={} bg={} bold={:?} dim={:?} italic={:?} underline={:?} reverse={:?} text_opacity={:?} opacity={:?} padding={:?} width={:?} height={:?} min_width={:?} max_width={:?} min_height={:?} max_height={:?} layout={:?} display={:?} visibility={:?} dock={:?} tint={} bg_tint={}",
         fg,
         fg_auto,
         bg,
@@ -147,13 +168,17 @@ pub(super) fn style_debug_summary(style: &Style) -> String {
         style.reverse,
         style.text_opacity,
         style.opacity,
-        style.line_pad,
+        style.padding,
+        style.width,
+        style.height,
         style.min_width,
         style.max_width,
-        style.width_auto,
         style.min_height,
         style.max_height,
-        style.height_auto,
+        style.layout,
+        style.display,
+        style.visibility,
+        style.dock,
         tint,
         bg_tint,
     )

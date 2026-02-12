@@ -403,7 +403,7 @@ mod tests {
         widget.focused = true;
         begin_style_render_pass();
         let focused = resolve_style(&widget, &selector_meta_generic(&widget));
-        assert_eq!(focused.min_width, Some(12));
+        assert_eq!(focused.min_width, Some(crate::style::Scalar::Cells(12)));
         assert!(take_layout_affected_style_changes());
     }
 }

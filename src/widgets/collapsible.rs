@@ -264,7 +264,7 @@ impl Widget for Collapsible {
                 let margin = margin_from_style(&resolved);
                 let style_constraints = constraints_from_style(&resolved);
                 let constraints = merge_constraints(style_constraints, child.layout_constraints());
-                let available_width = width.saturating_sub(margin.left + margin.right).max(1);
+                let available_width = width.saturating_sub(margin.left as usize + margin.right as usize).max(1);
                 let render_width = clamp_with_constraints(
                     available_width,
                     constraints.min_width,
@@ -273,10 +273,10 @@ impl Widget for Collapsible {
                 );
                 let remaining = child_height_limit.saturating_sub(cursor_y);
                 let render_height = clamp_with_constraints(
-                    remaining.saturating_sub(margin.top + margin.bottom).max(1),
+                    remaining.saturating_sub(margin.top as usize + margin.bottom as usize).max(1),
                     constraints.min_height,
                     constraints.max_height,
-                    remaining.saturating_sub(margin.top + margin.bottom).max(1),
+                    remaining.saturating_sub(margin.top as usize + margin.bottom as usize).max(1),
                 );
                 let render_height = if let Some(fixed) = child.layout_height() {
                     render_height.min(fixed.max(1))
@@ -347,7 +347,7 @@ impl Widget for Collapsible {
                 Some(height) => {
                     total = total
                         .saturating_add(height)
-                        .saturating_add(margin.top + margin.bottom);
+                        .saturating_add(margin.top as usize + margin.bottom as usize);
                 }
                 None => return None,
             }

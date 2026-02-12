@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 8: Pillar 2 foundation — types, Style rewrite, CSS parser, pseudo-classes**
+  - Defined `Scalar` enum (Auto, Cells, Percent, Fraction, ViewWidth, ViewHeight) for CSS size values with unit support.
+  - Defined 10 new layout/alignment/pointer enums: `Layout`, `Display`, `Visibility`, `Overflow`, `Dock`, `TextAlign`, `HorizontalAlign`, `VerticalAlign`, `ContentAlign`, `Align`, `Offset`, `Pointer`.
+  - Defined `Spacing` struct (4-side u16 padding/margin), replacing old `Margin` type (kept as alias).
+  - Rewrote `Style` struct: replaced `width_auto`/`height_auto` booleans with `width: Option<Scalar>`/`height: Option<Scalar>`, changed all sizing fields from `usize` to `Scalar`, replaced `line_pad` with proper `padding: Option<Spacing>`, added 15 new layout/alignment/pointer/layer fields.
+  - Extended CSS parser: `parse_scalar()` handles `%`, `fr`, `vw`, `vh` units. New properties: `display`, `layout`, `dock`, `padding`, `overflow`, `text-align`, `visibility`, `pointer`. `line-pad` kept as compat alias.
+  - Added 6 CSS pseudo-classes: `:dark`, `:light`, `:even`, `:odd`, `:first-child`, `:last-child` with full matching logic and theme-state context plumbing.
+  - Implemented `resolve_scalar()` for converting Scalar units to concrete cell values.
+  - Fixed all 421 call-site occurrences across 37 files for the type migration.
+  - Build: 0 errors. Tests: 622 passed (37 new), 0 failed.
+
 - **Parity Sprint 7: Close Pillar 1 — test fixes + legacy dispatch cleanup**
   - Fixed all 19 failing tests from Sprint 6's WidgetId→NodeId migration. Tests rewritten to build `WidgetTree` instances and call `_tree` dispatch functions directly (routing, event_loop, render, app_root, select, tabs, tabbed_content, command_palette).
   - Deleted ~400 lines of legacy routing functions from `routing.rs`: `widget_node_id`, `focused_widget_id`, `dispatch_event_to_target`, `dispatch_scroll_action`, `dispatch_mouse_scroll_to_target`, `dispatch_message_queue`, `active_binding_hints`, `focused_help_metadata`, and associated helpers.

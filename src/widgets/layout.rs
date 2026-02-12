@@ -12,7 +12,7 @@ use super::{
         merge_constraints, pad_lines_to_width,
     },
 };
-use crate::style::Margin;
+use crate::style::{Margin, Scalar};
 
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
@@ -72,8 +72,8 @@ impl Widget for Row {
             let fixed =
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
                     if min == max { Some(min) } else { None }
-                } else if resolved.width_auto == Some(true) {
-                    let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+                } else if matches!(resolved.width, Some(Scalar::Auto)) {
+                    let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
                     let (_, _, border_left, border_right) =
                         super::helpers::border_spacing_from_style(&resolved);
                     child
@@ -94,7 +94,7 @@ impl Widget for Row {
         for (idx, fixed) in fixed_widths.iter().enumerate() {
             if let Some(width) = fixed {
                 let margin = margins[idx];
-                fixed_total = fixed_total.saturating_add(width + margin.left + margin.right);
+                fixed_total = fixed_total.saturating_add(width + margin.left as usize + margin.right as usize);
             } else {
                 flex_count += 1;
             }
@@ -111,14 +111,14 @@ impl Widget for Row {
             ));
             for (idx, fixed) in fixed_widths.iter().enumerate() {
                 debug_layout(&format!(
-                    "[row] child={} fixed={:?} margin=({}, {}) constraints=({:?},{:?}) width_auto={:?}",
+                    "[row] child={} fixed={:?} margin=({}, {}) constraints=({:?},{:?}) width={:?}",
                     idx,
                     fixed,
                     margins[idx].left,
                     margins[idx].right,
                     constraints_list[idx].min_width,
                     constraints_list[idx].max_width,
-                    resolved_list[idx].width_auto
+                    resolved_list[idx].width
                 ));
             }
         }
@@ -140,7 +140,7 @@ impl Widget for Row {
             .map(|idx| {
                 if let Some(fixed) = fixed_widths[idx] {
                     let margin = margins[idx];
-                    (fixed + margin.left + margin.right).max(1)
+                    (fixed + margin.left as usize + margin.right as usize).max(1)
                 } else {
                     let extra = if flex_seen < remainder { 1 } else { 0 };
                     flex_seen += 1;
@@ -164,28 +164,28 @@ impl Widget for Row {
         let mut child_lines: Vec<Vec<Vec<Segment>>> = Vec::new();
 
         for (idx, child) in self.children.iter().enumerate() {
-            let _resolved = resolved_list[idx];
+            let _resolved = &resolved_list[idx];
             let margin = margins[idx];
             let child_width = widths[idx].max(1);
             let constraints = constraints_list[idx];
             let render_width = clamp_with_constraints(
                 child_width
-                    .saturating_sub(margin.left + margin.right)
+                    .saturating_sub(margin.left as usize + margin.right as usize)
                     .max(1),
                 constraints.min_width,
                 constraints.max_width,
                 child_width
-                    .saturating_sub(margin.left + margin.right)
+                    .saturating_sub(margin.left as usize + margin.right as usize)
                     .max(1),
             );
             let render_height = clamp_with_constraints(
                 height_limit
-                    .saturating_sub(margin.top + margin.bottom)
+                    .saturating_sub(margin.top as usize + margin.bottom as usize)
                     .max(1),
                 constraints.min_height,
                 constraints.max_height,
                 height_limit
-                    .saturating_sub(margin.top + margin.bottom)
+                    .saturating_sub(margin.top as usize + margin.bottom as usize)
                     .max(1),
             );
             let render_height = if let Some(fixed_total) = child.layout_height() {
@@ -309,8 +309,8 @@ impl Widget for Row {
             let fixed =
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
                     if min == max { Some(min) } else { None }
-                } else if resolved.width_auto == Some(true) {
-                    let pad = resolved.line_pad.unwrap_or(0).saturating_mul(2);
+                } else if matches!(resolved.width, Some(Scalar::Auto)) {
+                    let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
                     let (_, _, border_left, border_right) =
                         super::helpers::border_spacing_from_style(&resolved);
                     child
@@ -331,7 +331,7 @@ impl Widget for Row {
         for (idx, fixed) in fixed_widths.iter().enumerate() {
             if let Some(width) = fixed {
                 let margin = margins[idx];
-                fixed_total = fixed_total.saturating_add(width + margin.left + margin.right);
+                fixed_total = fixed_total.saturating_add(width + margin.left as usize + margin.right as usize);
             } else {
                 flex_count += 1;
             }
@@ -354,7 +354,7 @@ impl Widget for Row {
             .map(|idx| {
                 if let Some(fixed) = fixed_widths[idx] {
                     let margin = margins[idx];
-                    (fixed + margin.left + margin.right).max(1)
+                    (fixed + margin.left as usize + margin.right as usize).max(1)
                 } else {
                     let extra = if flex_seen < remainder { 1 } else { 0 };
                     flex_seen += 1;
@@ -371,12 +371,12 @@ impl Widget for Row {
             let margin = margins[idx];
             let render_width = clamp_with_constraints(
                 child_width
-                    .saturating_sub(margin.left + margin.right)
+                    .saturating_sub(margin.left as usize + margin.right as usize)
                     .max(1),
                 constraints.min_width,
                 constraints.max_width,
                 child_width
-                    .saturating_sub(margin.left + margin.right)
+                    .saturating_sub(margin.left as usize + margin.right as usize)
                     .max(1),
             );
             let render_height = clamp_with_constraints(
@@ -1303,19 +1303,19 @@ impl Widget for Grid {
                     (Margin::default(), LayoutConstraints::default())
                 };
                 let render_width = clamp_with_constraints(
-                    cell_width.saturating_sub(margin.left + margin.right).max(1),
+                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width.saturating_sub(margin.left + margin.right).max(1),
+                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
                 );
                 let render_height = clamp_with_constraints(
                     cell_height
-                        .saturating_sub(margin.top + margin.bottom)
+                        .saturating_sub(margin.top as usize + margin.bottom as usize)
                         .max(1),
                     constraints.min_height,
                     constraints.max_height,
                     cell_height
-                        .saturating_sub(margin.top + margin.bottom)
+                        .saturating_sub(margin.top as usize + margin.bottom as usize)
                         .max(1),
                 );
                 let mut child_options = options.clone();
@@ -1432,19 +1432,19 @@ impl Widget for Grid {
                     (Margin::default(), LayoutConstraints::default())
                 };
                 let render_width = clamp_with_constraints(
-                    cell_width.saturating_sub(margin.left + margin.right).max(1),
+                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width.saturating_sub(margin.left + margin.right).max(1),
+                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
                 );
                 let render_height = clamp_with_constraints(
                     cell_height
-                        .saturating_sub(margin.top + margin.bottom)
+                        .saturating_sub(margin.top as usize + margin.bottom as usize)
                         .max(1),
                     constraints.min_height,
                     constraints.max_height,
                     cell_height
-                        .saturating_sub(margin.top + margin.bottom)
+                        .saturating_sub(margin.top as usize + margin.bottom as usize)
                         .max(1),
                 );
                 let mut child_options = options.clone();

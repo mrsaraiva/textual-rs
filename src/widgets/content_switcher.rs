@@ -151,7 +151,7 @@ impl Widget for ContentSwitcher {
         let margin = margin_from_style(&resolved);
         let style_constraints = constraints_from_style(&resolved);
         let constraints = merge_constraints(style_constraints, child.layout_constraints());
-        let available_width = width.saturating_sub(margin.left + margin.right).max(1);
+        let available_width = width.saturating_sub(margin.left as usize + margin.right as usize).max(1);
         let render_width = clamp_with_constraints(
             available_width,
             constraints.min_width,
@@ -159,10 +159,10 @@ impl Widget for ContentSwitcher {
             available_width,
         );
         let render_height = clamp_with_constraints(
-            height.saturating_sub(margin.top + margin.bottom).max(1),
+            height.saturating_sub(margin.top as usize + margin.bottom as usize).max(1),
             constraints.min_height,
             constraints.max_height,
-            height.saturating_sub(margin.top + margin.bottom).max(1),
+            height.saturating_sub(margin.top as usize + margin.bottom as usize).max(1),
         );
         let render_height = if let Some(fixed) = child.layout_height() {
             render_height.min(fixed.max(1))
@@ -211,7 +211,7 @@ impl Widget for ContentSwitcher {
         let margin = margin_from_style(&resolved);
         child
             .layout_height()
-            .map(|h| h.saturating_add(margin.top + margin.bottom).max(1))
+            .map(|h| h.saturating_add(margin.top as usize + margin.bottom as usize).max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -221,7 +221,7 @@ impl Widget for ContentSwitcher {
         let margin = margin_from_style(&resolved);
         child
             .content_width()
-            .map(|w| w.saturating_add(margin.left + margin.right).max(1))
+            .map(|w| w.saturating_add(margin.left as usize + margin.right as usize).max(1))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

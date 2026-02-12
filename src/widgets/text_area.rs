@@ -697,7 +697,7 @@ impl TextArea {
                 cache.spans.push(SyntaxSpan {
                     start: range.start,
                     end: range.end,
-                    style: *style,
+                    style: style.clone(),
                 });
             }
         }
@@ -1486,11 +1486,11 @@ impl Widget for TextArea {
         let resolve_component_style = |class: &str| -> Style {
             if let Some(theme) = theme {
                 let override_style = match class {
-                    "text-area--cursor" => theme.cursor_style,
-                    "text-area--cursor-line" => theme.cursor_line_style,
-                    "text-area--selection" => theme.selection_style,
-                    "text-area--gutter" => theme.gutter_style,
-                    "text-area--gutter-active" => theme.gutter_active_style,
+                    "text-area--cursor" => theme.cursor_style.clone(),
+                    "text-area--cursor-line" => theme.cursor_line_style.clone(),
+                    "text-area--selection" => theme.selection_style.clone(),
+                    "text-area--gutter" => theme.gutter_style.clone(),
+                    "text-area--gutter-active" => theme.gutter_active_style.clone(),
                     _ => Style::default(),
                 };
                 if !override_style.is_empty() {
@@ -1550,7 +1550,7 @@ impl Widget for TextArea {
             let row = self.scroll_row + y;
             let is_cursor_line = self.focused && self.app_active && row == self.cursor.row;
             let line_bg_style = if is_cursor_line {
-                Some(cursor_line_style)
+                Some(cursor_line_style.clone())
             } else {
                 None
             };
@@ -1643,11 +1643,11 @@ impl Widget for TextArea {
                     let mut syntax: Option<Style> = None;
                     for span in &syntax_cache.spans {
                         if abs >= span.start && abs < span.end {
-                            syntax = Some(span.style);
+                            syntax = Some(span.style.clone());
                         }
                     }
                     let mut merged = syntax.unwrap_or_default();
-                    if let Some(bg) = line_bg_style {
+                    if let Some(ref bg) = line_bg_style {
                         if merged.bg.is_none() {
                             merged.bg = bg.bg;
                         }

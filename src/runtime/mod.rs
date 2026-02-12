@@ -619,7 +619,7 @@ impl App {
         let changed_rules = changed_rules_between(&previous, &next);
         let layout_affected = changed_rules
             .iter()
-            .any(|rule| style_affects_layout(rule.style()));
+            .any(|rule| style_affects_layout(&rule.style()));
         self.stylesheet = next.clone();
         watch.last_css = css;
         watch.last_modified = Some(modified);
@@ -653,19 +653,23 @@ fn changed_rules_between(previous: &StyleSheet, next: &StyleSheet) -> Vec<crate:
     changed
 }
 
-fn style_affects_layout(style: crate::style::Style) -> bool {
+fn style_affects_layout(style: &crate::style::Style) -> bool {
     style.margin.is_some()
-        || style.line_pad.is_some()
+        || style.padding.is_some()
         || style.border_top != crate::style::BorderEdge::Unset
         || style.border_right != crate::style::BorderEdge::Unset
         || style.border_bottom != crate::style::BorderEdge::Unset
         || style.border_left != crate::style::BorderEdge::Unset
-        || style.width_auto.is_some()
-        || style.height_auto.is_some()
+        || style.width.is_some()
+        || style.height.is_some()
         || style.min_width.is_some()
         || style.max_width.is_some()
         || style.min_height.is_some()
         || style.max_height.is_some()
+        || style.layout.is_some()
+        || style.display.is_some()
+        || style.visibility.is_some()
+        || style.dock.is_some()
 }
 
 // ---------------------------------------------------------------------------

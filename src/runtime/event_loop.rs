@@ -239,6 +239,10 @@ fn selector_matches_snapshot(
             crate::css::PseudoClass::Focus => meta.focused,
             crate::css::PseudoClass::Hover => meta.hovered,
             crate::css::PseudoClass::Active => meta.active,
+            // Dark/Light/Even/Odd/FirstChild/LastChild are CSS-only pseudo-classes
+            // handled by the selector matching engine; in the event_loop quick-check
+            // they are treated as non-matching since per-widget state isn't available.
+            _ => false,
         };
         if !ok {
             return false;

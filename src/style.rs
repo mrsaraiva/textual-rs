@@ -521,6 +521,178 @@ pub(crate) fn blend_colors(a: Color, b: Color, percent: u8) -> Color {
     blend(a, b, (percent as f32 / 100.0).clamp(0.0, 1.0))
 }
 
+// ---------------------------------------------------------------------------
+// P2 CSS types: Scalar, Spacing, layout/alignment/pointer enums
+// ---------------------------------------------------------------------------
+
+/// CSS size value with unit support.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Scalar {
+    /// Size determined by content.
+    Auto,
+    /// Fixed cell count.
+    Cells(u16),
+    /// Percentage of parent size.
+    Percent(f32),
+    /// Fractional unit (like CSS `fr`).
+    Fraction(f32),
+    /// Percentage of viewport width.
+    ViewWidth(f32),
+    /// Percentage of viewport height.
+    ViewHeight(f32),
+}
+
+/// Resolve a [`Scalar`] to a concrete cell count.
+pub fn resolve_scalar(
+    scalar: &Scalar,
+    parent_size: u16,
+    viewport_size: u16,
+    siblings_fr_total: f32,
+    available: u16,
+) -> u16 {
+    match scalar {
+        Scalar::Auto => 0,
+        Scalar::Cells(n) => *n,
+        Scalar::Percent(p) => (parent_size as f32 * p / 100.0).round() as u16,
+        Scalar::Fraction(f) => {
+            if siblings_fr_total > 0.0 {
+                (available as f32 * f / siblings_fr_total).round() as u16
+            } else {
+                0
+            }
+        }
+        Scalar::ViewWidth(p) => (viewport_size as f32 * p / 100.0).round() as u16,
+        Scalar::ViewHeight(p) => (viewport_size as f32 * p / 100.0).round() as u16,
+    }
+}
+
+/// 4-side spacing (used for both padding and margin).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Spacing {
+    pub top: u16,
+    pub right: u16,
+    pub bottom: u16,
+    pub left: u16,
+}
+
+impl Spacing {
+    pub fn all(value: u16) -> Self {
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
+    }
+
+    pub fn vertical_horizontal(vertical: u16, horizontal: u16) -> Self {
+        Self {
+            top: vertical,
+            bottom: vertical,
+            left: horizontal,
+            right: horizontal,
+        }
+    }
+
+    pub fn new(top: u16, right: u16, bottom: u16, left: u16) -> Self {
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
+    }
+}
+
+/// Backward-compatible alias — existing code that uses `Margin` keeps working.
+pub type Margin = Spacing;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Layout {
+    Horizontal,
+    Vertical,
+    Grid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Display {
+    Block,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visibility {
+    Visible,
+    Hidden,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overflow {
+    Auto,
+    Hidden,
+    Scroll,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dock {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+    Justify,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HorizontalAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerticalAlign {
+    Top,
+    Middle,
+    Bottom,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContentAlign {
+    pub horizontal: HorizontalAlign,
+    pub vertical: VerticalAlign,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Align {
+    pub horizontal: HorizontalAlign,
+    pub vertical: VerticalAlign,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Offset {
+    pub x: i16,
+    pub y: i16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pointer {
+    Default,
+    Pointer,
+    Text,
+    NotAllowed,
+}
+
+// ---------------------------------------------------------------------------
+// Border types (unchanged)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderType {
     Solid,
@@ -583,8 +755,9 @@ impl BorderEdge {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Style {
+    // --- Text / color properties ---
     pub fg: Option<Color>,
     pub fg_auto: Option<AutoColor>,
     pub bg: Option<Color>,
@@ -595,21 +768,50 @@ pub struct Style {
     pub italic: Option<bool>,
     pub underline: Option<bool>,
     pub reverse: Option<bool>,
+
+    // --- Border ---
     pub border: Option<bool>,
-    pub margin: Option<Margin>,
-    pub line_pad: Option<usize>,
     pub border_top: BorderEdge,
     pub border_right: BorderEdge,
     pub border_bottom: BorderEdge,
     pub border_left: BorderEdge,
+
+    // --- Tint ---
     pub tint: Option<Tint>,
     pub background_tint: Option<Tint>,
-    pub width_auto: Option<bool>,
-    pub height_auto: Option<bool>,
-    pub min_width: Option<usize>,
-    pub max_width: Option<usize>,
-    pub min_height: Option<usize>,
-    pub max_height: Option<usize>,
+
+    // --- Spacing ---
+    pub margin: Option<Spacing>,
+    pub padding: Option<Spacing>,
+
+    // --- Size (Scalar-based) ---
+    pub width: Option<Scalar>,
+    pub height: Option<Scalar>,
+    pub min_width: Option<Scalar>,
+    pub max_width: Option<Scalar>,
+    pub min_height: Option<Scalar>,
+    pub max_height: Option<Scalar>,
+
+    // --- Layout ---
+    pub layout: Option<Layout>,
+    pub display: Option<Display>,
+    pub visibility: Option<Visibility>,
+    pub overflow: Option<Overflow>,
+    pub dock: Option<Dock>,
+
+    // --- Alignment ---
+    pub text_align: Option<TextAlign>,
+    pub content_align: Option<ContentAlign>,
+    pub align: Option<Align>,
+    pub offset: Option<Offset>,
+
+    // --- Pointer ---
+    pub pointer: Option<Pointer>,
+
+    // --- Layer ---
+    pub layer: Option<String>,
+
+    // --- Transitions ---
     pub transition_duration: Option<Duration>,
     pub transition_delay: Option<Duration>,
     pub transition_timing: Option<TransitionTiming>,
@@ -647,6 +849,8 @@ impl Style {
     pub fn new() -> Self {
         Self::default()
     }
+
+    // --- Text / color builders ---
 
     pub fn fg(mut self, color: Color) -> Self {
         self.fg = Some(color);
@@ -700,18 +904,10 @@ impl Style {
         self
     }
 
+    // --- Border builders ---
+
     pub fn border(mut self, value: bool) -> Self {
         self.border = Some(value);
-        self
-    }
-
-    pub fn margin(mut self, margin: Margin) -> Self {
-        self.margin = Some(margin);
-        self
-    }
-
-    pub fn line_pad(mut self, value: usize) -> Self {
-        self.line_pad = Some(value);
         self
     }
 
@@ -747,41 +943,60 @@ impl Style {
         self
     }
 
-    pub fn width(mut self, value: usize) -> Self {
-        let value = value.max(1);
-        self.width_auto = Some(false);
+    // --- Spacing builders ---
+
+    pub fn margin(mut self, margin: Spacing) -> Self {
+        self.margin = Some(margin);
+        self
+    }
+
+    pub fn padding(mut self, padding: Spacing) -> Self {
+        self.padding = Some(padding);
+        self
+    }
+
+    /// Backward-compatible builder: `line_pad` was horizontal padding applied
+    /// to each content line. Maps to `padding.left` + `padding.right`.
+    pub fn line_pad(mut self, value: usize) -> Self {
+        let v = value as u16;
+        let current = self.padding.unwrap_or_default();
+        self.padding = Some(Spacing::new(current.top, v, current.bottom, v));
+        self
+    }
+
+    // --- Size builders (Scalar-based) ---
+
+    pub fn width(mut self, value: Scalar) -> Self {
+        self.width = Some(value);
+        self
+    }
+
+    pub fn height(mut self, value: Scalar) -> Self {
+        self.height = Some(value);
+        self
+    }
+
+    pub fn min_width(mut self, value: Scalar) -> Self {
         self.min_width = Some(value);
+        self
+    }
+
+    pub fn max_width(mut self, value: Scalar) -> Self {
         self.max_width = Some(value);
         self
     }
 
-    pub fn height(mut self, value: usize) -> Self {
-        let value = value.max(1);
-        self.height_auto = Some(false);
+    pub fn min_height(mut self, value: Scalar) -> Self {
         self.min_height = Some(value);
+        self
+    }
+
+    pub fn max_height(mut self, value: Scalar) -> Self {
         self.max_height = Some(value);
         self
     }
 
-    pub fn min_width(mut self, value: usize) -> Self {
-        self.min_width = Some(value.max(1));
-        self
-    }
-
-    pub fn max_width(mut self, value: usize) -> Self {
-        self.max_width = Some(value.max(1));
-        self
-    }
-
-    pub fn min_height(mut self, value: usize) -> Self {
-        self.min_height = Some(value.max(1));
-        self
-    }
-
-    pub fn max_height(mut self, value: usize) -> Self {
-        self.max_height = Some(value.max(1));
-        self
-    }
+    // --- Transition builders ---
 
     pub fn transition_duration(mut self, value: Duration) -> Self {
         self.transition_duration = Some(value);
@@ -797,6 +1012,8 @@ impl Style {
         self.transition_timing = Some(value);
         self
     }
+
+    // --- Cascade: `other` overrides `self` for any field that is `Some` ---
 
     pub fn combine(&self, other: &Style) -> Style {
         let (fg, fg_auto) = if let Some(color) = other.fg {
@@ -819,8 +1036,6 @@ impl Style {
             underline: other.underline.or(self.underline),
             reverse: other.reverse.or(self.reverse),
             border: other.border.or(self.border),
-            margin: other.margin.or(self.margin),
-            line_pad: other.line_pad.or(self.line_pad),
             border_top: if other.border_top != BorderEdge::Unset {
                 other.border_top
             } else {
@@ -843,17 +1058,32 @@ impl Style {
             },
             tint: other.tint.or(self.tint),
             background_tint: other.background_tint.or(self.background_tint),
-            width_auto: other.width_auto.or(self.width_auto),
-            height_auto: other.height_auto.or(self.height_auto),
+            margin: other.margin.or(self.margin),
+            padding: other.padding.or(self.padding),
+            width: other.width.or(self.width),
+            height: other.height.or(self.height),
             min_width: other.min_width.or(self.min_width),
             max_width: other.max_width.or(self.max_width),
             min_height: other.min_height.or(self.min_height),
             max_height: other.max_height.or(self.max_height),
+            layout: other.layout.or(self.layout),
+            display: other.display.or(self.display),
+            visibility: other.visibility.or(self.visibility),
+            overflow: other.overflow.or(self.overflow),
+            dock: other.dock.or(self.dock),
+            text_align: other.text_align.or(self.text_align),
+            content_align: other.content_align.or(self.content_align),
+            align: other.align.or(self.align),
+            offset: other.offset.or(self.offset),
+            pointer: other.pointer.or(self.pointer),
+            layer: other.layer.clone().or_else(|| self.layer.clone()),
             transition_duration: other.transition_duration.or(self.transition_duration),
             transition_delay: other.transition_delay.or(self.transition_delay),
             transition_timing: other.transition_timing.or(self.transition_timing),
         }
     }
+
+    // --- Inheritance: inheritable properties fall through from parent ---
 
     pub fn inherit_from(&self, parent: &Style) -> Style {
         let (fg, fg_auto) = if let Some(color) = self.fg {
@@ -871,9 +1101,7 @@ impl Style {
         Style {
             fg,
             fg_auto,
-            // Background color is not an inherited CSS property.
-            // Child widgets/components should remain transparent unless they
-            // explicitly set `bg`.
+            // bg is NOT inherited (CSS semantics).
             bg: self.bg,
             text_opacity: self.text_opacity.or(parent.text_opacity),
             opacity: self.opacity.or(parent.opacity),
@@ -882,29 +1110,62 @@ impl Style {
             italic: self.italic.or(parent.italic),
             underline: self.underline.or(parent.underline),
             reverse: self.reverse.or(parent.reverse),
+            // border edges are NOT inherited.
             border: self.border.or(parent.border),
-            margin: self.margin,
-            line_pad: self.line_pad,
             border_top: self.border_top,
             border_right: self.border_right,
             border_bottom: self.border_bottom,
             border_left: self.border_left,
             tint: self.tint,
             background_tint: self.background_tint,
-            width_auto: self.width_auto,
-            height_auto: self.height_auto,
+            // margin, padding are NOT inherited.
+            margin: self.margin,
+            padding: self.padding,
+            // size fields are NOT inherited.
+            width: self.width,
+            height: self.height,
             min_width: self.min_width,
             max_width: self.max_width,
             min_height: self.min_height,
             max_height: self.max_height,
+            // layout/display/dock/overflow/visibility are NOT inherited.
+            layout: self.layout,
+            display: self.display,
+            visibility: self.visibility,
+            overflow: self.overflow,
+            dock: self.dock,
+            // text_align IS inherited (CSS semantics).
+            text_align: self.text_align.or(parent.text_align),
+            // content_align, align, offset are NOT inherited.
+            content_align: self.content_align,
+            align: self.align,
+            offset: self.offset,
+            pointer: self.pointer,
+            layer: self.layer.clone(),
             transition_duration: self.transition_duration,
             transition_delay: self.transition_delay,
             transition_timing: self.transition_timing,
         }
     }
 
+    // --- Conversion to rich-rs rendering style ---
+
+    /// Returns `true` if any text-rendering attribute (fg, bg, bold, etc.) is set.
+    /// Used by `to_rich()` to avoid returning an empty `rich_rs::Style` when only
+    /// layout/size/pointer fields are present.
+    fn has_rich_text_attrs(&self) -> bool {
+        self.fg.is_some()
+            || self.fg_auto.is_some()
+            || self.bg.is_some()
+            || self.bold.is_some()
+            || self.dim.is_some()
+            || self.italic.is_some()
+            || self.underline.is_some()
+            || self.reverse.is_some()
+    }
+
     pub fn to_rich(&self) -> Option<rich_rs::Style> {
-        if self.is_empty() {
+        if !self.has_rich_text_attrs() {
             return None;
         }
         let mut style = rich_rs::Style::new();
@@ -933,7 +1194,12 @@ impl Style {
     }
 
     pub fn to_rich_without_colors(&self) -> Option<rich_rs::Style> {
-        if self.is_empty() {
+        if self.bold.is_none()
+            && self.dim.is_none()
+            && self.italic.is_none()
+            && self.underline.is_none()
+            && self.reverse.is_none()
+        {
             return None;
         }
         let mut style = rich_rs::Style::new();
@@ -967,64 +1233,39 @@ impl Style {
             && self.underline.is_none()
             && self.reverse.is_none()
             && self.border.is_none()
-            && self.margin.is_none()
-            && self.line_pad.is_none()
             && self.border_top == BorderEdge::Unset
             && self.border_right == BorderEdge::Unset
             && self.border_bottom == BorderEdge::Unset
             && self.border_left == BorderEdge::Unset
             && self.tint.is_none()
             && self.background_tint.is_none()
-            && self.width_auto.is_none()
-            && self.height_auto.is_none()
+            && self.margin.is_none()
+            && self.padding.is_none()
+            && self.width.is_none()
+            && self.height.is_none()
             && self.min_width.is_none()
             && self.max_width.is_none()
             && self.min_height.is_none()
             && self.max_height.is_none()
+            && self.layout.is_none()
+            && self.display.is_none()
+            && self.visibility.is_none()
+            && self.overflow.is_none()
+            && self.dock.is_none()
+            && self.text_align.is_none()
+            && self.content_align.is_none()
+            && self.align.is_none()
+            && self.offset.is_none()
+            && self.pointer.is_none()
+            && self.layer.is_none()
             && self.transition_duration.is_none()
             && self.transition_delay.is_none()
             && self.transition_timing.is_none()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Margin {
-    pub top: usize,
-    pub right: usize,
-    pub bottom: usize,
-    pub left: usize,
-}
 
-impl Margin {
-    pub fn all(value: usize) -> Self {
-        Self {
-            top: value,
-            right: value,
-            bottom: value,
-            left: value,
-        }
-    }
-
-    pub fn vertical_horizontal(vertical: usize, horizontal: usize) -> Self {
-        Self {
-            top: vertical,
-            bottom: vertical,
-            left: horizontal,
-            right: horizontal,
-        }
-    }
-
-    pub fn new(top: usize, right: usize, bottom: usize, left: usize) -> Self {
-        Self {
-            top,
-            right,
-            bottom,
-            left,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Theme {
     pub base: Style,
 }
@@ -1055,7 +1296,9 @@ impl Default for Theme {
 
 #[cfg(test)]
 mod tests {
-    use super::{AutoColor, Color, Style};
+    use super::*;
+
+    // ---- Existing foreground combine tests (kept) ----
 
     #[test]
     fn combine_prefers_auto_foreground_over_prior_concrete_foreground() {
@@ -1073,5 +1316,189 @@ mod tests {
         let combined = base.combine(&variant);
         assert_eq!(combined.fg, Some(Color::rgb(20, 20, 20)));
         assert_eq!(combined.fg_auto, None);
+    }
+
+    // ---- Scalar resolve_scalar tests ----
+
+    #[test]
+    fn resolve_scalar_auto_returns_zero() {
+        assert_eq!(resolve_scalar(&Scalar::Auto, 100, 200, 0.0, 0), 0);
+    }
+
+    #[test]
+    fn resolve_scalar_cells() {
+        assert_eq!(resolve_scalar(&Scalar::Cells(42), 100, 200, 0.0, 0), 42);
+    }
+
+    #[test]
+    fn resolve_scalar_percent() {
+        assert_eq!(resolve_scalar(&Scalar::Percent(50.0), 80, 200, 0.0, 0), 40);
+        assert_eq!(resolve_scalar(&Scalar::Percent(100.0), 80, 200, 0.0, 0), 80);
+        assert_eq!(resolve_scalar(&Scalar::Percent(33.3), 100, 200, 0.0, 0), 33);
+    }
+
+    #[test]
+    fn resolve_scalar_fraction() {
+        // 1fr out of 3fr total, with 90 available → 30
+        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 3.0, 90), 30);
+        // 2fr out of 3fr total, with 90 available → 60
+        assert_eq!(resolve_scalar(&Scalar::Fraction(2.0), 0, 0, 3.0, 90), 60);
+        // 0 total fr → 0
+        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 0.0, 90), 0);
+    }
+
+    #[test]
+    fn resolve_scalar_view_width() {
+        assert_eq!(resolve_scalar(&Scalar::ViewWidth(50.0), 0, 120, 0.0, 0), 60);
+    }
+
+    #[test]
+    fn resolve_scalar_view_height() {
+        assert_eq!(resolve_scalar(&Scalar::ViewHeight(25.0), 0, 200, 0.0, 0), 50);
+    }
+
+    // ---- Spacing tests ----
+
+    #[test]
+    fn spacing_default_is_zero() {
+        let s = Spacing::default();
+        assert_eq!(s.top, 0);
+        assert_eq!(s.right, 0);
+        assert_eq!(s.bottom, 0);
+        assert_eq!(s.left, 0);
+    }
+
+    #[test]
+    fn spacing_all() {
+        let s = Spacing::all(5);
+        assert_eq!((s.top, s.right, s.bottom, s.left), (5, 5, 5, 5));
+    }
+
+    #[test]
+    fn spacing_vertical_horizontal() {
+        let s = Spacing::vertical_horizontal(2, 4);
+        assert_eq!((s.top, s.right, s.bottom, s.left), (2, 4, 2, 4));
+    }
+
+    #[test]
+    fn spacing_new() {
+        let s = Spacing::new(1, 2, 3, 4);
+        assert_eq!((s.top, s.right, s.bottom, s.left), (1, 2, 3, 4));
+    }
+
+    #[test]
+    fn margin_alias_works() {
+        let m: Margin = Spacing::all(3);
+        assert_eq!(m.top, 3);
+    }
+
+    // ---- Style::combine with new fields ----
+
+    #[test]
+    fn combine_new_layout_fields() {
+        let base = {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Vertical);
+            s.display = Some(Display::Block);
+            s.text_align = Some(TextAlign::Left);
+            s
+        };
+        let overlay = {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Horizontal);
+            s.text_align = Some(TextAlign::Center);
+            s
+        };
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.layout, Some(Layout::Horizontal));
+        assert_eq!(combined.display, Some(Display::Block)); // kept from base
+        assert_eq!(combined.text_align, Some(TextAlign::Center)); // overridden
+    }
+
+    #[test]
+    fn combine_scalar_fields() {
+        let base = Style::new().width(Scalar::Cells(40));
+        let overlay = Style::new().width(Scalar::Percent(50.0));
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.width, Some(Scalar::Percent(50.0)));
+    }
+
+    #[test]
+    fn combine_layer_string() {
+        let base = {
+            let mut s = Style::new();
+            s.layer = Some("base".to_string());
+            s
+        };
+        let overlay = {
+            let mut s = Style::new();
+            s.layer = Some("overlay".to_string());
+            s
+        };
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.layer.as_deref(), Some("overlay"));
+
+        // If overlay has no layer, base is preserved.
+        let empty_overlay = Style::new();
+        let combined2 = base.combine(&empty_overlay);
+        assert_eq!(combined2.layer.as_deref(), Some("base"));
+    }
+
+    // ---- Style::inherit_from with text_align inheritance ----
+
+    #[test]
+    fn inherit_text_align() {
+        let parent = {
+            let mut s = Style::new();
+            s.text_align = Some(TextAlign::Right);
+            s
+        };
+        let child = Style::new();
+        let inherited = child.inherit_from(&parent);
+        assert_eq!(inherited.text_align, Some(TextAlign::Right));
+    }
+
+    #[test]
+    fn inherit_layout_does_not_inherit() {
+        let parent = {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Horizontal);
+            s.display = Some(Display::None);
+            s.visibility = Some(Visibility::Hidden);
+            s.dock = Some(Dock::Top);
+            s
+        };
+        let child = Style::new();
+        let inherited = child.inherit_from(&parent);
+        assert_eq!(inherited.layout, None);
+        assert_eq!(inherited.display, None);
+        assert_eq!(inherited.visibility, None);
+        assert_eq!(inherited.dock, None);
+    }
+
+    // ---- Style::is_empty ----
+
+    #[test]
+    fn default_style_is_empty() {
+        assert!(Style::new().is_empty());
+    }
+
+    #[test]
+    fn style_with_new_field_is_not_empty() {
+        let mut s = Style::new();
+        s.layout = Some(Layout::Grid);
+        assert!(!s.is_empty());
+    }
+
+    // ---- Scalar edge cases ----
+
+    #[test]
+    fn scalar_percent_zero() {
+        assert_eq!(resolve_scalar(&Scalar::Percent(0.0), 100, 200, 0.0, 0), 0);
+    }
+
+    #[test]
+    fn scalar_cells_zero() {
+        assert_eq!(resolve_scalar(&Scalar::Cells(0), 100, 200, 0.0, 0), 0);
     }
 }

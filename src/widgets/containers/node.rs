@@ -102,7 +102,7 @@ impl Widget for Node {
     }
 
     fn style(&self) -> Option<Style> {
-        Some(self.styles.style)
+        Some(self.styles.style.clone())
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

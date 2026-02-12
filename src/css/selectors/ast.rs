@@ -14,6 +14,12 @@ pub enum PseudoClass {
     Focus,
     Hover,
     Active,
+    Dark,
+    Light,
+    Even,
+    Odd,
+    FirstChild,
+    LastChild,
 }
 
 impl StyleSelector {
@@ -70,13 +76,13 @@ pub(crate) struct SelectorChain {
     pub(crate) combinators: Vec<Combinator>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StyleRule {
     pub(super) selector_chain: SelectorChain,
     pub(super) style: Style,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StyleSheet {
     pub(super) rules: Vec<StyleRule>,
 }
@@ -123,7 +129,7 @@ impl StyleRule {
     }
 
     pub(crate) fn style(&self) -> Style {
-        self.style
+        self.style.clone()
     }
 }
 
@@ -166,4 +172,7 @@ pub(super) struct SelectorStates {
     pub(super) focused: bool,
     pub(super) hovered: bool,
     pub(super) active: bool,
+    pub(super) dark: bool,
+    pub(super) child_index: Option<usize>,
+    pub(super) sibling_count: Option<usize>,
 }

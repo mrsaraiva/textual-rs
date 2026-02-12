@@ -115,7 +115,7 @@ pub trait Widget: Send + Sync {
         };
         let resolved = crate::css::resolve_style(self, &meta);
         let parent_style = crate::css::current_parent_style();
-        let line_pad = resolved.line_pad.unwrap_or(0);
+        let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
         let full_width = options.size.0.max(1);
         let full_height = options.size.1.max(1);
         let (border_top, border_bottom, border_left, border_right) =
@@ -136,7 +136,7 @@ pub trait Widget: Send + Sync {
         content_options.max_width = content_width;
         content_options.max_height = content_height;
 
-        let segments = crate::css::with_style_stack(meta, resolved, || match debug {
+        let segments = crate::css::with_style_stack(meta, resolved.clone(), || match debug {
             Some(debug) => self.render_with_debug(console, &content_options, debug),
             None => self.render(console, &content_options),
         });
@@ -153,12 +153,12 @@ pub trait Widget: Send + Sync {
         };
 
         let styled =
-            crate::css::apply_style_to_segments(_node_id, segments, resolved, parent_style);
+            crate::css::apply_style_to_segments(_node_id, segments, resolved.clone(), parent_style.clone());
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,
-            resolved,
-            parent_style,
+            resolved.clone(),
+            parent_style.clone(),
             full_width,
             full_height,
             &debug_widget_label,
@@ -251,7 +251,7 @@ pub trait Widget: Send + Sync {
             .unwrap_or_default()
     }
     fn style(&self) -> Option<Style> {
-        self.styles().map(|styles| styles.style)
+        self.styles().map(|styles| styles.style.clone())
     }
     fn styles(&self) -> Option<&WidgetStyles> {
         None
@@ -459,31 +459,31 @@ impl WidgetStyles {
     }
 
     pub fn set_fg(&mut self, color: Color) {
-        self.style = self.style.fg(color);
+        self.style = std::mem::take(&mut self.style).fg(color);
     }
 
     pub fn set_bg(&mut self, color: Color) {
-        self.style = self.style.bg(color);
+        self.style = std::mem::take(&mut self.style).bg(color);
     }
 
     pub fn set_bold(&mut self, value: bool) {
-        self.style = self.style.bold(value);
+        self.style = std::mem::take(&mut self.style).bold(value);
     }
 
     pub fn set_dim(&mut self, value: bool) {
-        self.style = self.style.dim(value);
+        self.style = std::mem::take(&mut self.style).dim(value);
     }
 
     pub fn set_italic(&mut self, value: bool) {
-        self.style = self.style.italic(value);
+        self.style = std::mem::take(&mut self.style).italic(value);
     }
 
     pub fn set_underline(&mut self, value: bool) {
-        self.style = self.style.underline(value);
+        self.style = std::mem::take(&mut self.style).underline(value);
     }
 
     pub fn set_border(&mut self, value: bool) {
-        self.style = self.style.border(value);
+        self.style = std::mem::take(&mut self.style).border(value);
     }
 
     pub fn width(mut self, value: usize) -> Self {
