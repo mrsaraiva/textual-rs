@@ -8,6 +8,8 @@
 //! is planned for P4-08.
 
 use crate::event::EventCtx;
+use crate::node_id::NodeId;
+use crate::widget_tree::WidgetTree;
 
 // ── Core types ───────────────────────────────────────────────────────────────
 
@@ -46,6 +48,15 @@ pub struct ParsedAction {
 /// Implementors declare which actions they support via [`action_registry`] and
 /// execute them in [`execute_action`].
 pub trait ActionHandler {
+    /// The namespace this handler owns (e.g. `"app"`, `"screen"`).
+    ///
+    /// Used by [`resolve_action`] to route namespaced actions like `"app.quit"`.
+    /// Returns `""` by default (no namespace — the handler participates in
+    /// bubble resolution only).
+    fn action_namespace(&self) -> &str {
+        ""
+    }
+
     /// Return the list of actions this widget/app handles.
     fn action_registry(&self) -> &[ActionDecl] {
         &[]
@@ -226,6 +237,70 @@ fn parse_arguments(input: &str) -> Option<Vec<String>> {
 /// Look up an [`ActionDecl`] by name within a registry slice.
 pub fn find_action<'a>(registry: &'a [ActionDecl], name: &str) -> Option<&'a ActionDecl> {
     registry.iter().find(|a| a.name == name)
+}
+
+// ── Namespace resolution ────────────────────────────────────────────────────
+
+/// Result of resolving a [`ParsedAction`] to its handler in the widget tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedAction {
+    /// The tree node that will handle the action.
+    pub node: NodeId,
+    /// Copy of the matching action declaration.
+    pub decl: ActionDecl,
+}
+
+/// Resolve a [`ParsedAction`] to the widget that should handle it.
+///
+/// Walks from `focused` toward the tree root:
+///
+/// - **Namespaced** (e.g. `"app.quit"`): finds the first ancestor whose
+///   namespace matches, then looks up the action in its registry. If the
+///   namespace matches but the action is not in the registry, resolution
+///   stops and returns `None` (the namespace is an explicit routing
+///   directive).
+/// - **Unnamespaced** (e.g. `"toggle_dark"`): bubbles from `focused` to
+///   root, returning the first handler whose registry contains the action
+///   name.
+///
+/// `get_node_actions` is called once per visited node. It should return
+/// `Some((namespace, registry))` if the node can handle actions, or `None`
+/// to skip the node.
+pub fn resolve_action<'a>(
+    action: &ParsedAction,
+    tree: &WidgetTree,
+    focused: NodeId,
+    get_node_actions: impl Fn(NodeId) -> Option<(&'a str, &'a [ActionDecl])>,
+) -> Option<ResolvedAction> {
+    // Walk chain: focused → parent → … → root.
+    let mut chain = vec![focused];
+    chain.extend(tree.ancestors(focused));
+
+    match &action.namespace {
+        Some(ns) => {
+            // Namespaced: find the first node whose namespace matches.
+            for &node in &chain {
+                if let Some((node_ns, registry)) = get_node_actions(node)
+                    && node_ns == ns.as_str()
+                {
+                    return find_action(registry, &action.name)
+                        .map(|decl| ResolvedAction { node, decl: *decl });
+                }
+            }
+            None
+        }
+        None => {
+            // Unnamespaced: first handler with the action in its registry wins.
+            for &node in &chain {
+                if let Some((_ns, registry)) = get_node_actions(node)
+                    && let Some(decl) = find_action(registry, &action.name)
+                {
+                    return Some(ResolvedAction { node, decl: *decl });
+                }
+            }
+            None
+        }
+    }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -496,5 +571,195 @@ mod tests {
     #[test]
     fn parse_action_unclosed_quote_in_args_returns_none() {
         assert!(parse_action("focus('sidebar)").is_none());
+    }
+
+    // ── ActionHandler::action_namespace default ─────────────────────────
+
+    #[test]
+    fn default_action_namespace_is_empty() {
+        struct Dummy;
+        impl ActionHandler for Dummy {}
+        let d = Dummy;
+        assert_eq!(d.action_namespace(), "");
+    }
+
+    #[test]
+    fn custom_action_namespace() {
+        struct AppHandler;
+        impl ActionHandler for AppHandler {
+            fn action_namespace(&self) -> &str {
+                "app"
+            }
+        }
+        let h = AppHandler;
+        assert_eq!(h.action_namespace(), "app");
+    }
+}
+
+// ── resolve_action tests ────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use crate::widget_tree::WidgetTree;
+    use crate::widgets::Widget;
+    use rich_rs::{Console, ConsoleOptions, Segments};
+    use std::collections::HashMap;
+
+    // -- Minimal widget for tree construction ---------------------------------
+
+    struct DummyWidget;
+
+    impl Widget for DummyWidget {
+        fn render(&self, _: &Console, _: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
+
+    // -- Test action declarations ---------------------------------------------
+
+    static APP_DECLS: &[ActionDecl] = &[
+        ActionDecl {
+            name: "quit",
+            namespace: "app",
+            description: "Quit",
+            default_binding: None,
+        },
+        ActionDecl {
+            name: "toggle_dark",
+            namespace: "app",
+            description: "Toggle dark",
+            default_binding: None,
+        },
+    ];
+
+    static WIDGET_DECLS: &[ActionDecl] = &[ActionDecl {
+        name: "do_thing",
+        namespace: "widget",
+        description: "Do a thing",
+        default_binding: None,
+    }];
+
+    // -- Helper: build a 3-node tree (root → mid → leaf) ---------------------
+
+    fn make_tree_3() -> (WidgetTree, NodeId, NodeId, NodeId) {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(DummyWidget));
+        let mid = tree.mount(root, Box::new(DummyWidget));
+        let leaf = tree.mount(mid, Box::new(DummyWidget));
+        (tree, root, mid, leaf)
+    }
+
+    // -- Helper: provider closure from a HashMap ------------------------------
+
+    type ActionMap = HashMap<NodeId, (&'static str, &'static [ActionDecl])>;
+
+    fn provider(
+        map: &ActionMap,
+    ) -> impl Fn(NodeId) -> Option<(&'static str, &'static [ActionDecl])> + '_ {
+        move |node| map.get(&node).copied()
+    }
+
+    // -- Tests ----------------------------------------------------------------
+
+    #[test]
+    fn resolve_unnamespaced_bubbles_to_first_handler() {
+        let (tree, root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(root, ("app", APP_DECLS));
+
+        let action = parse_action("quit").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+
+        let resolved = result.unwrap();
+        assert_eq!(resolved.node, root);
+        assert_eq!(resolved.decl.name, "quit");
+    }
+
+    #[test]
+    fn resolve_namespaced_goes_to_matching_namespace() {
+        let (tree, root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(root, ("app", APP_DECLS));
+
+        let action = parse_action("app.toggle_dark").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+
+        let resolved = result.unwrap();
+        assert_eq!(resolved.node, root);
+        assert_eq!(resolved.decl.name, "toggle_dark");
+    }
+
+    #[test]
+    fn resolve_unknown_action_returns_none() {
+        let (tree, root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(root, ("app", APP_DECLS));
+
+        let action = parse_action("nonexistent").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_multiple_handlers_first_ancestor_wins() {
+        let (tree, root, mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        // Both mid and root have "quit" in their registry.
+        map.insert(mid, ("", APP_DECLS));
+        map.insert(root, ("app", APP_DECLS));
+
+        let action = parse_action("quit").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+
+        // mid is closer to leaf, so it wins.
+        let resolved = result.unwrap();
+        assert_eq!(resolved.node, mid);
+    }
+
+    #[test]
+    fn resolve_namespaced_unknown_namespace_returns_none() {
+        let (tree, root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(root, ("app", APP_DECLS));
+
+        let action = parse_action("screen.push").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_namespaced_action_not_in_registry_returns_none() {
+        let (tree, root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(root, ("app", APP_DECLS));
+
+        // Namespace "app" matches root, but "nonexistent" is not in its registry.
+        let action = parse_action("app.nonexistent").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_focused_node_itself_can_handle() {
+        let (tree, _root, _mid, leaf) = make_tree_3();
+        let mut map = ActionMap::new();
+        map.insert(leaf, ("widget", WIDGET_DECLS));
+
+        let action = parse_action("do_thing").unwrap();
+        let result = resolve_action(&action, &tree, leaf, provider(&map));
+
+        let resolved = result.unwrap();
+        assert_eq!(resolved.node, leaf);
+        assert_eq!(resolved.decl.name, "do_thing");
+    }
+
+    #[test]
+    fn resolve_no_handlers_returns_none() {
+        let (tree, _root, _mid, leaf) = make_tree_3();
+        // Empty provider — no node handles actions.
+        let action = parse_action("quit").unwrap();
+        let result = resolve_action(&action, &tree, leaf, |_| None);
+        assert!(result.is_none());
     }
 }

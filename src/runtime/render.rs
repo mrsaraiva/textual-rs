@@ -395,6 +395,9 @@ pub(crate) fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
         None => return,
     };
 
+    // Sync CSS display/visibility values to WidgetNode fields before layout.
+    crate::css::apply_display_visibility_to_tree(tree);
+
     let available = crate::layout::Region::new(0, 0, viewport.0, viewport.1);
 
     // Set root's own rects to the full viewport.
@@ -453,8 +456,9 @@ pub(crate) fn render_tree_scaffold(
 /// Walk visible nodes in depth-first order and collect render metadata.
 ///
 /// Returns a list of `(NodeId, bool)` pairs — `true` if the node should
-/// be rendered (displayed + has a widget), `false` if hidden. This is a
-/// building block for the full tree-driven render loop.
+/// be rendered (displayed + visible), `false` if hidden via `display:none`
+/// or `visibility:hidden`. Nodes with `visibility:hidden` still participate
+/// in layout (their space is preserved) but produce no rendered output.
 pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     let root = match tree.root() {
         Some(r) => r,
@@ -463,11 +467,14 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     tree.walk_depth_first(root)
         .into_iter()
         .map(|id| {
-            let visible = tree
+            let render = tree
                 .get(id)
-                .map(|node| node.display)
+                .map(|node| {
+                    node.display
+                        && node.visibility == crate::style::Visibility::Visible
+                })
                 .unwrap_or(false);
-            (id, visible)
+            (id, render)
         })
         .collect()
 }

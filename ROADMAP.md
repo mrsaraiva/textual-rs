@@ -78,13 +78,15 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Done | Event types | Key, MouseDown, MouseUp, Enter, Leave, Click, Paste, Tick, Resize, Action |
+| Done | Event types | Key, MouseDown, MouseUp, Enter, Leave, Click, Paste, Mount, Unmount, Ready, Focus, Blur, Tick, Resize, Action |
 | Done | Event routing | Capture phase (`on_event_capture`) + bubble phase (`on_event`) |
 | Done | Focus system | Tab/Shift-Tab traversal, `focusable()`, focus-on-click, focus chain logging |
 | Done | Key bindings | `ActionMap` with default bindings (arrows, hjkl, space/enter, tab, page up/down) |
 | Done | Resize handling | `on_resize` propagated to tree; framebuffer reset + sync output to prevent tearing |
 | Done | Mouse hover + pointer | Hit-testing via framebuffer metadata; hover state propagation; Kitty pointer shape feedback |
-| Done | String action system | `ActionDecl` + `ActionHandler` trait + `parse_action()` parser + `APP_ACTIONS` built-in declarations. Runtime dispatch deferred (P4-08). |
+| Done | String action system | `ActionDecl` + `ActionHandler` trait + `parse_action()` parser + `APP_ACTIONS` built-in declarations + `resolve_action()` namespace resolution (bubble from focused to root). |
+| Done | CSS display/visibility/overflow | `display: none` hides from render+layout, `visibility: hidden` hides from render but preserves layout, `overflow` controls ScrollView scrollbar behavior. |
+| Done | Message envelope | `MessageEnvelope` with `stop()`, `prevent_default()`, `can_replace()` propagation control. Dispatch integration deferred (P4-02). |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 

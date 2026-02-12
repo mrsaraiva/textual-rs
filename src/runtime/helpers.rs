@@ -139,7 +139,11 @@ pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
         .into_iter()
         .filter(|&id| {
             tree.get(id)
-                .map(|node| node.display && node.widget.focusable())
+                .map(|node| {
+                    node.display
+                        && node.visibility == crate::style::Visibility::Visible
+                        && node.widget.focusable()
+                })
                 .unwrap_or(false)
         })
         .collect()

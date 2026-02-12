@@ -1,8 +1,8 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::{debug_input, debug_render};
 use crate::event::{
-    Action, AnimationRequest, AnimationValueEvent, Event, EventCtx, MouseDownEvent,
-    MouseScrollEvent, MouseUpEvent,
+    Action, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx, FocusEvent,
+    MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent, UnmountEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
@@ -785,6 +785,56 @@ impl App {
         self.apply_layout_info_to_tree();
         self.publish_devtools_snapshot(root);
         pending_invalidation = PendingInvalidation::default();
+
+        // Dispatch initial Mount events for all tree nodes after first render.
+        let initial_mount_nodes: Vec<NodeId> = self
+            .widget_tree
+            .as_ref()
+            .and_then(|tree| tree.root().map(|r| tree.walk_depth_first(r)))
+            .unwrap_or_default();
+        for node_id in initial_mount_nodes {
+            let mut outcome = self.dispatch_event_to_target_auto(
+                root,
+                node_id,
+                &Event::Mount(MountEvent { node: node_id }),
+            );
+            self.absorb_outcome(
+                &mut outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(
+                &mut msg_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+        }
+
+        // Dispatch Ready event once after the first successful render.
+        {
+            let mut outcome = self.dispatch_event_auto(root, Event::Ready(ReadyEvent));
+            self.absorb_outcome(
+                &mut outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(
+                &mut msg_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+        }
+
+        // Track focused widget for Focus/Blur event dispatch.
+        let mut previous_focus: Option<NodeId> = self
+            .widget_tree
+            .as_ref()
+            .and_then(focused_node_id_tree);
+
         let mut last_render = Instant::now();
 
         'event_loop: loop {
@@ -1226,6 +1276,99 @@ impl App {
             );
             if focused_help_outcome.stop_requested {
                 break 'event_loop;
+            }
+
+            // Drain pending lifecycle events from the tree and dispatch
+            // Mount/Unmount events to affected widgets.
+            let lifecycle_events: Vec<(NodeId, bool)> = self
+                .widget_tree
+                .as_mut()
+                .map(|tree| {
+                    tree.drain_lifecycle()
+                        .into_iter()
+                        .map(|evt| match evt {
+                            crate::widget_tree::LifecycleEvent::Mount { node } => (node, true),
+                            crate::widget_tree::LifecycleEvent::Unmount { node } => (node, false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (node_id, is_mount) in lifecycle_events {
+                let event = if is_mount {
+                    Event::Mount(MountEvent { node: node_id })
+                } else {
+                    Event::Unmount(UnmountEvent { node: node_id })
+                };
+                let mut outcome =
+                    self.dispatch_event_to_target_auto(root, node_id, &event);
+                self.absorb_outcome(
+                    &mut outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                let mut msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
+                self.absorb_outcome(
+                    &mut msg_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if outcome.stop_requested || msg_outcome.stop_requested {
+                    break 'event_loop;
+                }
+            }
+
+            // Detect focus transitions and dispatch Focus/Blur events.
+            let current_focus: Option<NodeId> = self
+                .widget_tree
+                .as_ref()
+                .and_then(focused_node_id_tree);
+            if current_focus != previous_focus {
+                if let Some(old_id) = previous_focus {
+                    let mut blur_outcome = self.dispatch_event_to_target_auto(
+                        root,
+                        old_id,
+                        &Event::Blur(BlurEvent { node: old_id }),
+                    );
+                    self.absorb_outcome(
+                        &mut blur_outcome,
+                        &mut pending_invalidation,
+                        InvalidationScope::Global,
+                    );
+                    let mut msg_outcome =
+                        self.dispatch_message_queue_with_runtime(root, blur_outcome.messages);
+                    self.absorb_outcome(
+                        &mut msg_outcome,
+                        &mut pending_invalidation,
+                        InvalidationScope::Global,
+                    );
+                    if blur_outcome.stop_requested || msg_outcome.stop_requested {
+                        break 'event_loop;
+                    }
+                }
+                if let Some(new_id) = current_focus {
+                    let mut focus_outcome = self.dispatch_event_to_target_auto(
+                        root,
+                        new_id,
+                        &Event::Focus(FocusEvent { node: new_id }),
+                    );
+                    self.absorb_outcome(
+                        &mut focus_outcome,
+                        &mut pending_invalidation,
+                        InvalidationScope::Global,
+                    );
+                    let mut msg_outcome =
+                        self.dispatch_message_queue_with_runtime(root, focus_outcome.messages);
+                    self.absorb_outcome(
+                        &mut msg_outcome,
+                        &mut pending_invalidation,
+                        InvalidationScope::Global,
+                    );
+                    if focus_outcome.stop_requested || msg_outcome.stop_requested {
+                        break 'event_loop;
+                    }
+                }
+                previous_focus = current_focus;
             }
 
             let mut binding_outcome = self.dispatch_binding_hints_changed(root);

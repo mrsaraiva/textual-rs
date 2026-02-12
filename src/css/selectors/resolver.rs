@@ -1,5 +1,6 @@
 use crate::node_id::{NodeId, node_id_from_ffi};
-use crate::style::Style;
+use crate::style::{Display, Style, Visibility};
+use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
 
 use super::ast::{SelectorMeta, SelectorStates, StyleSheet};
@@ -253,6 +254,38 @@ pub(crate) fn begin_style_render_pass() {
 
 pub(crate) fn take_layout_affected_style_changes() -> bool {
     COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().take_layout_affected_change())
+}
+
+/// Walk the tree and sync resolved CSS `display` and `visibility` values
+/// to the corresponding `WidgetNode` fields.
+///
+/// Must be called after the CSS stylesheet context is active so that
+/// `resolve_style` returns correct results. Typically invoked once per
+/// render pass, right after `begin_style_render_pass()`.
+pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return,
+    };
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        let (display_val, visibility_val) = {
+            let Some(node) = tree.get(node_id) else {
+                continue;
+            };
+            let meta = selector_meta_generic(node.widget.as_ref());
+            let style = resolve_style(node.widget.as_ref(), &meta);
+            (style.display, style.visibility)
+        };
+        // Apply display: when CSS says Display::None, set node.display = false.
+        // Otherwise (Block or unset) leave it true.
+        let display_bool = !matches!(display_val, Some(Display::None));
+        tree.set_display(node_id, display_bool);
+
+        // Apply visibility.
+        let vis = visibility_val.unwrap_or(Visibility::Visible);
+        tree.set_visibility(node_id, vis);
+    }
 }
 
 #[cfg(test)]

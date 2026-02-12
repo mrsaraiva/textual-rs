@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 12: CSS display/visibility/overflow + Action resolver + Lifecycle/focus events + MessageEnvelope**
+  - **P2-13 complete:** `display: none` wired end-to-end — CSS resolver syncs resolved Display to WidgetNode.display via `apply_display_visibility_to_tree()`, runs before layout pass. Nodes with display:none are skipped in render + layout.
+  - **P2-14 complete:** `visibility: hidden` — new `visibility` field on WidgetNode (default: Visible). Hidden nodes occupy space but don't render. Excluded from focus chain.
+  - **P2-15 complete:** `overflow` CSS property — parser supports `overflow`, `overflow-x`, `overflow-y` with auto/hidden/scroll values. ScrollView reads overflow from resolved style to suppress scrollbars when `overflow: hidden`.
+  - **P4-08 complete:** Action namespace resolution — `resolve_action()` walks widget tree ancestors to find matching ActionHandler. Supports explicit namespaces (`"app.quit"` → find app handler) and unnamespaced bubble resolution. `ResolvedAction` struct + `action_namespace()` trait method. 8 tests.
+  - **P4-10 complete:** Lifecycle events — `MountEvent`, `UnmountEvent`, `ReadyEvent` structs + Event variants. Dispatched via on_event after existing on_mount/on_unmount callbacks. Ready fires once after first render frame.
+  - **P4-11 complete:** Focus events — `FocusEvent`, `BlurEvent` structs + Event variants. Dispatched on focus transitions with previous-focus tracking.
+  - **P4-01 complete:** `MessageEnvelope` with `stop()`, `prevent_default()`, `can_replace()` propagation control. Types + tests only (dispatch wiring is P4-02). 17 tests.
+  - Build: 0 errors. Tests: 815 passed (+41 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 11: Action system + Layout-render integration + New events + Easing library**
   - **P4-07 complete:** New `src/action.rs` module — `ActionDecl`, `ActionHandler` trait, `ParsedAction` struct, `parse_action()` string parser (namespace.name(args) format), `APP_ACTIONS` built-in declarations (quit, toggle_dark, bell, push_screen, pop_screen, focus, focus_next, focus_previous), `find_action()` lookup. 28 tests.
   - **P2-18a complete:** Layout-render integration — `run_layout_pass()` computes `layout_rect`/`content_rect` for all tree nodes via CSS layout solvers before rendering. `render_tree_scaffold()` uses precomputed rects to set render options. `App::run_layout_pass()` convenience method with automatic stylesheet context.

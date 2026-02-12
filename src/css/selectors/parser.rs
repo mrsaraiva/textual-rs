@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::style::{
-    BorderEdge, BorderType, Display, Dock, Layout, Margin, Scalar, Style, Tint, TransitionTiming,
-    Visibility, parse_auto_color_like, parse_color_like,
+    BorderEdge, BorderType, Display, Dock, Layout, Margin, Overflow, Scalar, Style, Tint,
+    TransitionTiming, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -248,6 +248,9 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             }
             "visibility" => {
                 style.visibility = parse_visibility(value);
+            }
+            "overflow" | "overflow-x" | "overflow-y" => {
+                style.overflow = parse_overflow(value);
             }
             "dock" => {
                 style.dock = parse_dock(value);
@@ -706,6 +709,15 @@ fn parse_visibility(value: &str) -> Option<Visibility> {
     match value.trim().to_lowercase().as_str() {
         "visible" => Some(Visibility::Visible),
         "hidden" => Some(Visibility::Hidden),
+        _ => None,
+    }
+}
+
+fn parse_overflow(value: &str) -> Option<Overflow> {
+    match value.trim().to_lowercase().as_str() {
+        "auto" => Some(Overflow::Auto),
+        "hidden" => Some(Overflow::Hidden),
+        "scroll" => Some(Overflow::Scroll),
         _ => None,
     }
 }

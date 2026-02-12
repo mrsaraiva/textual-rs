@@ -7,9 +7,10 @@ pub use selectors::{
     set_app_active, set_style_context,
 };
 pub(crate) use selectors::{
-    Combinator, SelectorChain, SelectorMeta, apply_style_to_segments,
-    apply_widget_opacity_to_segments, begin_style_render_pass, current_parent_style,
-    parse_selector_list, resolve_component_style, resolve_component_style_with_id, resolve_style,
-    resolve_style_for_meta, selector_meta_component, selector_meta_generic,
-    take_layout_affected_style_changes, with_style_stack,
+    Combinator, SelectorChain, SelectorMeta, apply_display_visibility_to_tree,
+    apply_style_to_segments, apply_widget_opacity_to_segments, begin_style_render_pass,
+    current_parent_style, parse_selector_list, resolve_component_style,
+    resolve_component_style_with_id, resolve_style, resolve_style_for_meta,
+    selector_meta_component, selector_meta_generic, take_layout_affected_style_changes,
+    with_style_stack,
 };

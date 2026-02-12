@@ -78,6 +78,34 @@ pub struct PasteEvent {
     pub text: String,
 }
 
+/// Fired when a widget is mounted into the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MountEvent {
+    pub node: NodeId,
+}
+
+/// Fired when a widget is unmounted from the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnmountEvent {
+    pub node: NodeId,
+}
+
+/// Fired once after the first successful render frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadyEvent;
+
+/// Fired when a widget gains focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusEvent {
+    pub node: NodeId,
+}
+
+/// Fired when a widget loses focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlurEvent {
+    pub node: NodeId,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationLevel {
     None,
@@ -196,6 +224,11 @@ pub enum Event {
     Leave(MouseLeaveEvent),
     Click(ClickEvent),
     Paste(PasteEvent),
+    Mount(MountEvent),
+    Unmount(UnmountEvent),
+    Ready(ReadyEvent),
+    Focus(FocusEvent),
+    Blur(BlurEvent),
     AnimationValue(AnimationValueEvent),
     AppFocus(bool),
     Tick(u64),
@@ -845,6 +878,49 @@ mod tests {
     fn paste_event_empty_text() {
         let e = PasteEvent { text: String::new() };
         assert!(e.text.is_empty());
+    }
+
+    #[test]
+    fn mount_event_construction() {
+        let id = node_id_from_ffi(42);
+        let e = MountEvent { node: id };
+        assert_eq!(e.node, id);
+        let ev = Event::Mount(e);
+        assert!(matches!(ev, Event::Mount(MountEvent { node }) if node == id));
+    }
+
+    #[test]
+    fn unmount_event_construction() {
+        let id = node_id_from_ffi(7);
+        let e = UnmountEvent { node: id };
+        assert_eq!(e.node, id);
+        let ev = Event::Unmount(e);
+        assert!(matches!(ev, Event::Unmount(UnmountEvent { node }) if node == id));
+    }
+
+    #[test]
+    fn ready_event_construction() {
+        let e = ReadyEvent;
+        let ev = Event::Ready(e);
+        assert!(matches!(ev, Event::Ready(ReadyEvent)));
+    }
+
+    #[test]
+    fn focus_event_construction() {
+        let id = node_id_from_ffi(99);
+        let e = FocusEvent { node: id };
+        assert_eq!(e.node, id);
+        let ev = Event::Focus(e);
+        assert!(matches!(ev, Event::Focus(FocusEvent { node }) if node == id));
+    }
+
+    #[test]
+    fn blur_event_construction() {
+        let id = node_id_from_ffi(55);
+        let e = BlurEvent { node: id };
+        assert_eq!(e.node, id);
+        let ev = Event::Blur(e);
+        assert!(matches!(ev, Event::Blur(BlurEvent { node }) if node == id));
     }
 
     #[test]

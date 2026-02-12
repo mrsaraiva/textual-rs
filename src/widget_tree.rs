@@ -14,6 +14,7 @@ use slotmap::SlotMap;
 
 use crate::css::{Combinator, SelectorChain, SelectorMeta, parse_selector_list};
 use crate::node_id::NodeId;
+use crate::style::Visibility;
 use crate::widgets::Widget;
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,9 @@ pub struct WidgetNode {
     pub(crate) classes: HashSet<String>,
     /// Visibility toggle (F15). When `false`, excluded from layout + render.
     pub(crate) display: bool,
+    /// CSS visibility state. When `Hidden`, the node still participates in
+    /// layout but is not rendered (preserves space).
+    pub(crate) visibility: Visibility,
     /// Lifecycle state — `true` after mount, `false` after removal.
     pub(crate) mounted: bool,
     /// Positioned region from layout solver (co-designed with Pillar 2).
@@ -120,6 +124,7 @@ impl WidgetNode {
             children: Vec::new(),
             classes: HashSet::new(),
             display: true,
+            visibility: Visibility::Visible,
             mounted: false,
             layout_rect: Rect::ZERO,
             content_rect: Rect::ZERO,
@@ -435,6 +440,24 @@ impl WidgetTree {
     /// Whether a node is displayed (default: `true`).
     pub fn is_displayed(&self, node: NodeId) -> bool {
         self.arena.get(node).map(|n| n.display).unwrap_or(false)
+    }
+
+    // -- Visibility toggle (P2-14) ------------------------------------------
+
+    /// Set the CSS visibility of a node. When `Hidden`, the node still
+    /// participates in layout but is not rendered (preserves space).
+    pub fn set_visibility(&mut self, node: NodeId, visibility: Visibility) {
+        if let Some(n) = self.arena.get_mut(node) {
+            n.visibility = visibility;
+        }
+    }
+
+    /// Returns the CSS visibility of a node (default: `Visible`).
+    pub fn visibility(&self, node: NodeId) -> Visibility {
+        self.arena
+            .get(node)
+            .map(|n| n.visibility)
+            .unwrap_or(Visibility::Visible)
     }
 
     // -- DOM queries (P1-07) -----------------------------------------------
@@ -979,6 +1002,34 @@ mod tests {
         let tree = WidgetTree::new();
         let bogus = slotmap::KeyData::from_ffi(0xBEEF).into();
         assert!(!tree.is_displayed(bogus));
+    }
+
+    // -- Visibility toggle ---------------------------------------------------
+
+    #[test]
+    fn visibility_default_visible() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        assert_eq!(tree.visibility(root), Visibility::Visible);
+    }
+
+    #[test]
+    fn set_visibility_hidden_and_back() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+
+        tree.set_visibility(root, Visibility::Hidden);
+        assert_eq!(tree.visibility(root), Visibility::Hidden);
+
+        tree.set_visibility(root, Visibility::Visible);
+        assert_eq!(tree.visibility(root), Visibility::Visible);
+    }
+
+    #[test]
+    fn visibility_missing_node_returns_visible() {
+        let tree = WidgetTree::new();
+        let bogus = slotmap::KeyData::from_ffi(0xBEEF).into();
+        assert_eq!(tree.visibility(bogus), Visibility::Visible);
     }
 
     // -- Edge cases ----------------------------------------------------------

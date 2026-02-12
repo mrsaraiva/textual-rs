@@ -14,10 +14,10 @@ pub(crate) use parser::parse_selector_list;
 
 // Crate-internal re-exports
 pub(crate) use resolver::{
-    begin_style_render_pass, current_parent_style, resolve_component_style,
-    resolve_component_style_with_id, resolve_style, resolve_style_for_meta,
-    selector_meta_component, selector_meta_generic, take_layout_affected_style_changes,
-    with_style_stack,
+    apply_display_visibility_to_tree, begin_style_render_pass, current_parent_style,
+    resolve_component_style, resolve_component_style_with_id, resolve_style,
+    resolve_style_for_meta, selector_meta_component, selector_meta_generic,
+    take_layout_affected_style_changes, with_style_stack,
 };
 pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
 
@@ -405,5 +405,65 @@ mod tests {
         let focused = resolve_style(&widget, &selector_meta_generic(&widget));
         assert_eq!(focused.min_width, Some(crate::style::Scalar::Cells(12)));
         assert!(take_layout_affected_style_changes());
+    }
+
+    // -- CSS display / visibility / overflow parsing --------------------------
+
+    #[test]
+    fn parses_display_none_and_block() {
+        let style = parse_style_body("display: none;");
+        assert_eq!(style.display, Some(crate::style::Display::None));
+
+        let style = parse_style_body("display: block;");
+        assert_eq!(style.display, Some(crate::style::Display::Block));
+    }
+
+    #[test]
+    fn parses_visibility_hidden_and_visible() {
+        let style = parse_style_body("visibility: hidden;");
+        assert_eq!(style.visibility, Some(crate::style::Visibility::Hidden));
+
+        let style = parse_style_body("visibility: visible;");
+        assert_eq!(style.visibility, Some(crate::style::Visibility::Visible));
+    }
+
+    #[test]
+    fn parses_overflow_auto_hidden_scroll() {
+        let style = parse_style_body("overflow: auto;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Auto));
+
+        let style = parse_style_body("overflow: hidden;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Hidden));
+
+        let style = parse_style_body("overflow: scroll;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Scroll));
+    }
+
+    #[test]
+    fn parses_overflow_x_and_overflow_y() {
+        let style = parse_style_body("overflow-x: hidden;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Hidden));
+
+        let style = parse_style_body("overflow-y: scroll;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Scroll));
+    }
+
+    #[test]
+    fn overflow_not_inherited() {
+        let parent = parse_style_body("overflow: hidden;");
+        let child = Style::new().inherit_from(&parent);
+        assert_eq!(child.overflow, None);
+    }
+
+    #[test]
+    fn display_none_in_stylesheet_resolves() {
+        let _guard = super::context::set_style_context(StyleSheet::parse(
+            "Probe.hidden { display: none; }",
+        ));
+        let mut widget = ProbeWidget::new();
+        widget.classes.push("hidden".to_string());
+        let meta = selector_meta_generic(&widget);
+        let style = resolve_style(&widget, &meta);
+        assert_eq!(style.display, Some(crate::style::Display::None));
     }
 }
