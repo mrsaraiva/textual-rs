@@ -1,8 +1,8 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::{debug_input, debug_render};
 use crate::event::{
-    Action, AnimationRequest, AnimationValueEvent, Event, MouseDownEvent, MouseScrollEvent,
-    MouseUpEvent,
+    Action, AnimationRequest, AnimationValueEvent, Event, EventCtx, MouseDownEvent,
+    MouseScrollEvent, MouseUpEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
@@ -16,24 +16,24 @@ use std::time::{Duration, Instant};
 use super::App;
 use super::devtools::DevtoolsCommand;
 use super::helpers::{
-    any_widget_active, any_widget_active_tree, call_on_mouse_move_tree,
-    collect_focus_chain_tree, mouse_scroll_deltas, pointer_shape_for_hover_tree,
-    should_quit_key,
+    any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
+    mouse_scroll_deltas, pointer_shape_for_hover_tree, should_quit_key,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
-    active_binding_hints, active_binding_hints_tree, dispatch_event, dispatch_event_to_target,
-    dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue,
-    dispatch_message_queue_tree, dispatch_mouse_scroll, dispatch_mouse_scroll_to_target,
-    dispatch_mouse_scroll_to_target_tree, dispatch_scroll_action, dispatch_scroll_action_tree,
-    focused_help_metadata, focused_help_metadata_tree, focused_node_id_tree, is_priority_action,
-    is_scroll_action,
+    active_binding_hints_tree, dispatch_event, dispatch_event_to_target_tree, dispatch_event_tree,
+    dispatch_message_queue_tree, dispatch_mouse_scroll, dispatch_mouse_scroll_to_target_tree,
+    dispatch_scroll_action_tree, focused_help_metadata_tree, focused_node_id_tree,
+    is_priority_action, is_scroll_action,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 use crate::widgets::Widget;
 
-/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId`.
+///
+/// Used only by `snapshot_for` for CSS invalidation matching during stylesheet
+/// hot-reload. Will be removed when WidgetId is deleted (Phase 3).
 #[allow(deprecated)]
 fn widget_node_id(w: &dyn Widget) -> NodeId {
     node_id_from_ffi(w.id().as_u64())
@@ -719,10 +719,9 @@ impl App {
                 // Focus chain returns NodeIds; we still need to set focus on the
                 // real widget via the old path during migration since the tree
                 // holds stub/compose widgets, not the actual rendered widgets.
-                if let Some(node) = self.widget_tree.as_ref().and_then(|t| t.get(first)) {
-                    let wid = widget_node_id(node.widget.as_ref());
-                    crate::widgets::set_focus_by_id(root, Some(wid));
-                }
+                // Tree-based focus: set_focus_by_id is a stub during migration.
+                // The tree node's widget has focus set via the tree path.
+                crate::widgets::set_focus_by_id(root, Some(first));
             }
         } else {
             let mut ids = Vec::new();
@@ -1466,23 +1465,25 @@ impl App {
         }
     }
 
-    /// Dispatch an event to a specific target via the arena tree (if available).
+    /// Dispatch an event to a specific target via the arena tree.
     ///
-    /// Falls back to legacy `dispatch_event_to_target` when tree is absent.
+    /// Falls back to simple root dispatch when tree is absent.
     fn dispatch_event_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: NodeId,
+        _target: NodeId,
         event: &Event,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            dispatch_event_to_target_tree(tree, target, event)
+            dispatch_event_to_target_tree(tree, _target, event)
         } else {
-            dispatch_event_to_target(root, target, event)
+            dispatch_event(root, event.clone())
         }
     }
 
-    /// Dispatch a scroll action via the arena tree (if available).
+    /// Dispatch a scroll action via the arena tree.
+    ///
+    /// Falls back to simple root dispatch when tree is absent.
     fn dispatch_scroll_action_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -1492,26 +1493,30 @@ impl App {
         if let Some(tree) = self.widget_tree.as_mut() {
             dispatch_scroll_action_tree(tree, action, hovered)
         } else {
-            dispatch_scroll_action(root, action, hovered)
+            dispatch_event(root, Event::Action(action))
         }
     }
 
     /// Dispatch mouse scroll to a specific target via the arena tree.
+    ///
+    /// Falls back to root-only scroll when tree is absent.
     fn dispatch_mouse_scroll_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: NodeId,
+        _target: NodeId,
         delta_x: i32,
         delta_y: i32,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            dispatch_mouse_scroll_to_target_tree(tree, target, delta_x, delta_y)
+            dispatch_mouse_scroll_to_target_tree(tree, _target, delta_x, delta_y)
         } else {
-            dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
+            dispatch_mouse_scroll(root, delta_x, delta_y)
         }
     }
 
-    /// Dispatch a message queue via the arena tree (if available).
+    /// Dispatch a message queue via the arena tree.
+    ///
+    /// Falls back to root-only message delivery when tree is absent.
     fn dispatch_message_queue_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -1520,7 +1525,44 @@ impl App {
         if let Some(tree) = self.widget_tree.as_mut() {
             dispatch_message_queue_tree(tree, initial)
         } else {
-            dispatch_message_queue(root, initial)
+            // Root-only fallback: deliver each message to root.on_message,
+            // re-queuing follow-up messages like the tree-based version.
+            use std::collections::VecDeque;
+            let mut handled = false;
+            let mut repaint_requested = false;
+            let mut invalidation = crate::event::InvalidationFlags::default();
+            let mut stop_requested = false;
+            let mut emitted = Vec::new();
+            let mut animation_requests = Vec::new();
+            let mut queue: VecDeque<MessageEvent> = initial.into();
+            const LIMIT: usize = 1024;
+            let mut processed = 0usize;
+            while let Some(message) = queue.pop_front() {
+                processed += 1;
+                if processed > LIMIT {
+                    break;
+                }
+                let mut ctx = EventCtx::default();
+                root.on_message(&message, &mut ctx);
+                handled |= ctx.handled();
+                repaint_requested |= ctx.repaint_requested();
+                invalidation.merge(ctx.invalidation());
+                stop_requested |= ctx.stop_requested();
+                let next = ctx.take_messages();
+                animation_requests.extend(ctx.take_animation_requests());
+                if !next.is_empty() {
+                    queue.extend(next.clone());
+                    emitted.extend(next);
+                }
+            }
+            DispatchOutcome {
+                handled,
+                repaint_requested,
+                invalidation,
+                stop_requested,
+                messages: emitted,
+                animation_requests,
+            }
         }
     }
 
@@ -1529,11 +1571,11 @@ impl App {
         if let Some(tree) = &self.widget_tree {
             any_widget_active_tree(tree)
         } else {
-            any_widget_active(root)
+            root.is_active()
         }
     }
 
-    /// Collect active binding hints via tree or legacy path.
+    /// Collect active binding hints via tree or root-only fallback.
     fn active_binding_hints_auto(
         &self,
         root: &mut dyn Widget,
@@ -1541,11 +1583,11 @@ impl App {
         if let Some(tree) = &self.widget_tree {
             active_binding_hints_tree(tree)
         } else {
-            active_binding_hints(root)
+            (root.binding_hints(), vec![])
         }
     }
 
-    /// Get focused help metadata via tree or legacy path.
+    /// Get focused help metadata via tree or root-only fallback.
     fn focused_help_metadata_auto(
         &self,
         root: &mut dyn Widget,
@@ -1553,35 +1595,41 @@ impl App {
         if let Some(tree) = &self.widget_tree {
             focused_help_metadata_tree(tree)
         } else {
-            focused_help_metadata(root)
+            if root.has_focus() {
+                let help = root.help_markup().map(str::trim).unwrap_or_default();
+                if !help.is_empty() {
+                    return Some((NodeId::default(), help.to_string()));
+                }
+            }
+            None
         }
     }
 
-    /// Forward `on_mouse_move` via tree or legacy path.
+    /// Forward `on_mouse_move` via tree or root-only fallback.
     pub(super) fn call_on_mouse_move_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: NodeId,
+        _target: NodeId,
         x: u16,
         y: u16,
     ) -> bool {
         if let Some(tree) = self.widget_tree.as_mut() {
-            call_on_mouse_move_tree(tree, target, x, y)
+            call_on_mouse_move_tree(tree, _target, x, y)
         } else {
-            super::helpers::call_on_mouse_move(root, target, x, y)
+            root.on_mouse_move(x, y)
         }
     }
 
-    /// Determine pointer shape for hover via tree or legacy path.
+    /// Determine pointer shape for hover via tree or default fallback.
     pub(super) fn pointer_shape_for_hover_auto(
         &self,
-        root: &mut dyn Widget,
+        _root: &mut dyn Widget,
         hovered: Option<NodeId>,
     ) -> crate::driver::PointerShape {
         if let Some(tree) = &self.widget_tree {
             pointer_shape_for_hover_tree(tree, hovered)
         } else {
-            super::helpers::pointer_shape_for_hover(root, hovered)
+            crate::driver::PointerShape::Default
         }
     }
 
@@ -1853,6 +1901,11 @@ mod tests {
             Segments::new()
         }
 
+        #[allow(deprecated)]
+        fn id(&self) -> crate::widgets::WidgetId {
+            crate::widgets::WidgetId::from_u64(crate::node_id::node_id_to_ffi(self.node_id))
+        }
+
         fn style_type(&self) -> &'static str {
             self.type_name
         }
@@ -1867,6 +1920,13 @@ mod tests {
 
         fn has_focus(&self) -> bool {
             self.focused
+        }
+
+        #[allow(deprecated)]
+        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
+            for child in &mut self.children {
+                f(child);
+            }
         }
     }
 

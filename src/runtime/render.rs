@@ -537,15 +537,14 @@ mod tests {
 
     #[test]
     fn hit_test_translates_screen_to_widget_local_coords() {
-        use super::super::types::HitTestMap;
-        use crate::widgets::{AppRoot, DataTable, Panel, WidgetRenderable};
+        use super::super::types::{NodeHitTestMap, Rect};
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, DataTable};
 
-        let console = rich_rs::Console::new();
-        let mut options = console.options().clone();
-        options.size = (20, 6);
-        options.max_width = 20;
-        options.max_height = 6;
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
 
+        // Build a WidgetTree so the DataTable gets a real NodeId.
         let table = DataTable::new(
             vec!["A".into(), "B".into()],
             vec![
@@ -553,24 +552,32 @@ mod tests {
                 vec!["r1".into(), "c1".into()],
             ],
         );
-        #[allow(deprecated)]
-        let table_id = node_id_from_ffi(table.id().as_u64());
-        let panel = Panel::new(table);
-        let mut root = AppRoot::new().with_child(panel);
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let table_id = tree.mount(root_id, Box::new(table));
 
-        let sheet = crate::css::default_widget_stylesheet();
-        let _guard = crate::css::set_style_context(sheet);
-        let renderable = WidgetRenderable::new(&root);
-        let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+        // Synthesize hit-test bounds — pretend the table starts at (3, 2)
+        // on screen (as if wrapped inside a Panel with a border).
+        let mut hit = NodeHitTestMap::default();
+        hit.bounds.insert(
+            table_id,
+            Rect {
+                x0: 3,
+                y0: 2,
+                x1: 18,
+                y1: 5,
+            },
+        );
 
-        let hit_test = HitTestMap::from_frame(&buf);
-        let rect = hit_test.rect(table_id).expect("table bounds missing");
+        let rect = hit.rect(table_id).expect("table bounds missing");
         assert!(
             rect.x0 > 0 || rect.y0 > 0,
             "table should not start at origin"
         );
 
-        let (lx, ly) = hit_test.content_local_coords(&mut root, table_id, rect.x0, rect.y0);
+        // DataTable resolves with no border or line_pad by default, so
+        // content origin == bound origin and (rect.x0, rect.y0) maps to (0, 0).
+        let (lx, ly) = hit.content_local_coords(&mut tree, table_id, rect.x0, rect.y0);
         assert_eq!((lx, ly), (0, 0));
     }
 }

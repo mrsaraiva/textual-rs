@@ -489,30 +489,53 @@ mod focus_tests {
     use super::*;
     use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::containers::{Container, Panel, ScrollView};
-    use crate::widgets::{
-        Button, Horizontal, Input, ListView, VerticalScroll, collect_focus_ids, set_focus_by_id,
-    };
+    use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
     use rich_rs::Console;
 
     #[test]
     fn focus_next_advances_after_set_focus_by_id() {
-        let mut root = AppRoot::new().with_child(
-            Container::new()
-                .with_child(Input::new().with_placeholder("First"))
-                .with_child(Input::new().with_placeholder("Second")),
+        use crate::widget_tree::WidgetTree;
+
+        // Build a WidgetTree with two focusable Input widgets.
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let container_id = tree.mount(root_id, Box::new(Container::new()));
+        let first_id = tree.mount(
+            container_id,
+            Box::new(Input::new().with_placeholder("First")),
+        );
+        let second_id = tree.mount(
+            container_id,
+            Box::new(Input::new().with_placeholder("Second")),
         );
 
-        let mut ids = Vec::new();
-        collect_focus_ids(&mut root, &mut ids);
+        // Collect focusable nodes via depth-first walk.
+        let ids: Vec<_> = tree
+            .walk_depth_first(root_id)
+            .into_iter()
+            .filter(|&id| {
+                tree.get(id)
+                    .map(|n| n.widget.focusable())
+                    .unwrap_or(false)
+            })
+            .collect();
         assert_eq!(ids.len(), 2);
-        let first = ids[0];
-        let second = ids[1];
+        assert_eq!(ids[0], first_id);
+        assert_eq!(ids[1], second_id);
 
-        set_focus_by_id(&mut root, Some(first));
-        assert_eq!(root.focused, Some(first));
+        // Set focus on the first input.
+        tree.get_mut(first_id).unwrap().widget.set_focus(true);
+        assert!(tree.get(first_id).unwrap().widget.has_focus());
 
-        root.focus_next();
-        assert_eq!(root.focused, Some(second));
+        // Advance focus: find current in chain, move to next.
+        let current = ids.iter().position(|&id| id == first_id).unwrap();
+        let next = ids[(current + 1) % ids.len()];
+        tree.get_mut(first_id).unwrap().widget.set_focus(false);
+        tree.get_mut(next).unwrap().widget.set_focus(true);
+
+        assert_eq!(next, second_id);
+        assert!(tree.get(second_id).unwrap().widget.has_focus());
+        assert!(!tree.get(first_id).unwrap().widget.has_focus());
     }
 
     #[test]

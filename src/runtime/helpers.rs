@@ -1,18 +1,11 @@
 use crate::driver::PointerShape;
 use crate::event::{Action, ActionMap, KeyBind};
-use crate::node_id::{NodeId, node_id_from_ffi};
+use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
-use crate::widgets::Widget;
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
 
 use crate::driver::Size;
-
-/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
-#[allow(deprecated)]
-fn widget_node_id(w: &dyn Widget) -> NodeId {
-    node_id_from_ffi(w.id().as_u64())
-}
 
 pub(crate) fn apply_size(options: &mut ConsoleOptions, size: Size) {
     let width = size.width as usize;
@@ -130,92 +123,9 @@ pub(crate) fn default_action_map() -> ActionMap {
     map
 }
 
-pub(crate) fn call_on_mouse_move(root: &mut dyn Widget, target: NodeId, x: u16, y: u16) -> bool {
-    fn visit(w: &mut dyn Widget, id: NodeId, x: u16, y: u16, out: &mut Option<bool>) {
-        if out.is_some() {
-            return;
-        }
-        if widget_node_id(w) == id {
-            *out = Some(w.on_mouse_move(x, y));
-            return;
-        }
-        #[allow(deprecated)]
-        w.visit_children_mut(&mut |child| visit(child, id, x, y, out));
-    }
-
-    let mut out: Option<bool> = None;
-    visit(root, target, x, y, &mut out);
-    out.unwrap_or(false)
-}
-
-pub(crate) fn any_widget_active(root: &mut dyn Widget) -> bool {
-    fn visit(w: &mut dyn Widget, out: &mut bool) {
-        if *out {
-            return;
-        }
-        if w.is_active() {
-            *out = true;
-            return;
-        }
-        #[allow(deprecated)]
-        w.visit_children_mut(&mut |child| visit(child, out));
-    }
-
-    let mut out = false;
-    visit(root, &mut out);
-    out
-}
-
-pub(crate) fn pointer_shape_for_hover(
-    root: &mut dyn Widget,
-    hovered: Option<NodeId>,
-) -> PointerShape {
-    let Some(id) = hovered else {
-        return PointerShape::Default;
-    };
-
-    // Traverse the widget tree to locate the hovered widget.
-    let mut found: Option<(bool, bool, &'static str)> = None; // (mouse_interactive, disabled, type)
-    fn visit(w: &mut dyn Widget, id: NodeId, out: &mut Option<(bool, bool, &'static str)>) {
-        if out.is_some() {
-            return;
-        }
-        if widget_node_id(w) == id {
-            *out = Some((w.mouse_interactive(), w.is_disabled(), w.style_type()));
-            return;
-        }
-        #[allow(deprecated)]
-        w.visit_children_mut(&mut |child| visit(child, id, out));
-    }
-
-    visit(root, id, &mut found);
-
-    let Some((mouse_interactive, disabled, ty)) = found else {
-        return PointerShape::Default;
-    };
-
-    if !mouse_interactive {
-        return PointerShape::Default;
-    }
-
-    if ty == "Input" {
-        return PointerShape::Text;
-    }
-
-    if disabled {
-        PointerShape::NotAllowed
-    } else {
-        PointerShape::Pointer
-    }
-}
-
-// ===========================================================================
-// P1-13: Arena-tree-based focus/hover/binding helpers (scaffold)
-//
-// These functions replace the recursive `visit_children_mut` helpers with
-// arena-tree traversal. They are added alongside the old functions; the
-// runtime will switch to these once wired in (P1-05).
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// Arena-tree-based focus/hover/binding helpers
+// ---------------------------------------------------------------------------
 
 /// Collect the focus chain: all focusable, visible nodes in depth-first order.
 pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {

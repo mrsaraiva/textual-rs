@@ -960,14 +960,7 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
-    use crate::node_id::node_id_from_ffi;
     use crate::prelude::Label;
-
-    /// Legacy bridge: deprecated `Widget::id()` → `NodeId` for test code.
-    #[allow(deprecated)]
-    fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
-        node_id_from_ffi(w.id().as_u64())
-    }
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{Arc, Mutex};
 
@@ -1054,10 +1047,12 @@ mod tests {
             .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
         tabs.on_layout(40, 6);
 
+        // Use NodeId::default() as target — production code compares against
+        // NodeId::default() for self-targeting (P1-14 migration).
         let mut ctx = EventCtx::default();
         tabs.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: widget_node_id(&tabs),
+                target: crate::node_id::NodeId::default(),
                 screen_x: 1,
                 screen_y: 0,
                 x: 1,

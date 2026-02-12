@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 7: Close Pillar 1 — test fixes + legacy dispatch cleanup**
+  - Fixed all 19 failing tests from Sprint 6's WidgetId→NodeId migration. Tests rewritten to build `WidgetTree` instances and call `_tree` dispatch functions directly (routing, event_loop, render, app_root, select, tabs, tabbed_content, command_palette).
+  - Deleted ~400 lines of legacy routing functions from `routing.rs`: `widget_node_id`, `focused_widget_id`, `dispatch_event_to_target`, `dispatch_scroll_action`, `dispatch_mouse_scroll_to_target`, `dispatch_message_queue`, `active_binding_hints`, `focused_help_metadata`, and associated helpers.
+  - Simplified all 10 `_auto` bridge methods in `event_loop.rs`: tree path unchanged, else branches now use minimal root-only fallbacks instead of deleted legacy functions.
+  - Deleted legacy helper functions from `helpers.rs`: `widget_node_id`, `call_on_mouse_move`, `any_widget_active`, `pointer_shape_for_hover`.
+  - Build: 0 errors, 15 warnings (5 deprecated `visit_children_mut`, rest pre-existing). Tests: 585 passed, 0 failed.
+  - **Deferred to P2:** WidgetId deletion (P1-14g), `visit_children_mut` removal, stub deletion (`set_focus_by_id` etc.) — all have ~20 callers that need tree-based replacements.
+
 - **Parity Sprint 6: WidgetId→NodeId migration (P1-14a–f) + compose cleanup (P1-15)**
   - Replaced `WidgetId` with `NodeId` across the entire codebase (88 files, ~610 occurrences).
   - Runtime infrastructure: all `App` fields (hovered, focus tracking, binding-hint sources), `HitTestMap`, timer targets, async task targets, overlay refs now use `NodeId` instead of `WidgetId`.

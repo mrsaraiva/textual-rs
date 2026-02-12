@@ -699,10 +699,12 @@ mod tests {
         sel.on_event(&Event::Key(open_key), &mut open_ctx);
         assert!(sel.is_open());
 
+        // Use NodeId::default() as target — production code compares against
+        // NodeId::default() for self/child routing (P1-14 migration).
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: widget_node_id(&sel.list),
+                target: NodeId::default(),
                 screen_x: 1,
                 screen_y: 2,
                 x: 1,
@@ -775,10 +777,12 @@ mod tests {
         sel.on_event(&Event::Key(open), &mut open_ctx);
         assert!(sel.is_open());
 
+        // Use NodeId::default() as target — production code compares against
+        // NodeId::default() for self/child routing (P1-14 migration).
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: widget_node_id(&sel.list),
+                target: NodeId::default(),
                 screen_x: 1,
                 screen_y: 2,
                 x: 1,
