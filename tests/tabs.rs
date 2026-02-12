@@ -43,7 +43,7 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
         .with_tab("One", Label::new("first"))
         .with_tab("Two", Label::new("second"));
     tabs.on_layout(40, 5);
-    let id = tabs.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
@@ -65,7 +65,7 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
         .with_tab("👩‍🚀", Label::new("first"))
         .with_tab("Deux", Label::new("second"));
     tabs.on_layout(40, 5);
-    let id = tabs.id();
+    let id = NodeId::default();
     let first_label_cells = rich_rs::cell_len(" 👩‍🚀 ");
     let mut ctx = EventCtx::default();
     tabs.on_event(
@@ -160,7 +160,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
         .with_tab("Two", Label::new("second"));
     assert!(tabs.disable_tab("Two"));
     tabs.on_layout(40, 5);
-    let id = tabs.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tabs.on_event(
         &Event::MouseDown(MouseDownEvent {

@@ -1,5 +1,5 @@
+use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
-use crate::widgets::WidgetId;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,10 +56,10 @@ pub enum Message {
         cut: bool,
     },
     TextEditClipboardPasteRequested {
-        target: WidgetId,
+        target: NodeId,
     },
     TextEditClipboardPaste {
-        target: WidgetId,
+        target: NodeId,
         text: String,
     },
     ButtonPressed {
@@ -89,14 +89,14 @@ pub enum Message {
         count: usize,
     },
     HelpPanelSetHelp {
-        panel: WidgetId,
+        panel: NodeId,
         markup: String,
     },
     HelpPanelClearHelp {
-        panel: WidgetId,
+        panel: NodeId,
     },
     HelpPanelFocusedHelpChanged {
-        source: WidgetId,
+        source: NodeId,
         markup: String,
     },
     HelpPanelFocusedHelpCleared,
@@ -125,25 +125,25 @@ pub enum Message {
         path: String,
     },
     OverlaySetVisible {
-        overlay: WidgetId,
+        overlay: NodeId,
         visible: bool,
     },
     OverlaySetAnchor {
-        overlay: WidgetId,
+        overlay: NodeId,
         x: usize,
         y: usize,
     },
     OverlayClearAnchor {
-        overlay: WidgetId,
+        overlay: NodeId,
     },
     OverlayToggle {
-        overlay: WidgetId,
+        overlay: NodeId,
     },
     OverlayDismissRequested {
-        overlay: Option<WidgetId>,
+        overlay: Option<NodeId>,
     },
     OverlayVisibilityChanged {
-        overlay: WidgetId,
+        overlay: NodeId,
         visible: bool,
     },
     CommandPaletteOpened,
@@ -174,7 +174,7 @@ pub enum Message {
     },
     RadioSetChanged {
         index: usize,
-        button_id: WidgetId,
+        button_id: NodeId,
     },
     OptionHighlighted {
         index: usize,
@@ -217,18 +217,18 @@ pub enum Message {
     },
     AsyncTaskSpawn {
         task_id: u64,
-        target: WidgetId,
+        target: NodeId,
         request: AsyncTaskRequest,
     },
     AsyncTaskCancel {
         task_id: u64,
     },
     AsyncTaskCancelTarget {
-        target: WidgetId,
+        target: NodeId,
     },
     TimerSchedule {
         timer_id: u64,
-        target: WidgetId,
+        target: NodeId,
         delay: Duration,
     },
     TimerCancel {
@@ -236,20 +236,20 @@ pub enum Message {
     },
     TimerFired {
         timer_id: u64,
-        target: WidgetId,
+        target: NodeId,
     },
     TimerCancelled {
         timer_id: u64,
-        target: WidgetId,
+        target: NodeId,
     },
     AsyncTaskCompleted {
         task_id: u64,
-        target: WidgetId,
+        target: NodeId,
         result: AsyncTaskResult,
     },
     AsyncTaskCancelled {
         task_id: u64,
-        target: WidgetId,
+        target: NodeId,
     },
     // Tree: separate expand/collapse + highlight messages
     TreeNodeCollapsed {
@@ -311,6 +311,6 @@ pub enum Message {
 
 #[derive(Debug, Clone)]
 pub struct MessageEvent {
-    pub sender: WidgetId,
+    pub sender: NodeId,
     pub message: Message,
 }

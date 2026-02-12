@@ -633,19 +633,16 @@ impl Default for WidgetTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets::WidgetId;
     use rich_rs::{Console, ConsoleOptions, Segments};
 
-    /// Minimal widget for testing — holds only an ID and a label for debugging.
+    /// Minimal widget for testing — holds only a label for debugging.
     struct TestWidget {
-        id: WidgetId,
         label: &'static str,
     }
 
     impl TestWidget {
         fn new(label: &'static str) -> Self {
             Self {
-                id: WidgetId::new(),
                 label,
             }
         }
@@ -656,10 +653,6 @@ mod tests {
     }
 
     impl Widget for TestWidget {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -1140,7 +1133,6 @@ mod tests {
 
     /// Widget for query tests — supports configurable type name and style id.
     struct QueryWidget {
-        wid: WidgetId,
         type_name: &'static str,
         style_id: Option<String>,
     }
@@ -1148,7 +1140,6 @@ mod tests {
     impl QueryWidget {
         fn new(type_name: &'static str) -> Self {
             Self {
-                wid: WidgetId::new(),
                 type_name,
                 style_id: None,
             }
@@ -1169,9 +1160,6 @@ mod tests {
     }
 
     impl Widget for QueryWidget {
-        fn id(&self) -> WidgetId {
-            self.wid
-        }
         fn render(&self, _: &Console, _: &ConsoleOptions) -> Segments {
             Segments::new()
         }

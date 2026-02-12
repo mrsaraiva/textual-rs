@@ -5,12 +5,11 @@ use crate::event::{Event, EventCtx};
 use crate::style::Style;
 
 use crate::widgets::{
-    LayoutConstraints, Widget, WidgetId, WidgetStyles,
+    LayoutConstraints, Widget, WidgetStyles,
     helpers::{fixed_height_from_constraints, merge_constraints},
 };
 
 pub struct Node {
-    id: WidgetId,
     child: Box<dyn Widget>,
     style_id: Option<String>,
     classes: Vec<String>,
@@ -20,7 +19,6 @@ pub struct Node {
 impl Node {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             style_id: None,
             classes: Vec::new(),
@@ -47,10 +45,6 @@ impl Node {
 }
 
 impl Widget for Node {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.child.render_styled(console, options)
     }
@@ -129,10 +123,6 @@ impl Widget for Node {
 
     fn style_classes(&self) -> &[String] {
         &self.classes
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 

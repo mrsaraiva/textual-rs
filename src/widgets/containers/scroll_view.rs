@@ -9,16 +9,16 @@ use crate::event::{
 };
 use crate::style::{parse_color_like, TransitionTiming};
 
+use crate::node_id::NodeId;
 use crate::widgets::{
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
 };
 
 pub struct ScrollView {
-    id: WidgetId,
     child: Box<dyn Widget>,
     focused: bool,
     height: Option<usize>,
@@ -45,7 +45,6 @@ impl ScrollView {
 
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             focused: false,
             height: None,
@@ -299,9 +298,10 @@ impl ScrollView {
         }
         if let Some((duration, delay, ease)) = self.scroll_animation_params() {
             self.render_offset_y = from as f32;
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    self.id,
+                    NodeId::default(),
                     Self::OFFSET_Y_ATTR,
                     from as f32,
                     to as f32,
@@ -324,9 +324,10 @@ impl ScrollView {
         }
         if let Some((duration, delay, ease)) = self.scroll_animation_params() {
             self.render_offset_x = from as f32;
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    self.id,
+                    NodeId::default(),
                     Self::OFFSET_X_ATTR,
                     from as f32,
                     to as f32,
@@ -344,10 +345,6 @@ impl ScrollView {
 }
 
 impl Widget for ScrollView {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -368,7 +365,7 @@ impl Widget for ScrollView {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[scroll] id={} viewport=({}, {}) offset=({}, {})",
-                self.id.as_u64(),
+                0u64,
                 width,
                 viewport_height,
                 self.offset_x,
@@ -417,7 +414,7 @@ impl Widget for ScrollView {
             if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
                 debug_layout(&format!(
                     "[scroll] id={} child render_width={} constraints=({:?},{:?})",
-                    self.id.as_u64(),
+                    0u64,
                     render_width,
                     constraints.min_width,
                     constraints.max_width
@@ -651,7 +648,8 @@ impl Widget for ScrollView {
             done,
         }) = event
         {
-            if *target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target == NodeId::default() {
                 if attribute == Self::OFFSET_Y_ATTR {
                     if self.drag_v.is_none() {
                         self.render_offset_y = if *done { self.offset_y as f32 } else { *value };
@@ -671,7 +669,8 @@ impl Widget for ScrollView {
             }
         }
         if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target == NodeId::default() {
                 let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
@@ -972,10 +971,6 @@ impl Widget for ScrollView {
             }
         }
         changed
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 
     fn layout_height(&self) -> Option<usize> {

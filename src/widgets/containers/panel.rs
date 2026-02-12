@@ -3,10 +3,9 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
+use crate::widgets::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
 
 pub struct Panel {
-    id: WidgetId,
     child: Box<dyn Widget>,
     title: Option<String>,
     padding: usize,
@@ -17,7 +16,6 @@ pub struct Panel {
 impl Panel {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             title: None,
             padding: 0,
@@ -43,10 +41,6 @@ impl Panel {
 }
 
 impl Widget for Panel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding * 2;
@@ -230,10 +224,6 @@ impl Widget for Panel {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 

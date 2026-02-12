@@ -2,10 +2,16 @@ use crate::css::{
     begin_style_render_pass, set_app_active, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::debug_render;
-use crate::node_id::NodeId;
+use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
+
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+#[allow(deprecated)]
+fn widget_node_id(w: &dyn Widget) -> NodeId {
+    node_id_from_ffi(w.id().as_u64())
+}
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
 use super::App;
@@ -207,7 +213,7 @@ impl App {
 
     pub(super) fn apply_layout_info(&self, root: &mut dyn Widget, hit_test: &HitTestMap) {
         fn visit(w: &mut dyn Widget, hit_test: &HitTestMap) {
-            if let Some(rect) = hit_test.rect(w.id()) {
+            if let Some(rect) = hit_test.rect(widget_node_id(w)) {
                 let meta = crate::css::selector_meta_generic(w);
                 let resolved = crate::css::resolve_style(w, &meta);
                 let line_pad = resolved.line_pad.unwrap_or(0);
@@ -547,7 +553,8 @@ mod tests {
                 vec!["r1".into(), "c1".into()],
             ],
         );
-        let table_id = table.id();
+        #[allow(deprecated)]
+        let table_id = node_id_from_ffi(table.id().as_u64());
         let panel = Panel::new(table);
         let mut root = AppRoot::new().with_child(panel);
 

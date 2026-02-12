@@ -42,25 +42,24 @@ impl WidgetId {
 /// wrappers `render_styled` / `render_styled_with_debug` use a null sentinel
 /// NodeId for backward-compatible widget-to-widget rendering during migration.
 pub trait Widget: Send + Sync {
-    /// Legacy identity accessor — will be removed in P1-14.
+    /// Legacy identity accessor — will be removed once tree dispatch replaces legacy dispatch.
     ///
     /// Identity now comes from the arena-based `WidgetTree` (`NodeId`), not
-    /// from the widget itself. Widget impls still override this during
-    /// migration; new code should use `NodeId` from context instead.
-    #[deprecated(note = "Identity comes from arena NodeId. Will be removed in P1-14.")]
+    /// from the widget itself. New code should use `NodeId` from context instead.
+    #[deprecated(note = "Identity comes from arena NodeId. Will be removed once legacy dispatch is gone.")]
     fn id(&self) -> WidgetId {
         WidgetId::default()
     }
 
-    /// Legacy child visitor — will be removed in P1-14.
+    /// Legacy child visitor — will be removed once tree dispatch replaces legacy dispatch.
     ///
     /// The `WidgetTree` arena now owns parent/child structure. This method
-    /// remains during migration so existing recursive traversal compiles.
-    #[deprecated(note = "Tree owns structure. Will be removed in P1-14.")]
+    /// remains so existing recursive traversal compiles.
+    #[deprecated(note = "Tree owns structure. Will be removed once legacy dispatch is gone.")]
     fn visit_children_mut(&mut self, _f: &mut dyn FnMut(&mut dyn Widget)) {}
 
-    /// Legacy focus-target setter — will be removed in P1-14.
-    #[deprecated(note = "Focus target is tree-level. Will be removed in P1-14.")]
+    /// Legacy focus-target setter — will be removed once tree dispatch replaces legacy dispatch.
+    #[deprecated(note = "Focus target is tree-level. Will be removed once legacy dispatch is gone.")]
     fn set_focus_target(&mut self, _target: Option<WidgetId>) {}
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
@@ -79,7 +78,6 @@ pub trait Widget: Send + Sync {
     /// the runtime renders via the arena tree (P1-12). During migration, metadata
     /// tagging still uses the legacy `self.id()` (WidgetId) so hit-test lookups
     /// remain compatible with `HitTestMap`.
-    #[allow(deprecated)]
     fn render_styled_dyn_obj(
         &self,
         console: &Console,
@@ -87,10 +85,9 @@ pub trait Widget: Send + Sync {
         debug: Option<&DebugLayout>,
         _node_id: NodeId,
     ) -> Segments {
-        // During migration, use the widget's own WidgetId for metadata tagging.
-        // When the runtime switches to arena-tree rendering (P1-05/P1-12), this
-        // will use the `_node_id` parameter instead.
-        let widget_id = self.id();
+        // TODO(P1-14 integration): use _node_id for metadata tagging once arena
+        // rendering is wired up. Currently uses a null WidgetId placeholder.
+        let widget_id = WidgetId::default();
         let meta = crate::css::selector_meta_generic(self);
         let debug_widget_label = {
             let mut label = self.style_type().to_string();
@@ -156,7 +153,7 @@ pub trait Widget: Send + Sync {
         };
 
         let styled =
-            crate::css::apply_style_to_segments(widget_id, segments, resolved, parent_style);
+            crate::css::apply_style_to_segments(_node_id, segments, resolved, parent_style);
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,

@@ -3,7 +3,7 @@ use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
-use crate::widgets::{ToastSeverity, Widget, WidgetId, border_spacing_from_style};
+use crate::widgets::{ToastSeverity, Widget, border_spacing_from_style};
 use rich_rs::MetaValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ pub(crate) struct Rect {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct HitTestMap {
-    pub(crate) bounds: HashMap<WidgetId, Rect>,
+    pub(crate) bounds: HashMap<NodeId, Rect>,
 }
 
 impl HitTestMap {
@@ -41,7 +41,7 @@ impl HitTestMap {
                 if *id < 0 {
                     continue;
                 }
-                let wid = WidgetId::from_u64(*id as u64);
+                let wid = node_id_from_ffi(*id as u64);
                 let xu = x as u16;
                 let yu = y as u16;
                 out.bounds
@@ -63,14 +63,14 @@ impl HitTestMap {
         out
     }
 
-    pub(crate) fn rect(&self, id: WidgetId) -> Option<Rect> {
+    pub(crate) fn rect(&self, id: NodeId) -> Option<Rect> {
         self.bounds.get(&id).copied()
     }
 
     pub(crate) fn content_local_coords(
         &self,
         root: &mut dyn Widget,
-        target: WidgetId,
+        target: NodeId,
         screen_x: u16,
         screen_y: u16,
     ) -> (u16, u16) {
@@ -79,11 +79,13 @@ impl HitTestMap {
         };
 
         let mut insets: Option<(u16, u16)> = None;
-        fn visit(w: &mut dyn Widget, id: WidgetId, out: &mut Option<(u16, u16)>) {
+        fn visit(w: &mut dyn Widget, id: NodeId, out: &mut Option<(u16, u16)>) {
             if out.is_some() {
                 return;
             }
-            if w.id() == id {
+            #[allow(deprecated)]
+            let w_id = node_id_from_ffi(w.id().as_u64());
+            if w_id == id {
                 let meta = crate::css::selector_meta_generic(w);
                 let resolved = crate::css::resolve_style(w, &meta);
                 let line_pad = resolved.line_pad.unwrap_or(0);
@@ -93,6 +95,7 @@ impl HitTestMap {
                 *out = Some((inset_x, inset_y));
                 return;
             }
+            #[allow(deprecated)]
             w.visit_children_mut(&mut |child| visit(child, id, out));
         }
         visit(root, target, &mut insets);
@@ -360,7 +363,7 @@ impl PendingInvalidation {
         self.content_regions.invalidate_all();
     }
 
-    pub(crate) fn request_widget_rect(&mut self, hit_test: &HitTestMap, id: WidgetId) {
+    pub(crate) fn request_widget_rect(&mut self, hit_test: &HitTestMap, id: NodeId) {
         self.flags.content = true;
         if self.content_regions.is_full() {
             return;

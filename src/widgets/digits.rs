@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{Widget, WidgetId, WidgetStyles};
+use super::{Widget, WidgetStyles};
 
 /// Text alignment for the Digits widget.
 ///
@@ -252,7 +252,6 @@ const DIGITS3X3_BOLD: &[&str] = &[
 /// The widget is always 3 lines tall. When the CSS `text-style: bold` is applied,
 /// the bold glyph table is used automatically.
 pub struct Digits {
-    id: WidgetId,
     value: String,
     text_align: DigitsAlign,
     styles: WidgetStyles,
@@ -261,7 +260,6 @@ pub struct Digits {
 impl Digits {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             value: value.into(),
             text_align: DigitsAlign::Left,
             styles: WidgetStyles::default(),
@@ -376,10 +374,6 @@ impl Digits {
 }
 
 impl Widget for Digits {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         // Detect bold from resolved CSS style
         let meta = crate::css::selector_meta_generic(self);

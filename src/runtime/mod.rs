@@ -18,7 +18,8 @@ use crate::node_id::NodeId;
 use crate::render::FrameBuffer;
 use crate::style::Theme;
 use crate::widget_tree::WidgetTree;
-use crate::widgets::{ToastSeverity, Widget, WidgetId};
+use crate::node_id::node_id_from_ffi;
+use crate::widgets::{ToastSeverity, Widget};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
@@ -53,7 +54,7 @@ pub struct App {
     stylesheet: StyleSheet,
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
-    hovered: Option<WidgetId>,
+    hovered: Option<NodeId>,
     last_render_at: Instant,
     resized_since_last_render: bool,
     clear_on_next_render: bool,
@@ -63,8 +64,8 @@ pub struct App {
     pointer_shape: PointerShape,
     app_active: bool,
     last_binding_hints: Vec<BindingHint>,
-    last_binding_hint_sources: Vec<WidgetId>,
-    last_focused_help_source: Option<WidgetId>,
+    last_binding_hint_sources: Vec<NodeId>,
+    last_focused_help_source: Option<NodeId>,
     last_focused_help_markup: Option<String>,
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
@@ -204,16 +205,16 @@ impl App {
         }
     }
 
-    pub(super) fn clipboard_message_sender() -> WidgetId {
+    pub(super) fn clipboard_message_sender() -> NodeId {
         Self::runtime_message_sender()
     }
 
-    pub(super) fn runtime_message_sender() -> WidgetId {
-        // Runtime/system-synthesized messages use widget id 0.
-        WidgetId::from_u64(0)
+    pub(super) fn runtime_message_sender() -> NodeId {
+        // Runtime/system-synthesized messages use node id 0.
+        node_id_from_ffi(0)
     }
 
-    pub(super) fn clipboard_message_event(target: WidgetId, text: String) -> MessageEvent {
+    pub(super) fn clipboard_message_event(target: NodeId, text: String) -> MessageEvent {
         MessageEvent {
             sender: Self::clipboard_message_sender(),
             message: crate::message::Message::TextEditClipboardPaste { target, text },
@@ -499,7 +500,7 @@ impl App {
             .and_then(|m| m.meta.as_ref())
             .and_then(|map| map.get("textual:widget_id"))
             .and_then(|value| match value {
-                MetaValue::Int(n) if *n >= 0 => Some(WidgetId::from_u64(*n as u64)),
+                MetaValue::Int(n) if *n >= 0 => Some(node_id_from_ffi(*n as u64)),
                 _ => None,
             });
 
@@ -538,7 +539,7 @@ impl App {
         Ok(())
     }
 
-    fn widget_at(&self, x: u16, y: u16) -> Option<WidgetId> {
+    fn widget_at(&self, x: u16, y: u16) -> Option<NodeId> {
         let x = x as usize;
         let y = y as usize;
         if x >= self.frame.width || y >= self.frame.height {
@@ -550,7 +551,7 @@ impl App {
             .and_then(|m| m.meta.as_ref())
             .and_then(|map| map.get("textual:widget_id"))
             .and_then(|value| match value {
-                MetaValue::Int(n) if *n >= 0 => Some(WidgetId::from_u64(*n as u64)),
+                MetaValue::Int(n) if *n >= 0 => Some(node_id_from_ffi(*n as u64)),
                 _ => None,
             })
     }
@@ -678,27 +679,18 @@ fn style_affects_layout(style: crate::style::Style) -> bool {
 /// queries can locate the root position. No rendering, events, or focus
 /// are handled — those are forwarded to the real root widget.
 struct TreeStubWidget {
-    #[allow(deprecated)]
-    id: WidgetId,
     type_name: &'static str,
 }
 
 impl TreeStubWidget {
-    #[allow(deprecated)]
     fn from_widget(w: &dyn Widget) -> Self {
         Self {
-            id: w.id(),
             type_name: w.style_type(),
         }
     }
 }
 
 impl Widget for TreeStubWidget {
-    #[allow(deprecated)]
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
         rich_rs::Segments::new()
     }

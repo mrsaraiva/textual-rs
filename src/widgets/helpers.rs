@@ -6,7 +6,9 @@ use crate::event::{Event, EventCtx};
 
 use crate::style::{BorderEdge, Margin, Style, parse_color_like};
 
-use super::{LayoutConstraints, Widget, WidgetId};
+use crate::node_id::NodeId;
+
+use super::{LayoutConstraints, Widget};
 
 pub(crate) fn merge_constraints(
     primary: LayoutConstraints,
@@ -130,41 +132,29 @@ pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize)
     out
 }
 
-pub(crate) fn collect_focus_ids(widget: &mut dyn Widget, out: &mut Vec<WidgetId>) {
-    if widget.focusable() && !widget.is_disabled() {
-        out.push(widget.id());
-    }
-    widget.visit_children_mut(&mut |child| collect_focus_ids(child, out));
+// TODO(P1-14 integration): These helpers used legacy WidgetId + visit_children_mut.
+// They are stubbed out during the WidgetId removal migration. The runtime will
+// replace this functionality with arena-tree traversal.
+
+pub(crate) fn collect_focus_ids(_widget: &mut dyn Widget, _out: &mut Vec<NodeId>) {
+    // TODO(P1-14 integration): traverse arena tree to collect focusable NodeIds
 }
 
-pub(crate) fn set_focus_by_id(widget: &mut dyn Widget, target: Option<WidgetId>) {
-    widget.set_focus_target(target);
-    if widget.focusable() {
-        widget.set_focus(target == Some(widget.id()));
-    }
-    widget.visit_children_mut(&mut |child| set_focus_by_id(child, target));
+pub(crate) fn set_focus_by_id(_widget: &mut dyn Widget, _target: Option<NodeId>) {
+    // TODO(P1-14 integration): use arena tree to set focus by NodeId
 }
 
-pub(crate) fn set_hover_by_id(widget: &mut dyn Widget, target: Option<WidgetId>) {
-    widget.set_hovered(target == Some(widget.id()));
-    widget.visit_children_mut(&mut |child| set_hover_by_id(child, target));
+pub(crate) fn set_hover_by_id(_widget: &mut dyn Widget, _target: Option<NodeId>) {
+    // TODO(P1-14 integration): use arena tree to set hover by NodeId
 }
 
 pub(crate) fn dispatch_event_to_focus(
-    widget: &mut dyn Widget,
-    target: WidgetId,
-    event: &Event,
-    ctx: &mut EventCtx,
+    _widget: &mut dyn Widget,
+    _target: NodeId,
+    _event: &Event,
+    _ctx: &mut EventCtx,
 ) {
-    if widget.id() == target {
-        widget.on_event(event, ctx);
-        return;
-    }
-    widget.visit_children_mut(&mut |child| {
-        if !ctx.handled() {
-            dispatch_event_to_focus(child, target, event, ctx);
-        }
-    });
+    // TODO(P1-14 integration): use arena tree to dispatch events to focused widget
 }
 
 pub struct WidgetRenderable<'a> {

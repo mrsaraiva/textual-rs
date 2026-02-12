@@ -6,12 +6,11 @@ use crate::message::MessageEvent;
 use crate::style::Style;
 
 use crate::widgets::{
-    LayoutConstraints, Widget, WidgetId, WidgetStyles,
+    LayoutConstraints, Widget, WidgetStyles,
     helpers::{fixed_height_from_constraints, merge_constraints},
 };
 
 pub struct Styled {
-    id: WidgetId,
     child: Box<dyn Widget>,
     styles: WidgetStyles,
 }
@@ -21,7 +20,6 @@ impl Styled {
         let mut styles = WidgetStyles::default();
         styles.style = style;
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             styles,
         }
@@ -34,10 +32,6 @@ impl Styled {
 }
 
 impl Widget for Styled {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.child.render_styled(console, options)
     }
@@ -120,10 +114,6 @@ impl Widget for Styled {
 
     fn style_type(&self) -> &'static str {
         self.child.style_type()
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 

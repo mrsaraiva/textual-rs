@@ -3,6 +3,7 @@ use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::node_id_from_ffi;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -138,9 +139,9 @@ fn help_panel_help_can_be_driven_via_messages() {
     let mut ctx = EventCtx::default();
     panel.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::HelpPanelSetHelp {
-                panel: panel.id(),
+                panel: NodeId::default(),
                 markup: "## Runtime help".to_string(),
             },
         },
@@ -154,8 +155,8 @@ fn help_panel_help_can_be_driven_via_messages() {
     let mut clear_ctx = EventCtx::default();
     panel.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
-            message: Message::HelpPanelClearHelp { panel: panel.id() },
+            sender: NodeId::default(),
+            message: Message::HelpPanelClearHelp { panel: NodeId::default() },
         },
         &mut clear_ctx,
     );
@@ -169,9 +170,9 @@ fn help_panel_handles_focused_help_pipeline_messages() {
     let mut set_ctx = EventCtx::default();
     panel.on_message(
         &MessageEvent {
-            sender: WidgetId::from_u64(100),
+            sender: node_id_from_ffi(100),
             message: Message::HelpPanelFocusedHelpChanged {
-                source: WidgetId::from_u64(100),
+                source: node_id_from_ffi(100),
                 markup: "## Focused widget help".to_string(),
             },
         },
@@ -183,7 +184,7 @@ fn help_panel_handles_focused_help_pipeline_messages() {
     let mut clear_ctx = EventCtx::default();
     panel.on_message(
         &MessageEvent {
-            sender: WidgetId::from_u64(0),
+            sender: NodeId::default(),
             message: Message::HelpPanelFocusedHelpCleared,
         },
         &mut clear_ctx,

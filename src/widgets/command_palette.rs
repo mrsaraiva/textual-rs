@@ -8,8 +8,10 @@ use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 use crate::style::TransitionTiming;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Input, KeyPanel, ListView, Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{collect_focus_ids, set_focus_by_id},
 };
 
@@ -91,7 +93,6 @@ impl PaletteCommand {
 }
 
 pub struct CommandPalette {
-    id: WidgetId,
     child: Box<dyn Widget>,
     open: bool,
     show_key_panel: bool,
@@ -103,7 +104,7 @@ pub struct CommandPalette {
     key_panel_render_width: f32,
     panel_visible: bool,
     panel_render_y: f32,
-    previously_focused_child: Option<WidgetId>,
+    previously_focused_child: Option<NodeId>,
     layout_width: usize,
     layout_height: usize,
     styles: WidgetStyles,
@@ -131,7 +132,6 @@ impl CommandPalette {
             PaletteCommand::new("theme", "Theme", "Change the current theme"),
         ];
         let mut out = Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             open: false,
             show_key_panel: false,
@@ -233,9 +233,10 @@ impl CommandPalette {
         }
         if let Some((duration, delay, ease)) = self.key_panel_animation_params() {
             self.key_panel_render_width = from as f32;
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    self.id,
+                    NodeId::default(),
                     Self::KEY_PANEL_WIDTH_ATTR,
                     from as f32,
                     to as f32,
@@ -257,8 +258,9 @@ impl CommandPalette {
         }
         if let Some((duration, delay, ease)) = self.panel_animation_params() {
             self.panel_render_y = from;
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
-                AnimationRequest::new(self.id, Self::PANEL_Y_ATTR, from, to, duration)
+                AnimationRequest::new(NodeId::default(), Self::PANEL_Y_ATTR, from, to, duration)
                     .with_delay(delay)
                     .with_ease(ease)
                     .with_level(AnimationLevel::Basic),
@@ -332,9 +334,10 @@ impl CommandPalette {
         self.list.set_selected(0);
     }
 
-    fn focused_widget_id(widget: &mut dyn Widget) -> Option<WidgetId> {
+    fn focused_widget_id(widget: &mut dyn Widget) -> Option<NodeId> {
         if widget.has_focus() {
-            return Some(widget.id());
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            return Some(NodeId::default());
         }
         let mut out = None;
         widget.visit_children_mut(&mut |child| {
@@ -345,8 +348,9 @@ impl CommandPalette {
         out
     }
 
-    fn child_contains_id(widget: &mut dyn Widget, target: WidgetId) -> bool {
-        if widget.id() == target {
+    fn child_contains_id(widget: &mut dyn Widget, target: NodeId) -> bool {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if NodeId::default() == target {
             return true;
         }
         let mut found = false;
@@ -394,7 +398,7 @@ impl CommandPalette {
                 Self::CLOSED_PANEL_Y
             };
             self.animate_panel_y(start_y, target_y, ctx);
-            ctx.post_message(self.id, Message::CommandPaletteOpened);
+            ctx.post_message(Message::CommandPaletteOpened);
         } else {
             self.query.set_focus(false);
             self.list.set_focus(false);
@@ -407,7 +411,7 @@ impl CommandPalette {
                 }
             }
             if was_open {
-                ctx.post_message(self.id, Message::CommandPaletteClosed);
+                ctx.post_message(Message::CommandPaletteClosed);
             }
         }
         ctx.request_repaint();
@@ -421,7 +425,6 @@ impl CommandPalette {
         let selected = self.list.selected().min(self.filtered.len() - 1);
         let command = &self.commands[self.filtered[selected]];
         ctx.post_message(
-            self.id,
             Message::CommandPaletteCommandSelected {
                 id: command.id.clone(),
                 title: command.title.clone(),
@@ -450,10 +453,6 @@ impl CommandPalette {
 }
 
 impl Widget for CommandPalette {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn style_type(&self) -> &'static str {
         "CommandPalette"
     }
@@ -803,7 +802,8 @@ impl Widget for CommandPalette {
             done,
         }) = event
         {
-            if *target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target == NodeId::default() {
                 if attribute == Self::KEY_PANEL_WIDTH_ATTR {
                     self.key_panel_render_width = (*value).max(0.0);
                     if *done && !self.show_key_panel {
@@ -862,19 +862,22 @@ impl Widget for CommandPalette {
         if !self.open {
             if self.show_key_panel {
                 match event {
-                    Event::MouseDown(mouse) if mouse.target == self.key_panel.id() => {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
-                    Event::MouseUp(mouse) if mouse.target == Some(self.key_panel.id()) => {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
-                    Event::MouseScroll(mouse) if mouse.target == Some(self.key_panel.id()) => {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    Event::MouseScroll(mouse) if mouse.target == Some(NodeId::default()) => {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
@@ -910,7 +913,8 @@ impl Widget for CommandPalette {
             // MouseDown coordinates are relative to the event target widget.
             // Use screen coordinates so panel hit-testing remains correct when
             // bubbling from children (e.g. search input) and during panel animation.
-            let (x, y) = if mouse.target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            let (x, y) = if mouse.target == NodeId::default() {
                 (mouse.x as usize, mouse.y as usize)
             } else {
                 (mouse.screen_x as usize, mouse.screen_y as usize)
@@ -920,13 +924,15 @@ impl Widget for CommandPalette {
                 && y >= panel_y
                 && y < panel_y.saturating_add(panel_h);
 
-            if mouse.target != self.query.id() && !inside_panel {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target != NodeId::default() && !inside_panel {
                 self.set_open(false, ctx);
                 ctx.set_handled();
                 return;
             }
 
-            if mouse.target == self.query.id() {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target == NodeId::default() {
                 // Let Input handle cursor placement/focus details.
             } else {
                 let (results_x, results_y, results_w, results_h) =
@@ -993,7 +999,8 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        if message.sender == self.query.id() {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if message.sender == NodeId::default() {
             if let Message::InputChanged { .. } = &message.message {
                 self.rebuild_results();
                 ctx.request_repaint();
@@ -1021,13 +1028,6 @@ impl Widget for CommandPalette {
         }
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
-        f(&mut self.query);
-        f(&mut self.list);
-        f(&mut self.key_panel);
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
         Some(&self.styles)
     }
@@ -1049,30 +1049,25 @@ mod tests {
     use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::{CommandPaletteCommand, Message};
+    use crate::node_id::NodeId;
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     struct FocusProbe {
-        id: WidgetId,
         focused: Arc<AtomicBool>,
     }
 
     impl FocusProbe {
         fn new(focused: Arc<AtomicBool>) -> Self {
             Self {
-                id: WidgetId::new(),
                 focused,
             }
         }
     }
 
     impl Widget for FocusProbe {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -1091,24 +1086,18 @@ mod tests {
     }
 
     struct EventProbe {
-        id: WidgetId,
         mouse_downs: Arc<AtomicUsize>,
     }
 
     impl EventProbe {
         fn new(mouse_downs: Arc<AtomicUsize>) -> Self {
             Self {
-                id: WidgetId::new(),
                 mouse_downs,
             }
         }
     }
 
     impl Widget for EventProbe {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -1245,7 +1234,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         palette.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteSetCommands {
                     commands: vec![CommandPaletteCommand {
                         id: "deploy".to_string(),
@@ -1312,7 +1301,7 @@ mod tests {
         let mut settle_ctx = EventCtx::default();
         palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
-                target: palette.id(),
+                target: NodeId::default(),
                 attribute: CommandPalette::KEY_PANEL_WIDTH_ATTR.to_string(),
                 value: first[0].end,
                 done: true,
@@ -1352,7 +1341,7 @@ mod tests {
         let mut settle_ctx = EventCtx::default();
         palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
-                target: palette.id(),
+                target: NodeId::default(),
                 attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
                 value: open_requests[0].end,
                 done: true,
@@ -1396,9 +1385,9 @@ mod tests {
         let mut transition_ctx = EventCtx::default();
         palette.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::OverlayVisibilityChanged {
-                    overlay: WidgetId::new(),
+                    overlay: NodeId::default(),
                     visible: true,
                 },
             },
@@ -1476,7 +1465,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: palette.query.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): wire tree-based NodeId comparison
                 screen_x: 5,
                 screen_y: 2,
                 x: 0,
@@ -1501,7 +1490,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: palette.query.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): wire tree-based NodeId comparison
                 screen_x: 0,
                 screen_y: 0,
                 x: 2,
@@ -1536,7 +1525,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: WidgetId::new(),
+                target: NodeId::default(),
                 screen_x: 1,
                 screen_y: 1,
                 x: 1,
@@ -1550,7 +1539,7 @@ mod tests {
         let mut settle_ctx = EventCtx::default();
         palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
-                target: palette.id(),
+                target: NodeId::default(),
                 attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
                 value: CommandPalette::CLOSED_PANEL_Y,
                 done: true,
@@ -1562,7 +1551,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: WidgetId::new(),
+                target: NodeId::default(),
                 screen_x: 1,
                 screen_y: 1,
                 x: 1,

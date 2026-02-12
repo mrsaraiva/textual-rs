@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -58,7 +58,6 @@ impl LineStyle {
 /// Not focusable or interactive.
 #[derive(Debug, Clone)]
 pub struct Rule {
-    id: WidgetId,
     orientation: RuleOrientation,
     line_style: LineStyle,
     classes: Vec<String>,
@@ -72,7 +71,6 @@ impl Rule {
             RuleOrientation::Vertical => "rule--vertical",
         };
         Self {
-            id: WidgetId::new(),
             orientation,
             line_style: LineStyle::Solid,
             classes: vec!["rule".to_string(), class.to_string()],
@@ -135,10 +133,6 @@ impl Rule {
 }
 
 impl Widget for Rule {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }

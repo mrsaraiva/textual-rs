@@ -1,9 +1,8 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
+use super::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
 
 pub struct Spacer {
-    id: WidgetId,
     height: usize,
     width_hint: Option<usize>,
     styles: WidgetStyles,
@@ -12,7 +11,6 @@ pub struct Spacer {
 impl Spacer {
     pub fn new(height: usize) -> Self {
         Self {
-            id: WidgetId::new(),
             height: height.max(1),
             width_hint: None,
             styles: WidgetStyles::default(),
@@ -26,10 +24,6 @@ impl Spacer {
 }
 
 impl Widget for Spacer {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let line = " ".repeat(width);

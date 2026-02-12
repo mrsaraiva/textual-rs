@@ -3,15 +3,16 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
 };
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
-    id: WidgetId,
     label: String,
     state: BinaryToggleState,
     classes: Vec<String>,
@@ -22,7 +23,6 @@ pub struct Checkbox {
 impl Checkbox {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             label: label.into(),
             state: BinaryToggleState::new(false),
             classes: vec!["checkbox".to_string()],
@@ -46,7 +46,6 @@ impl Checkbox {
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            self.id,
             Message::CheckboxChanged {
                 checked: self.state.value(),
             },
@@ -55,10 +54,6 @@ impl Checkbox {
 }
 
 impl Widget for Checkbox {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         self.state.focusable()
     }
@@ -92,7 +87,7 @@ impl Widget for Checkbox {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, self.id);
+        let outcome = self.state.handle_event(event, NodeId::default());
         if outcome.toggled {
             self.emit_changed(ctx);
         }

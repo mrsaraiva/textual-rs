@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::style::Color;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
 };
 
@@ -70,7 +70,6 @@ pub fn summary_mean(data: &[f64]) -> f64 {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Sparkline {
-    id: WidgetId,
     data: Vec<f64>,
     summary_function: SummaryFunction,
     /// Explicit min color override (bypasses CSS component class).
@@ -85,7 +84,6 @@ impl Sparkline {
     /// Create a new `Sparkline` with the given data.
     pub fn new(data: Vec<f64>) -> Self {
         Self {
-            id: WidgetId::new(),
             data,
             summary_function: summary_max,
             min_color: None,
@@ -163,10 +161,6 @@ impl Sparkline {
 }
 
 impl Widget for Sparkline {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }

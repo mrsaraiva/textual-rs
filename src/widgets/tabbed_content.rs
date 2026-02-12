@@ -9,8 +9,10 @@ use crate::event::{
 use crate::message::Message;
 use crate::style::TransitionTiming;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -46,7 +48,6 @@ impl TabPane {
 }
 
 pub struct TabbedContent {
-    id: WidgetId,
     panes: Vec<TabPane>,
     active: Option<usize>,
     initial: Option<String>,
@@ -71,7 +72,6 @@ impl TabbedContent {
 
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             panes: Vec::new(),
             active: None,
             initial: None,
@@ -325,9 +325,10 @@ impl TabbedContent {
                     } else {
                         fallback_source.1
                     };
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
                     ctx.request_animation(
                         AnimationRequest::new(
-                            self.id,
+                            NodeId::default(),
                             Self::UNDERLINE_START_ATTR,
                             from_start,
                             target_start,
@@ -337,9 +338,10 @@ impl TabbedContent {
                         .with_ease(ease)
                         .with_level(AnimationLevel::Basic),
                     );
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
                     ctx.request_animation(
                         AnimationRequest::new(
-                            self.id,
+                            NodeId::default(),
                             Self::UNDERLINE_END_ATTR,
                             from_end,
                             target_end,
@@ -356,7 +358,7 @@ impl TabbedContent {
                 let pane = &self.panes[next];
                 let id = pane.pane_id.clone().unwrap_or_default();
                 let title = pane.title.clone();
-                ctx.post_message(self.id, Message::TabActivated { id, index: next, title });
+                ctx.post_message(Message::TabActivated { id, index: next, title });
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;
@@ -644,10 +646,6 @@ impl TabbedContent {
 }
 
 impl Widget for TabbedContent {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -739,7 +737,8 @@ impl Widget for TabbedContent {
             ..
         }) = event
         {
-            if *target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target == NodeId::default() {
                 if attribute == Self::UNDERLINE_START_ATTR {
                     self.underline_start = *value;
                     ctx.request_repaint();
@@ -772,7 +771,8 @@ impl Widget for TabbedContent {
             }
         }
         if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target == NodeId::default() {
                 if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
                     if self.activate(index, Some(ctx)) {
                         ctx.set_handled();
@@ -806,12 +806,6 @@ impl Widget for TabbedContent {
             return true;
         }
         false
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for pane in &mut self.panes {
-            f(pane.child.as_mut());
-        }
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -966,13 +960,19 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
+    use crate::node_id::node_id_from_ffi;
     use crate::prelude::Label;
+
+    /// Legacy bridge: deprecated `Widget::id()` → `NodeId` for test code.
+    #[allow(deprecated)]
+    fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
+        node_id_from_ffi(w.id().as_u64())
+    }
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
     struct ProbeWidget {
-        id: WidgetId,
         resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
         layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
         focus_calls: Arc<Mutex<Vec<bool>>>,
@@ -985,7 +985,6 @@ mod tests {
             focus_calls: Arc<Mutex<Vec<bool>>>,
         ) -> Self {
             Self {
-                id: WidgetId::new(),
                 resize_calls,
                 layout_calls,
                 focus_calls,
@@ -994,10 +993,6 @@ mod tests {
     }
 
     impl Widget for ProbeWidget {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -1062,7 +1057,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         tabs.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: tabs.id(),
+                target: widget_node_id(&tabs),
                 screen_x: 1,
                 screen_y: 0,
                 x: 1,

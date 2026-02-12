@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
 };
 
@@ -52,7 +52,6 @@ impl PrettySource {
 /// ```
 #[derive(Clone)]
 pub struct Pretty {
-    id: WidgetId,
     source: PrettySource,
     layout_width: usize,
     styles: WidgetStyles,
@@ -64,7 +63,6 @@ impl Pretty {
     /// The value's `Debug` representation is captured at construction time.
     pub fn new<T: Debug>(value: &T) -> Self {
         Self {
-            id: WidgetId::new(),
             source: PrettySource::Static(format!("{:?}", value)),
             layout_width: 1,
             styles: WidgetStyles::default(),
@@ -74,7 +72,6 @@ impl Pretty {
     /// Create a `Pretty` widget from a pre-formatted debug string.
     pub fn from_debug_str(debug_str: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             source: PrettySource::Static(debug_str.into()),
             layout_width: 1,
             styles: WidgetStyles::default(),
@@ -88,7 +85,6 @@ impl Pretty {
     /// repaint.
     pub fn shared(debug_str: Arc<Mutex<String>>) -> Self {
         Self {
-            id: WidgetId::new(),
             source: PrettySource::Shared(debug_str),
             layout_width: 1,
             styles: WidgetStyles::default(),
@@ -147,10 +143,6 @@ impl Debug for Pretty {
 }
 
 impl Widget for Pretty {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn style_type(&self) -> &'static str {
         "Pretty"
     }

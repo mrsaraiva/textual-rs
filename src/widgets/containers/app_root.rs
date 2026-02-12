@@ -7,8 +7,9 @@ use crate::css;
 use crate::debug::DebugLayout;
 use crate::event::{Action, Event, EventCtx};
 
+use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::widgets::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{
         apply_debug_box, apply_margin, clamp_with_constraints, collect_focus_ids,
         constraints_from_style, dispatch_event_to_focus, fixed_height_from_constraints,
@@ -17,16 +18,14 @@ use crate::widgets::{
 };
 
 pub struct AppRoot {
-    id: WidgetId,
     children: Vec<Box<dyn Widget>>,
-    focused: Option<WidgetId>,
+    focused: Option<NodeId>,
     styles: WidgetStyles,
 }
 
 impl AppRoot {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             children: Vec::new(),
             focused: None,
             styles: WidgetStyles::default(),
@@ -63,7 +62,7 @@ impl AppRoot {
             let line = format!(
                 "[focus] chain (len={}): {:?}",
                 ids.len(),
-                ids.iter().map(|id| id.as_u64()).collect::<Vec<_>>()
+                ids.iter().map(|id| node_id_to_ffi(*id)).collect::<Vec<_>>()
             );
             if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
                 if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -93,8 +92,8 @@ impl AppRoot {
         if std::env::var("TEXTUAL_DEBUG_FOCUS").ok().as_deref() == Some("1") {
             let line = format!(
                 "[focus] current={:?} -> next={:?}",
-                self.focused.map(|id| id.as_u64()),
-                next.as_u64()
+                self.focused.map(|id| node_id_to_ffi(id)),
+                node_id_to_ffi(next)
             );
             if let Ok(path) = std::env::var("TEXTUAL_DEBUG_FOCUS_FILE") {
                 if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -142,7 +141,7 @@ impl AppRoot {
         self.focused = Some(prev);
     }
 
-    pub fn focus(&mut self, id: WidgetId) -> bool {
+    pub fn focus(&mut self, id: NodeId) -> bool {
         let mut ids = Vec::new();
         for child in &mut self.children {
             collect_focus_ids(child.as_mut(), &mut ids);
@@ -165,14 +164,6 @@ impl Default for AppRoot {
 }
 
 impl Widget for AppRoot {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
-    fn set_focus_target(&mut self, target: Option<WidgetId>) {
-        self.focused = target;
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
@@ -476,12 +467,6 @@ impl Widget for AppRoot {
             }
         }
         if any { Some(widest.max(1)) } else { None }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for child in &mut self.children {
-            f(child.as_mut());
-        }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

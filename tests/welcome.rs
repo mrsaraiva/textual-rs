@@ -67,7 +67,7 @@ fn welcome_resize_updates_close_row_hit_testing() {
     let mut ctx = EventCtx::default();
     welcome.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: welcome.id(),
+            target: NodeId::default(),
             screen_x: 1,
             screen_y: 1,
             x: 1,
@@ -87,7 +87,7 @@ fn welcome_single_row_layout_routes_mouse_to_close_button() {
     let mut ctx = EventCtx::default();
     welcome.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: welcome.id(),
+            target: NodeId::default(),
             screen_x: 2,
             screen_y: 0,
             x: 2,
@@ -103,19 +103,14 @@ fn welcome_single_row_layout_routes_mouse_to_close_button() {
 fn welcome_clears_close_hover_when_pointer_leaves_close_row() {
     let mut welcome = Welcome::new();
     welcome.on_layout(32, 6);
-    let close_id = welcome.close_button_id();
 
     welcome.visit_children_mut(&mut |child| {
-        if child.id() == close_id {
-            child.set_hovered(true);
-        }
+        child.set_hovered(true);
     });
 
     let mut close_hovered_before = false;
     welcome.visit_children_mut(&mut |child| {
-        if child.id() == close_id {
-            close_hovered_before = child.is_hovered();
-        }
+        close_hovered_before = child.is_hovered();
     });
     assert!(close_hovered_before);
 
@@ -123,9 +118,7 @@ fn welcome_clears_close_hover_when_pointer_leaves_close_row() {
 
     let mut close_hovered_after = false;
     welcome.visit_children_mut(&mut |child| {
-        if child.id() == close_id {
-            close_hovered_after = child.is_hovered();
-        }
+        close_hovered_after = child.is_hovered();
     });
     assert!(!close_hovered_after);
 }
@@ -136,12 +129,9 @@ fn welcome_unmount_resets_focus_and_hover_lifecycle_state() {
     welcome.on_layout(32, 6);
     welcome.set_focus(true);
     welcome.set_hovered(true);
-    let close_id = welcome.close_button_id();
     welcome.visit_children_mut(&mut |child| {
-        if child.id() == close_id {
-            child.set_focus(true);
-            child.set_hovered(true);
-        }
+        child.set_focus(true);
+        child.set_hovered(true);
     });
 
     welcome.on_unmount();
@@ -152,10 +142,8 @@ fn welcome_unmount_resets_focus_and_hover_lifecycle_state() {
     let mut close_has_focus = false;
     let mut close_hovered = false;
     welcome.visit_children_mut(&mut |child| {
-        if child.id() == close_id {
-            close_has_focus = child.has_focus();
-            close_hovered = child.is_hovered();
-        }
+        close_has_focus = child.has_focus();
+        close_hovered = child.is_hovered();
     });
     assert!(!close_has_focus);
     assert!(!close_hovered);

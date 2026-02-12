@@ -3,8 +3,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
 };
@@ -19,7 +21,6 @@ use super::{
 /// `RadioSet`, the set enforces that only one button is selected at a time.
 #[derive(Debug, Clone)]
 pub struct RadioButton {
-    id: WidgetId,
     label: String,
     state: BinaryToggleState,
     classes: Vec<String>,
@@ -31,7 +32,6 @@ impl RadioButton {
     pub fn new(label: impl Into<String>) -> Self {
         let label = label.into();
         Self {
-            id: WidgetId::new(),
             label,
             state: BinaryToggleState::new(false),
             classes: vec!["radio-button".to_string(), "-off".to_string()],
@@ -90,7 +90,6 @@ impl RadioButton {
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            self.id,
             Message::RadioButtonChanged {
                 value: self.state.value(),
             },
@@ -113,10 +112,6 @@ impl RadioButton {
 }
 
 impl Widget for RadioButton {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         self.state.focusable()
     }
@@ -151,7 +146,7 @@ impl Widget for RadioButton {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, self.id);
+        let outcome = self.state.handle_event(event, NodeId::default());
         if outcome.toggled {
             self.on_toggled();
             self.emit_changed(ctx);

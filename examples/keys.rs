@@ -234,8 +234,8 @@ impl TextualApp for KeysApp {
     fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
         match description {
             "Clear" => {
-                if let Some(key_log_id) = self.key_log_id {
-                    ctx.post_message(key_log_id, Message::ClearRequested);
+                if self.key_log_id.is_some() {
+                    ctx.post_message(Message::ClearRequested);
                     ctx.set_handled();
                 }
             }

@@ -6,8 +6,10 @@ use crate::message::Message;
 
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 use toggle_option::OptionCursorState;
@@ -19,7 +21,6 @@ pub use toggle_option::{OptionId, OptionItem};
 /// and emits [`Message::OptionHighlighted`] / [`Message::OptionSelected`] messages.
 #[derive(Debug, Clone)]
 pub struct OptionList {
-    id: WidgetId,
     items: Vec<OptionItem>,
     cursor: OptionCursorState,
     disabled: bool,
@@ -38,7 +39,6 @@ impl OptionList {
     /// Create an empty `OptionList`.
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             items: Vec::new(),
             cursor: OptionCursorState::default(),
             disabled: false,
@@ -212,13 +212,13 @@ impl OptionList {
 
     fn emit_highlighted(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(self.id, Message::OptionHighlighted { index });
+            ctx.post_message(Message::OptionHighlighted { index });
         }
     }
 
     fn emit_selected(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(self.id, Message::OptionSelected { index });
+            ctx.post_message(Message::OptionSelected { index });
         }
     }
 
@@ -303,10 +303,6 @@ impl OptionList {
 }
 
 impl Widget for OptionList {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -344,7 +340,8 @@ impl Widget for OptionList {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if index < self.items.len() && self.items[index].is_selectable() {
                     self.highlight_index(index, ctx);
@@ -589,6 +586,7 @@ impl Renderable for OptionList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
 
     #[test]
     fn option_list_navigation_skips_separators() {
@@ -680,7 +678,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: list.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
                 screen_x: 0,
                 screen_y: 1,
                 x: 0,

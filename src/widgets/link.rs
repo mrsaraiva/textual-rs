@@ -4,8 +4,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta}
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -15,7 +17,6 @@ use super::{
 /// Activated via click or Enter key when focused.
 #[derive(Debug, Clone)]
 pub struct Link {
-    id: WidgetId,
     text: String,
     url: String,
     /// Optional tooltip text (Python Textual parity).
@@ -36,7 +37,6 @@ impl Link {
         let text = text.into();
         let url_str = text.clone();
         Self {
-            id: WidgetId::new(),
             text,
             url: url_str,
             tooltip: None,
@@ -93,7 +93,6 @@ impl Link {
                 eprintln!("Link: failed to open URL {:?}: {}", self.url, err);
             }
             ctx.post_message(
-                self.id,
                 Message::LinkClicked {
                     url: self.url.clone(),
                 },
@@ -105,10 +104,6 @@ impl Link {
 }
 
 impl Widget for Link {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -139,7 +134,8 @@ impl Widget for Link {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -148,7 +144,8 @@ impl Widget for Link {
                 if self.pressed {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target == Some(self.id) {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    if mouse.target == Some(NodeId::default()) {
                         self.activate(ctx);
                         return;
                     }

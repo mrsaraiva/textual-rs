@@ -5,8 +5,10 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 use crate::style::{Color, parse_color_like};
 
+use crate::node_id::NodeId;
+
 use super::{
-    ScrollView, Widget, WidgetId, WidgetStyles,
+    ScrollView, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
@@ -46,7 +48,6 @@ impl ColumnKey {
 
 #[derive(Debug, Clone)]
 pub struct DataTable {
-    id: WidgetId,
     column_keys: Vec<ColumnKey>,
     headers: Vec<String>,
     row_keys: Vec<RowKey>,
@@ -85,7 +86,6 @@ struct HorizontalScrollbarState {
 impl DataTable {
     pub fn new(headers: Vec<String>, rows: Vec<Vec<String>>) -> Self {
         let mut out = Self {
-            id: WidgetId::new(),
             column_keys: Vec::new(),
             headers: Vec::new(),
             row_keys: Vec::new(),
@@ -816,7 +816,6 @@ impl DataTable {
 impl Default for DataTable {
     fn default() -> Self {
         let mut out = Self {
-            id: WidgetId::new(),
             column_keys: Vec::new(),
             headers: Vec::new(),
             row_keys: Vec::new(),
@@ -848,10 +847,6 @@ impl Default for DataTable {
 }
 
 impl Widget for DataTable {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -939,7 +934,8 @@ impl Widget for DataTable {
 
         // Handle mouse events regardless of focus state.
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let width = self.content_width as usize;
                 let height = self.content_height as usize;
                 if let Some(state) = self.horizontal_scrollbar_state(width, height)
@@ -995,15 +991,12 @@ impl Widget for DataTable {
                     self.ensure_cursor_column_visible(self.content_width as usize);
                 }
                 if let Some(col) = header_clicked {
-                    ctx.post_message(self.id, Message::DataTableHeaderSelected { column: col });
+                    ctx.post_message(Message::DataTableHeaderSelected { column: col });
                 } else if selection_changed || cursor_changed {
-                    ctx.post_message(
-                        self.id,
-                        Message::DataTableCursorMoved {
-                            row: self.selected,
-                            column: self.cursor_column,
-                        },
-                    );
+                    ctx.post_message(Message::DataTableCursorMoved {
+                        row: self.selected,
+                        column: self.cursor_column,
+                    });
                 }
                 ctx.set_handled();
                 return;
@@ -1250,13 +1243,10 @@ impl Widget for DataTable {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if !self.rows.is_empty() && !self.headers.is_empty() {
-                        ctx.post_message(
-                            self.id,
-                            Message::DataTableCellActivated {
-                                row: self.selected,
-                                column: self.cursor_column,
-                            },
-                        );
+                        ctx.post_message(Message::DataTableCellActivated {
+                            row: self.selected,
+                            column: self.cursor_column,
+                        });
                         handled = true;
                     }
                 }
@@ -1274,13 +1264,10 @@ impl Widget for DataTable {
             && !self.rows.is_empty()
             && !self.headers.is_empty()
         {
-            ctx.post_message(
-                self.id,
-                Message::DataTableCursorMoved {
-                    row: self.selected,
-                    column: self.cursor_column,
-                },
-            );
+            ctx.post_message(Message::DataTableCursorMoved {
+                row: self.selected,
+                column: self.cursor_column,
+            });
         }
         if handled {
             ctx.set_handled();
@@ -1558,6 +1545,7 @@ mod tests {
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1570,7 +1558,7 @@ mod tests {
             ],
         );
         table.selected = 1;
-        let id = table.id();
+        let id = NodeId::default();
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -1741,7 +1729,7 @@ mod tests {
 
         table.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: table.id(),
+                target: NodeId::default(),
                 screen_x: 4,
                 screen_y: 0,
                 x: 4,
@@ -1772,7 +1760,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         table.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: table.id(),
+                target: NodeId::default(),
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,
@@ -1880,7 +1868,7 @@ mod tests {
             vec!["A".into(), "B".into()],
             vec![vec!["r0".into(), "c0".into()]],
         );
-        let id = table.id();
+        let id = NodeId::default();
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -2002,7 +1990,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         table.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: table.id(),
+                target: NodeId::default(),
                 screen_x: 11,
                 screen_y: 3,
                 x: 11,
@@ -2053,7 +2041,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         table.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: table.id(),
+                target: NodeId::default(),
                 screen_x: 0,
                 screen_y: 3,
                 x: 0,

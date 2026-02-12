@@ -1,11 +1,11 @@
 use crate::message::{Message, MessageEvent};
-use crate::widgets::WidgetId;
+use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 struct RunningTimer {
-    target: WidgetId,
+    target: NodeId,
     due_at: Instant,
 }
 
@@ -18,7 +18,7 @@ impl OneShotTimerRuntime {
     pub(crate) fn schedule(
         &mut self,
         timer_id: u64,
-        target: WidgetId,
+        target: NodeId,
         delay: Duration,
     ) -> Option<MessageEvent> {
         let replaced = self.running.insert(
@@ -67,7 +67,7 @@ impl OneShotTimerRuntime {
         ready
     }
 
-    fn cancelled_event(&self, timer_id: u64, target: WidgetId) -> MessageEvent {
+    fn cancelled_event(&self, timer_id: u64, target: NodeId) -> MessageEvent {
         MessageEvent {
             sender: super::App::runtime_message_sender(),
             message: Message::TimerCancelled { timer_id, target },
@@ -79,47 +79,51 @@ impl OneShotTimerRuntime {
 mod tests {
     use super::OneShotTimerRuntime;
     use crate::message::{AsyncTaskRequest, AsyncTaskResult, Message};
+    use crate::node_id::node_id_from_ffi;
     use crate::runtime::tasks::AsyncTaskRuntime;
-    use crate::widgets::WidgetId;
     use std::thread;
     use std::time::{Duration, Instant};
 
     #[test]
     fn schedule_then_drain_ready_emits_timer_fired() {
         let mut runtime = OneShotTimerRuntime::default();
-        runtime.schedule(4, WidgetId::from_u64(88), Duration::from_millis(1));
+        let target_id = node_id_from_ffi(88);
+        runtime.schedule(4, target_id, Duration::from_millis(1));
         thread::sleep(Duration::from_millis(2));
         let ready = runtime.drain_ready(Instant::now());
         assert_eq!(ready.len(), 1);
         assert!(matches!(
             ready[0].message,
-            Message::TimerFired { timer_id: 4, target } if target == WidgetId::from_u64(88)
+            Message::TimerFired { timer_id: 4, target } if target == target_id
         ));
     }
 
     #[test]
     fn scheduling_existing_timer_replaces_and_cancels_previous_target() {
         let mut runtime = OneShotTimerRuntime::default();
-        let replaced = runtime.schedule(9, WidgetId::from_u64(1), Duration::from_secs(10));
+        let first = node_id_from_ffi(1);
+        let second = node_id_from_ffi(2);
+        let replaced = runtime.schedule(9, first, Duration::from_secs(10));
         assert!(replaced.is_none());
 
         let replaced = runtime
-            .schedule(9, WidgetId::from_u64(2), Duration::from_secs(10))
+            .schedule(9, second, Duration::from_secs(10))
             .expect("replacement should emit cancellation");
         assert!(matches!(
             replaced.message,
-            Message::TimerCancelled { timer_id: 9, target } if target == WidgetId::from_u64(1)
+            Message::TimerCancelled { timer_id: 9, target } if target == first
         ));
     }
 
     #[test]
     fn cancel_removes_timer_and_prevents_fire() {
         let mut runtime = OneShotTimerRuntime::default();
-        runtime.schedule(17, WidgetId::from_u64(5), Duration::from_millis(1));
+        let target_id = node_id_from_ffi(5);
+        runtime.schedule(17, target_id, Duration::from_millis(1));
         let cancelled = runtime.cancel(17).expect("cancelled event");
         assert!(matches!(
             cancelled.message,
-            Message::TimerCancelled { timer_id: 17, target } if target == WidgetId::from_u64(5)
+            Message::TimerCancelled { timer_id: 17, target } if target == target_id
         ));
         thread::sleep(Duration::from_millis(2));
         assert!(runtime.drain_ready(Instant::now()).is_empty());
@@ -129,15 +133,16 @@ mod tests {
     fn timer_and_async_task_complete_without_blocking_each_other() {
         let mut timers = OneShotTimerRuntime::default();
         let mut tasks = AsyncTaskRuntime::default();
+        let widget_id = node_id_from_ffi(42);
         tasks.spawn(
             1,
-            WidgetId::from_u64(42),
+            widget_id,
             AsyncTaskRequest::Sleep {
                 duration: Duration::from_millis(25),
                 label: "load".to_string(),
             },
         );
-        timers.schedule(2, WidgetId::from_u64(42), Duration::from_millis(2));
+        timers.schedule(2, widget_id, Duration::from_millis(2));
 
         let mut saw_timer = false;
         let mut saw_task = false;
@@ -155,7 +160,7 @@ mod tests {
                         task_id: 1,
                         target,
                         result: AsyncTaskResult::SleepFinished { .. },
-                    } if target == WidgetId::from_u64(42)
+                    } if target == widget_id
                 )
             });
 

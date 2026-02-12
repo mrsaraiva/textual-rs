@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::style::Style;
-use crate::widgets::WidgetId;
+use crate::node_id::NodeId;
 
 use super::ast::{SelectorMeta, StyleSheet};
 
@@ -80,7 +80,7 @@ pub(super) struct CachedComputedStyle {
 #[derive(Debug, Default)]
 pub(super) struct ComputedStyleCache {
     stylesheet: Option<StyleSheet>,
-    entries: HashMap<WidgetId, CachedComputedStyle>,
+    entries: HashMap<NodeId, CachedComputedStyle>,
     stats: ComputedStyleCacheStats,
     layout_affected_change_in_pass: bool,
 }
@@ -105,7 +105,7 @@ impl ComputedStyleCache {
         changed
     }
 
-    pub(super) fn get(&mut self, widget_id: WidgetId, key: &ComputedStyleKey) -> Option<Style> {
+    pub(super) fn get(&mut self, widget_id: NodeId, key: &ComputedStyleKey) -> Option<Style> {
         if let Some(entry) = self.entries.get(&widget_id) {
             if &entry.key == key {
                 self.stats.hits = self.stats.hits.saturating_add(1);
@@ -116,13 +116,13 @@ impl ComputedStyleCache {
         None
     }
 
-    pub(super) fn prior_resolved(&self, widget_id: WidgetId) -> Option<Style> {
+    pub(super) fn prior_resolved(&self, widget_id: NodeId) -> Option<Style> {
         self.entries.get(&widget_id).map(|entry| entry.resolved)
     }
 
     pub(super) fn store(
         &mut self,
-        widget_id: WidgetId,
+        widget_id: NodeId,
         key: ComputedStyleKey,
         resolved: Style,
         layout_affected_changed: bool,

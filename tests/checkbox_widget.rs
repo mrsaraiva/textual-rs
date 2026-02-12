@@ -29,7 +29,7 @@ fn checkbox_toggles_from_keyboard_and_emits_message() {
 #[test]
 fn checkbox_click_activates_only_on_mouse_up_over_target() {
     let mut checkbox = Checkbox::new("remember me");
-    let id = checkbox.id();
+    let id = NodeId::default();
     checkbox.set_focus(true);
     checkbox.set_hovered(true);
 

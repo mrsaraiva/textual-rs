@@ -4,9 +4,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
+use crate::node_id::NodeId;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -21,7 +22,6 @@ pub enum ButtonVariant {
 
 #[derive(Clone)]
 pub struct Button {
-    id: WidgetId,
     label: String,
     focused: bool,
     hovered: bool,
@@ -46,7 +46,6 @@ enum PressedState {
 impl std::fmt::Debug for Button {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Button")
-            .field("id", &self.id)
             .field("label", &self.label)
             .field("focused", &self.focused)
             .field("hovered", &self.hovered)
@@ -62,7 +61,6 @@ impl std::fmt::Debug for Button {
 impl Button {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             label: label.into(),
             focused: false,
             hovered: false,
@@ -174,10 +172,6 @@ impl Button {
 }
 
 impl Widget for Button {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -225,11 +219,12 @@ impl Widget for Button {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
-                    self.id.as_u64(),
+                    0u64,
                     self.label
                 ));
                 ctx.request_repaint();
@@ -240,14 +235,14 @@ impl Widget for Button {
                     self.pressed = PressedState::None;
                     ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
-                    if mouse.target == Some(self.id) {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    if mouse.target == Some(NodeId::default()) {
                         debug_message(&format!(
                             "[button] emit mouse_up sender={} label=\"{}\"",
-                            self.id.as_u64(),
+                            0u64,
                             self.label
                         ));
                         ctx.post_message(
-                            self.id,
                             Message::ButtonPressed {
                                 description: self.describe(),
                             },
@@ -256,9 +251,9 @@ impl Widget for Button {
                     } else {
                         debug_message(&format!(
                             "[button] cancel mouse_up sender={} label=\"{}\" up_target={:?}",
-                            self.id.as_u64(),
+                            0u64,
                             self.label,
-                            mouse.target.map(|id| id.as_u64())
+                            mouse.target
                         ));
                     }
                 }
@@ -267,18 +262,17 @@ impl Widget for Button {
                 self.pressed = PressedState::KeyboardPending;
                 debug_message(&format!(
                     "[button] emit action_toggle sender={} label=\"{}\"",
-                    self.id.as_u64(),
+                    0u64,
                     self.label
                 ));
                 ctx.post_message(
-                    self.id,
                     Message::ButtonPressed {
                         description: self.describe(),
                     },
                 );
                 debug_input(&format!(
                     "[button] toggle id={} label=\"{}\"",
-                    self.id.as_u64(),
+                    0u64,
                     self.label
                 ));
                 ctx.set_handled();
@@ -288,19 +282,18 @@ impl Widget for Button {
                     self.pressed = PressedState::KeyboardPending;
                     debug_message(&format!(
                         "[button] emit key sender={} label=\"{}\" code={:?}",
-                        self.id.as_u64(),
+                        0u64,
                         self.label,
                         key.code
                     ));
                     ctx.post_message(
-                        self.id,
                         Message::ButtonPressed {
                             description: self.describe(),
                         },
                     );
                     debug_input(&format!(
                         "[button] key id={} label=\"{}\"",
-                        self.id.as_u64(),
+                        0u64,
                         self.label
                     ));
                     ctx.set_handled();

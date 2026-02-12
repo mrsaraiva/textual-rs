@@ -30,27 +30,34 @@ use super::routing::{
     is_scroll_action,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
-use crate::widgets::{Widget, WidgetId};
+use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+use crate::widgets::Widget;
+
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+#[allow(deprecated)]
+fn widget_node_id(w: &dyn Widget) -> NodeId {
+    node_id_from_ffi(w.id().as_u64())
+}
 
 fn should_dispatch_binding_hints(
     last_hints: &[crate::event::BindingHint],
-    last_sources: &[crate::widgets::WidgetId],
+    last_sources: &[NodeId],
     current_hints: &[crate::event::BindingHint],
-    current_sources: &[crate::widgets::WidgetId],
+    current_sources: &[NodeId],
 ) -> bool {
     last_hints != current_hints || last_sources != current_sources
 }
 
 fn should_dispatch_focused_help(
-    last_source: Option<crate::widgets::WidgetId>,
+    last_source: Option<NodeId>,
     last_markup: Option<&str>,
-    current_source: Option<crate::widgets::WidgetId>,
+    current_source: Option<NodeId>,
     current_markup: Option<&str>,
 ) -> bool {
     last_source != current_source || last_markup != current_markup
 }
 
-fn focused_help_message(current: Option<(crate::widgets::WidgetId, String)>) -> MessageEvent {
+fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
     if let Some((source, markup)) = current {
         MessageEvent {
             sender: source,
@@ -180,7 +187,7 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
 
 #[derive(Clone)]
 struct SelectorSnapshot {
-    id: WidgetId,
+    id: NodeId,
     type_name: String,
     style_id: Option<String>,
     classes: Vec<String>,
@@ -192,7 +199,7 @@ struct SelectorSnapshot {
 
 fn snapshot_for(widget: &mut dyn Widget, app_active: bool) -> SelectorSnapshot {
     SelectorSnapshot {
-        id: widget.id(),
+        id: widget_node_id(widget),
         type_name: widget.style_type().to_string(),
         style_id: widget.style_id().map(str::to_string),
         classes: widget.style_classes().to_vec(),
@@ -298,7 +305,7 @@ fn collect_stylesheet_affected_widgets(
     root: &mut dyn Widget,
     changed_rules: &[crate::css::StyleRule],
     app_active: bool,
-) -> Vec<WidgetId> {
+) -> Vec<NodeId> {
     if changed_rules.is_empty() {
         return Vec::new();
     }
@@ -308,7 +315,7 @@ fn collect_stylesheet_affected_widgets(
         rules: &[crate::css::StyleRule],
         app_active: bool,
         ancestors: &mut Vec<SelectorSnapshot>,
-        affected: &mut HashSet<WidgetId>,
+        affected: &mut HashSet<NodeId>,
     ) {
         let current = snapshot_for(widget, app_active);
         if rules
@@ -333,7 +340,7 @@ fn collect_stylesheet_affected_widgets(
         &mut affected,
     );
     let mut out = affected.into_iter().collect::<Vec<_>>();
-    out.sort_by_key(|id| id.as_u64());
+    out.sort_by_key(|id| node_id_to_ffi(*id));
     out
 }
 
@@ -354,7 +361,7 @@ fn bool_flag(value: bool) -> &'static str {
 #[derive(Clone, Copy)]
 enum InvalidationScope {
     Global,
-    Widget(WidgetId),
+    Widget(NodeId),
 }
 
 fn copy_to_system_clipboard(text: &str) -> bool {
@@ -500,12 +507,12 @@ impl App {
             widget: &mut dyn Widget,
             depth: usize,
             app_active: bool,
-            hovered: Option<WidgetId>,
+            hovered: Option<NodeId>,
             hit_test: &crate::runtime::types::HitTestMap,
             out: &mut Vec<String>,
-            focused_out: &mut Option<WidgetId>,
+            focused_out: &mut Option<NodeId>,
         ) {
-            let id = widget.id();
+            let id = widget_node_id(widget);
             let focused = widget.has_focus() && app_active;
             if focused {
                 *focused_out = Some(id);
@@ -528,7 +535,7 @@ impl App {
                 .join(",");
             let line = format!(
                 "widget\t{depth}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                id.as_u64(),
+                node_id_to_ffi(id),
                 sanitize_snapshot_field(widget.style_type()),
                 style_id,
                 classes,
@@ -576,13 +583,13 @@ impl App {
         snapshot.push_str(&format!(
             "hovered\t{}\n",
             self.hovered
-                .map(|id| id.as_u64().to_string())
+                .map(|id| node_id_to_ffi(id).to_string())
                 .unwrap_or_else(|| "-".to_string())
         ));
         snapshot.push_str(&format!(
             "focused\t{}\n",
             focused
-                .map(|id| id.as_u64().to_string())
+                .map(|id| node_id_to_ffi(id).to_string())
                 .unwrap_or_else(|| "-".to_string())
         ));
         snapshot.push_str(&format!("widget_count\t{}\n", widget_lines.len()));
@@ -713,8 +720,7 @@ impl App {
                 // real widget via the old path during migration since the tree
                 // holds stub/compose widgets, not the actual rendered widgets.
                 if let Some(node) = self.widget_tree.as_ref().and_then(|t| t.get(first)) {
-                    #[allow(deprecated)]
-                    let wid = node.widget.id();
+                    let wid = widget_node_id(node.widget.as_ref());
                     crate::widgets::set_focus_by_id(root, Some(wid));
                 }
             }
@@ -911,7 +917,7 @@ impl App {
                                 "[input] mouse down x={} y={} hovered={:?}",
                                 mouse.column,
                                 mouse.row,
-                                self.hovered.map(|id| id.as_u64())
+                                self.hovered.map(|id| node_id_to_ffi(id))
                             ));
                             if let Some(target) = self.widget_at(mouse.column, mouse.row) {
                                 let (x, y) = self.hit_test.content_local_coords(
@@ -922,7 +928,7 @@ impl App {
                                 );
                                 debug_input(&format!(
                                     "[input] mouse target id={}",
-                                    target.as_u64()
+                                    node_id_to_ffi(target)
                                 ));
                                 let mut outcome = self.dispatch_event_auto(
                                     root,
@@ -1023,7 +1029,7 @@ impl App {
                                 .unwrap_or((0, 0));
                             debug_input(&format!(
                                 "[input] mouse scroll route target={:?} dx={} dy={}",
-                                target.map(|id| id.as_u64()),
+                                target.map(node_id_to_ffi),
                                 delta_x,
                                 delta_y
                             ));
@@ -1466,17 +1472,11 @@ impl App {
     fn dispatch_event_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: WidgetId,
+        target: NodeId,
         event: &Event,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            // During migration, target is a WidgetId. We need to find the
-            // corresponding NodeId. Walk the tree to locate it.
-            if let Some(node_id) = Self::widget_id_to_node_id(tree, target) {
-                dispatch_event_to_target_tree(tree, node_id, event)
-            } else {
-                dispatch_event_to_target(root, target, event)
-            }
+            dispatch_event_to_target_tree(tree, target, event)
         } else {
             dispatch_event_to_target(root, target, event)
         }
@@ -1487,11 +1487,10 @@ impl App {
         &mut self,
         root: &mut dyn Widget,
         action: Action,
-        hovered: Option<WidgetId>,
+        hovered: Option<NodeId>,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            let hovered_node = hovered.and_then(|wid| Self::widget_id_to_node_id(tree, wid));
-            dispatch_scroll_action_tree(tree, action, hovered_node)
+            dispatch_scroll_action_tree(tree, action, hovered)
         } else {
             dispatch_scroll_action(root, action, hovered)
         }
@@ -1501,16 +1500,12 @@ impl App {
     fn dispatch_mouse_scroll_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: WidgetId,
+        target: NodeId,
         delta_x: i32,
         delta_y: i32,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            if let Some(node_id) = Self::widget_id_to_node_id(tree, target) {
-                dispatch_mouse_scroll_to_target_tree(tree, node_id, delta_x, delta_y)
-            } else {
-                dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
-            }
+            dispatch_mouse_scroll_to_target_tree(tree, target, delta_x, delta_y)
         } else {
             dispatch_mouse_scroll_to_target(root, target, delta_x, delta_y)
         }
@@ -1542,16 +1537,9 @@ impl App {
     fn active_binding_hints_auto(
         &self,
         root: &mut dyn Widget,
-    ) -> (Vec<crate::event::BindingHint>, Vec<WidgetId>) {
+    ) -> (Vec<crate::event::BindingHint>, Vec<NodeId>) {
         if let Some(tree) = &self.widget_tree {
-            let (hints, node_sources) = active_binding_hints_tree(tree);
-            // Convert NodeId sources to WidgetId for compatibility.
-            #[allow(deprecated)]
-            let widget_sources: Vec<WidgetId> = node_sources
-                .iter()
-                .filter_map(|nid| tree.get(*nid).map(|n| n.widget.id()))
-                .collect();
-            (hints, widget_sources)
+            active_binding_hints_tree(tree)
         } else {
             active_binding_hints(root)
         }
@@ -1561,14 +1549,9 @@ impl App {
     fn focused_help_metadata_auto(
         &self,
         root: &mut dyn Widget,
-    ) -> Option<(WidgetId, String)> {
+    ) -> Option<(NodeId, String)> {
         if let Some(tree) = &self.widget_tree {
-            let result = focused_help_metadata_tree(tree);
-            // Convert NodeId source to WidgetId for compatibility.
-            #[allow(deprecated)]
-            result.and_then(|(nid, markup)| {
-                tree.get(nid).map(|n| (n.widget.id(), markup))
-            })
+            focused_help_metadata_tree(tree)
         } else {
             focused_help_metadata(root)
         }
@@ -1578,16 +1561,12 @@ impl App {
     pub(super) fn call_on_mouse_move_auto(
         &mut self,
         root: &mut dyn Widget,
-        target: WidgetId,
+        target: NodeId,
         x: u16,
         y: u16,
     ) -> bool {
         if let Some(tree) = self.widget_tree.as_mut() {
-            if let Some(node_id) = Self::widget_id_to_node_id(tree, target) {
-                call_on_mouse_move_tree(tree, node_id, x, y)
-            } else {
-                super::helpers::call_on_mouse_move(root, target, x, y)
-            }
+            call_on_mouse_move_tree(tree, target, x, y)
         } else {
             super::helpers::call_on_mouse_move(root, target, x, y)
         }
@@ -1597,11 +1576,10 @@ impl App {
     pub(super) fn pointer_shape_for_hover_auto(
         &self,
         root: &mut dyn Widget,
-        hovered: Option<WidgetId>,
+        hovered: Option<NodeId>,
     ) -> crate::driver::PointerShape {
         if let Some(tree) = &self.widget_tree {
-            let hovered_node = hovered.and_then(|wid| Self::widget_id_to_node_id_ref(tree, wid));
-            pointer_shape_for_hover_tree(tree, hovered_node)
+            pointer_shape_for_hover_tree(tree, hovered)
         } else {
             super::helpers::pointer_shape_for_hover(root, hovered)
         }
@@ -1619,37 +1597,6 @@ impl App {
         }
     }
 
-    /// Look up a `NodeId` by legacy `WidgetId` in the tree (mutable borrow).
-    #[allow(deprecated)]
-    fn widget_id_to_node_id(
-        tree: &mut crate::widget_tree::WidgetTree,
-        target: WidgetId,
-    ) -> Option<crate::node_id::NodeId> {
-        let root = tree.root()?;
-        tree.walk_depth_first(root)
-            .into_iter()
-            .find(|&nid| {
-                tree.get(nid)
-                    .map(|n| n.widget.id() == target)
-                    .unwrap_or(false)
-            })
-    }
-
-    /// Look up a `NodeId` by legacy `WidgetId` in the tree (shared borrow).
-    #[allow(deprecated)]
-    fn widget_id_to_node_id_ref(
-        tree: &crate::widget_tree::WidgetTree,
-        target: WidgetId,
-    ) -> Option<crate::node_id::NodeId> {
-        let root = tree.root()?;
-        tree.walk_depth_first(root)
-            .into_iter()
-            .find(|&nid| {
-                tree.get(nid)
-                    .map(|n| n.widget.id() == target)
-                    .unwrap_or(false)
-            })
-    }
 }
 
 #[cfg(test)]
@@ -1662,7 +1609,8 @@ mod tests {
     use crate::css::StyleSheet;
     use crate::event::BindingHint;
     use crate::message::{Message, MessageEvent};
-    use crate::widgets::{Widget, WidgetId};
+    use crate::node_id::{NodeId, node_id_from_ffi};
+    use crate::widgets::Widget;
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
 
@@ -1691,8 +1639,8 @@ mod tests {
             BindingHint::new("tab", "next"),
             BindingHint::new("q", "quit"),
         ];
-        let last_sources = vec![WidgetId::from_u64(1)];
-        let current_sources = vec![WidgetId::from_u64(1)];
+        let last_sources = vec![node_id_from_ffi(1)];
+        let current_sources = vec![node_id_from_ffi(1)];
 
         assert!(should_dispatch_binding_hints(
             &last_hints,
@@ -1705,8 +1653,8 @@ mod tests {
     #[test]
     fn binding_hints_dispatch_when_sources_change_with_same_hints() {
         let hints = vec![BindingHint::new("tab", "next")];
-        let last_sources = vec![WidgetId::from_u64(1)];
-        let current_sources = vec![WidgetId::from_u64(2)];
+        let last_sources = vec![node_id_from_ffi(1)];
+        let current_sources = vec![node_id_from_ffi(2)];
 
         assert!(should_dispatch_binding_hints(
             &hints,
@@ -1719,7 +1667,7 @@ mod tests {
     #[test]
     fn binding_hints_skip_when_hints_and_sources_are_stable() {
         let hints = vec![BindingHint::new("tab", "next")];
-        let sources = vec![WidgetId::from_u64(1)];
+        let sources = vec![node_id_from_ffi(1)];
 
         assert!(!should_dispatch_binding_hints(
             &hints, &sources, &hints, &sources,
@@ -1729,9 +1677,9 @@ mod tests {
     #[test]
     fn focused_help_dispatches_when_focus_source_changes() {
         assert!(should_dispatch_focused_help(
-            Some(WidgetId::from_u64(1)),
+            Some(node_id_from_ffi(1)),
             Some("## First"),
-            Some(WidgetId::from_u64(2)),
+            Some(node_id_from_ffi(2)),
             Some("## Second"),
         ));
     }
@@ -1739,7 +1687,7 @@ mod tests {
     #[test]
     fn focused_help_dispatches_when_help_clears() {
         assert!(should_dispatch_focused_help(
-            Some(WidgetId::from_u64(1)),
+            Some(node_id_from_ffi(1)),
             Some("## First"),
             None,
             None,
@@ -1749,16 +1697,16 @@ mod tests {
     #[test]
     fn focused_help_skips_when_source_and_markup_stable() {
         assert!(!should_dispatch_focused_help(
-            Some(WidgetId::from_u64(1)),
+            Some(node_id_from_ffi(1)),
             Some("## Stable"),
-            Some(WidgetId::from_u64(1)),
+            Some(node_id_from_ffi(1)),
             Some("## Stable"),
         ));
     }
 
     #[test]
     fn focused_help_message_emits_set_payload() {
-        let source = WidgetId::from_u64(7);
+        let source = node_id_from_ffi(7);
         let event = focused_help_message(Some((source, "## Source help".to_string())));
         assert_eq!(event.sender, source);
         assert!(matches!(
@@ -1773,7 +1721,7 @@ mod tests {
     #[test]
     fn focused_help_message_emits_clear_payload() {
         let event = focused_help_message(None);
-        assert_eq!(event.sender, WidgetId::from_u64(0));
+        assert_eq!(event.sender, node_id_from_ffi(0));
         assert!(matches!(
             event.message,
             Message::HelpPanelFocusedHelpCleared
@@ -1782,7 +1730,7 @@ mod tests {
 
     #[test]
     fn clipboard_runtime_handles_copy_then_paste_request() {
-        let target = WidgetId::from_u64(42);
+        let target = node_id_from_ffi(42);
         let mut clipboard = None;
         let mut backend = StubClipboardBackend {
             copy_results: VecDeque::from(vec![true]),
@@ -1793,14 +1741,14 @@ mod tests {
             &mut clipboard,
             &[
                 MessageEvent {
-                    sender: WidgetId::from_u64(1),
+                    sender: node_id_from_ffi(1),
                     message: Message::TextEditClipboardCopyRequested {
                         text: "hello".to_string(),
                         cut: false,
                     },
                 },
                 MessageEvent {
-                    sender: WidgetId::from_u64(2),
+                    sender: node_id_from_ffi(2),
                     message: Message::TextEditClipboardPasteRequested { target },
                 },
             ],
@@ -1820,13 +1768,13 @@ mod tests {
 
     #[test]
     fn clipboard_runtime_ignores_paste_without_buffered_text() {
-        let target = WidgetId::from_u64(7);
+        let target = node_id_from_ffi(7);
         let mut clipboard = None;
         let mut backend = StubClipboardBackend::default();
         let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
             &[MessageEvent {
-                sender: WidgetId::from_u64(2),
+                sender: node_id_from_ffi(2),
                 message: Message::TextEditClipboardPasteRequested { target },
             }],
             &mut backend,
@@ -1836,7 +1784,7 @@ mod tests {
 
     #[test]
     fn clipboard_runtime_prefers_system_clipboard_on_paste() {
-        let target = WidgetId::from_u64(9);
+        let target = node_id_from_ffi(9);
         let mut clipboard = Some("fallback".to_string());
         let mut backend = StubClipboardBackend {
             copy_results: VecDeque::new(),
@@ -1847,7 +1795,7 @@ mod tests {
         let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
             &[MessageEvent {
-                sender: WidgetId::from_u64(2),
+                sender: node_id_from_ffi(2),
                 message: Message::TextEditClipboardPasteRequested { target },
             }],
             &mut backend,
@@ -1862,7 +1810,7 @@ mod tests {
     }
 
     struct StyleNode {
-        id: WidgetId,
+        node_id: NodeId,
         type_name: &'static str,
         style_id: Option<String>,
         classes: Vec<String>,
@@ -1872,8 +1820,10 @@ mod tests {
 
     impl StyleNode {
         fn new(type_name: &'static str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Self {
-                id: WidgetId::new(),
+                node_id: node_id_from_ffi(n),
                 type_name,
                 style_id: None,
                 classes: Vec::new(),
@@ -1899,10 +1849,6 @@ mod tests {
     }
 
     impl Widget for StyleNode {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -1922,18 +1868,12 @@ mod tests {
         fn has_focus(&self) -> bool {
             self.focused
         }
-
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            for child in &mut self.children {
-                f(child);
-            }
-        }
     }
 
     #[test]
     fn stylesheet_invalidation_matches_descendant_selectors_selectively() {
         let button = StyleNode::new("Button").with_class("special");
-        let button_id = button.id();
+        let button_id = button.node_id;
         let mut root = StyleNode::new("Container")
             .with_class("panel")
             .with_child(button)
@@ -1948,7 +1888,7 @@ mod tests {
     #[test]
     fn stylesheet_invalidation_respects_focus_pseudo_state() {
         let button = StyleNode::new("Button").with_focus(true);
-        let button_id = button.id();
+        let button_id = button.node_id;
         let mut root = StyleNode::new("Container").with_child(button);
 
         let changed = StyleSheet::parse("Button:focus { fg: #ffffff; }");

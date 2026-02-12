@@ -1,12 +1,12 @@
 use textual::event::EventCtx;
+use textual::node_id_from_ffi;
 use textual::prelude::OverlayScreenStack;
-use textual::widgets::WidgetId;
 
 #[test]
 fn overlay_screen_stack_models_push_pop_navigation_on_message_bus() {
-    let sender = WidgetId::from_u64(10);
-    let first = WidgetId::from_u64(100);
-    let second = WidgetId::from_u64(200);
+    let sender = node_id_from_ffi(10);
+    let first = node_id_from_ffi(100);
+    let second = node_id_from_ffi(200);
 
     let mut stack = OverlayScreenStack::new();
     let mut ctx = EventCtx::default();

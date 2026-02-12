@@ -6,8 +6,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::Message;
 use crate::style::Color;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -64,7 +66,6 @@ static COLOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Each new instance gets the next color from a rotating palette.
 #[derive(Debug, Clone)]
 pub struct Placeholder {
-    id: WidgetId,
     label: String,
     variant: PlaceholderVariant,
     color_index: usize,
@@ -82,7 +83,6 @@ impl Placeholder {
         let color_index = COLOR_COUNTER.fetch_add(1, Ordering::Relaxed) % PLACEHOLDER_COLORS.len();
         let label = label.into();
         Self {
-            id: WidgetId::new(),
             label,
             variant: PlaceholderVariant::Default,
             color_index,
@@ -162,10 +162,6 @@ impl Placeholder {
 }
 
 impl Widget for Placeholder {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }
@@ -196,10 +192,10 @@ impl Widget for Placeholder {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.cycle_variant();
                 ctx.post_message(
-                    self.id,
                     Message::PlaceholderVariantChanged {
                         variant: self.variant.message_name().to_string(),
                     },
@@ -298,6 +294,7 @@ impl Renderable for Placeholder {
 mod tests {
     use super::*;
     use crate::message::Message;
+    use crate::node_id::NodeId;
 
     #[test]
     fn variant_cycles_on_click() {
@@ -391,7 +388,7 @@ mod tests {
             y: 0,
             screen_x: 0,
             screen_y: 0,
-            target: ph.id(),
+            target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         });
         let mut ctx = EventCtx::default();
         ph.on_event(&event, &mut ctx);
@@ -410,7 +407,7 @@ mod tests {
             y: 0,
             screen_x: 0,
             screen_y: 0,
-            target: ph.id(),
+            target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         });
         let mut ctx = EventCtx::default();
         ph.on_event(&event, &mut ctx);

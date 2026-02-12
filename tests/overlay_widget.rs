@@ -10,24 +10,16 @@ use textual::prelude::*;
 use textual::render::FrameBuffer;
 
 struct EventProbe {
-    id: WidgetId,
     events: Arc<AtomicUsize>,
 }
 
 impl EventProbe {
     fn new(events: Arc<AtomicUsize>) -> Self {
-        Self {
-            id: WidgetId::new(),
-            events,
-        }
+        Self { events }
     }
 }
 
 impl Widget for EventProbe {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let mut out = Segments::new();
         out.push(Segment::new(" ".repeat(options.size.0.max(1))));
@@ -99,13 +91,12 @@ fn overlay_dismiss_message_hides_modal() {
 
     let base = Label::new("base");
     let modal = Label::new("modal");
-    let modal_id = modal.id();
     let mut overlay = Overlay::new(base, modal);
 
     let mut ctx = EventCtx::default();
     overlay.on_message(
         &MessageEvent {
-            sender: modal_id,
+            sender: NodeId::default(),
             message: Message::OverlayDismissRequested { overlay: None },
         },
         &mut ctx,
@@ -131,7 +122,7 @@ fn toast_click_dismisses_and_posts_message() {
     let mut ctx = EventCtx::default();
     toast.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: toast.id(),
+            target: NodeId::default(),
             screen_x: 0,
             screen_y: 0,
             x: 0,

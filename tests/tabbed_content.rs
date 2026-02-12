@@ -37,7 +37,7 @@ fn tabbed_content_mouse_click_header_changes_active_pane() {
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
     tabs.on_layout(40, 5);
-    let id = tabs.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
@@ -195,7 +195,7 @@ fn tabbed_content_mouse_click_disabled_pane_tab_does_not_activate() {
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
     assert!(tabs.disable_pane("two"));
     tabs.on_layout(40, 5);
-    let id = tabs.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tabs.on_event(
         &Event::MouseDown(MouseDownEvent {

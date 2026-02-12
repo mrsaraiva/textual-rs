@@ -5,8 +5,10 @@ use crate::css;
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, clamp_with_constraints, constraints_from_style, empty_classes,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
@@ -14,7 +16,6 @@ use super::{
 };
 
 pub struct Collapsible {
-    id: WidgetId,
     title: String,
     collapsed: bool,
     collapsed_symbol: String,
@@ -31,7 +32,6 @@ pub struct Collapsible {
 impl Collapsible {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             title: title.into(),
             collapsed: true,
             collapsed_symbol: "\u{25b6}".to_string(),
@@ -84,12 +84,9 @@ impl Collapsible {
 
     fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
         self.collapsed = !self.collapsed;
-        ctx.post_message(
-            self.id,
-            Message::CollapsibleToggled {
-                collapsed: self.collapsed,
-            },
-        );
+        ctx.post_message(Message::CollapsibleToggled {
+            collapsed: self.collapsed,
+        });
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -104,10 +101,6 @@ impl Collapsible {
 }
 
 impl Widget for Collapsible {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -197,7 +190,8 @@ impl Widget for Collapsible {
         }
 
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 // Click on the title bar area (y == 0) toggles
                 if mouse.y == 0 {
                     self.pressed = true;
@@ -209,7 +203,8 @@ impl Widget for Collapsible {
                 if self.pressed {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target == Some(self.id) && mouse.y == 0 {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    if mouse.target == Some(NodeId::default()) && mouse.y == 0 {
                         self.toggle_with_ctx(ctx);
                         return;
                     }
@@ -236,14 +231,6 @@ impl Widget for Collapsible {
         if !self.collapsed {
             for child in &mut self.children {
                 child.on_message(message, ctx);
-            }
-        }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        if !self.collapsed {
-            for child in &mut self.children {
-                f(child.as_mut());
             }
         }
     }

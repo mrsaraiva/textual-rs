@@ -12,8 +12,10 @@ use crate::message::{Message, MessageEvent};
 use crate::style::{Color, Style, parse_color_like};
 use crate::{Error, Result};
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     text_edit::{
         EditCommand, MoveUnit, byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
@@ -158,7 +160,6 @@ impl Selection {
 }
 
 pub struct TextArea {
-    id: WidgetId,
     lines: Vec<String>,
     cursor: Cursor,
     selection: Selection,
@@ -229,7 +230,6 @@ impl TextArea {
 
     pub fn new(text: impl Into<String>) -> Self {
         let mut out = Self {
-            id: WidgetId::new(),
             lines: split_lines(text.into()),
             cursor: Cursor::default(),
             selection: Selection::cursor(Cursor::default()),
@@ -471,18 +471,15 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(self.id, Message::TextAreaChanged { value: self.text() });
+        ctx.post_message(Message::TextAreaChanged { value: self.text() });
     }
 
     fn post_selection_changed(&self, ctx: &mut EventCtx) {
         let (a, b) = normalized_selection(self.selection);
-        ctx.post_message(
-            self.id,
-            Message::TextAreaSelectionChanged {
-                start: (a.row, a.col),
-                end: (b.row, b.col),
-            },
-        );
+        ctx.post_message(Message::TextAreaSelectionChanged {
+            start: (a.row, a.col),
+            end: (b.row, b.col),
+        });
     }
 
     fn save_undo_checkpoint(&mut self) {
@@ -1112,10 +1109,6 @@ impl TextArea {
 }
 
 impl Widget for TextArea {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -1185,7 +1178,8 @@ impl Widget for TextArea {
                     ctx.request_repaint();
                 }
             }
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let gutter = self.line_number_gutter_width() as u16;
                 let row = self.scroll_row.saturating_add(mouse.y as usize);
                 let row = row.min(self.lines.len().saturating_sub(1));
@@ -1392,37 +1386,37 @@ impl Widget for TextArea {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: false },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: false,
+                            });
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: true },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: true,
+                            });
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
                             }
                         } else if let Some(text) = self.cut_current_line() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: true },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: true,
+                            });
                             changed = true;
                             value_changed = true;
                             next_preferred = Some(self.cursor_cell_x());
                         }
                     }
                     EditCommand::Paste => {
-                        ctx.post_message(
-                            self.id,
-                            Message::TextEditClipboardPasteRequested { target: self.id },
-                        );
+                        // TODO(P1-14 integration): wire tree-based NodeId comparison
+                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                            target: NodeId::default(),
+                        });
                     }
                     EditCommand::Submit => {}
                 }
@@ -1447,7 +1441,8 @@ impl Widget for TextArea {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::TextEditClipboardPaste { target, text } = &message.message {
-            if *target != self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target != NodeId::default() {
                 return;
             }
             if self.read_only {
@@ -1856,7 +1851,7 @@ mod tests {
         assert!(paste_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardPasteRequested { target } if target == text_area.id()
+                Message::TextEditClipboardPasteRequested { target } if target == NodeId::default()
             )
         }));
     }
@@ -1870,9 +1865,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         text_area.on_message(
             &MessageEvent {
-                sender: text_area.id(),
+                sender: NodeId::default(),
                 message: Message::TextEditClipboardPaste {
-                    target: text_area.id(),
+                    target: NodeId::default(),
                     text: "X\nY".to_string(),
                 },
             },

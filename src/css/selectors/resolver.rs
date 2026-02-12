@@ -1,3 +1,4 @@
+use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::style::Style;
 use crate::widgets::Widget;
 
@@ -7,6 +8,12 @@ use super::context::{
 };
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
+
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+#[allow(deprecated)]
+fn widget_node_id<T: Widget + ?Sized>(w: &T) -> NodeId {
+    node_id_from_ffi(w.id().as_u64())
+}
 
 impl StyleSheet {
     pub(super) fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {
@@ -117,7 +124,7 @@ pub(crate) fn current_parent_style() -> Option<Style> {
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
-    let widget_id = widget.id();
+    let widget_id = widget_node_id(widget);
     let key = super::context::ComputedStyleKey {
         meta: meta.clone(),
         ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),

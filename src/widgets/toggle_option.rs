@@ -1,8 +1,7 @@
 use crossterm::event::KeyCode;
 
 use crate::event::{Action, Event};
-
-use super::WidgetId;
+use crate::node_id::NodeId;
 
 /// Strongly-typed option identifier used by option-oriented widgets.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -212,7 +211,7 @@ impl BinaryToggleState {
         self.value = !self.value;
     }
 
-    pub fn handle_event(&mut self, event: &Event, id: WidgetId) -> ToggleEventOutcome {
+    pub fn handle_event(&mut self, event: &Event, id: NodeId) -> ToggleEventOutcome {
         let mut outcome = ToggleEventOutcome::default();
         if self.disabled {
             return outcome;
@@ -291,7 +290,7 @@ mod tests {
 
     #[test]
     fn binary_toggle_handles_pointer_and_keyboard_activation() {
-        let id = WidgetId::new();
+        let id = NodeId::default();
         let mut state = BinaryToggleState::new(false);
         state.set_focused(true);
         state.set_hovered(true);

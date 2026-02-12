@@ -4,8 +4,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    ScrollView, Widget, WidgetId, WidgetStyles,
+    ScrollView, Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -59,7 +61,6 @@ impl TreeNode {
 
 #[derive(Debug, Clone)]
 pub struct Tree {
-    id: WidgetId,
     roots: Vec<TreeNode>,
     selected: usize,
     offset: usize,
@@ -97,7 +98,6 @@ struct VisibleNode {
 impl Tree {
     pub fn new(roots: Vec<TreeNode>) -> Self {
         Self {
-            id: WidgetId::new(),
             roots,
             selected: 0,
             offset: 0,
@@ -328,9 +328,7 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(
-                self.id,
-                Message::TreeNodeSelected {
+            ctx.post_message(Message::TreeNodeSelected {
                     index: self.selected,
                     label: node.label.clone(),
                 },
@@ -343,9 +341,7 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(
-                self.id,
-                Message::TreeNodeActivated {
+            ctx.post_message(Message::TreeNodeActivated {
                     index,
                     label: node.label.clone(),
                 },
@@ -355,9 +351,7 @@ impl Tree {
 
     fn emit_highlighted(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
-            ctx.post_message(
-                self.id,
-                Message::TreeNodeHighlighted {
+            ctx.post_message(Message::TreeNodeHighlighted {
                     index: self.selected,
                     label: node.label.clone(),
                 },
@@ -366,26 +360,20 @@ impl Tree {
     }
 
     fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
-        ctx.post_message(
-            self.id,
-            Message::TreeNodeToggled {
+        ctx.post_message(Message::TreeNodeToggled {
                 index,
                 label: label.clone(),
                 expanded,
             },
         );
         if expanded {
-            ctx.post_message(
-                self.id,
-                Message::TreeNodeExpanded {
+            ctx.post_message(Message::TreeNodeExpanded {
                     index,
                     label,
                 },
             );
         } else {
-            ctx.post_message(
-                self.id,
-                Message::TreeNodeCollapsed {
+            ctx.post_message(Message::TreeNodeCollapsed {
                     index,
                     label,
                 },
@@ -777,10 +765,6 @@ impl Tree {
 }
 
 impl Widget for Tree {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -811,7 +795,8 @@ impl Widget for Tree {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let nodes = self.visible_nodes();
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if let Some(node) = nodes.get(index) {
@@ -833,7 +818,8 @@ impl Widget for Tree {
                     ctx.set_handled();
                 }
             }
-            Event::MouseUp(mouse) if mouse.target == Some(self.id) => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 let nodes = self.visible_nodes();
                 if self.pressed_activation_index == Some(index) {
@@ -1070,6 +1056,7 @@ mod tests {
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::node_id::NodeId;
     use crate::widgets::Widget;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::Console;
@@ -1157,7 +1144,7 @@ mod tests {
                 .with_child(TreeNode::new("Child")),
         ]);
         tree.on_layout(24, 4);
-        let id = tree.id();
+        let id = NodeId::default();
 
         let mut ctx = EventCtx::default();
         tree.on_event(
@@ -1191,7 +1178,7 @@ mod tests {
     fn mouse_row_click_activates_on_mouse_up() {
         let mut tree = Tree::new(vec![TreeNode::new("Root"), TreeNode::new("Second")]);
         tree.on_layout(24, 4);
-        let id = tree.id();
+        let id = NodeId::default();
 
         let mut down_ctx = EventCtx::default();
         tree.on_event(

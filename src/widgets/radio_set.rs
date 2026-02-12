@@ -4,8 +4,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
@@ -19,7 +21,6 @@ use super::{
 /// focus — the set manages focus delegation visually via the selected index.
 #[derive(Debug, Clone)]
 pub struct RadioSet {
-    id: WidgetId,
     buttons: Vec<RadioButton>,
     cursor: OptionCursorState,
     disabled: bool,
@@ -35,7 +36,6 @@ impl RadioSet {
     /// Create a new empty RadioSet.
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             buttons: Vec::new(),
             cursor: OptionCursorState::default(),
             disabled: false,
@@ -193,8 +193,9 @@ impl RadioSet {
         }
         self.cursor.set_selected(Some(index));
 
-        let button_id = self.buttons[index].id();
-        ctx.post_message(self.id, Message::RadioSetChanged { index, button_id });
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        let button_id = NodeId::default();
+        ctx.post_message(Message::RadioSetChanged { index, button_id });
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -209,10 +210,6 @@ impl RadioSet {
 }
 
 impl Widget for RadioSet {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         !self.disabled && self.has_enabled_button()
     }
@@ -245,7 +242,8 @@ impl Widget for RadioSet {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 // Determine which button was clicked by y coordinate.
                 let index = mouse.y as usize;
                 if index < self.buttons.len() && !self.buttons[index].is_disabled() {
@@ -279,7 +277,8 @@ impl Widget for RadioSet {
         // (e.g. via its own event handler if it ever receives one).
         if let Message::RadioButtonChanged { value } = &message.message {
             // Find which button sent this message.
-            if let Some(index) = self.buttons.iter().position(|b| b.id() == message.sender) {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if let Some(index) = self.buttons.iter().position(|_b| message.sender == NodeId::default()) {
                 if *value {
                     // A button was turned on — enforce mutual exclusion.
                     if let Some(prev) = self.cursor.selected() {
@@ -292,8 +291,9 @@ impl Widget for RadioSet {
                     self.cursor.set_selected(Some(index));
                     self.cursor.set_highlighted(Some(index));
 
-                    let button_id = self.buttons[index].id();
-                    ctx.post_message(self.id, Message::RadioSetChanged { index, button_id });
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    let button_id = NodeId::default();
+                    ctx.post_message(Message::RadioSetChanged { index, button_id });
                     ctx.request_repaint();
                 } else {
                     // A button was turned off — in a radio set, prevent deselection.
@@ -456,6 +456,7 @@ impl Renderable for RadioSet {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
+    use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -517,7 +518,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         set.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: set.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
                 screen_x: 0,
                 screen_y: 1,
                 x: 0,

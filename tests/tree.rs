@@ -62,7 +62,7 @@ fn tree_click_on_branch_toggles() {
             .with_child(TreeNode::new("Child")),
     ]);
     tree.on_layout(24, 5);
-    let id = tree.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tree.on_event(
         &Event::MouseDown(MouseDownEvent {
@@ -147,7 +147,7 @@ fn tree_mouse_click_ignores_disabled_nodes() {
     ]);
     tree.on_layout(24, 5);
 
-    let id = tree.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     tree.on_event(
         &Event::MouseDown(MouseDownEvent {
@@ -243,7 +243,7 @@ fn tree_twisty_click_toggles_without_activation_message() {
             .with_child(TreeNode::new("Child")),
     ]);
     tree.on_layout(24, 4);
-    let id = tree.id();
+    let id = NodeId::default();
 
     let mut ctx = EventCtx::default();
     tree.on_event(

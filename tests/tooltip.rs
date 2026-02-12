@@ -7,6 +7,7 @@ use std::sync::{
 use textual::css::set_style_context;
 use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
+use textual::node_id_from_ffi;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -19,7 +20,6 @@ fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::Conso
 }
 
 struct SpyWidget {
-    id: WidgetId,
     dismiss_messages: Arc<AtomicUsize>,
     mouse_moves: Arc<AtomicUsize>,
     mouse_scrolls: Arc<AtomicUsize>,
@@ -32,7 +32,6 @@ impl SpyWidget {
         mouse_scrolls: Arc<AtomicUsize>,
     ) -> Self {
         Self {
-            id: WidgetId::new(),
             dismiss_messages,
             mouse_moves,
             mouse_scrolls,
@@ -41,10 +40,6 @@ impl SpyWidget {
 }
 
 impl Widget for SpyWidget {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         vec![Segment::styled("spy", Style::new())].into()
     }
@@ -101,9 +96,9 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
 
     tooltip.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlaySetVisible {
-                overlay: tooltip.id(),
+                overlay: NodeId::default(),
                 visible: false,
             },
         },
@@ -204,9 +199,9 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
 
     tooltip.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlaySetAnchor {
-                overlay: tooltip.id(),
+                overlay: NodeId::default(),
                 x: 22,
                 y: 1,
             },
@@ -224,9 +219,9 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
 
     tooltip.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlayClearAnchor {
-                overlay: tooltip.id(),
+                overlay: NodeId::default(),
             },
         },
         &mut EventCtx::default(),
@@ -253,9 +248,9 @@ fn tooltip_forwards_non_matching_overlay_dismiss_to_child() {
 
     tooltip.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlayDismissRequested {
-                overlay: Some(WidgetId::new()),
+                overlay: Some(node_id_from_ffi(999)),
             },
         },
         &mut EventCtx::default(),
@@ -303,9 +298,9 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
     tooltip.on_unmount();
     tooltip.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlaySetVisible {
-                overlay: tooltip.id(),
+                overlay: NodeId::default(),
                 visible: true,
             },
         },

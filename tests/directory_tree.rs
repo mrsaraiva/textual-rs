@@ -95,10 +95,10 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
 
     tree.on_message(
         &MessageEvent {
-            sender: WidgetId::from_u64(0),
+            sender: NodeId::default(),
             message: Message::AsyncTaskCompleted {
                 task_id: 1,
-                target: tree.id(),
+                target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
                     path: nested_dir.display().to_string(),
                     entries: vec![AsyncDirectoryEntry {
@@ -192,10 +192,10 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
 
     tree.on_message(
         &MessageEvent {
-            sender: WidgetId::from_u64(0),
+            sender: NodeId::default(),
             message: Message::AsyncTaskCompleted {
                 task_id: 1,
-                target: tree.id(),
+                target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
                     path: nested_dir.display().to_string(),
                     entries: vec![AsyncDirectoryEntry {
@@ -336,10 +336,10 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
     tree.on_unmount();
     tree.on_message(
         &MessageEvent {
-            sender: WidgetId::from_u64(0),
+            sender: NodeId::default(),
             message: Message::AsyncTaskCompleted {
                 task_id: 1,
-                target: tree.id(),
+                target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
                     path: nested_dir.display().to_string(),
                     entries: vec![AsyncDirectoryEntry {

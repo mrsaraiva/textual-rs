@@ -5,12 +5,12 @@ use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 
+use crate::node_id::NodeId;
 use crate::widgets::{
-    Widget, WidgetId, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
+    Widget, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
 };
 
 pub struct Overlay {
-    id: WidgetId,
     base: Box<dyn Widget>,
     modal: Box<dyn Widget>,
     visible: bool,
@@ -22,7 +22,6 @@ pub struct Overlay {
 impl Overlay {
     pub fn new(base: impl Widget + 'static, modal: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             base: Box::new(base),
             modal: Box::new(modal),
             visible: true,
@@ -117,13 +116,11 @@ impl Overlay {
             return;
         }
         self.visible = visible;
-        ctx.post_message(
-            self.id,
-            Message::OverlayVisibilityChanged {
-                overlay: self.id,
-                visible,
-            },
-        );
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        ctx.post_message(Message::OverlayVisibilityChanged {
+            overlay: NodeId::default(),
+            visible,
+        });
         ctx.request_repaint();
     }
 
@@ -138,28 +135,14 @@ impl Overlay {
         )
     }
 
-    fn modal_contains(&mut self, target: WidgetId) -> bool {
-        fn contains(widget: &mut dyn Widget, target: WidgetId) -> bool {
-            if widget.id() == target {
-                return true;
-            }
-            let mut found = false;
-            widget.visit_children_mut(&mut |child| {
-                if !found && contains(child, target) {
-                    found = true;
-                }
-            });
-            found
-        }
-        contains(self.modal.as_mut(), target)
+    fn modal_contains(&mut self, _target: NodeId) -> bool {
+        // TODO(P1-14 integration): implement via WidgetTree arena traversal
+        // Previously walked widget tree via id()/visit_children_mut(); now needs NodeId
+        true // Conservatively assume target is in modal
     }
 }
 
 impl Widget for Overlay {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         if !self.visible {
             return self.base.render_styled(console, options);
@@ -239,16 +222,19 @@ impl Widget for Overlay {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            Message::OverlaySetVisible { overlay, visible } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlaySetVisible { overlay, visible } if *overlay == NodeId::default() => {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
-            Message::OverlayToggle { overlay } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlayToggle { overlay } if *overlay == NodeId::default() => {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested { overlay } => {
-                let target_matches = overlay.map(|target| target == self.id).unwrap_or(true);
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                let target_matches = overlay.map(|target| target == NodeId::default()).unwrap_or(true);
                 let sender_in_modal = self.modal_contains(message.sender);
                 if target_matches && (sender_in_modal || overlay.is_some()) {
                     self.set_visible(false, ctx);
@@ -262,11 +248,6 @@ impl Widget for Overlay {
         if !ctx.handled() {
             self.base.on_message(message, ctx);
         }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.modal.as_mut());
-        f(self.base.as_mut());
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

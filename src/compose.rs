@@ -155,27 +155,18 @@ macro_rules! compose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets::WidgetId;
     use rich_rs::{Console, ConsoleOptions, Segments};
 
     /// Minimal widget for testing.
-    struct Stub {
-        id: WidgetId,
-    }
+    struct Stub;
 
     impl Stub {
         fn new() -> Self {
-            Self {
-                id: WidgetId::new(),
-            }
+            Self
         }
     }
 
     impl Widget for Stub {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }

@@ -27,24 +27,16 @@ impl ProbeHandles {
 }
 
 struct ProbeWidget {
-    id: WidgetId,
     handles: ProbeHandles,
 }
 
 impl ProbeWidget {
     fn new(handles: ProbeHandles) -> Self {
-        Self {
-            id: WidgetId::new(),
-            handles,
-        }
+        Self { handles }
     }
 }
 
 impl Widget for ProbeWidget {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let mut out = Segments::new();
         out.push(Segment::new(" ".repeat(options.size.0.max(1))));
@@ -83,7 +75,7 @@ fn panel_forwards_layout_and_messages() {
     assert_eq!(handles.last_height.load(Ordering::Relaxed), 6);
 
     let message = MessageEvent {
-        sender: WidgetId::new(),
+        sender: NodeId::default(),
         message: Message::ClearRequested,
     };
     let mut ctx = EventCtx::default();
@@ -104,7 +96,7 @@ fn frame_forwards_layout_messages_and_scroll() {
     assert_eq!(handles.last_height.load(Ordering::Relaxed), 6);
 
     let message = MessageEvent {
-        sender: WidgetId::new(),
+        sender: NodeId::default(),
         message: Message::ClearRequested,
     };
     let mut ctx = EventCtx::default();

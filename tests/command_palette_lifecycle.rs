@@ -6,24 +6,16 @@ use textual::message::MessageEvent;
 use textual::prelude::*;
 
 struct FocusProbe {
-    id: WidgetId,
     focused: Arc<AtomicBool>,
 }
 
 impl FocusProbe {
     fn new(focused: Arc<AtomicBool>) -> Self {
-        Self {
-            id: WidgetId::new(),
-            focused,
-        }
+        Self { focused }
     }
 }
 
 impl Widget for FocusProbe {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
     }
@@ -68,9 +60,9 @@ fn command_palette_closes_when_overlay_visibility_changes() {
     let mut transition_ctx = EventCtx::default();
     palette.on_message(
         &MessageEvent {
-            sender: WidgetId::new(),
+            sender: NodeId::default(),
             message: Message::OverlayVisibilityChanged {
-                overlay: WidgetId::new(),
+                overlay: NodeId::default(),
                 visible: true,
             },
         },

@@ -8,8 +8,10 @@ use crate::message::{Message, MessageEvent};
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
@@ -51,7 +53,6 @@ impl Selection {
 }
 
 pub struct Input {
-    id: WidgetId,
     text: String,
     cursor: usize,
     selection: Selection,
@@ -70,7 +71,6 @@ pub struct Input {
 impl Input {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             text: String::new(),
             cursor: 0,
             selection: Selection::cursor(0),
@@ -283,13 +283,10 @@ impl Input {
     }
 
     fn post_changed(&mut self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            self.id,
-            Message::InputChanged {
-                value: self.text.clone(),
-                validation: self.validation_result.clone(),
-            },
-        );
+        ctx.post_message(Message::InputChanged {
+            value: self.text.clone(),
+            validation: self.validation_result.clone(),
+        });
     }
 
     fn delete_selection_if_any(&mut self) -> bool {
@@ -404,10 +401,6 @@ impl Input {
 }
 
 impl Widget for Input {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -448,7 +441,8 @@ impl Widget for Input {
                 self.chrome.handle_app_focus(*active);
                 ctx.request_repaint();
             }
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 if self.text.is_empty() {
                     self.cursor = 0;
                 } else {
@@ -470,12 +464,9 @@ impl Widget for Input {
                 let _ = tick;
                 if self.pending_blur {
                     self.pending_blur = false;
-                    ctx.post_message(
-                        self.id,
-                        Message::InputBlurred {
-                            value: self.text.clone(),
-                        },
-                    );
+                    ctx.post_message(Message::InputBlurred {
+                        value: self.text.clone(),
+                    });
                 }
                 if self.chrome.handle_tick(Instant::now()) {
                     ctx.request_repaint();
@@ -516,27 +507,24 @@ impl Widget for Input {
                         }
                     }
                     EditCommand::Submit => {
-                        ctx.post_message(
-                            self.id,
-                            Message::InputSubmitted {
-                                value: self.text.clone(),
-                            },
-                        );
+                        ctx.post_message(Message::InputSubmitted {
+                            value: self.text.clone(),
+                        });
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: false },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: false,
+                            });
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: true },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: true,
+                            });
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
@@ -544,10 +532,10 @@ impl Widget for Input {
                         }
                     }
                     EditCommand::Paste => {
-                        ctx.post_message(
-                            self.id,
-                            Message::TextEditClipboardPasteRequested { target: self.id },
-                        );
+                        // TODO(P1-14 integration): wire tree-based NodeId comparison
+                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                            target: NodeId::default(),
+                        });
                     }
                     EditCommand::Backspace { unit } => {
                         if self.delete_selection_if_any() {
@@ -674,7 +662,8 @@ impl Widget for Input {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::TextEditClipboardPaste { target, text } = &message.message {
-            if *target != self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target != NodeId::default() {
                 return;
             }
             if self.insert_text_from_clipboard(text) {
@@ -863,6 +852,7 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
+    use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -870,7 +860,7 @@ mod tests {
         let mut input = Input::new();
         input.set_text("hello");
         input.set_focus(true);
-        let id = input.id();
+        let id = NodeId::default();
         let mut ctx = EventCtx::default();
 
         input.on_event(
@@ -905,7 +895,7 @@ mod tests {
         let mut input = Input::new();
         input.set_text("hello");
         input.set_focus(true);
-        let id = input.id();
+        let id = NodeId::default();
         let mut ctx = EventCtx::default();
         input.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -1104,15 +1094,15 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(matches!(
             messages.first().map(|m| &m.message),
-            Some(Message::TextEditClipboardPasteRequested { target }) if *target == input.id()
+            Some(Message::TextEditClipboardPasteRequested { target }) if *target == NodeId::default()
         ));
 
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent {
-                sender: input.id(),
+                sender: NodeId::default(),
                 message: Message::TextEditClipboardPaste {
-                    target: input.id(),
+                    target: NodeId::default(),
                     text: "XYZ".to_string(),
                 },
             },
@@ -1133,9 +1123,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent {
-                sender: input.id(),
+                sender: NodeId::default(),
                 message: Message::TextEditClipboardPaste {
-                    target: input.id(),
+                    target: NodeId::default(),
                     text: "XYZ\r\n123".to_string(),
                 },
             },

@@ -1,7 +1,7 @@
 use crate::message::{
     AsyncDirectoryEntry, AsyncTaskRequest, AsyncTaskResult, Message, MessageEvent,
 };
-use crate::widgets::WidgetId;
+use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 #[derive(Debug)]
 struct RunningTask {
     generation: u64,
-    target: WidgetId,
+    target: NodeId,
     cancel_flag: Arc<AtomicBool>,
 }
 
@@ -20,7 +20,7 @@ struct RunningTask {
 struct TaskCompletion {
     task_id: u64,
     generation: u64,
-    target: WidgetId,
+    target: NodeId,
     result: AsyncTaskResult,
 }
 
@@ -46,7 +46,7 @@ impl AsyncTaskRuntime {
     pub(crate) fn spawn(
         &mut self,
         task_id: u64,
-        target: WidgetId,
+        target: NodeId,
         request: AsyncTaskRequest,
     ) -> Option<MessageEvent> {
         let (previous_generation, replaced) = if let Some(previous) = self.running.remove(&task_id)
@@ -108,7 +108,7 @@ impl AsyncTaskRuntime {
         })
     }
 
-    pub(crate) fn cancel_for_target(&mut self, target: WidgetId) -> Vec<MessageEvent> {
+    pub(crate) fn cancel_for_target(&mut self, target: NodeId) -> Vec<MessageEvent> {
         let ids = self
             .running
             .iter()
@@ -213,7 +213,7 @@ fn read_directory_request(path: String, show_hidden: bool) -> AsyncTaskResult {
 mod tests {
     use super::AsyncTaskRuntime;
     use crate::message::{AsyncTaskRequest, Message};
-    use crate::widgets::WidgetId;
+    use crate::node_id::node_id_from_ffi;
     use std::fs;
     use std::path::PathBuf;
     use std::thread;
@@ -259,10 +259,11 @@ mod tests {
         fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
         fs::write(temp.path.join("alpha.txt"), "alpha").expect("write file");
 
+        let target_id = node_id_from_ffi(10);
         let mut runtime = AsyncTaskRuntime::default();
         runtime.spawn(
             7,
-            WidgetId::from_u64(10),
+            target_id,
             AsyncTaskRequest::ReadDirectory {
                 path: temp.path.display().to_string(),
                 show_hidden: false,
@@ -274,7 +275,7 @@ mod tests {
         assert!(matches!(
             &messages[0].message,
             Message::AsyncTaskCompleted { task_id, target, .. }
-                if *task_id == 7 && *target == WidgetId::from_u64(10)
+                if *task_id == 7 && *target == target_id
         ));
     }
 
@@ -283,10 +284,11 @@ mod tests {
         let temp = TempTreeDir::new("async-task-cancel");
         fs::write(temp.path.join("alpha.txt"), "alpha").expect("write file");
 
+        let target_id = node_id_from_ffi(22);
         let mut runtime = AsyncTaskRuntime::default();
         runtime.spawn(
             5,
-            WidgetId::from_u64(22),
+            target_id,
             AsyncTaskRequest::ReadDirectory {
                 path: temp.path.display().to_string(),
                 show_hidden: false,
@@ -296,7 +298,7 @@ mod tests {
         let cancelled = runtime.cancel(5).expect("cancelled message");
         assert!(matches!(
             cancelled.message,
-            Message::AsyncTaskCancelled { task_id: 5, target } if target == WidgetId::from_u64(22)
+            Message::AsyncTaskCancelled { task_id: 5, target } if target == target_id
         ));
 
         let messages = wait_for_messages(&mut runtime);

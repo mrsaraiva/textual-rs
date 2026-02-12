@@ -1,12 +1,18 @@
 use crate::driver::PointerShape;
 use crate::event::{Action, ActionMap, KeyBind};
-use crate::node_id::NodeId;
+use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::widget_tree::WidgetTree;
-use crate::widgets::{Widget, WidgetId};
+use crate::widgets::Widget;
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
 
 use crate::driver::Size;
+
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+#[allow(deprecated)]
+fn widget_node_id(w: &dyn Widget) -> NodeId {
+    node_id_from_ffi(w.id().as_u64())
+}
 
 pub(crate) fn apply_size(options: &mut ConsoleOptions, size: Size) {
     let width = size.width as usize;
@@ -124,15 +130,16 @@ pub(crate) fn default_action_map() -> ActionMap {
     map
 }
 
-pub(crate) fn call_on_mouse_move(root: &mut dyn Widget, target: WidgetId, x: u16, y: u16) -> bool {
-    fn visit(w: &mut dyn Widget, id: WidgetId, x: u16, y: u16, out: &mut Option<bool>) {
+pub(crate) fn call_on_mouse_move(root: &mut dyn Widget, target: NodeId, x: u16, y: u16) -> bool {
+    fn visit(w: &mut dyn Widget, id: NodeId, x: u16, y: u16, out: &mut Option<bool>) {
         if out.is_some() {
             return;
         }
-        if w.id() == id {
+        if widget_node_id(w) == id {
             *out = Some(w.on_mouse_move(x, y));
             return;
         }
+        #[allow(deprecated)]
         w.visit_children_mut(&mut |child| visit(child, id, x, y, out));
     }
 
@@ -150,6 +157,7 @@ pub(crate) fn any_widget_active(root: &mut dyn Widget) -> bool {
             *out = true;
             return;
         }
+        #[allow(deprecated)]
         w.visit_children_mut(&mut |child| visit(child, out));
     }
 
@@ -160,7 +168,7 @@ pub(crate) fn any_widget_active(root: &mut dyn Widget) -> bool {
 
 pub(crate) fn pointer_shape_for_hover(
     root: &mut dyn Widget,
-    hovered: Option<WidgetId>,
+    hovered: Option<NodeId>,
 ) -> PointerShape {
     let Some(id) = hovered else {
         return PointerShape::Default;
@@ -168,14 +176,15 @@ pub(crate) fn pointer_shape_for_hover(
 
     // Traverse the widget tree to locate the hovered widget.
     let mut found: Option<(bool, bool, &'static str)> = None; // (mouse_interactive, disabled, type)
-    fn visit(w: &mut dyn Widget, id: WidgetId, out: &mut Option<(bool, bool, &'static str)>) {
+    fn visit(w: &mut dyn Widget, id: NodeId, out: &mut Option<(bool, bool, &'static str)>) {
         if out.is_some() {
             return;
         }
-        if w.id() == id {
+        if widget_node_id(w) == id {
             *out = Some((w.mouse_interactive(), w.is_disabled(), w.style_type()));
             return;
         }
+        #[allow(deprecated)]
         w.visit_children_mut(&mut |child| visit(child, id, out));
     }
 

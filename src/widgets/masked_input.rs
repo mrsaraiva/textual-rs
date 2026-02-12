@@ -7,8 +7,10 @@ use crate::message::{Message, MessageEvent};
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
@@ -469,7 +471,6 @@ impl Template {
 // ---------------------------------------------------------------------------
 
 pub struct MaskedInput {
-    id: WidgetId,
     template: Template,
     /// Current value as a char vec (positions correspond 1:1 with template defs).
     value: Vec<char>,
@@ -488,7 +489,6 @@ impl MaskedInput {
         template.update_mask("");
         let (value, cursor) = template.insert_separators(&[], 0);
         let mut out = Self {
-            id: WidgetId::new(),
             template,
             value,
             cursor,
@@ -614,13 +614,10 @@ impl MaskedInput {
     }
 
     fn post_changed(&mut self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            self.id,
-            Message::InputChanged {
-                value: self.value_str(),
-                validation: self.validation_result.clone(),
-            },
-        );
+        ctx.post_message(Message::InputChanged {
+            value: self.value_str(),
+            validation: self.validation_result.clone(),
+        });
     }
 
     fn copy_text(&self) -> Option<String> {
@@ -827,10 +824,6 @@ impl MaskedInput {
 }
 
 impl Widget for MaskedInput {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn style_type(&self) -> &'static str {
         "MaskedInput"
     }
@@ -872,7 +865,8 @@ impl Widget for MaskedInput {
                 self.chrome.handle_app_focus(*active);
                 ctx.request_repaint();
             }
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let pos = self.cursor_from_x(mouse.x);
                 self.cursor = pos;
                 if self.template.at_separator(self.cursor) {
@@ -913,37 +907,34 @@ impl Widget for MaskedInput {
                         }
                     }
                     EditCommand::Submit => {
-                        ctx.post_message(
-                            self.id,
-                            Message::InputSubmitted {
-                                value: self.value_str(),
-                            },
-                        );
+                        ctx.post_message(Message::InputSubmitted {
+                            value: self.value_str(),
+                        });
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: false },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: false,
+                            });
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(
-                                self.id,
-                                Message::TextEditClipboardCopyRequested { text, cut: true },
-                            );
+                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                                text,
+                                cut: true,
+                            });
                             self.clear();
                             changed = true;
                             value_changed = true;
                         }
                     }
                     EditCommand::Paste => {
-                        ctx.post_message(
-                            self.id,
-                            Message::TextEditClipboardPasteRequested { target: self.id },
-                        );
+                        // TODO(P1-14 integration): wire tree-based NodeId comparison
+                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                            target: NodeId::default(),
+                        });
                     }
                     EditCommand::Backspace { unit } => {
                         match unit {
@@ -1010,7 +1001,8 @@ impl Widget for MaskedInput {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::TextEditClipboardPaste { target, text } = &message.message {
-            if *target != self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if *target != NodeId::default() {
                 return;
             }
             if let Some(line) = first_clipboard_line(text) {
@@ -1146,6 +1138,7 @@ impl Renderable for MaskedInput {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
+    use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::Console;
 
@@ -1420,9 +1413,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent {
-                sender: input.id(),
+                sender: NodeId::default(),
                 message: Message::TextEditClipboardPaste {
-                    target: input.id(),
+                    target: NodeId::default(),
                     text: "9876".to_string(),
                 },
             },
@@ -1440,9 +1433,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent {
-                sender: input.id(),
+                sender: NodeId::default(),
                 message: Message::TextEditClipboardPaste {
-                    target: input.id(),
+                    target: NodeId::default(),
                     text: "9876\n1234".to_string(),
                 },
             },

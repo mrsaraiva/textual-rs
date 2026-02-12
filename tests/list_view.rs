@@ -32,7 +32,7 @@ fn list_view_mouse_click_selects_row() {
         "four".to_string(),
     ]);
     list.on_layout(20, 3);
-    let id = list.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     list.on_event(
         &Event::MouseDown(MouseDownEvent {
@@ -111,7 +111,7 @@ fn list_view_mouse_click_ignores_disabled_items() {
     list.set_item_disabled(1, true);
     list.on_layout(20, 3);
 
-    let id = list.id();
+    let id = NodeId::default();
     let mut ctx = EventCtx::default();
     list.on_event(
         &Event::MouseDown(MouseDownEvent {

@@ -5,7 +5,7 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
 use crate::widgets::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{
         apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
@@ -13,7 +13,6 @@ use crate::widgets::{
 };
 
 pub struct Container {
-    id: WidgetId,
     children: Vec<Box<dyn Widget>>,
     styles: WidgetStyles,
 }
@@ -21,7 +20,6 @@ pub struct Container {
 impl Container {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             children: Vec::new(),
             styles: WidgetStyles::default(),
         }
@@ -38,10 +36,6 @@ impl Container {
 }
 
 impl Widget for Container {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
@@ -264,12 +258,6 @@ impl Widget for Container {
             if ctx.handled() {
                 break;
             }
-        }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for child in &mut self.children {
-            f(child.as_mut());
         }
     }
 

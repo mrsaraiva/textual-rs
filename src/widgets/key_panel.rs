@@ -10,11 +10,12 @@ use super::footer::FooterBinding;
 use super::helpers::{
     adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints, pad_lines_to_width,
 };
-use super::{ScrollView, Widget, WidgetId, WidgetStyles};
+use crate::node_id::NodeId;
+
+use super::{ScrollView, Widget, WidgetStyles};
 
 #[derive(Debug, Clone)]
 pub struct BindingsTable {
-    id: WidgetId,
     bindings: Vec<FooterBinding>,
     classes: Vec<String>,
     styles: WidgetStyles,
@@ -23,7 +24,6 @@ pub struct BindingsTable {
 impl BindingsTable {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             bindings: Vec::new(),
             classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -232,10 +232,6 @@ impl BindingsTable {
 }
 
 impl Widget for BindingsTable {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut lines = self.lines(width);
@@ -280,7 +276,6 @@ impl Renderable for BindingsTable {
 
 #[derive(Debug)]
 pub struct KeyPanel {
-    id: WidgetId,
     title: String,
     table: BindingsTable,
     offset_y: usize,
@@ -297,7 +292,6 @@ pub struct KeyPanel {
 impl KeyPanel {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             title: "Key Bindings".to_string(),
             table: BindingsTable::new(),
             offset_y: 0,
@@ -346,7 +340,6 @@ impl KeyPanel {
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            self.id,
             Message::KeyPanelScrolled {
                 offset: self.offset_y,
                 max_offset: self.max_offset(),
@@ -389,10 +382,6 @@ impl KeyPanel {
 }
 
 impl Widget for KeyPanel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -487,7 +476,6 @@ impl Widget for KeyPanel {
             self.set_binding_hints(bindings);
             if self.table.bindings != previous {
                 ctx.post_message(
-                    self.id,
                     Message::KeyPanelBindingsUpdated {
                         count: self.table.bindings.len(),
                     },
@@ -497,7 +485,8 @@ impl Widget for KeyPanel {
             return;
         }
         if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target == NodeId::default() {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);
@@ -639,6 +628,7 @@ mod tests {
     use super::KeyPanel;
     use crate::event::{Action, BindingHint, Event, EventCtx};
     use crate::message::Message;
+    use crate::node_id::NodeId;
     use crate::widgets::{FooterBinding, Widget};
     use rich_rs::Console;
 
@@ -699,10 +689,11 @@ mod tests {
         let mut panel = KeyPanel::new().with_bindings(bindings);
         let _ = panel.render(&console, &options);
 
+        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         let mut down_ctx = EventCtx::default();
         panel.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: panel.id(),
+                target: id,
                 screen_x: 31,
                 screen_y: 1,
                 x: 31,
@@ -715,7 +706,7 @@ mod tests {
         let mut up_ctx = EventCtx::default();
         panel.on_event(
             &Event::MouseUp(crate::event::MouseUpEvent {
-                target: Some(panel.id()),
+                target: Some(id),
                 screen_x: 31,
                 screen_y: 1,
                 x: 31,

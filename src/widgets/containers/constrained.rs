@@ -5,11 +5,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    LayoutConstraints, Widget, WidgetId, WidgetStyles, helpers::merge_constraints,
+    LayoutConstraints, Widget, WidgetStyles, helpers::merge_constraints,
 };
 
 pub struct Constrained {
-    id: WidgetId,
     child: Box<dyn Widget>,
     constraints: LayoutConstraints,
     styles: WidgetStyles,
@@ -18,7 +17,6 @@ pub struct Constrained {
 impl Constrained {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             constraints: LayoutConstraints::default(),
             styles: WidgetStyles::default(),
@@ -47,10 +45,6 @@ impl Constrained {
 }
 
 impl Widget for Constrained {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.child.render_styled(console, options)
     }
@@ -124,10 +118,6 @@ impl Widget for Constrained {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 

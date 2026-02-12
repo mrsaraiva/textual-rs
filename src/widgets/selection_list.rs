@@ -4,9 +4,11 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::option_list::{OptionItem, OptionList};
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -79,7 +81,6 @@ pub type SelectionListString = SelectionList<String>;
 /// - [`Message::SelectionListToggled`] — posted when an individual item is toggled.
 /// - [`Message::SelectionListSelectedChanged`] — posted when the overall selected set changes.
 pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
-    id: WidgetId,
     inner: OptionList,
     disabled: bool,
     /// The values associated with each selection.
@@ -104,7 +105,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     /// Create an empty `SelectionList`.
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             inner: OptionList::new(),
             disabled: false,
             values: Vec::new(),
@@ -160,8 +160,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         }
         self.selected_set[index] = !self.selected_set[index];
         let selected = self.selected_set[index];
-        ctx.post_message(self.id, Message::SelectionListToggled { index, selected });
-        ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListToggled { index, selected });
+        ctx.post_message(Message::SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -174,7 +174,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = true;
-        ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -187,7 +187,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = false;
-        ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -204,7 +204,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -222,7 +222,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -240,7 +240,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(self.id, Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -304,10 +304,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -346,7 +342,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 // Compute the item index from the click position.
                 let index = self
                     .inner
@@ -575,6 +572,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for SelectionList<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
 
     #[test]
     fn selection_list_initial_state() {
@@ -761,7 +759,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: list.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,

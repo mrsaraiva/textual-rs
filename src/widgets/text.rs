@@ -2,7 +2,7 @@ use rich_rs::markdown::Markdown as RichMarkdown;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use std::collections::VecDeque;
 
-use super::{Widget, WidgetId, WidgetStyles, helpers::fixed_height_from_constraints};
+use super::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +30,6 @@ impl LabelVariant {
 
 #[derive(Debug, Clone)]
 pub struct Label {
-    id: WidgetId,
     text: String,
     wrap: bool,
     markup: bool,
@@ -45,7 +44,6 @@ pub struct Label {
 impl Label {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             text: text.into(),
             wrap: true,
             markup: false,
@@ -139,10 +137,6 @@ impl Label {
 }
 
 impl Widget for Label {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         if self.markup {
             let rendered = console.render_str(&self.text, Some(true), None, None, None);
@@ -194,7 +188,6 @@ impl Renderable for Label {
 
 #[derive(Debug, Clone)]
 pub struct Markdown {
-    id: WidgetId,
     markup: String,
     layout_width: usize,
     styles: WidgetStyles,
@@ -203,7 +196,6 @@ pub struct Markdown {
 impl Markdown {
     pub fn new(markup: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             markup: markup.into(),
             layout_width: 0,
             styles: WidgetStyles::default(),
@@ -228,10 +220,6 @@ impl Markdown {
 }
 
 impl Widget for Markdown {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let rendered = RichMarkdown::new(self.markup.clone()).render(console, options);
 

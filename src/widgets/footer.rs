@@ -4,7 +4,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
-use super::{Widget, WidgetId, WidgetStyles};
+use super::{Widget, WidgetStyles};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FooterBinding {
@@ -30,7 +30,6 @@ impl FooterBinding {
 
 #[derive(Debug, Clone)]
 pub struct Footer {
-    id: WidgetId,
     bindings: Vec<FooterBinding>,
     compact: bool,
     app_focused: bool,
@@ -42,7 +41,6 @@ pub struct Footer {
 impl Footer {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             bindings: Vec::new(),
             compact: false,
             app_focused: true,
@@ -208,7 +206,6 @@ impl Footer {
         }
         self.bindings = next;
         ctx.post_message(
-            self.id,
             Message::FooterBindingsUpdated {
                 count: self.bindings.len(),
             },
@@ -227,10 +224,6 @@ enum LeftBindingItem {
 }
 
 impl Widget for Footer {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let base_style = self.base_style();

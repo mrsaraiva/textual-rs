@@ -4,8 +4,10 @@ use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 
+use crate::node_id::NodeId;
+
 use super::{
-    FooterBinding, KeyPanel, Markdown, Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    FooterBinding, KeyPanel, Markdown, Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -15,7 +17,6 @@ use super::{
 /// overlay compositor for deterministic layer composition.
 #[derive(Debug)]
 pub struct HelpPanel {
-    id: WidgetId,
     markdown: Markdown,
     key_panel: KeyPanel,
     show_help: bool,
@@ -29,7 +30,6 @@ pub struct HelpPanel {
 impl HelpPanel {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             markdown: Markdown::new(""),
             key_panel: KeyPanel::new().title("Keys"),
             show_help: false,
@@ -101,10 +101,6 @@ impl HelpPanel {
 }
 
 impl Widget for HelpPanel {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -205,13 +201,15 @@ impl Widget for HelpPanel {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            Message::HelpPanelSetHelp { panel, markup } if *panel == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::HelpPanelSetHelp { panel, markup } if *panel == NodeId::default() => {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            Message::HelpPanelClearHelp { panel } if *panel == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::HelpPanelClearHelp { panel } if *panel == NodeId::default() => {
                 self.clear_help();
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -260,11 +258,6 @@ impl Widget for HelpPanel {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.markdown);
-        f(&mut self.key_panel);
     }
 }
 

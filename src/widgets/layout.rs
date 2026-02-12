@@ -5,7 +5,7 @@ use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Event, EventCtx};
 
 use super::{
-    LayoutConstraints, Widget, WidgetId, WidgetStyles,
+    LayoutConstraints, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
         constraints_from_style, fixed_height_from_constraints, margin_from_style,
@@ -15,7 +15,6 @@ use super::{
 use crate::style::Margin;
 
 pub struct Row {
-    id: WidgetId,
     children: Vec<Box<dyn Widget>>,
     align: RowAlign,
     styles: WidgetStyles,
@@ -24,7 +23,6 @@ pub struct Row {
 impl Row {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             children: Vec::new(),
             align: RowAlign::Top,
             styles: WidgetStyles::default(),
@@ -54,10 +52,6 @@ pub enum RowAlign {
 }
 
 impl Widget for Row {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
@@ -109,7 +103,7 @@ impl Widget for Row {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[row] id={} viewport=({}, {}) children={} fixed_total={}",
-                self.id.as_u64(),
+                0u64,
                 width,
                 height_limit,
                 count,
@@ -158,7 +152,7 @@ impl Widget for Row {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[row] id={} widths={:?} remaining={} flex_count={} base={} remainder={}",
-                self.id.as_u64(),
+                0u64,
                 widths,
                 remaining,
                 flex_count,
@@ -529,12 +523,6 @@ impl Widget for Row {
             }
         }
     }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for child in &mut self.children {
-            f(child.as_mut());
-        }
-    }
 }
 
 impl Renderable for Row {
@@ -559,7 +547,6 @@ pub struct DockItem {
 }
 
 pub struct Dock {
-    id: WidgetId,
     items: Vec<DockItem>,
     fixed_height: Option<usize>,
     styles: WidgetStyles,
@@ -568,7 +555,6 @@ pub struct Dock {
 impl Dock {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             items: Vec::new(),
             fixed_height: None,
             styles: WidgetStyles::default(),
@@ -627,10 +613,6 @@ impl Dock {
 }
 
 impl Widget for Dock {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let mut remaining_width = options.size.0.max(1);
         let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
@@ -1193,12 +1175,6 @@ impl Widget for Dock {
         }
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for item in &mut self.items {
-            f(item.child.as_mut());
-        }
-    }
-
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
@@ -1214,7 +1190,6 @@ impl Renderable for Dock {
 }
 
 pub struct Grid {
-    id: WidgetId,
     rows: usize,
     cols: usize,
     cells: Vec<Option<Box<dyn Widget>>>,
@@ -1230,7 +1205,6 @@ impl Grid {
         let rows = rows.max(1);
         let cols = cols.max(1);
         Self {
-            id: WidgetId::new(),
             rows,
             cols,
             cells: (0..rows * cols).map(|_| None).collect(),
@@ -1281,10 +1255,6 @@ impl Grid {
 }
 
 impl Widget for Grid {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1599,14 +1569,6 @@ impl Widget for Grid {
                 if ctx.handled() {
                     break;
                 }
-            }
-        }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                f(child.as_mut());
             }
         }
     }

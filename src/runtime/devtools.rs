@@ -1,4 +1,4 @@
-use crate::widgets::WidgetId;
+use crate::node_id::{NodeId, node_id_from_ffi};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -18,7 +18,7 @@ const DEFAULT_BIND: &str = "127.0.0.1:0";
 
 #[derive(Debug, Clone)]
 pub(crate) enum DevtoolsCommand {
-    Focus(WidgetId),
+    Focus(NodeId),
     SetDebugLayout(bool),
     Quit,
 }
@@ -208,7 +208,7 @@ fn handle_client(
         Ok(Request::Watch) => stream_watch(&mut stream, shared),
         Ok(Request::Focus(id)) => {
             if let Ok(mut pending) = shared.pending.lock() {
-                pending.push(DevtoolsCommand::Focus(WidgetId::from_u64(id)));
+                pending.push(DevtoolsCommand::Focus(node_id_from_ffi(id)));
             }
             write_ok_line(&mut stream, "queued")
         }

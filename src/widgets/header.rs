@@ -7,12 +7,13 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
-use super::{Widget, WidgetId, WidgetStyles};
+use super::{Widget, WidgetStyles};
 
 #[derive(Debug, Clone)]
 pub struct Header {
-    id: WidgetId,
     title: String,
     subtitle: Option<String>,
     tall: bool,
@@ -32,7 +33,6 @@ pub struct Header {
 impl Header {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             title: "textual-rs".to_string(),
             subtitle: None,
             tall: false,
@@ -134,10 +134,6 @@ impl Header {
 }
 
 impl Widget for Header {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn style_type(&self) -> &'static str {
         "Header"
     }
@@ -161,14 +157,16 @@ impl Widget for Header {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::MouseDown(mouse) => {
-                if mouse.target != self.id {
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                if mouse.target != NodeId::default() {
                     return;
                 }
                 self.pressed_icon = Some((mouse.x as usize) < self.icon_width);
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
-                if mouse.target != Some(self.id) {
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                if mouse.target != Some(NodeId::default()) {
                     self.pressed_icon = None;
                     return;
                 }
@@ -183,12 +181,12 @@ impl Widget for Header {
                 if released_on_icon {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
-                    ctx.post_message(self.id, Message::HeaderIconPressed);
+                    ctx.post_message(Message::HeaderIconPressed);
                     ctx.set_handled();
                     return;
                 }
                 self.tall = !self.tall;
-                ctx.post_message(self.id, Message::HeaderToggled { tall: self.tall });
+                ctx.post_message(Message::HeaderToggled { tall: self.tall });
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -341,11 +339,12 @@ impl Renderable for Header {
 mod tests {
     use super::*;
     use crate::event::{MouseDownEvent, MouseUpEvent};
+    use crate::node_id::NodeId;
 
     #[test]
     fn header_body_click_toggles_tall_and_emits_message() {
         let mut header = Header::new();
-        let id = header.id();
+        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -385,7 +384,7 @@ mod tests {
     #[test]
     fn header_icon_click_does_not_emit_toggle_message() {
         let mut header = Header::new();
-        let id = header.id();
+        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -445,7 +444,7 @@ mod tests {
     #[test]
     fn header_cross_region_press_release_is_noop() {
         let mut header = Header::new();
-        let id = header.id();
+        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {

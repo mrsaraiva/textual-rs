@@ -101,7 +101,7 @@ fn key_panel_supports_scrollbar_drag() {
     let mut ctx = EventCtx::default();
     panel.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: panel.id(),
+            target: NodeId::default(),
             screen_x: 31,
             screen_y: 1,
             x: 31,

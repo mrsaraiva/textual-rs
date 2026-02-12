@@ -6,8 +6,10 @@ use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 use crate::style::parse_color_like;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Overlay, Widget, WidgetId, WidgetRenderable, WidgetStyles,
+    Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -16,7 +18,6 @@ use super::{
 /// This baseline implementation keeps tooltip composition fully inside the widget render path,
 /// using the shared overlay framebuffer compositor introduced in PR4.
 pub struct Tooltip {
-    id: WidgetId,
     child: Box<dyn Widget>,
     text: String,
     visible: bool,
@@ -30,7 +31,6 @@ pub struct Tooltip {
 impl Tooltip {
     pub fn new(child: impl Widget + 'static, text: impl Into<String>) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             text: text.into(),
             visible: false,
@@ -82,8 +82,9 @@ impl Tooltip {
         self.visible
     }
 
-    pub fn anchor_target_id(&self) -> WidgetId {
-        self.child.id()
+    pub fn anchor_target_id(&self) -> NodeId {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        NodeId::default()
     }
 
     fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
@@ -92,9 +93,9 @@ impl Tooltip {
         }
         self.visible = visible;
         ctx.post_message(
-            self.id,
             Message::OverlayVisibilityChanged {
-                overlay: self.id,
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                overlay: NodeId::default(),
                 visible,
             },
         );
@@ -300,10 +301,6 @@ impl Tooltip {
 }
 
 impl Widget for Tooltip {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let base_renderable = WidgetRenderable::new(self.child.as_ref());
         let mut merged = FrameBuffer::from_renderable(console, options, &base_renderable, None);
@@ -362,13 +359,16 @@ impl Widget for Tooltip {
                     ctx.set_handled();
                 }
             }
-            Event::MouseDown(mouse) if mouse.target == self.child.id() => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            Event::MouseUp(mouse) if mouse.target == Some(self.child.id()) => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            Event::MouseScroll(mouse) if mouse.target == Some(self.child.id()) => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseScroll(mouse) if mouse.target == Some(NodeId::default()) => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
             _ => {}
@@ -392,26 +392,31 @@ impl Widget for Tooltip {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            Message::OverlaySetVisible { overlay, visible } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlaySetVisible { overlay, visible } if *overlay == NodeId::default() => {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
-            Message::OverlaySetAnchor { overlay, x, y } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlaySetAnchor { overlay, x, y } if *overlay == NodeId::default() => {
                 self.set_anchor(*x, *y);
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Message::OverlayClearAnchor { overlay } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlayClearAnchor { overlay } if *overlay == NodeId::default() => {
                 self.clear_anchor();
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Message::OverlayToggle { overlay } if *overlay == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Message::OverlayToggle { overlay } if *overlay == NodeId::default() => {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested { overlay } => {
-                let target_matches = overlay.map(|target| target == self.id).unwrap_or(true);
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                let target_matches = overlay.map(|target| target == NodeId::default()).unwrap_or(true);
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);
                     ctx.set_handled();
@@ -462,10 +467,6 @@ impl Widget for Tooltip {
         self.child.mouse_interactive()
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
-    }
-
     fn style_type(&self) -> &'static str {
         "Tooltip"
     }
@@ -496,6 +497,7 @@ impl Renderable for Tooltip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
 
     #[test]
     fn tooltip_overlay_messages_toggle_visibility() {
@@ -503,9 +505,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         tooltip.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::OverlaySetVisible {
-                    overlay: tooltip.id(),
+                    overlay: NodeId::default(),
                     visible: true,
                 },
             },
@@ -520,7 +522,7 @@ mod tests {
                 Message::OverlayVisibilityChanged {
                     overlay,
                     visible: true
-                } if overlay == tooltip.id()
+                } if overlay == NodeId::default()
             )
         }));
     }

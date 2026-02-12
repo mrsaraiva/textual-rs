@@ -5,7 +5,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::AnimationLevel;
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -181,7 +181,6 @@ fn format_eta(eta_secs: Option<u64>) -> String {
 /// | `bar--indeterminate` | The bar when total is unknown. |
 #[derive(Debug, Clone)]
 pub struct ProgressBar {
-    id: WidgetId,
     /// Total number of steps, or `None` for indeterminate.
     total: Option<f64>,
     /// Current progress (number of steps completed).
@@ -210,7 +209,6 @@ impl ProgressBar {
     /// Pass `Some(total)` for a determinate bar, or `None` for indeterminate.
     pub fn new(total: Option<f64>) -> Self {
         Self {
-            id: WidgetId::new(),
             total: total.map(|t| t.max(0.0)),
             progress: 0.0,
             tick: 0,
@@ -409,10 +407,6 @@ impl ProgressBar {
 }
 
 impl Widget for ProgressBar {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }

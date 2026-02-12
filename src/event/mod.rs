@@ -2,15 +2,14 @@ use crate::debug::debug_message;
 use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
-use crate::node_id::NodeId;
-use crate::widgets::WidgetId;
+use crate::node_id::{NodeId, node_id_to_ffi};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseDownEvent {
-    pub target: WidgetId,
+    pub target: NodeId,
     pub screen_x: u16,
     pub screen_y: u16,
     /// Content-local coordinates (origin at widget content top-left).
@@ -20,7 +19,7 @@ pub struct MouseDownEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseUpEvent {
-    pub target: Option<WidgetId>,
+    pub target: Option<NodeId>,
     pub screen_x: u16,
     pub screen_y: u16,
     /// Content-local coordinates (origin at widget content top-left of `target`, if any).
@@ -30,7 +29,7 @@ pub struct MouseUpEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseScrollEvent {
-    pub target: Option<WidgetId>,
+    pub target: Option<NodeId>,
     pub screen_x: u16,
     pub screen_y: u16,
     /// Content-local coordinates (origin at widget content top-left of `target`, if any).
@@ -59,7 +58,7 @@ pub enum AnimationEase {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnimationRequest {
-    pub target: WidgetId,
+    pub target: NodeId,
     pub attribute: String,
     pub start: f32,
     pub end: f32,
@@ -71,7 +70,7 @@ pub struct AnimationRequest {
 
 impl AnimationRequest {
     pub fn new(
-        target: WidgetId,
+        target: NodeId,
         attribute: impl Into<String>,
         start: f32,
         end: f32,
@@ -107,7 +106,7 @@ impl AnimationRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnimationValueEvent {
-    pub target: WidgetId,
+    pub target: NodeId,
     pub attribute: String,
     pub value: f32,
     pub done: bool,
@@ -273,6 +272,7 @@ impl ActionMap {
 
 #[derive(Debug, Default)]
 pub struct EventCtx {
+    node_id: NodeId,
     handled: bool,
     repaint_requested: bool,
     invalidation: InvalidationFlags,
@@ -321,6 +321,16 @@ impl InvalidationFlags {
 }
 
 impl EventCtx {
+    /// The arena node ID for the widget currently being dispatched to.
+    pub fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    /// Set the node ID for the current dispatch context.
+    pub fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = id;
+    }
+
     pub fn handled(&self) -> bool {
         self.handled
     }
@@ -367,23 +377,24 @@ impl EventCtx {
         self.stop_requested
     }
 
-    pub fn post_message(&mut self, sender: WidgetId, message: Message) {
+    pub fn post_message(&mut self, message: Message) {
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
-            sender.as_u64()
+            node_id_to_ffi(self.node_id)
         ));
-        self.messages.push(MessageEvent { sender, message });
+        self.messages.push(MessageEvent {
+            sender: self.node_id,
+            message,
+        });
     }
 
     pub fn spawn_async_task(
         &mut self,
-        sender: WidgetId,
         task_id: u64,
-        target: WidgetId,
+        target: NodeId,
         request: AsyncTaskRequest,
     ) {
         self.post_message(
-            sender,
             Message::AsyncTaskSpawn {
                 task_id,
                 target,
@@ -394,30 +405,28 @@ impl EventCtx {
 
     pub fn spawn_async_task_for(
         &mut self,
-        sender: WidgetId,
         task_id: u64,
         request: AsyncTaskRequest,
     ) {
-        self.spawn_async_task(sender, task_id, sender, request);
+        let self_id = self.node_id;
+        self.spawn_async_task(task_id, self_id, request);
     }
 
-    pub fn cancel_async_task(&mut self, sender: WidgetId, task_id: u64) {
-        self.post_message(sender, Message::AsyncTaskCancel { task_id });
+    pub fn cancel_async_task(&mut self, task_id: u64) {
+        self.post_message(Message::AsyncTaskCancel { task_id });
     }
 
-    pub fn cancel_async_tasks_for(&mut self, sender: WidgetId, target: WidgetId) {
-        self.post_message(sender, Message::AsyncTaskCancelTarget { target });
+    pub fn cancel_async_tasks_for(&mut self, target: NodeId) {
+        self.post_message(Message::AsyncTaskCancelTarget { target });
     }
 
     pub fn schedule_timer(
         &mut self,
-        sender: WidgetId,
         timer_id: u64,
-        target: WidgetId,
+        target: NodeId,
         delay: Duration,
     ) {
         self.post_message(
-            sender,
             Message::TimerSchedule {
                 timer_id,
                 target,
@@ -426,58 +435,56 @@ impl EventCtx {
         );
     }
 
-    pub fn schedule_timer_for(&mut self, sender: WidgetId, timer_id: u64, delay: Duration) {
-        self.schedule_timer(sender, timer_id, sender, delay);
+    pub fn schedule_timer_for(&mut self, timer_id: u64, delay: Duration) {
+        let self_id = self.node_id;
+        self.schedule_timer(timer_id, self_id, delay);
     }
 
-    pub fn cancel_timer(&mut self, sender: WidgetId, timer_id: u64) {
-        self.post_message(sender, Message::TimerCancel { timer_id });
+    pub fn cancel_timer(&mut self, timer_id: u64) {
+        self.post_message(Message::TimerCancel { timer_id });
     }
 
-    pub fn set_overlay_visible(&mut self, sender: WidgetId, overlay: WidgetId, visible: bool) {
-        self.post_message(sender, Message::OverlaySetVisible { overlay, visible });
+    pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
+        self.post_message(Message::OverlaySetVisible { overlay, visible });
     }
 
-    pub fn show_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
-        self.set_overlay_visible(sender, overlay, true);
+    pub fn show_overlay(&mut self, overlay: NodeId) {
+        self.set_overlay_visible(overlay, true);
     }
 
-    pub fn hide_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
-        self.set_overlay_visible(sender, overlay, false);
+    pub fn hide_overlay(&mut self, overlay: NodeId) {
+        self.set_overlay_visible(overlay, false);
     }
 
-    pub fn toggle_overlay(&mut self, sender: WidgetId, overlay: WidgetId) {
-        self.post_message(sender, Message::OverlayToggle { overlay });
+    pub fn toggle_overlay(&mut self, overlay: NodeId) {
+        self.post_message(Message::OverlayToggle { overlay });
     }
 
-    pub fn dismiss_overlay(&mut self, sender: WidgetId, overlay: Option<WidgetId>) {
-        self.post_message(sender, Message::OverlayDismissRequested { overlay });
+    pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
+        self.post_message(Message::OverlayDismissRequested { overlay });
     }
 
-    pub fn open_command_palette(&mut self, sender: WidgetId) {
-        self.post_message(sender, Message::CommandPaletteOpened);
+    pub fn open_command_palette(&mut self) {
+        self.post_message(Message::CommandPaletteOpened);
     }
 
-    pub fn close_command_palette(&mut self, sender: WidgetId) {
-        self.post_message(sender, Message::CommandPaletteClosed);
+    pub fn close_command_palette(&mut self) {
+        self.post_message(Message::CommandPaletteClosed);
     }
 
     pub fn set_command_palette_commands(
         &mut self,
-        sender: WidgetId,
         commands: Vec<CommandPaletteCommand>,
     ) {
-        self.post_message(sender, Message::CommandPaletteSetCommands { commands });
+        self.post_message(Message::CommandPaletteSetCommands { commands });
     }
 
     pub fn select_command_palette_command(
         &mut self,
-        sender: WidgetId,
         id: impl Into<String>,
         title: impl Into<String>,
     ) {
         self.post_message(
-            sender,
             Message::CommandPaletteCommandSelected {
                 id: id.into(),
                 title: title.into(),
@@ -488,7 +495,7 @@ impl EventCtx {
     pub fn request_animation(&mut self, request: AnimationRequest) {
         debug_message(&format!(
             "[request_animation] target={} attribute={} start={} end={} duration_ms={} delay_ms={} ease={:?} level={:?}",
-            request.target.as_u64(),
+            node_id_to_ffi(request.target),
             request.attribute,
             request.start,
             request.end,
@@ -598,10 +605,8 @@ impl<'a> WidgetCtx<'a> {
     /// Post a message from this widget (sender = self).
     #[inline]
     pub fn post_message(&mut self, message: Message) {
-        // During migration, bridge NodeId -> WidgetId for the existing message bus.
-        // Once Pillar 1 is complete, MessageEvent.sender will become NodeId directly.
-        let legacy_id = WidgetId::from_u64(crate::node_id::node_id_to_ffi(self.node_id));
-        self.event_ctx.post_message(legacy_id, message);
+        self.event_ctx.set_node_id(self.node_id);
+        self.event_ctx.post_message(message);
     }
 }
 
@@ -609,25 +614,25 @@ impl<'a> WidgetCtx<'a> {
 mod tests {
     use super::EventCtx;
     use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message};
-    use crate::widgets::WidgetId;
+    use crate::node_id::node_id_from_ffi;
     use std::time::Duration;
 
     #[test]
     fn helper_methods_emit_runtime_control_messages() {
-        let sender = WidgetId::from_u64(12);
+        let sender_id = node_id_from_ffi(12);
         let mut ctx = EventCtx::default();
+        ctx.set_node_id(sender_id);
 
         ctx.spawn_async_task_for(
-            sender,
             5,
             AsyncTaskRequest::Sleep {
                 duration: Duration::from_millis(10),
                 label: "work".to_string(),
             },
         );
-        ctx.schedule_timer_for(sender, 9, Duration::from_millis(25));
-        ctx.cancel_async_task(sender, 5);
-        ctx.cancel_timer(sender, 9);
+        ctx.schedule_timer_for(9, Duration::from_millis(25));
+        ctx.cancel_async_task(5);
+        ctx.cancel_timer(9);
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 4);
@@ -637,7 +642,7 @@ mod tests {
                 task_id,
                 target,
                 request: AsyncTaskRequest::Sleep { label, .. },
-            } if *task_id == 5 && *target == sender && label == "work"
+            } if *task_id == 5 && *target == sender_id && label == "work"
         ));
         assert!(matches!(
             messages[1].message,
@@ -645,7 +650,7 @@ mod tests {
                 timer_id: 9,
                 target,
                 ..
-            } if target == sender
+            } if target == sender_id
         ));
         assert!(matches!(
             messages[2].message,
@@ -659,25 +664,24 @@ mod tests {
 
     #[test]
     fn overlay_and_command_palette_helpers_emit_messages() {
-        let sender = WidgetId::from_u64(5);
-        let overlay = WidgetId::from_u64(77);
+        let overlay_id = node_id_from_ffi(77);
         let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(5));
 
-        ctx.show_overlay(sender, overlay);
-        ctx.hide_overlay(sender, overlay);
-        ctx.toggle_overlay(sender, overlay);
-        ctx.dismiss_overlay(sender, Some(overlay));
-        ctx.open_command_palette(sender);
+        ctx.show_overlay(overlay_id);
+        ctx.hide_overlay(overlay_id);
+        ctx.toggle_overlay(overlay_id);
+        ctx.dismiss_overlay(Some(overlay_id));
+        ctx.open_command_palette();
         ctx.set_command_palette_commands(
-            sender,
             vec![CommandPaletteCommand {
                 id: "open".to_string(),
                 title: "Open".to_string(),
                 help: "Open file".to_string(),
             }],
         );
-        ctx.select_command_palette_command(sender, "open", "Open");
-        ctx.close_command_palette(sender);
+        ctx.select_command_palette_command("open", "Open");
+        ctx.close_command_palette();
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 8);
@@ -686,22 +690,22 @@ mod tests {
             Message::OverlaySetVisible {
                 overlay: target,
                 visible: true
-            } if target == overlay
+            } if target == overlay_id
         ));
         assert!(matches!(
             messages[1].message,
             Message::OverlaySetVisible {
                 overlay: target,
                 visible: false
-            } if target == overlay
+            } if target == overlay_id
         ));
         assert!(matches!(
             messages[2].message,
-            Message::OverlayToggle { overlay: target } if target == overlay
+            Message::OverlayToggle { overlay: target } if target == overlay_id
         ));
         assert!(matches!(
             messages[3].message,
-            Message::OverlayDismissRequested { overlay: Some(target) } if target == overlay
+            Message::OverlayDismissRequested { overlay: Some(target) } if target == overlay_id
         ));
         assert!(matches!(messages[4].message, Message::CommandPaletteOpened));
         assert!(matches!(

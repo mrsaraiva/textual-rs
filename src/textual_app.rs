@@ -8,8 +8,9 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
+use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
-use crate::widgets::{AppRoot, Widget, WidgetId};
+use crate::widgets::{AppRoot, Widget};
 use crate::{App, Result};
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
@@ -138,7 +139,7 @@ pub trait CommandPaletteProvider: Send + Sync {
 /// overlay visibility messages on the message bus.
 #[derive(Debug, Clone, Default)]
 pub struct OverlayScreenStack {
-    stack: Vec<WidgetId>,
+    stack: Vec<NodeId>,
 }
 
 impl OverlayScreenStack {
@@ -154,41 +155,40 @@ impl OverlayScreenStack {
         self.stack.is_empty()
     }
 
-    pub fn current(&self) -> Option<WidgetId> {
+    pub fn current(&self) -> Option<NodeId> {
         self.stack.last().copied()
     }
 
-    pub fn push(&mut self, sender: WidgetId, overlay: WidgetId, ctx: &mut EventCtx) -> bool {
+    pub fn push(&mut self, _sender: NodeId, overlay: NodeId, ctx: &mut EventCtx) -> bool {
         if self.current() == Some(overlay) {
             return false;
         }
         self.stack.retain(|existing| *existing != overlay);
         if let Some(previous) = self.current() {
-            ctx.hide_overlay(sender, previous);
+            ctx.hide_overlay(previous);
         }
         self.stack.push(overlay);
-        ctx.show_overlay(sender, overlay);
+        ctx.show_overlay(overlay);
         true
     }
 
-    pub fn pop(&mut self, sender: WidgetId, ctx: &mut EventCtx) -> Option<WidgetId> {
+    pub fn pop(&mut self, _sender: NodeId, ctx: &mut EventCtx) -> Option<NodeId> {
         let removed = self.stack.pop()?;
-        ctx.hide_overlay(sender, removed);
+        ctx.hide_overlay(removed);
         if let Some(previous) = self.current() {
-            ctx.show_overlay(sender, previous);
+            ctx.show_overlay(previous);
         }
         Some(removed)
     }
 
-    pub fn clear(&mut self, sender: WidgetId, ctx: &mut EventCtx) {
+    pub fn clear(&mut self, _sender: NodeId, ctx: &mut EventCtx) {
         while let Some(overlay) = self.stack.pop() {
-            ctx.hide_overlay(sender, overlay);
+            ctx.hide_overlay(overlay);
         }
     }
 }
 
 struct TextualAppAdapter<T: TextualApp> {
-    id: WidgetId,
     app: Arc<Mutex<T>>,
     child: Box<dyn Widget>,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
@@ -198,7 +198,6 @@ struct TextualAppAdapter<T: TextualApp> {
 impl<T: TextualApp> TextualAppAdapter<T> {
     fn new(app: Arc<Mutex<T>>, child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             app,
             child: Box::new(child),
             command_palette_providers: Vec::new(),
@@ -233,7 +232,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         }
 
         if !commands.is_empty() {
-            ctx.post_message(self.id, Message::CommandPaletteSetCommands { commands });
+            ctx.post_message(Message::CommandPaletteSetCommands { commands });
         }
     }
 
@@ -251,10 +250,6 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 }
 
 impl<T: TextualApp> Widget for TextualAppAdapter<T> {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.child.render_styled(console, options)
     }
@@ -399,10 +394,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .unwrap_or_else(|e| e.into_inner())
             .on_message(message, ctx);
     }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
-    }
 }
 
 /// Run a `TextualApp` definition using the standard `App` runtime and return
@@ -511,6 +502,7 @@ pub fn run_sync_snapshot<T: TextualApp>(definition: T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::node_id_from_ffi;
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -647,23 +639,15 @@ mod tests {
         }
     }
 
-    struct NoopWidget {
-        id: WidgetId,
-    }
+    struct NoopWidget;
 
     impl NoopWidget {
         fn new() -> Self {
-            Self {
-                id: WidgetId::new(),
-            }
+            Self
         }
     }
 
     impl Widget for NoopWidget {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -685,7 +669,7 @@ mod tests {
         let mut open_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteOpened,
             },
             &mut open_ctx,
@@ -701,7 +685,7 @@ mod tests {
         let mut select_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteCommandSelected {
                     id: "deploy".to_string(),
                     title: "Deploy".to_string(),
@@ -714,7 +698,7 @@ mod tests {
         let mut close_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteClosed,
             },
             &mut close_ctx,
@@ -738,7 +722,7 @@ mod tests {
         let mut first_open_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteOpened,
             },
             &mut first_open_ctx,
@@ -746,7 +730,7 @@ mod tests {
         let mut first_close_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteClosed,
             },
             &mut first_close_ctx,
@@ -754,7 +738,7 @@ mod tests {
         let mut second_open_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteOpened,
             },
             &mut second_open_ctx,
@@ -762,7 +746,7 @@ mod tests {
         let mut second_close_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
-                sender: WidgetId::new(),
+                sender: NodeId::default(),
                 message: Message::CommandPaletteClosed,
             },
             &mut second_close_ctx,
@@ -818,7 +802,7 @@ mod tests {
             let mut ctx = EventCtx::default();
             adapter.on_message(
                 &MessageEvent {
-                    sender: WidgetId::new(),
+                    sender: NodeId::default(),
                     message,
                 },
                 &mut ctx,
@@ -839,9 +823,9 @@ mod tests {
 
     #[test]
     fn overlay_screen_stack_posts_visibility_messages_for_push_pop() {
-        let sender = WidgetId::from_u64(9);
-        let first = WidgetId::from_u64(111);
-        let second = WidgetId::from_u64(222);
+        let sender = node_id_from_ffi(9);
+        let first = node_id_from_ffi(111);
+        let second = node_id_from_ffi(222);
         let mut stack = OverlayScreenStack::new();
         let mut ctx = EventCtx::default();
 

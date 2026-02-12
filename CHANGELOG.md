@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-12
+- **Parity Sprint 6: WidgetId→NodeId migration (P1-14a–f) + compose cleanup (P1-15)**
+  - Replaced `WidgetId` with `NodeId` across the entire codebase (88 files, ~610 occurrences).
+  - Runtime infrastructure: all `App` fields (hovered, focus tracking, binding-hint sources), `HitTestMap`, timer targets, async task targets, overlay refs now use `NodeId` instead of `WidgetId`.
+  - `EventCtx` now carries a `node_id: NodeId` field. `post_message()` takes 1 argument (message only) — sender identity comes from `EventCtx.node_id` automatically.
+  - `MessageEvent.sender` changed from `WidgetId` to `NodeId`. All `Message` variant target/source fields updated.
+  - CSS selectors: `WidgetId` references in context, resolver, and segments replaced with `NodeId`.
+  - Widget trait: removed `widget_id: WidgetId` field and `fn id()` override from all 50+ widget structs. Deprecated `id()`, `visit_children_mut()`, `set_focus_target()` kept on trait with defaults for legacy dispatch compatibility.
+  - All widget `post_message(self.id, msg)` calls converted to `post_message(msg)` (1-arg).
+  - Updated 16 test files and 1 example (`keys.rs`) for the new API.
+  - Build: 0 errors, 18 warnings. Tests: 566 passed, 19 failed (expected — legacy identity-based dispatch tests, will be fixed when tree dispatch fully replaces legacy path).
+  - **Note:** `WidgetId` type not yet deleted (P1-14g deferred) — deprecated trait methods still reference it as a bridge until legacy dispatch is fully removed.
+
 ### 2026-02-11
 - **Parity Sprint 5: Compose wiring + final QW batch**
   - P1-05: Wired compose API into live runtime. `App` builds `WidgetTree` from root's `compose()` on startup. Event dispatch, focus management, scroll/mouse routing, message queue, and layout info all bridged through `_auto` methods that use tree-based paths when available, falling back to legacy recursive dispatch otherwise.

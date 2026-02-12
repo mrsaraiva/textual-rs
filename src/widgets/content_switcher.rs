@@ -4,7 +4,7 @@ use crate::css;
 use crate::event::{Event, EventCtx};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{
         apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
@@ -12,7 +12,6 @@ use super::{
 };
 
 pub struct ContentSwitcher {
-    id: WidgetId,
     children: Vec<Box<dyn Widget>>,
     current: Option<String>,
     styles: WidgetStyles,
@@ -27,7 +26,6 @@ impl Default for ContentSwitcher {
 impl ContentSwitcher {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             children: Vec::new(),
             current: None,
             styles: WidgetStyles::default(),
@@ -84,10 +82,6 @@ impl ContentSwitcher {
 }
 
 impl Widget for ContentSwitcher {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }
@@ -135,12 +129,6 @@ impl Widget for ContentSwitcher {
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
         if let Some(child) = self.visible_child_mut() {
             child.on_message(message, ctx);
-        }
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        if let Some(child) = self.visible_child_mut() {
-            f(child.as_mut());
         }
     }
 

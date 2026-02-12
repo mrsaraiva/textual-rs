@@ -4,8 +4,10 @@ use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Button, ButtonVariant, Markdown, Widget, WidgetId, WidgetStyles,
+    Button, ButtonVariant, Markdown, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -25,7 +27,6 @@ Where the fear has gone there will be nothing. Only I will remain.""#;
 
 #[derive(Clone)]
 pub struct Welcome {
-    id: WidgetId,
     markdown: Markdown,
     close: Button,
     focused: bool,
@@ -40,7 +41,6 @@ pub struct Welcome {
 impl std::fmt::Debug for Welcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Welcome")
-            .field("id", &self.id)
             .field("focused", &self.focused)
             .field("hovered", &self.hovered)
             .field("last_width", &self.last_width)
@@ -58,7 +58,6 @@ impl Default for Welcome {
 impl Welcome {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             markdown: Markdown::new(WELCOME_MD),
             close: Button::new("OK").variant(ButtonVariant::Success),
             focused: false,
@@ -75,8 +74,9 @@ impl Welcome {
         WELCOME_MD
     }
 
-    pub fn close_button_id(&self) -> WidgetId {
-        self.close.id()
+    pub fn close_button_id(&self) -> NodeId {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        NodeId::default()
     }
 
     fn body_height(&self) -> u16 {
@@ -85,9 +85,11 @@ impl Welcome {
 
     fn translate_mouse_down(&self, mouse: MouseDownEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        if mouse.target == self.id && on_close_row {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if mouse.target == NodeId::default() && on_close_row {
             Event::MouseDown(MouseDownEvent {
-                target: self.close.id(),
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                target: NodeId::default(),
                 screen_x: mouse.screen_x,
                 screen_y: mouse.screen_y,
                 x: mouse.x,
@@ -100,9 +102,11 @@ impl Welcome {
 
     fn translate_mouse_up(&self, mouse: MouseUpEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        if mouse.target == Some(self.id) && on_close_row {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if mouse.target == Some(NodeId::default()) && on_close_row {
             Event::MouseUp(MouseUpEvent {
-                target: Some(self.close.id()),
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                target: Some(NodeId::default()),
                 screen_x: mouse.screen_x,
                 screen_y: mouse.screen_y,
                 x: mouse.x,
@@ -115,10 +119,6 @@ impl Welcome {
 }
 
 impl Widget for Welcome {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -203,7 +203,8 @@ impl Widget for Welcome {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if message.sender != self.close.id() {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if message.sender != NodeId::default() {
             self.markdown.on_message(message, ctx);
             if !ctx.handled() {
                 self.close.on_message(message, ctx);
@@ -213,12 +214,11 @@ impl Widget for Welcome {
 
         if let Message::ButtonPressed { .. } = &message.message {
             ctx.post_message(
-                self.id,
                 Message::ButtonPressed {
                     description: "Welcome.close".to_string(),
                 },
             );
-            ctx.post_message(self.id, Message::OverlayDismissRequested { overlay: None });
+            ctx.post_message(Message::OverlayDismissRequested { overlay: None });
             ctx.set_handled();
         }
     }
@@ -310,11 +310,6 @@ impl Widget for Welcome {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.markdown);
-        f(&mut self.close);
     }
 }
 

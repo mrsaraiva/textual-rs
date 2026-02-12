@@ -5,10 +5,12 @@ use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::{Message, MessageEvent};
 use crate::render::{Cell, FrameBuffer};
 
+use crate::node_id::NodeId;
+
 use super::helpers::{adjust_line_length_no_bg, empty_classes};
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
-use super::{Widget, WidgetId, WidgetStyles};
+use super::{Widget, WidgetStyles};
 
 /// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
 const SEARCH_RESET_TICKS: u64 = 30;
@@ -21,7 +23,6 @@ const SEARCH_RESET_TICKS: u64 = 30;
 ///
 /// Generic over the value type `T`.
 pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
-    id: WidgetId,
     options: Vec<(String, T)>,
     cursor: OptionCursorState,
     prompt: String,
@@ -57,7 +58,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         list.set_focus(true);
 
         Self {
-            id: WidgetId::new(),
             options,
             cursor: OptionCursorState::default(),
             prompt: prompt.into(),
@@ -170,7 +170,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.set_open(false, ctx);
         if changed {
             let label = self.options[index].0.clone();
-            ctx.post_message(self.id, Message::SelectChanged { index, label });
+            ctx.post_message(Message::SelectChanged { index, label });
         }
     }
 
@@ -253,10 +253,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -343,13 +339,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     _ => {}
                 },
                 Event::MouseDown(mouse) => {
-                    if mouse.target != self.id && mouse.target != self.list.id() {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    if mouse.target != NodeId::default() && mouse.target != NodeId::default() {
                         // Click outside the Select widget — close dropdown.
                         self.set_open(false, ctx);
                         ctx.set_handled();
                         return;
                     }
-                    if mouse.target == self.list.id() {
+                    // TODO(P1-14 integration): wire tree-based NodeId comparison
+                    if mouse.target == NodeId::default() {
                         // Click inside dropdown list coordinates.
                         self.list.on_event(event, ctx);
                         self.cursor.set_highlighted(self.list.highlighted());
@@ -361,9 +359,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                             // Translate click to OptionList coordinates and route through its
                             // message flow.
                             let list_y = click_y - panel_y;
+                            // TODO(P1-14 integration): wire tree-based NodeId comparison
                             self.list.on_event(
                                 &Event::MouseDown(MouseDownEvent {
-                                    target: self.list.id(),
+                                    target: NodeId::default(),
                                     screen_x: mouse.screen_x,
                                     screen_y: mouse.screen_y,
                                     x: mouse.x,
@@ -399,7 +398,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     }
                     _ => {}
                 },
-                Event::MouseDown(mouse) if mouse.target == self.id => {
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
+                Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                     self.set_open(true, ctx);
                     ctx.set_handled();
                 }
@@ -410,7 +410,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         // Handle OptionSelected from inner list.
-        if message.sender == self.list.id() {
+        // TODO(P1-14 integration): wire tree-based NodeId comparison
+        if message.sender == NodeId::default() {
             if let Message::OptionSelected { index } = &message.message {
                 self.apply_selection(*index, ctx);
                 ctx.set_handled();
@@ -574,6 +575,13 @@ mod tests {
     use crate::event::{Event, EventCtx, MouseDownEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::node_id::node_id_from_ffi;
+
+    /// Legacy bridge: deprecated `Widget::id()` → `NodeId` for test code.
+    #[allow(deprecated)]
+    fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
+        node_id_from_ffi(w.id().as_u64())
+    }
     use crate::message::MessageEvent;
     use crossterm::event::{KeyEvent, KeyModifiers};
 
@@ -694,7 +702,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: sel.list.id(),
+                target: widget_node_id(&sel.list),
                 screen_x: 1,
                 screen_y: 2,
                 x: 1,
@@ -770,7 +778,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: sel.list.id(),
+                target: widget_node_id(&sel.list),
                 screen_x: 1,
                 screen_y: 2,
                 x: 1,
@@ -798,7 +806,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: sel.id(),
+                target: widget_node_id(&sel),
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,

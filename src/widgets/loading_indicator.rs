@@ -4,7 +4,7 @@ use crate::event::{Event, EventCtx};
 use crate::style::{Color, parse_color_like};
 
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
 };
 
@@ -23,7 +23,6 @@ use super::{
 /// ```
 #[derive(Debug, Clone)]
 pub struct LoadingIndicator {
-    id: WidgetId,
     /// Tick counter driving the animation cycle.
     tick: u64,
     /// When false, renders static "Loading..." text instead of animated dots.
@@ -37,7 +36,6 @@ impl LoadingIndicator {
     /// Create a new `LoadingIndicator`.
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             tick: 0,
             animation_enabled: true,
             classes: vec!["loading-indicator".to_string()],
@@ -62,10 +60,6 @@ impl Default for LoadingIndicator {
 }
 
 impl Widget for LoadingIndicator {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }
@@ -281,6 +275,7 @@ fn gradient_3stop(dim: Color, mid: Color, bright: Color, t: f64) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
 
     #[test]
     fn loading_indicator_not_focusable() {
@@ -378,7 +373,7 @@ mod tests {
             y: 0,
             screen_x: 0,
             screen_y: 0,
-            target: WidgetId::new(),
+            target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
         li.on_event_capture(&event, &mut ctx);

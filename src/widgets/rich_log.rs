@@ -10,7 +10,9 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
-use super::{ScrollView, Widget, WidgetId, WidgetStyles};
+use crate::node_id::NodeId;
+
+use super::{ScrollView, Widget, WidgetStyles};
 
 /// Simple LRU cache for rendered line segments.
 #[derive(Debug)]
@@ -67,7 +69,6 @@ impl LineCache {
 
 #[derive(Debug)]
 pub struct RichLog {
-    id: WidgetId,
     lines: Vec<LogLine>,
     max_lines: Option<usize>,
     auto_scroll: bool,
@@ -131,7 +132,6 @@ impl std::fmt::Debug for LogLine {
 impl RichLog {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             lines: Vec::new(),
             max_lines: None,
             auto_scroll: true,
@@ -350,7 +350,6 @@ impl RichLog {
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            self.id,
             Message::RichLogScrolled {
                 offset: self.offset_y,
                 max_offset: self.max_offset(),
@@ -532,10 +531,6 @@ impl RichLog {
 }
 
 impl Widget for RichLog {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(self.min_width).max(1);
         let height = options.size.1.max(1);
@@ -642,7 +637,8 @@ impl Widget for RichLog {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.id {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            if mouse.target == NodeId::default() {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);

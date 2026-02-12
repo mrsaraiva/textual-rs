@@ -3,8 +3,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -35,7 +37,6 @@ const DEFAULT_TIMEOUT: u64 = 60;
 /// Not focusable — it's an overlay notification.
 #[derive(Debug, Clone)]
 pub struct Toast {
-    id: WidgetId,
     message: String,
     title: Option<String>,
     severity: ToastSeverity,
@@ -50,7 +51,6 @@ impl Toast {
     pub fn new(message: impl Into<String>, severity: ToastSeverity) -> Self {
         let message = message.into();
         Self {
-            id: WidgetId::new(),
             message,
             title: None,
             severity,
@@ -91,7 +91,7 @@ impl Toast {
             return;
         }
         self.dismissed = true;
-        ctx.post_message(self.id, Message::ToastDismissed);
+        ctx.post_message(Message::ToastDismissed);
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -164,10 +164,6 @@ impl Toast {
 }
 
 impl Widget for Toast {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         false
     }
@@ -202,7 +198,8 @@ impl Widget for Toast {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.dismiss(ctx);
             }
             Event::Tick(_) => {

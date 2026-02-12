@@ -4,14 +4,15 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    ScrollView, Widget, WidgetId, WidgetStyles,
+    ScrollView, Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
 #[derive(Debug, Clone)]
 pub struct ListView {
-    id: WidgetId,
     items: Vec<String>,
     disabled: Vec<bool>,
     selected: usize,
@@ -31,7 +32,6 @@ impl ListView {
     pub fn new(items: Vec<String>) -> Self {
         let len = items.len();
         Self {
-            id: WidgetId::new(),
             items,
             disabled: vec![false; len],
             selected: 0,
@@ -195,7 +195,6 @@ impl ListView {
             && let Some(item) = self.items.get(self.selected)
         {
             ctx.post_message(
-                self.id,
                 Message::ListViewSelectionChanged {
                     index: self.selected,
                     item: item.clone(),
@@ -209,7 +208,6 @@ impl ListView {
             && let Some(item) = self.items.get(index)
         {
             ctx.post_message(
-                self.id,
                 Message::ListViewItemActivated {
                     index,
                     item: item.clone(),
@@ -294,10 +292,6 @@ impl ListView {
 }
 
 impl Widget for ListView {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -328,7 +322,8 @@ impl Widget for ListView {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.id => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
                     self.select_index(index, ctx);
@@ -340,7 +335,8 @@ impl Widget for ListView {
                     ctx.set_handled();
                 }
             }
-            Event::MouseUp(mouse) if mouse.target == Some(self.id) => {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.pressed_index == Some(index) && self.is_selectable(index) {
                     self.emit_item_activated(index, ctx);
@@ -528,6 +524,7 @@ mod tests {
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::node_id::NodeId;
     use crate::widgets::Widget;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -564,7 +561,7 @@ mod tests {
     fn mouse_click_activates_even_when_selection_unchanged() {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         list.on_layout(20, 2);
-        let id = list.id();
+        let id = NodeId::default();
 
         let mut ctx = EventCtx::default();
         list.on_event(
@@ -621,7 +618,7 @@ mod tests {
     fn mouse_click_updates_hovered_index() {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         list.on_layout(20, 2);
-        let id = list.id();
+        let id = NodeId::default();
 
         let mut down_ctx = EventCtx::default();
         list.on_event(

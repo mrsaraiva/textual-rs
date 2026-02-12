@@ -3,8 +3,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
+use crate::node_id::NodeId;
+
 use super::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
 };
@@ -21,7 +23,6 @@ const ANIMATION_TICKS: u64 = 18;
 /// Toggled via click, Enter, or Space.
 #[derive(Debug, Clone)]
 pub struct Switch {
-    id: WidgetId,
     state: BinaryToggleState,
     /// Animated slider position: 0.0 = off (left), 1.0 = on (right).
     slider_pos: f32,
@@ -40,7 +41,6 @@ impl Switch {
     pub fn new(value: bool) -> Self {
         let pos = if value { 1.0 } else { 0.0 };
         Self {
-            id: WidgetId::new(),
             state: BinaryToggleState::new(value),
             slider_pos: pos,
             slider_target: pos,
@@ -75,7 +75,6 @@ impl Switch {
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            self.id,
             Message::SwitchChanged {
                 value: self.state.value(),
             },
@@ -119,10 +118,6 @@ impl Switch {
 }
 
 impl Widget for Switch {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         self.state.focusable()
     }
@@ -156,7 +151,7 @@ impl Widget for Switch {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, self.id);
+        let outcome = self.state.handle_event(event, NodeId::default());
         if outcome.toggled {
             self.on_toggled();
             self.emit_changed(ctx);
@@ -291,6 +286,7 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
+    use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -318,7 +314,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         widget.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: widget.id(),
+                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,

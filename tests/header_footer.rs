@@ -165,7 +165,7 @@ fn header_mouse_up_toggles_tall_outside_icon() {
     let mut down_ctx = EventCtx::default();
     header.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: header.id(),
+            target: NodeId::default(),
             screen_x: 20,
             screen_y: 0,
             x: 20,
@@ -178,7 +178,7 @@ fn header_mouse_up_toggles_tall_outside_icon() {
     let mut ctx = EventCtx::default();
     header.on_event(
         &Event::MouseUp(MouseUpEvent {
-            target: Some(header.id()),
+            target: Some(NodeId::default()),
             screen_x: 20,
             screen_y: 0,
             x: 20,
@@ -198,7 +198,7 @@ fn header_icon_click_does_not_toggle_tall() {
     let mut down_ctx = EventCtx::default();
     header.on_event(
         &Event::MouseDown(MouseDownEvent {
-            target: header.id(),
+            target: NodeId::default(),
             screen_x: 1,
             screen_y: 0,
             x: 1,
@@ -211,7 +211,7 @@ fn header_icon_click_does_not_toggle_tall() {
     let mut ctx = EventCtx::default();
     header.on_event(
         &Event::MouseUp(MouseUpEvent {
-            target: Some(header.id()),
+            target: Some(NodeId::default()),
             screen_x: 1,
             screen_y: 0,
             x: 1,
@@ -242,7 +242,7 @@ fn header_can_render_clock() {
 #[test]
 fn header_cross_region_press_release_is_noop() {
     let mut header = Header::new().title("Textual Keys");
-    let id = header.id();
+    let id = NodeId::default();
     let mut down_ctx = EventCtx::default();
     header.on_event(
         &Event::MouseDown(MouseDownEvent {

@@ -1,11 +1,11 @@
 use crate::event::{AnimationEase, AnimationLevel, AnimationRequest};
-use crate::widgets::WidgetId;
+use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 struct NumericAnimation {
-    target: WidgetId,
+    target: NodeId,
     attribute: String,
     start: f32,
     end: f32,
@@ -18,7 +18,7 @@ struct NumericAnimation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnimationUpdate {
-    pub target: WidgetId,
+    pub target: NodeId,
     pub attribute: String,
     pub value: f32,
     pub done: bool,
@@ -26,7 +26,7 @@ pub struct AnimationUpdate {
 
 #[derive(Debug)]
 pub struct Animator {
-    animations: HashMap<(WidgetId, String), NumericAnimation>,
+    animations: HashMap<(NodeId, String), NumericAnimation>,
     frame_interval: Duration,
 }
 
@@ -50,7 +50,7 @@ impl Animator {
         !self.animations.is_empty()
     }
 
-    pub fn is_being_animated(&self, target: WidgetId, attribute: &str) -> bool {
+    pub fn is_being_animated(&self, target: NodeId, attribute: &str) -> bool {
         self.animations
             .contains_key(&(target, attribute.to_string()))
     }
@@ -96,7 +96,7 @@ impl Animator {
 
     pub fn step(&mut self, now: Instant, app_level: AnimationLevel) -> Vec<AnimationUpdate> {
         let mut updates = Vec::new();
-        let keys: Vec<(WidgetId, String)> = self.animations.keys().cloned().collect();
+        let keys: Vec<(NodeId, String)> = self.animations.keys().cloned().collect();
         for key in keys {
             let mut remove = false;
             if let Some(animation) = self.animations.get_mut(&key) {
@@ -182,11 +182,12 @@ fn apply_easing(ease: AnimationEase, x: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::event::{AnimationEase, AnimationRequest};
+    use crate::node_id::node_id_from_ffi;
 
     #[test]
     fn animator_interpolates_in_out_cubic() {
         let mut animator = Animator::new(60);
-        let widget = WidgetId::new();
+        let widget = node_id_from_ffi(1);
         let now = Instant::now();
         animator.enqueue(
             AnimationRequest::new(widget, "x", 0.0, 10.0, Duration::from_millis(300))
@@ -202,7 +203,7 @@ mod tests {
     #[test]
     fn animator_respects_none_level() {
         let mut animator = Animator::new(60);
-        let widget = WidgetId::new();
+        let widget = node_id_from_ffi(2);
         let now = Instant::now();
         animator.enqueue(
             AnimationRequest::new(widget, "x", 0.0, 10.0, Duration::from_millis(300)),

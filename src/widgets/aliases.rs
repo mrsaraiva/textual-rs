@@ -7,7 +7,7 @@ use crate::style::parse_color_like;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::helpers::{clamp_with_constraints, crop_line_horizontal, pad_lines_to_width};
-use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetId, WidgetStyles};
+use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetStyles};
 
 fn scrollbar_thumb(
     track_len: usize,
@@ -101,10 +101,6 @@ impl Horizontal {
 }
 
 impl Widget for Horizontal {
-    fn id(&self) -> WidgetId {
-        self.row.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.row.render(console, options)
     }
@@ -142,10 +138,6 @@ impl Widget for Horizontal {
         self.row.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.row.visit_children_mut(f);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.row.layout_height()
     }
@@ -181,10 +173,6 @@ impl Vertical {
 }
 
 impl Widget for Vertical {
-    fn id(&self) -> WidgetId {
-        self.container.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.container.render(console, options)
     }
@@ -220,10 +208,6 @@ impl Widget for Vertical {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.container.on_event(event, ctx);
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.container.visit_children_mut(f);
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -265,10 +249,6 @@ impl VerticalGroup {
 }
 
 impl Widget for VerticalGroup {
-    fn id(&self) -> WidgetId {
-        self.inner.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }
@@ -304,10 +284,6 @@ impl Widget for VerticalGroup {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event(event, ctx);
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.inner.visit_children_mut(f);
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -348,10 +324,6 @@ impl Static {
 }
 
 impl Widget for Static {
-    fn id(&self) -> WidgetId {
-        self.label.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.label.render(console, options)
     }
@@ -374,7 +346,6 @@ impl Widget for Static {
 }
 
 pub struct Center {
-    id: WidgetId,
     child: Container,
     styles: WidgetStyles,
 }
@@ -382,7 +353,6 @@ pub struct Center {
 impl Center {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             styles: WidgetStyles::default(),
         }
@@ -399,10 +369,6 @@ impl Center {
 }
 
 impl Widget for Center {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -461,10 +427,6 @@ impl Widget for Center {
         self.child.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.child.layout_height()
     }
@@ -479,7 +441,6 @@ impl Widget for Center {
 }
 
 pub struct CenterMiddle {
-    id: WidgetId,
     child: Container,
     styles: WidgetStyles,
 }
@@ -487,7 +448,6 @@ pub struct CenterMiddle {
 impl CenterMiddle {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             styles: WidgetStyles::default(),
         }
@@ -504,10 +464,6 @@ impl CenterMiddle {
 }
 
 impl Widget for CenterMiddle {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -578,10 +534,6 @@ impl Widget for CenterMiddle {
         self.child.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
         Some(&self.styles)
     }
@@ -592,7 +544,6 @@ impl Widget for CenterMiddle {
 }
 
 pub struct Right {
-    id: WidgetId,
     child: Container,
     styles: WidgetStyles,
 }
@@ -600,7 +551,6 @@ pub struct Right {
 impl Right {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             styles: WidgetStyles::default(),
         }
@@ -617,10 +567,6 @@ impl Right {
 }
 
 impl Widget for Right {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -679,10 +625,6 @@ impl Widget for Right {
         self.child.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.child.layout_height()
     }
@@ -697,7 +639,6 @@ impl Widget for Right {
 }
 
 pub struct Middle {
-    id: WidgetId,
     child: Container,
     styles: WidgetStyles,
 }
@@ -705,7 +646,6 @@ pub struct Middle {
 impl Middle {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             styles: WidgetStyles::default(),
         }
@@ -722,10 +662,6 @@ impl Middle {
 }
 
 impl Widget for Middle {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -789,10 +725,6 @@ impl Widget for Middle {
         self.child.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         super::helpers::fixed_height_from_constraints(self.layout_constraints())
     }
@@ -837,10 +769,6 @@ impl HorizontalGroup {
 }
 
 impl Widget for HorizontalGroup {
-    fn id(&self) -> WidgetId {
-        self.inner.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }
@@ -878,10 +806,6 @@ impl Widget for HorizontalGroup {
         self.inner.on_event(event, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.inner.visit_children_mut(f);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.inner.layout_height()
     }
@@ -896,7 +820,6 @@ impl Widget for HorizontalGroup {
 }
 
 pub struct VerticalScroll {
-    id: WidgetId,
     child: Container,
     focused: bool,
     height: Option<usize>,
@@ -910,7 +833,6 @@ pub struct VerticalScroll {
 impl VerticalScroll {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             focused: false,
             height: None,
@@ -965,10 +887,6 @@ impl VerticalScroll {
 }
 
 impl Widget for VerticalScroll {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -1178,10 +1096,6 @@ impl Widget for VerticalScroll {
         }
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.height.or_else(|| self.child.layout_height())
     }
@@ -1227,10 +1141,6 @@ impl ScrollableContainer {
 }
 
 impl Widget for ScrollableContainer {
-    fn id(&self) -> WidgetId {
-        self.inner.id()
-    }
-
     fn focusable(&self) -> bool {
         self.inner.focusable()
     }
@@ -1275,10 +1185,6 @@ impl Widget for ScrollableContainer {
         self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.inner.visit_children_mut(f);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.inner.layout_height()
     }
@@ -1293,7 +1199,6 @@ impl Widget for ScrollableContainer {
 }
 
 pub struct HorizontalScroll {
-    id: WidgetId,
     child: Container,
     focused: bool,
     height: Option<usize>,
@@ -1307,7 +1212,6 @@ pub struct HorizontalScroll {
 impl HorizontalScroll {
     pub fn new() -> Self {
         Self {
-            id: WidgetId::new(),
             child: Container::new(),
             focused: false,
             height: None,
@@ -1362,10 +1266,6 @@ impl HorizontalScroll {
 }
 
 impl Widget for HorizontalScroll {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn focusable(&self) -> bool {
         true
     }
@@ -1566,10 +1466,6 @@ impl Widget for HorizontalScroll {
         }
     }
 
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(&mut self.child);
-    }
-
     fn layout_height(&self) -> Option<usize> {
         self.height.or_else(|| self.child.layout_height())
     }
@@ -1621,10 +1517,6 @@ impl ItemGrid {
 }
 
 impl Widget for ItemGrid {
-    fn id(&self) -> WidgetId {
-        self.inner.id()
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }
@@ -1660,10 +1552,6 @@ impl Widget for ItemGrid {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event(event, ctx);
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        self.inner.visit_children_mut(f);
     }
 
     fn layout_height(&self) -> Option<usize> {

@@ -1,11 +1,17 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
-use crate::node_id::NodeId;
+use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 use crate::widget_tree::WidgetTree;
-use crate::widgets::{Widget, WidgetId};
+use crate::widgets::Widget;
 
 use super::types::DispatchOutcome;
+
+/// Legacy bridge: deprecated `Widget::id()` → `NodeId` for migration code.
+#[allow(deprecated)]
+fn widget_node_id(w: &dyn Widget) -> NodeId {
+    node_id_from_ffi(w.id().as_u64())
+}
 
 pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
     let event_debug = format!("{event:?}");
@@ -52,15 +58,16 @@ pub(crate) fn is_priority_action(action: Action) -> bool {
     matches!(action, Action::CommandPalette)
 }
 
-pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
-    fn visit(widget: &mut dyn Widget, out: &mut Option<WidgetId>) {
+pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<NodeId> {
+    fn visit(widget: &mut dyn Widget, out: &mut Option<NodeId>) {
         if out.is_some() {
             return;
         }
         if widget.has_focus() {
-            *out = Some(widget.id());
+            *out = Some(widget_node_id(widget));
             return;
         }
+        #[allow(deprecated)]
         widget.visit_children_mut(&mut |child| visit(child, out));
     }
 
@@ -69,15 +76,15 @@ pub(crate) fn focused_widget_id(root: &mut dyn Widget) -> Option<WidgetId> {
     out
 }
 
-pub(crate) fn focused_help_metadata(root: &mut dyn Widget) -> Option<(WidgetId, String)> {
-    fn visit(widget: &mut dyn Widget, out: &mut Option<(WidgetId, String)>) {
+pub(crate) fn focused_help_metadata(root: &mut dyn Widget) -> Option<(NodeId, String)> {
+    fn visit(widget: &mut dyn Widget, out: &mut Option<(NodeId, String)>) {
         if out.is_some() {
             return;
         }
         if widget.has_focus() {
             let help = widget.help_markup().map(str::trim).unwrap_or_default();
             if !help.is_empty() {
-                *out = Some((widget.id(), help.to_string()));
+                *out = Some((widget_node_id(widget), help.to_string()));
             }
             return;
         }
@@ -121,11 +128,11 @@ pub(crate) fn focused_path_binding_hints(root: &mut dyn Widget) -> Vec<BindingHi
     out
 }
 
-pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, Vec<WidgetId>) {
+pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, Vec<NodeId>) {
     fn walk(
         widget: &mut dyn Widget,
         hints_out: &mut Vec<BindingHint>,
-        sources_out: &mut Vec<WidgetId>,
+        sources_out: &mut Vec<NodeId>,
     ) -> bool {
         let mut child_hints = Vec::new();
         let mut child_sources = Vec::new();
@@ -140,7 +147,7 @@ pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, 
         });
 
         if found_in_child {
-            sources_out.push(widget.id());
+            sources_out.push(widget_node_id(widget));
             hints_out.extend(widget.binding_hints());
             sources_out.extend(child_sources);
             hints_out.extend(child_hints);
@@ -148,7 +155,7 @@ pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, 
         }
 
         if widget.has_focus() {
-            sources_out.push(widget.id());
+            sources_out.push(widget_node_id(widget));
             hints_out.extend(widget.binding_hints());
             return true;
         }
@@ -159,9 +166,9 @@ pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, 
     fn collect_no_focus_scope(
         widget: &mut dyn Widget,
         hints_out: &mut Vec<BindingHint>,
-        sources_out: &mut Vec<WidgetId>,
+        sources_out: &mut Vec<NodeId>,
     ) {
-        sources_out.push(widget.id());
+        sources_out.push(widget_node_id(widget));
         hints_out.extend(widget.binding_hints());
 
         let mut child_count = 0usize;
@@ -194,7 +201,7 @@ pub(crate) fn active_binding_hints(root: &mut dyn Widget) -> (Vec<BindingHint>, 
 
 pub(crate) fn dispatch_event_to_target(
     root: &mut dyn Widget,
-    target: WidgetId,
+    target: NodeId,
     event: &Event,
 ) -> DispatchOutcome {
     let mut ctx = EventCtx::default();
@@ -211,7 +218,7 @@ pub(crate) fn dispatch_event_to_target(
     let animation_requests = ctx.take_animation_requests();
     debug_message(&format!(
         "[dispatch_event_to_target] target={} event={event:?} handled={} repaint={} messages={}",
-        target.as_u64(),
+        node_id_to_ffi(target),
         handled,
         repaint_requested,
         messages.len()
@@ -228,11 +235,11 @@ pub(crate) fn dispatch_event_to_target(
 
 fn dispatch_event_bubble(
     widget: &mut dyn Widget,
-    target: WidgetId,
+    target: NodeId,
     event: &Event,
     ctx: &mut EventCtx,
 ) -> bool {
-    if widget.id() == target {
+    if widget_node_id(widget) == target {
         widget.on_event(event, ctx);
         return true;
     }
@@ -255,7 +262,7 @@ fn dispatch_event_bubble(
 pub(crate) fn dispatch_scroll_action(
     root: &mut dyn Widget,
     action: Action,
-    hovered: Option<WidgetId>,
+    hovered: Option<NodeId>,
 ) -> DispatchOutcome {
     let event = Event::Action(action);
     let focused = focused_widget_id(root);
@@ -296,7 +303,7 @@ pub(crate) fn dispatch_mouse_scroll(
 
 pub(crate) fn dispatch_mouse_scroll_to_target(
     root: &mut dyn Widget,
-    target: WidgetId,
+    target: NodeId,
     delta_x: i32,
     delta_y: i32,
 ) -> DispatchOutcome {
@@ -311,7 +318,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target(
     let animation_requests = ctx.take_animation_requests();
     debug_message(&format!(
         "[dispatch_mouse_scroll] target={} found={} dx={} dy={} handled={} repaint={} messages={}",
-        target.as_u64(),
+        node_id_to_ffi(target),
         found,
         delta_x,
         delta_y,
@@ -331,17 +338,18 @@ pub(crate) fn dispatch_mouse_scroll_to_target(
 
 fn dispatch_mouse_scroll_bubble(
     widget: &mut dyn Widget,
-    target: WidgetId,
+    target: NodeId,
     delta_x: i32,
     delta_y: i32,
     ctx: &mut EventCtx,
 ) -> bool {
-    if widget.id() == target {
+    if widget_node_id(widget) == target {
         widget.on_mouse_scroll(delta_x, delta_y, ctx);
         return true;
     }
 
     let mut found_in_child = false;
+    #[allow(deprecated)]
     widget.visit_children_mut(&mut |child| {
         if found_in_child {
             return;
@@ -388,7 +396,7 @@ pub(crate) fn dispatch_message_queue(
         debug_message(&format!(
             "[dispatch_message_queue] pop idx={} sender={} payload={:?}",
             processed,
-            message.sender.as_u64(),
+            node_id_to_ffi(message.sender),
             message.message
         ));
         let mut ctx = EventCtx::default();
@@ -436,18 +444,16 @@ pub(crate) fn dispatch_message_queue(
 
 fn dispatch_message_tree(root: &mut dyn Widget, message: &MessageEvent, ctx: &mut EventCtx) {
     debug_message(&format!(
-        "[dispatch_message_tree] visit widget={}#{} sender={} payload={:?}",
+        "[dispatch_message_tree] visit widget={} sender={} payload={:?}",
         root.style_type(),
-        root.id().as_u64(),
-        message.sender.as_u64(),
+        node_id_to_ffi(message.sender),
         message.message
     ));
     root.on_message(message, ctx);
     if ctx.handled() {
         debug_message(&format!(
-            "[dispatch_message_tree] handled by {}#{}",
-            root.style_type(),
-            root.id().as_u64()
+            "[dispatch_message_tree] handled by {}",
+            root.style_type()
         ));
         return;
     }
@@ -818,7 +824,6 @@ mod message_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct HintNode {
-        id: WidgetId,
         focused: bool,
         hints: Vec<BindingHint>,
         help_markup: Option<String>,
@@ -828,7 +833,6 @@ mod message_tests {
     impl HintNode {
         fn new(focused: bool, hints: Vec<BindingHint>) -> Self {
             Self {
-                id: WidgetId::new(),
                 focused,
                 hints,
                 help_markup: None,
@@ -848,10 +852,6 @@ mod message_tests {
     }
 
     impl Widget for HintNode {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
         }
@@ -871,31 +871,17 @@ mod message_tests {
         fn set_focus(&mut self, focused: bool) {
             self.focused = focused;
         }
-
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            if let Some(child) = self.child.as_mut() {
-                f(child.as_mut());
-            }
-        }
     }
 
-    struct Child {
-        id: WidgetId,
-    }
+    struct Child;
 
     impl Child {
         fn new() -> Self {
-            Self {
-                id: WidgetId::new(),
-            }
+            Self
         }
     }
 
     impl Widget for Child {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -908,7 +894,6 @@ mod message_tests {
             if let Event::Key(key) = event {
                 if matches!(key.code, KeyCode::Char('x')) {
                     ctx.post_message(
-                        self.id,
                         Message::InputChanged {
                             value: "ok".into(),
                             validation: crate::validation::ValidationResult::success(),
@@ -921,7 +906,6 @@ mod message_tests {
     }
 
     struct Parent {
-        id: WidgetId,
         child: Box<dyn Widget>,
         seen: usize,
     }
@@ -929,7 +913,6 @@ mod message_tests {
     impl Parent {
         fn new(child: impl Widget + 'static) -> Self {
             Self {
-                id: WidgetId::new(),
                 child: Box::new(child),
                 seen: 0,
             }
@@ -937,10 +920,6 @@ mod message_tests {
     }
 
     impl Widget for Parent {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -958,10 +937,6 @@ mod message_tests {
                 self.seen += 1;
                 ctx.set_handled();
             }
-        }
-
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            f(self.child.as_mut());
         }
     }
 
@@ -981,7 +956,6 @@ mod message_tests {
     }
 
     struct Receiver {
-        id: WidgetId,
         child: Box<dyn Widget>,
         seen: usize,
     }
@@ -989,7 +963,6 @@ mod message_tests {
     impl Receiver {
         fn new(child: impl Widget + 'static) -> Self {
             Self {
-                id: WidgetId::new(),
                 child: Box::new(child),
                 seen: 0,
             }
@@ -997,9 +970,6 @@ mod message_tests {
     }
 
     impl Widget for Receiver {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -1015,15 +985,13 @@ mod message_tests {
                 ctx.set_handled();
             }
         }
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            f(self.child.as_mut());
-        }
     }
 
     #[test]
     fn button_pressed_message_reaches_ancestor() {
         let button = Button::new("x");
-        let button_id = button.id();
+        #[allow(deprecated)]
+        let button_id = node_id_from_ffi(button.id().as_u64());
         let mut root = AppRoot::new().with_child(Receiver::new(button));
 
         let down = dispatch_event(
@@ -1056,7 +1024,8 @@ mod message_tests {
     #[test]
     fn button_pressed_message_survives_scrollview_forwarding() {
         let button = Button::new("x");
-        let button_id = button.id();
+        #[allow(deprecated)]
+        let button_id = node_id_from_ffi(button.id().as_u64());
         let scroll = ScrollView::new(button);
         let mut root = AppRoot::new().with_child(Receiver::new(scroll));
 
@@ -1088,7 +1057,6 @@ mod message_tests {
     }
 
     struct ScrollReceiver {
-        id: WidgetId,
         child: Box<dyn Widget>,
         seen: usize,
     }
@@ -1096,7 +1064,6 @@ mod message_tests {
     impl ScrollReceiver {
         fn new(child: impl Widget + 'static) -> Self {
             Self {
-                id: WidgetId::new(),
                 child: Box::new(child),
                 seen: 0,
             }
@@ -1104,9 +1071,6 @@ mod message_tests {
     }
 
     impl Widget for ScrollReceiver {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -1114,15 +1078,13 @@ mod message_tests {
             self.seen += 1;
             ctx.set_handled();
         }
-        fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-            f(self.child.as_mut());
-        }
     }
 
     #[test]
     fn mouse_scroll_bubbles_to_ancestor_handlers() {
         let button = Button::new("x");
-        let button_id = button.id();
+        #[allow(deprecated)]
+        let button_id = node_id_from_ffi(button.id().as_u64());
         let mut root = ScrollReceiver::new(button);
 
         let outcome = dispatch_mouse_scroll_to_target(&mut root, button_id, 0, 1);
@@ -1131,7 +1093,6 @@ mod message_tests {
     }
 
     struct ScrollSink {
-        id: WidgetId,
         focused: bool,
         hits: Arc<AtomicUsize>,
     }
@@ -1139,7 +1100,6 @@ mod message_tests {
     impl ScrollSink {
         fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
             Self {
-                id: WidgetId::new(),
                 focused,
                 hits,
             }
@@ -1147,10 +1107,6 @@ mod message_tests {
     }
 
     impl Widget for ScrollSink {
-        fn id(&self) -> WidgetId {
-            self.id
-        }
-
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
@@ -1197,7 +1153,8 @@ mod message_tests {
 
         let first = ScrollSink::new(false, first_hits.clone());
         let second = ScrollSink::new(false, second_hits.clone());
-        let second_id = second.id();
+        #[allow(deprecated)]
+        let second_id = node_id_from_ffi(second.id().as_u64());
         let mut root = AppRoot::new().with_child(first).with_child(second);
 
         let outcome = dispatch_scroll_action(&mut root, Action::ScrollDown, Some(second_id));

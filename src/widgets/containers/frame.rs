@@ -5,12 +5,11 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    Widget, WidgetId, WidgetStyles,
+    Widget, WidgetStyles,
     helpers::{apply_debug_box, fixed_height_from_constraints},
 };
 
 pub struct Frame {
-    id: WidgetId,
     child: Box<dyn Widget>,
     padding: usize,
     border: bool,
@@ -20,7 +19,6 @@ pub struct Frame {
 impl Frame {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
-            id: WidgetId::new(),
             child: Box::new(child),
             padding: 1,
             border: true,
@@ -40,10 +38,6 @@ impl Frame {
 }
 
 impl Widget for Frame {
-    fn id(&self) -> WidgetId {
-        self.id
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding * 2;
@@ -242,10 +236,6 @@ impl Widget for Frame {
 
     fn set_focus(&mut self, focused: bool) {
         self.child.set_focus(focused);
-    }
-
-    fn visit_children_mut(&mut self, f: &mut dyn FnMut(&mut dyn Widget)) {
-        f(self.child.as_mut());
     }
 }
 
