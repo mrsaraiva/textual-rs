@@ -2,6 +2,9 @@
 
 pub(super) const DEFAULT_CSS: &str = r#"
 TextArea {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
     bg: $surface;
     fg: $foreground;
     border: tall $border-blurred;

@@ -162,13 +162,30 @@ RadioSet > .radio-button--label.-hover { bg: $block-hover-background; }
 RadioSet > .radio-button--label.-selected { bg: $primary-muted; fg: $text; text-style: bold; }
 RadioSet > .radio-button--label.-selected.-focus { bg: $primary; fg: $text; text-style: bold; }
 
+Placeholder {
+    content-align: center middle;
+    overflow: hidden;
+}
+
 Placeholder > .placeholder { fg: $text; }
 Placeholder.-text { line-pad: 1; }
 Placeholder:disabled { opacity: 70%; }
 
 Rule { fg: $secondary; }
-Rule > .rule--horizontal { fg: $secondary; }
-Rule > .rule--vertical { fg: $secondary; }
+
+Rule.-horizontal {
+    height: 1;
+    margin: 1 0;
+    width: 1fr;
+    fg: $secondary;
+}
+
+Rule.-vertical {
+    width: 1;
+    margin: 0 2;
+    height: 1fr;
+    fg: $secondary;
+}
 
 ProgressBar {
     width: 32;

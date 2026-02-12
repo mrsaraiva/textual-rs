@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 14: !important + control ref + widget CSS defaults + CSS animation**
+  - **P2-05 + P2-07 complete:** Per-property `!important` tracking via `ImportanceBitset(u64)` with `StyleProperty` enum (45 variants). Importance-aware cascade in `combine()` — `!important` declarations win over normal regardless of specificity. Parser detects `!important` per-declaration with safe non-ASCII slicing. 27 tests.
+  - **P4-17 complete:** `control: Option<NodeId>` added to `MessageEnvelope` — originating widget reference (like Python's `event.control`). Defaults to sender, preserved during bubble, survives coalescing. 8 tests.
+  - **WP-07/08/11/12/13/14/30/31 complete:** 8 widget CSS defaults aligned with Python Textual — Header `dock: top`, Footer `dock: bottom`, Button `content-align/text-align: center`, Placeholder `content-align: center middle; overflow: hidden`, Input `width: 100%`, Collapsible `display: none` rule, Rule orientation margins + 1fr sizing, TextArea `1fr` + padding. 13 tests.
+  - **P5-11 complete:** CSS property animation — `StyleValue` enum (Color/Float/Scalar/Spacing/Tint), per-property `interpolate_style_property()`, `StyleAnimation` on Animator with `enqueue_style()`/`step_style()`, `animate_style()` on EventCtx. Animatable: fg, bg, opacity, text_opacity, width, height, min/max sizes, margin, padding, tint. 36 tests.
+  - Build: 0 errors. Tests: 954 passed (+92 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 13: Envelope dispatch + Layer property + Signal system + :focus-within**
   - **P4-02 complete:** Envelope-based message dispatch — messages now bubble from sender → parent → … → root via `MessageEnvelope`. `stop()` halts propagation, `prevent_default()` skips default action (wired through `DispatchOutcome.default_prevented`). Falls back to depth-first broadcast for orphan/global messages.
   - **P4-14 complete:** Message queue coalescing — rapid-fire replaceable messages (InputChanged, TextAreaChanged, DataTableCursorMoved, etc.) auto-marked replaceable. `coalesce_message_queue()` deduplicates by (sender, variant discriminant), keeping latest. Global re-coalesce after each dispatch round.

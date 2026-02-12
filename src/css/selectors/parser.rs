@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::style::{
-    BorderEdge, BorderType, Display, Dock, Layout, Margin, Overflow, Scalar, Style, Tint,
-    TransitionTiming, Visibility, parse_auto_color_like, parse_color_like,
+    BorderEdge, BorderType, Display, Dock, Layout, Margin, Overflow, Scalar, Style, StyleProperty,
+    Tint, TransitionTiming, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -183,6 +183,89 @@ fn parse_selector_chain(selector: &str) -> Option<SelectorChain> {
     Some(SelectorChain { parts, combinators })
 }
 
+/// Strip a trailing `!important` annotation (case-insensitive) from a CSS value.
+///
+/// Returns `(clean_value, is_important)`.
+fn strip_important(value: &str) -> (&str, bool) {
+    let trimmed = value.trim();
+    let len = trimmed.len();
+    // "important" = 9 chars; minimum input with `!important` is 10 chars.
+    if len < 10 {
+        return (value, false);
+    }
+    // Use `get()` for safe slicing — avoids panic on multi-byte char boundaries.
+    let suffix = match trimmed.get(len.saturating_sub(9)..) {
+        Some(s) if s.eq_ignore_ascii_case("important") => s,
+        _ => return (value, false),
+    };
+    // The suffix is ASCII "important", so `len - 9` is a valid char boundary.
+    let _ = suffix;
+    let before = trimmed[..len - 9].trim_end();
+    if let Some(rest) = before.strip_suffix('!') {
+        return (rest.trim(), true);
+    }
+    (value, false)
+}
+
+/// Map a CSS property key to the [`StyleProperty`] variants it affects.
+///
+/// Returns an empty slice for unknown keys.
+fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
+    match key {
+        "fg" | "color" => &[StyleProperty::Fg],
+        "bg" | "background" => &[StyleProperty::Bg],
+        "width" => &[StyleProperty::Width],
+        "height" => &[StyleProperty::Height],
+        "min-width" => &[StyleProperty::MinWidth],
+        "max-width" => &[StyleProperty::MaxWidth],
+        "min-height" => &[StyleProperty::MinHeight],
+        "max-height" => &[StyleProperty::MaxHeight],
+        "padding" => &[StyleProperty::Padding],
+        "layout" => &[StyleProperty::Layout],
+        "display" => &[StyleProperty::Display],
+        "visibility" => &[StyleProperty::Visibility],
+        "overflow" | "overflow-x" | "overflow-y" => &[StyleProperty::Overflow],
+        "dock" => &[StyleProperty::Dock],
+        "margin" => &[StyleProperty::Margin],
+        "bold" => &[StyleProperty::Bold],
+        "dim" => &[StyleProperty::Dim],
+        "italic" => &[StyleProperty::Italic],
+        "underline" => &[StyleProperty::Underline],
+        "tint" => &[StyleProperty::Tint],
+        "background-tint" => &[StyleProperty::BackgroundTint],
+        "text-opacity" => &[StyleProperty::TextOpacity],
+        "opacity" => &[StyleProperty::Opacity],
+        "line-pad" => &[StyleProperty::Padding],
+        "transition-duration" => &[StyleProperty::TransitionDuration],
+        "transition-delay" => &[StyleProperty::TransitionDelay],
+        "transition-timing-function" => &[StyleProperty::TransitionTiming],
+        "border-top" => &[StyleProperty::BorderTop],
+        "border-right" => &[StyleProperty::BorderRight],
+        "border-bottom" => &[StyleProperty::BorderBottom],
+        "border-left" => &[StyleProperty::BorderLeft],
+        "border" => &[
+            StyleProperty::BorderTop,
+            StyleProperty::BorderRight,
+            StyleProperty::BorderBottom,
+            StyleProperty::BorderLeft,
+        ],
+        "grid-size-columns" => &[StyleProperty::GridSizeColumns],
+        "grid-size-rows" => &[StyleProperty::GridSizeRows],
+        "grid-size" => &[StyleProperty::GridSizeColumns, StyleProperty::GridSizeRows],
+        "grid-columns" => &[StyleProperty::GridColumns],
+        "grid-rows" => &[StyleProperty::GridRows],
+        "grid-gutter-horizontal" => &[StyleProperty::GridGutterHorizontal],
+        "grid-gutter-vertical" => &[StyleProperty::GridGutterVertical],
+        "grid-gutter" => &[
+            StyleProperty::GridGutterHorizontal,
+            StyleProperty::GridGutterVertical,
+        ],
+        "layer" => &[StyleProperty::Layer],
+        "layers" => &[StyleProperty::Layers],
+        _ => &[],
+    }
+}
+
 pub(super) fn parse_style_body(body: &str) -> Style {
     let mut style = Style::new();
     for decl in body.split(';') {
@@ -192,7 +275,11 @@ pub(super) fn parse_style_body(body: &str) -> Style {
         }
         let mut parts = decl.splitn(2, ':');
         let key = parts.next().unwrap_or("").trim().to_lowercase();
-        let value = parts.next().unwrap_or("").trim();
+        let raw_value = parts.next().unwrap_or("").trim();
+        let (value, is_important) = strip_important(raw_value);
+        // Track whether this arm handles importance itself (for shorthands
+        // like `text-style` and `transition` that set multiple sub-properties).
+        let mut handled_importance = false;
         match key.as_str() {
             "fg" | "color" => {
                 if let Some(auto) = parse_auto_color_like(value) {
@@ -302,18 +389,44 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             "text-style" => {
+                // Shorthand: only mark sub-properties that are actually set.
+                handled_importance = true;
                 for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
                     let token = token.trim();
                     if token.is_empty() {
                         continue;
                     }
                     match token {
-                        "bold" => style = style.bold(true),
-                        "dim" => style = style.dim(true),
-                        "italic" => style = style.italic(true),
-                        "underline" => style = style.underline(true),
-                        "reverse" => style = style.reverse(true),
-                        "$button-focus-text-style" => style = style.reverse(true),
+                        "bold" => {
+                            style = style.bold(true);
+                            if is_important {
+                                style.importance.set(StyleProperty::Bold);
+                            }
+                        }
+                        "dim" => {
+                            style = style.dim(true);
+                            if is_important {
+                                style.importance.set(StyleProperty::Dim);
+                            }
+                        }
+                        "italic" => {
+                            style = style.italic(true);
+                            if is_important {
+                                style.importance.set(StyleProperty::Italic);
+                            }
+                        }
+                        "underline" => {
+                            style = style.underline(true);
+                            if is_important {
+                                style.importance.set(StyleProperty::Underline);
+                            }
+                        }
+                        "reverse" | "$button-focus-text-style" => {
+                            style = style.reverse(true);
+                            if is_important {
+                                style.importance.set(StyleProperty::Reverse);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -324,15 +437,26 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             "transition" => {
+                // Shorthand: only mark sub-properties that are actually set.
+                handled_importance = true;
                 if let Some((duration, delay, timing)) = parse_transition_shorthand(value) {
                     if let Some(duration) = duration {
                         style = style.transition_duration(duration);
+                        if is_important {
+                            style.importance.set(StyleProperty::TransitionDuration);
+                        }
                     }
                     if let Some(delay) = delay {
                         style = style.transition_delay(delay);
+                        if is_important {
+                            style.importance.set(StyleProperty::TransitionDelay);
+                        }
                     }
                     if let Some(timing) = timing {
                         style = style.transition_timing(timing);
+                        if is_important {
+                            style.importance.set(StyleProperty::TransitionTiming);
+                        }
                     }
                 }
             }
@@ -476,6 +600,12 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             _ => {}
+        }
+        // For non-shorthand properties, apply importance generically.
+        if is_important && !handled_importance {
+            for prop in importance_properties_for_key(&key) {
+                style.importance.set(*prop);
+            }
         }
     }
     style
@@ -942,5 +1072,151 @@ mod tests {
         assert_eq!(chain.parts.len(), 2);
         assert_eq!(chain.parts[0].pseudos(), &[PseudoClass::FocusWithin]);
         assert!(chain.parts[1].pseudos().is_empty());
+    }
+
+    // -- !important parsing -----------------------------------------------
+
+    #[test]
+    fn strip_important_basic() {
+        assert_eq!(strip_important("red !important"), ("red", true));
+        assert_eq!(strip_important("red"), ("red", false));
+        assert_eq!(strip_important("red ! important"), ("red", true));
+    }
+
+    #[test]
+    fn strip_important_case_insensitive() {
+        assert_eq!(strip_important("red !IMPORTANT"), ("red", true));
+        assert_eq!(strip_important("red !Important"), ("red", true));
+    }
+
+    #[test]
+    fn strip_important_no_space_before_bang() {
+        assert_eq!(strip_important("0!important"), ("0", true));
+    }
+
+    #[test]
+    fn strip_important_short_value() {
+        // Values shorter than 10 chars without "!important" are left unchanged.
+        assert_eq!(strip_important("red"), ("red", false));
+        assert_eq!(strip_important(""), ("", false));
+    }
+
+    #[test]
+    fn parse_color_important_sets_flag() {
+        let style = parse_style_body("color: red !important;");
+        assert!(style.fg.is_some());
+        assert!(
+            style.importance.get(StyleProperty::Fg),
+            "Fg importance should be set"
+        );
+    }
+
+    #[test]
+    fn parse_color_normal_no_flag() {
+        let style = parse_style_body("color: red;");
+        assert!(style.fg.is_some());
+        assert!(
+            !style.importance.get(StyleProperty::Fg),
+            "Fg importance should NOT be set"
+        );
+    }
+
+    #[test]
+    fn parse_bg_important() {
+        let style = parse_style_body("background: #ff0000 !important;");
+        assert!(style.bg.is_some());
+        assert!(style.importance.get(StyleProperty::Bg));
+    }
+
+    #[test]
+    fn parse_width_important() {
+        let style = parse_style_body("width: 50% !important;");
+        assert_eq!(style.width, Some(Scalar::Percent(50.0)));
+        assert!(style.importance.get(StyleProperty::Width));
+    }
+
+    #[test]
+    fn parse_border_shorthand_important() {
+        let style = parse_style_body("border: solid red !important;");
+        assert!(style.border_top != crate::style::BorderEdge::Unset);
+        assert!(style.importance.get(StyleProperty::BorderTop));
+        assert!(style.importance.get(StyleProperty::BorderRight));
+        assert!(style.importance.get(StyleProperty::BorderBottom));
+        assert!(style.importance.get(StyleProperty::BorderLeft));
+    }
+
+    #[test]
+    fn parse_text_style_important_only_marks_set_properties() {
+        let style = parse_style_body("text-style: bold italic !important;");
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.italic, Some(true));
+        assert!(style.importance.get(StyleProperty::Bold));
+        assert!(style.importance.get(StyleProperty::Italic));
+        // Dim, Underline, Reverse should NOT be marked important.
+        assert!(!style.importance.get(StyleProperty::Dim));
+        assert!(!style.importance.get(StyleProperty::Underline));
+        assert!(!style.importance.get(StyleProperty::Reverse));
+    }
+
+    #[test]
+    fn parse_multiple_declarations_mixed_importance() {
+        let style = parse_style_body("color: red !important; bg: blue;");
+        assert!(style.importance.get(StyleProperty::Fg));
+        assert!(!style.importance.get(StyleProperty::Bg));
+    }
+
+    // -- Full cascade (StyleSheet) importance tests --
+
+    #[test]
+    fn cascade_important_wins_over_higher_specificity_normal() {
+        use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
+        // .foo has lower specificity (10) but !important.
+        // #bar has higher specificity (100) but normal.
+        let sheet = StyleSheet::parse(
+            ".foo { color: red !important; } #bar { color: green; }",
+        );
+        let meta = SelectorMeta {
+            type_name: "Widget".to_string(),
+            id: Some("bar".to_string()),
+            classes: vec!["foo".to_string()],
+            states: SelectorStates::default(),
+        };
+        let style = sheet.style_for_meta(&meta);
+        // "red" should win because of !important.
+        assert_eq!(style.fg, Some(crate::style::Color::parse("red").unwrap()));
+    }
+
+    #[test]
+    fn cascade_two_important_higher_specificity_wins() {
+        use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
+        // Both rules have !important; higher specificity (#bar = 100) wins.
+        let sheet = StyleSheet::parse(
+            ".foo { color: red !important; } #bar { color: green !important; }",
+        );
+        let meta = SelectorMeta {
+            type_name: "Widget".to_string(),
+            id: Some("bar".to_string()),
+            classes: vec!["foo".to_string()],
+            states: SelectorStates::default(),
+        };
+        let style = sheet.style_for_meta(&meta);
+        assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
+    }
+
+    #[test]
+    fn cascade_source_order_breaks_tie_same_specificity_and_importance() {
+        use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
+        // Two class selectors, same specificity (10), both normal — later wins.
+        let sheet = StyleSheet::parse(
+            ".a { color: red; } .b { color: green; }",
+        );
+        let meta = SelectorMeta {
+            type_name: "Widget".to_string(),
+            id: None,
+            classes: vec!["a".to_string(), "b".to_string()],
+            states: SelectorStates::default(),
+        };
+        let style = sheet.style_for_meta(&meta);
+        assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
     }
 }

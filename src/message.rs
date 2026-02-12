@@ -324,6 +324,11 @@ pub struct MessageEvent {
 pub struct MessageEnvelope {
     /// The original message event.
     pub event: MessageEvent,
+    /// The originating widget's [`NodeId`] (the "control").
+    ///
+    /// By default this is the sender, but it can be overridden to point at
+    /// a different widget (e.g. when a container re-emits a child's message).
+    control: Option<NodeId>,
     /// If true, message propagation stops (won't bubble further).
     stopped: bool,
     /// If true, the default handler for this message is skipped.
@@ -334,9 +339,14 @@ pub struct MessageEnvelope {
 
 impl MessageEnvelope {
     /// Create a new envelope with all control flags set to `false`.
+    ///
+    /// The `control` field is initialised to `Some(event.sender)` — the
+    /// originating widget is the sender by default.
     pub fn new(event: MessageEvent) -> Self {
+        let control = Some(event.sender);
         Self {
             event,
+            control,
             stopped: false,
             prevented: false,
             replaceable: false,
@@ -372,6 +382,23 @@ impl MessageEnvelope {
     /// Whether this envelope can replace a queued duplicate.
     pub fn can_replace(&self) -> bool {
         self.replaceable
+    }
+
+    /// The originating widget (the "control") that produced this message.
+    ///
+    /// Returns `Some(node_id)` — by default the sender.  Stays constant as
+    /// the message bubbles up the tree (it always refers to the widget that
+    /// *originated* the message, not the current handler).
+    pub fn control(&self) -> Option<NodeId> {
+        self.control
+    }
+
+    /// Override the control node.
+    ///
+    /// Useful when a container re-emits a child's message under its own
+    /// sender but still wants to preserve which child was the true source.
+    pub fn set_control(&mut self, node: NodeId) {
+        self.control = Some(node);
     }
 
     /// Convenience accessor: the sender [`NodeId`].
@@ -555,5 +582,44 @@ mod tests {
         assert!(cloned.is_stopped());
         assert!(!cloned.is_default_prevented());
         assert!(cloned.can_replace());
+        // control should also survive the clone.
+        assert_eq!(cloned.control(), env.control());
+    }
+
+    // --- control() / set_control() ---
+
+    #[test]
+    fn control_defaults_to_sender() {
+        let evt = test_event();
+        let expected = evt.sender;
+        let env = MessageEnvelope::new(evt);
+        assert_eq!(env.control(), Some(expected));
+    }
+
+    #[test]
+    fn from_message_event_sets_control_to_sender() {
+        let evt = test_event();
+        let expected = evt.sender;
+        let env: MessageEnvelope = evt.into();
+        assert_eq!(env.control(), Some(expected));
+    }
+
+    #[test]
+    fn set_control_overrides_default() {
+        let mut env = MessageEnvelope::new(test_event());
+        let other = node_id_from_ffi(42);
+        env.set_control(other);
+        assert_eq!(env.control(), Some(other));
+        // sender() is unchanged.
+        assert_ne!(env.sender(), other);
+    }
+
+    #[test]
+    fn clone_preserves_control() {
+        let mut env = MessageEnvelope::new(test_event());
+        let other = node_id_from_ffi(99);
+        env.set_control(other);
+        let cloned = env.clone();
+        assert_eq!(cloned.control(), Some(other));
     }
 }

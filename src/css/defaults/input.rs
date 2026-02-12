@@ -2,7 +2,7 @@
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Input {
-    width: auto;
+    width: 100%;
     height: 3;
     min-width: 16;
     line-pad: 2;
@@ -20,7 +20,7 @@ Input > .input--selection { bg: $input-selection-background; }
 Input > .input--placeholder { fg: $text-disabled; }
 
 MaskedInput {
-    width: auto;
+    width: 100%;
     height: 3;
     min-width: 16;
     line-pad: 2;

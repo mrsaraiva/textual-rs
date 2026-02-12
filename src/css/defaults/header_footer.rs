@@ -2,6 +2,8 @@
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Header {
+    dock: top;
+    width: 100%;
     bg: $panel;
     fg: $foreground;
     text-style: bold;
@@ -31,6 +33,7 @@ Header > .header--clock {
 }
 
 Footer {
+    dock: bottom;
     bg: $footer-background;
     fg: $footer-foreground;
     line-pad: 1;

@@ -10,4 +10,6 @@ Collapsible {
 Collapsible:focus { border-top: hkey $border; }
 
 Collapsible > .collapsible--title { fg: $foreground; text-style: bold; }
+
+Collapsible.-collapsed > Contents { display: none; }
 "#;

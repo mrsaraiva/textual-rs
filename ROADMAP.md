@@ -90,6 +90,10 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 | Done | Signal system | `Signal<T>` lightweight typed pub/sub with subscribe/emit/unsubscribe. Function pointer handlers for Send+Sync safety. |
 | Done | CSS layer property | `layer: <name>` + `layers: <name1> <name2>` for z-ordering in render pipeline. Layers inherited, unknown names default bucket. |
 | Done | :focus-within pseudo-class | Matches when element or any descendant has focus. Thread-local focus-within set populated before style resolution. |
+| Done | Per-property !important | `ImportanceBitset(u64)` tracks importance per CSS property. Importance-aware cascade: `!important` wins over normal regardless of specificity. Parser detects `!important` per-declaration. |
+| Done | Message control reference | `control: Option<NodeId>` on `MessageEnvelope` — originating widget reference (Python's `event.control`). |
+| Done | Widget CSS defaults batch | Header dock:top, Footer dock:bottom, Button/Placeholder alignment, Input width:100%, Collapsible display:none, Rule 1fr margins, TextArea 1fr+padding. |
+| Done | CSS property animation | `StyleValue` enum + per-property interpolation + `StyleAnimation` on Animator + `animate_style()` on EventCtx. Animatable: colors, opacity, scalars, spacing, tint. |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 

@@ -6,6 +6,8 @@ Button {
     height: auto;
     min-width: 16;
     line-pad: 1;
+    content-align: center middle;
+    text-align: center;
 }
 
 Button.-style-default {

@@ -1568,4 +1568,141 @@ mod envelope_tests {
             value: "x".into(),
         }));
     }
+
+    // =====================================================================
+    // P4-17: Envelope control field tests (routing integration)
+    // =====================================================================
+
+    #[test]
+    fn envelope_control_defaults_to_sender_during_dispatch() {
+        // When dispatch_message_queue_tree wraps a MessageEvent the resulting
+        // envelope's control() should equal the event's sender.
+        let sender = node_id_from_ffi(1);
+        let mut tree = WidgetTree::new();
+        let _root_id = tree.set_root(Box::new(Label::new("x")));
+
+        let messages = vec![MessageEvent {
+            sender,
+            message: Message::ButtonPressed {
+                description: "ctrl".into(),
+            },
+        }];
+
+        // Build the envelope the same way dispatch does and verify control.
+        let env = MessageEnvelope::new(messages[0].clone());
+        assert_eq!(env.control(), Some(sender));
+
+        // Full dispatch should not panic / break.
+        let _outcome = dispatch_message_queue_tree(&mut tree, messages);
+    }
+
+    #[test]
+    fn envelope_control_preserved_during_bubble() {
+        // Tree: root → mid → leaf (sender).  All three nodes see the message
+        // via bubble.  The envelope's control stays as the leaf (sender).
+        let root_count = Arc::new(AtomicUsize::new(0));
+        let mid_count = Arc::new(AtomicUsize::new(0));
+        let leaf_count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(MessageCounter::new(root_count.clone())));
+        let mid_id = tree.mount(root_id, Box::new(MessageCounter::new(mid_count.clone())));
+        let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
+
+        let evt = MessageEvent {
+            sender: leaf_id,
+            message: Message::ButtonPressed {
+                description: "bubble".into(),
+            },
+        };
+        let mut env = MessageEnvelope::new(evt.clone());
+        // Control should be the leaf (sender) before and after dispatch.
+        assert_eq!(env.control(), Some(leaf_id));
+
+        let mut ctx = EventCtx::default();
+        dispatch_message_bubble(&mut tree, &mut env, &mut ctx);
+
+        // Control must NOT have changed during bubble propagation.
+        assert_eq!(
+            env.control(),
+            Some(leaf_id),
+            "control must stay at sender during bubble"
+        );
+    }
+
+    #[test]
+    fn coalesced_messages_preserve_control_from_latest() {
+        // When two replaceable messages from the same sender coalesce, the
+        // surviving (latest) envelope keeps its control.
+        let sender = node_id_from_ffi(5);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        let mut env1 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "a".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env1.set_replaceable(true);
+
+        let mut env2 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "ab".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env2.set_replaceable(true);
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        coalesce_message_queue(&mut queue);
+
+        assert_eq!(queue.len(), 1);
+        assert_eq!(
+            queue[0].control(),
+            Some(sender),
+            "coalesced envelope should keep the latest control value"
+        );
+    }
+
+    #[test]
+    fn set_control_override_survives_coalescing() {
+        // If we override the control on the later envelope, coalescing should
+        // preserve that override (since the later one is kept).
+        let sender = node_id_from_ffi(5);
+        let override_node = node_id_from_ffi(77);
+        let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
+
+        let mut env1 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "a".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env1.set_replaceable(true);
+
+        let mut env2 = MessageEnvelope::new(MessageEvent {
+            sender,
+            message: Message::InputChanged {
+                value: "ab".into(),
+                validation: crate::validation::ValidationResult::success(),
+            },
+        });
+        env2.set_replaceable(true);
+        env2.set_control(override_node);
+
+        queue.push_back(env1);
+        queue.push_back(env2);
+        coalesce_message_queue(&mut queue);
+
+        assert_eq!(queue.len(), 1);
+        assert_eq!(
+            queue[0].control(),
+            Some(override_node),
+            "overridden control on the latest envelope should survive coalescing"
+        );
+    }
 }

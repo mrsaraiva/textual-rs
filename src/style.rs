@@ -755,6 +755,99 @@ impl BorderEdge {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Importance tracking for !important declarations
+// ---------------------------------------------------------------------------
+
+/// Identifies a CSS property on [`Style`] for importance tracking.
+///
+/// Each variant corresponds to a single property (or, for `Fg`, the
+/// `fg`/`fg_auto` pair). The discriminant is used as a bit index in
+/// [`ImportanceBitset`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum StyleProperty {
+    Fg = 0,
+    Bg = 1,
+    TextOpacity = 2,
+    Opacity = 3,
+    Bold = 4,
+    Dim = 5,
+    Italic = 6,
+    Underline = 7,
+    Reverse = 8,
+    Border = 9,
+    BorderTop = 10,
+    BorderRight = 11,
+    BorderBottom = 12,
+    BorderLeft = 13,
+    Tint = 14,
+    BackgroundTint = 15,
+    Margin = 16,
+    Padding = 17,
+    Width = 18,
+    Height = 19,
+    MinWidth = 20,
+    MaxWidth = 21,
+    MinHeight = 22,
+    MaxHeight = 23,
+    Layout = 24,
+    Display = 25,
+    Visibility = 26,
+    Overflow = 27,
+    Dock = 28,
+    TextAlign = 29,
+    ContentAlign = 30,
+    Align = 31,
+    Offset = 32,
+    Pointer = 33,
+    GridSizeColumns = 34,
+    GridSizeRows = 35,
+    GridColumns = 36,
+    GridRows = 37,
+    GridGutterHorizontal = 38,
+    GridGutterVertical = 39,
+    Layer = 40,
+    Layers = 41,
+    TransitionDuration = 42,
+    TransitionDelay = 43,
+    TransitionTiming = 44,
+}
+
+/// Bitset tracking which [`Style`] properties carry `!important`.
+///
+/// Each bit corresponds to a [`StyleProperty`] variant's discriminant.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImportanceBitset(u64);
+
+impl std::fmt::Debug for ImportanceBitset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 == 0 {
+            write!(f, "ImportanceBitset(0)")
+        } else {
+            write!(f, "ImportanceBitset({:#018x})", self.0)
+        }
+    }
+}
+
+impl ImportanceBitset {
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    pub fn set(&mut self, prop: StyleProperty) {
+        self.0 |= 1u64 << (prop as u8);
+    }
+
+    pub fn get(&self, prop: StyleProperty) -> bool {
+        (self.0 & (1u64 << (prop as u8))) != 0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Style {
     // --- Text / color properties ---
@@ -824,6 +917,9 @@ pub struct Style {
     pub transition_duration: Option<Duration>,
     pub transition_delay: Option<Duration>,
     pub transition_timing: Option<TransitionTiming>,
+
+    // --- Importance tracking ---
+    pub importance: ImportanceBitset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -852,6 +948,77 @@ pub enum TransitionTiming {
     OutCubic,
     Round,
     None,
+}
+
+// ---------------------------------------------------------------------------
+// Cascade helpers for importance-aware property merging
+// ---------------------------------------------------------------------------
+
+/// Cascade two optional values respecting `!important` flags.
+///
+/// Returns `(resolved_value, is_important)`.
+fn cascade_opt<T: Clone>(
+    self_val: &Option<T>,
+    other_val: &Option<T>,
+    self_imp: bool,
+    other_imp: bool,
+) -> (Option<T>, bool) {
+    match (other_val.is_some(), self_val.is_some()) {
+        // Both have the value; self is important, other is not → self wins
+        (true, true) if self_imp && !other_imp => (self_val.clone(), true),
+        // Other has a value and self doesn't block it → other wins
+        (true, _) => (other_val.clone(), other_imp),
+        // Other has no value → keep self
+        _ => (self_val.clone(), self_imp && self_val.is_some()),
+    }
+}
+
+/// Cascade two [`BorderEdge`] values respecting `!important` flags.
+fn cascade_border(
+    self_val: BorderEdge,
+    other_val: BorderEdge,
+    self_imp: bool,
+    other_imp: bool,
+) -> (BorderEdge, bool) {
+    let other_set = other_val != BorderEdge::Unset;
+    let self_set = self_val != BorderEdge::Unset;
+    if other_set && self_set && self_imp && !other_imp {
+        (self_val, true)
+    } else if other_set {
+        (other_val, other_imp)
+    } else {
+        (self_val, self_imp && self_set)
+    }
+}
+
+macro_rules! cascade_field {
+    ($self:expr, $other:expr, $imp:ident, $field:ident, $prop:expr) => {{
+        let (val, is_imp) = cascade_opt(
+            &$self.$field,
+            &$other.$field,
+            $self.importance.get($prop),
+            $other.importance.get($prop),
+        );
+        if is_imp {
+            $imp.set($prop);
+        }
+        val
+    }};
+}
+
+macro_rules! cascade_border_field {
+    ($self:expr, $other:expr, $imp:ident, $field:ident, $prop:expr) => {{
+        let (val, is_imp) = cascade_border(
+            $self.$field,
+            $other.$field,
+            $self.importance.get($prop),
+            $other.importance.get($prop),
+        );
+        if is_imp {
+            $imp.set($prop);
+        }
+        val
+    }};
 }
 
 impl Style {
@@ -1022,80 +1189,87 @@ impl Style {
         self
     }
 
-    // --- Cascade: `other` overrides `self` for any field that is `Some` ---
+    // --- Cascade: `other` overrides `self` for any field that is `Some`,
+    //     unless `self` has `!important` and `other` does not. ---
 
     pub fn combine(&self, other: &Style) -> Style {
-        let (fg, fg_auto) = if let Some(color) = other.fg {
-            (Some(color), None)
-        } else if let Some(auto) = other.fg_auto {
-            (None, Some(auto))
+        let mut imp = ImportanceBitset::new();
+
+        // fg / fg_auto are a linked pair representing one "foreground color" property.
+        let self_fg_imp = self.importance.get(StyleProperty::Fg);
+        let other_fg_imp = other.importance.get(StyleProperty::Fg);
+        let other_has_fg = other.fg.is_some() || other.fg_auto.is_some();
+        let self_has_fg = self.fg.is_some() || self.fg_auto.is_some();
+
+        let (fg, fg_auto) = if other_has_fg && self_has_fg && self_fg_imp && !other_fg_imp {
+            imp.set(StyleProperty::Fg);
+            (self.fg, self.fg_auto)
+        } else if other_has_fg {
+            if other_fg_imp {
+                imp.set(StyleProperty::Fg);
+            }
+            if let Some(color) = other.fg {
+                (Some(color), None)
+            } else if let Some(auto) = other.fg_auto {
+                (None, Some(auto))
+            } else {
+                (self.fg, self.fg_auto)
+            }
         } else {
+            if self_has_fg && self_fg_imp {
+                imp.set(StyleProperty::Fg);
+            }
             (self.fg, self.fg_auto)
         };
 
         Style {
             fg,
             fg_auto,
-            bg: other.bg.or(self.bg),
-            text_opacity: other.text_opacity.or(self.text_opacity),
-            opacity: other.opacity.or(self.opacity),
-            bold: other.bold.or(self.bold),
-            dim: other.dim.or(self.dim),
-            italic: other.italic.or(self.italic),
-            underline: other.underline.or(self.underline),
-            reverse: other.reverse.or(self.reverse),
-            border: other.border.or(self.border),
-            border_top: if other.border_top != BorderEdge::Unset {
-                other.border_top
-            } else {
-                self.border_top
-            },
-            border_right: if other.border_right != BorderEdge::Unset {
-                other.border_right
-            } else {
-                self.border_right
-            },
-            border_bottom: if other.border_bottom != BorderEdge::Unset {
-                other.border_bottom
-            } else {
-                self.border_bottom
-            },
-            border_left: if other.border_left != BorderEdge::Unset {
-                other.border_left
-            } else {
-                self.border_left
-            },
-            tint: other.tint.or(self.tint),
-            background_tint: other.background_tint.or(self.background_tint),
-            margin: other.margin.or(self.margin),
-            padding: other.padding.or(self.padding),
-            width: other.width.or(self.width),
-            height: other.height.or(self.height),
-            min_width: other.min_width.or(self.min_width),
-            max_width: other.max_width.or(self.max_width),
-            min_height: other.min_height.or(self.min_height),
-            max_height: other.max_height.or(self.max_height),
-            layout: other.layout.or(self.layout),
-            display: other.display.or(self.display),
-            visibility: other.visibility.or(self.visibility),
-            overflow: other.overflow.or(self.overflow),
-            dock: other.dock.or(self.dock),
-            text_align: other.text_align.or(self.text_align),
-            content_align: other.content_align.or(self.content_align),
-            align: other.align.or(self.align),
-            offset: other.offset.or(self.offset),
-            pointer: other.pointer.or(self.pointer),
-            grid_size_columns: other.grid_size_columns.or(self.grid_size_columns),
-            grid_size_rows: other.grid_size_rows.or(self.grid_size_rows),
-            grid_columns: other.grid_columns.clone().or_else(|| self.grid_columns.clone()),
-            grid_rows: other.grid_rows.clone().or_else(|| self.grid_rows.clone()),
-            grid_gutter_horizontal: other.grid_gutter_horizontal.or(self.grid_gutter_horizontal),
-            grid_gutter_vertical: other.grid_gutter_vertical.or(self.grid_gutter_vertical),
-            layer: other.layer.clone().or_else(|| self.layer.clone()),
-            layers: other.layers.clone().or_else(|| self.layers.clone()),
-            transition_duration: other.transition_duration.or(self.transition_duration),
-            transition_delay: other.transition_delay.or(self.transition_delay),
-            transition_timing: other.transition_timing.or(self.transition_timing),
+            bg: cascade_field!(self, other, imp, bg, StyleProperty::Bg),
+            text_opacity: cascade_field!(self, other, imp, text_opacity, StyleProperty::TextOpacity),
+            opacity: cascade_field!(self, other, imp, opacity, StyleProperty::Opacity),
+            bold: cascade_field!(self, other, imp, bold, StyleProperty::Bold),
+            dim: cascade_field!(self, other, imp, dim, StyleProperty::Dim),
+            italic: cascade_field!(self, other, imp, italic, StyleProperty::Italic),
+            underline: cascade_field!(self, other, imp, underline, StyleProperty::Underline),
+            reverse: cascade_field!(self, other, imp, reverse, StyleProperty::Reverse),
+            border: cascade_field!(self, other, imp, border, StyleProperty::Border),
+            border_top: cascade_border_field!(self, other, imp, border_top, StyleProperty::BorderTop),
+            border_right: cascade_border_field!(self, other, imp, border_right, StyleProperty::BorderRight),
+            border_bottom: cascade_border_field!(self, other, imp, border_bottom, StyleProperty::BorderBottom),
+            border_left: cascade_border_field!(self, other, imp, border_left, StyleProperty::BorderLeft),
+            tint: cascade_field!(self, other, imp, tint, StyleProperty::Tint),
+            background_tint: cascade_field!(self, other, imp, background_tint, StyleProperty::BackgroundTint),
+            margin: cascade_field!(self, other, imp, margin, StyleProperty::Margin),
+            padding: cascade_field!(self, other, imp, padding, StyleProperty::Padding),
+            width: cascade_field!(self, other, imp, width, StyleProperty::Width),
+            height: cascade_field!(self, other, imp, height, StyleProperty::Height),
+            min_width: cascade_field!(self, other, imp, min_width, StyleProperty::MinWidth),
+            max_width: cascade_field!(self, other, imp, max_width, StyleProperty::MaxWidth),
+            min_height: cascade_field!(self, other, imp, min_height, StyleProperty::MinHeight),
+            max_height: cascade_field!(self, other, imp, max_height, StyleProperty::MaxHeight),
+            layout: cascade_field!(self, other, imp, layout, StyleProperty::Layout),
+            display: cascade_field!(self, other, imp, display, StyleProperty::Display),
+            visibility: cascade_field!(self, other, imp, visibility, StyleProperty::Visibility),
+            overflow: cascade_field!(self, other, imp, overflow, StyleProperty::Overflow),
+            dock: cascade_field!(self, other, imp, dock, StyleProperty::Dock),
+            text_align: cascade_field!(self, other, imp, text_align, StyleProperty::TextAlign),
+            content_align: cascade_field!(self, other, imp, content_align, StyleProperty::ContentAlign),
+            align: cascade_field!(self, other, imp, align, StyleProperty::Align),
+            offset: cascade_field!(self, other, imp, offset, StyleProperty::Offset),
+            pointer: cascade_field!(self, other, imp, pointer, StyleProperty::Pointer),
+            grid_size_columns: cascade_field!(self, other, imp, grid_size_columns, StyleProperty::GridSizeColumns),
+            grid_size_rows: cascade_field!(self, other, imp, grid_size_rows, StyleProperty::GridSizeRows),
+            grid_columns: cascade_field!(self, other, imp, grid_columns, StyleProperty::GridColumns),
+            grid_rows: cascade_field!(self, other, imp, grid_rows, StyleProperty::GridRows),
+            grid_gutter_horizontal: cascade_field!(self, other, imp, grid_gutter_horizontal, StyleProperty::GridGutterHorizontal),
+            grid_gutter_vertical: cascade_field!(self, other, imp, grid_gutter_vertical, StyleProperty::GridGutterVertical),
+            layer: cascade_field!(self, other, imp, layer, StyleProperty::Layer),
+            layers: cascade_field!(self, other, imp, layers, StyleProperty::Layers),
+            transition_duration: cascade_field!(self, other, imp, transition_duration, StyleProperty::TransitionDuration),
+            transition_delay: cascade_field!(self, other, imp, transition_delay, StyleProperty::TransitionDelay),
+            transition_timing: cascade_field!(self, other, imp, transition_timing, StyleProperty::TransitionTiming),
+            importance: imp,
         }
     }
 
@@ -1170,6 +1344,8 @@ impl Style {
             transition_duration: self.transition_duration,
             transition_delay: self.transition_delay,
             transition_timing: self.transition_timing,
+            // Importance is not inherited — it only applies during cascade.
+            importance: ImportanceBitset::new(),
         }
     }
 
@@ -1656,5 +1832,184 @@ mod tests {
         assert!(s.is_empty());
         s.layers = Some(vec!["default".into()]);
         assert!(!s.is_empty());
+    }
+
+    // ---- ImportanceBitset tests ----
+
+    #[test]
+    fn bitset_default_is_empty() {
+        let b = ImportanceBitset::new();
+        assert!(b.is_empty());
+        assert!(!b.get(StyleProperty::Fg));
+        assert!(!b.get(StyleProperty::Bg));
+    }
+
+    #[test]
+    fn bitset_set_and_get() {
+        let mut b = ImportanceBitset::new();
+        b.set(StyleProperty::Bg);
+        assert!(b.get(StyleProperty::Bg));
+        assert!(!b.get(StyleProperty::Fg));
+        assert!(!b.is_empty());
+    }
+
+    #[test]
+    fn bitset_multiple_properties() {
+        let mut b = ImportanceBitset::new();
+        b.set(StyleProperty::Fg);
+        b.set(StyleProperty::Width);
+        b.set(StyleProperty::TransitionTiming);
+        assert!(b.get(StyleProperty::Fg));
+        assert!(b.get(StyleProperty::Width));
+        assert!(b.get(StyleProperty::TransitionTiming));
+        assert!(!b.get(StyleProperty::Bg));
+        assert!(!b.get(StyleProperty::Height));
+    }
+
+    #[test]
+    fn bitset_correct_property_indices() {
+        // Verify that each property maps to a distinct bit.
+        let props = [
+            StyleProperty::Fg,
+            StyleProperty::Bg,
+            StyleProperty::TextOpacity,
+            StyleProperty::Bold,
+            StyleProperty::BorderTop,
+            StyleProperty::Margin,
+            StyleProperty::Width,
+            StyleProperty::Layout,
+            StyleProperty::TextAlign,
+            StyleProperty::GridSizeColumns,
+            StyleProperty::Layer,
+            StyleProperty::TransitionTiming,
+        ];
+        for (i, &prop) in props.iter().enumerate() {
+            let mut b = ImportanceBitset::new();
+            b.set(prop);
+            // Only this property should be set.
+            for (j, &other) in props.iter().enumerate() {
+                if i == j {
+                    assert!(b.get(other), "{:?} should be set", other);
+                } else {
+                    assert!(!b.get(other), "{:?} should NOT be set when {:?} is", other, prop);
+                }
+            }
+        }
+    }
+
+    // ---- Importance-aware combine tests ----
+
+    #[test]
+    fn combine_important_wins_over_normal_override() {
+        // Self has bg with !important; other has bg without !important.
+        // Self should win because !important overrides normal cascade.
+        let mut base = Style::new().bg(Color::rgb(255, 0, 0));
+        base.importance.set(StyleProperty::Bg);
+        let overlay = Style::new().bg(Color::rgb(0, 255, 0));
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.bg, Some(Color::rgb(255, 0, 0)));
+        assert!(combined.importance.get(StyleProperty::Bg));
+    }
+
+    #[test]
+    fn combine_both_important_other_wins() {
+        // Both have bg with !important; other (higher specificity in cascade) wins.
+        let mut base = Style::new().bg(Color::rgb(255, 0, 0));
+        base.importance.set(StyleProperty::Bg);
+        let mut overlay = Style::new().bg(Color::rgb(0, 255, 0));
+        overlay.importance.set(StyleProperty::Bg);
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.bg, Some(Color::rgb(0, 255, 0)));
+        assert!(combined.importance.get(StyleProperty::Bg));
+    }
+
+    #[test]
+    fn combine_normal_cascade_unchanged() {
+        // Neither has !important; other wins as before.
+        let base = Style::new().bg(Color::rgb(255, 0, 0));
+        let overlay = Style::new().bg(Color::rgb(0, 255, 0));
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.bg, Some(Color::rgb(0, 255, 0)));
+        assert!(!combined.importance.get(StyleProperty::Bg));
+    }
+
+    #[test]
+    fn combine_important_fg_auto_wins_over_normal_fg() {
+        // Self has fg_auto with !important; other has concrete fg without !important.
+        let mut base = Style::new().fg_auto(AutoColor::new(87));
+        base.importance.set(StyleProperty::Fg);
+        let overlay = Style::new().fg(Color::rgb(20, 20, 20));
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.fg, None);
+        assert_eq!(combined.fg_auto.map(|a| a.alpha_percent), Some(87));
+        assert!(combined.importance.get(StyleProperty::Fg));
+    }
+
+    #[test]
+    fn combine_important_not_overridden_by_normal_in_later_rule() {
+        // Simulates cascade: rule A (low specificity, !important) → rule B (high specificity, normal).
+        // Fold: start with A, then combine B.
+        let mut rule_a = Style::new().fg(Color::rgb(255, 0, 0));
+        rule_a.importance.set(StyleProperty::Fg);
+        let rule_b = Style::new().fg(Color::rgb(0, 0, 255));
+        // A is "self" (accumulated), B is "other" (higher specificity).
+        let result = rule_a.combine(&rule_b);
+        assert_eq!(result.fg, Some(Color::rgb(255, 0, 0)), "important fg should survive");
+    }
+
+    #[test]
+    fn combine_source_order_breaks_ties_at_same_importance() {
+        // Both normal, applied in source order: later rule wins.
+        let s1 = Style::new().bg(Color::rgb(255, 0, 0));
+        let s2 = Style::new().bg(Color::rgb(0, 255, 0));
+        let result = s1.combine(&s2);
+        assert_eq!(result.bg, Some(Color::rgb(0, 255, 0)));
+    }
+
+    #[test]
+    fn combine_importance_per_property_independent() {
+        // Self has bg important, fg normal. Other has bg normal, fg important.
+        // Result: bg from self (important), fg from other (important).
+        let mut base = Style::new().bg(Color::rgb(255, 0, 0)).fg(Color::rgb(100, 100, 100));
+        base.importance.set(StyleProperty::Bg);
+        let mut overlay = Style::new().bg(Color::rgb(0, 255, 0)).fg(Color::rgb(200, 200, 200));
+        overlay.importance.set(StyleProperty::Fg);
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.bg, Some(Color::rgb(255, 0, 0)), "bg: self is important");
+        assert_eq!(combined.fg, Some(Color::rgb(200, 200, 200)), "fg: other is important");
+        assert!(combined.importance.get(StyleProperty::Bg));
+        assert!(combined.importance.get(StyleProperty::Fg));
+    }
+
+    #[test]
+    fn combine_important_border_edge_wins() {
+        let mut base = Style::new();
+        base.border_top = BorderEdge::Edge {
+            border_type: BorderType::Solid,
+            color: Color::rgb(255, 0, 0),
+        };
+        base.importance.set(StyleProperty::BorderTop);
+        let mut overlay = Style::new();
+        overlay.border_top = BorderEdge::Edge {
+            border_type: BorderType::Block,
+            color: Color::rgb(0, 255, 0),
+        };
+        let combined = base.combine(&overlay);
+        assert_eq!(
+            combined.border_top,
+            BorderEdge::Edge {
+                border_type: BorderType::Solid,
+                color: Color::rgb(255, 0, 0),
+            }
+        );
+    }
+
+    #[test]
+    fn inherit_from_clears_importance() {
+        let mut child = Style::new().bg(Color::rgb(255, 0, 0));
+        child.importance.set(StyleProperty::Bg);
+        let parent = Style::new().fg(Color::rgb(0, 255, 0));
+        let inherited = child.inherit_from(&parent);
+        assert!(inherited.importance.is_empty(), "importance should be cleared after inheritance");
     }
 }

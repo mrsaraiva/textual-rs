@@ -3,6 +3,7 @@ use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{NodeId, node_id_to_ffi};
+use crate::style::{Color, Scalar, Spacing, Tint};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -181,6 +182,70 @@ impl AnimationRequest {
             attribute: attribute.into(),
             start,
             end,
+            duration,
+            delay: Duration::ZERO,
+            ease: AnimationEase::InOutCubic,
+            level: AnimationLevel::Full,
+        }
+    }
+
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
+
+    pub fn with_ease(mut self, ease: AnimationEase) -> Self {
+        self.ease = ease;
+        self
+    }
+
+    pub fn with_level(mut self, level: AnimationLevel) -> Self {
+        self.level = level;
+        self
+    }
+}
+
+/// Represents a typed value for CSS property animation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleValue {
+    /// RGBA color value (for `fg`, `bg`).
+    Color(Color),
+    /// Float value (for `opacity`, `text_opacity` — 0.0–100.0 range).
+    Float(f32),
+    /// Scalar dimension (for `width`, `height`, `min_width`, etc.).
+    Scalar(Scalar),
+    /// Four-side spacing (for `margin`, `padding`).
+    Spacing(Spacing),
+    /// Tint value (for `tint`, `background_tint`).
+    Tint(Tint),
+}
+
+/// Request to animate a CSS property to a target value on a specific node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StyleAnimationRequest {
+    pub target: NodeId,
+    pub property: String,
+    pub from: StyleValue,
+    pub to: StyleValue,
+    pub duration: Duration,
+    pub delay: Duration,
+    pub ease: AnimationEase,
+    pub level: AnimationLevel,
+}
+
+impl StyleAnimationRequest {
+    pub fn new(
+        target: NodeId,
+        property: impl Into<String>,
+        from: StyleValue,
+        to: StyleValue,
+        duration: Duration,
+    ) -> Self {
+        Self {
+            target,
+            property: property.into(),
+            from,
+            to,
             duration,
             delay: Duration::ZERO,
             ease: AnimationEase::InOutCubic,
@@ -388,6 +453,7 @@ pub struct EventCtx {
     stop_requested: bool,
     messages: Vec<MessageEvent>,
     animation_requests: Vec<AnimationRequest>,
+    style_animation_requests: Vec<StyleAnimationRequest>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -616,6 +682,33 @@ impl EventCtx {
         self.animation_requests.push(request);
     }
 
+    /// Request a CSS property animation on a specific node.
+    pub fn animate_style(
+        &mut self,
+        target: NodeId,
+        property: impl Into<String>,
+        from: StyleValue,
+        to: StyleValue,
+        duration: Duration,
+        ease: AnimationEase,
+    ) {
+        let request = StyleAnimationRequest::new(target, property, from, to, duration)
+            .with_ease(ease);
+        self.request_style_animation(request);
+    }
+
+    /// Enqueue a fully-formed style animation request.
+    pub fn request_style_animation(&mut self, request: StyleAnimationRequest) {
+        debug_message(&format!(
+            "[request_style_animation] target={} property={} duration_ms={} ease={:?}",
+            node_id_to_ffi(request.target),
+            request.property,
+            request.duration.as_millis(),
+            request.ease
+        ));
+        self.style_animation_requests.push(request);
+    }
+
     pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
         if other.handled {
             self.handled = true;
@@ -630,6 +723,8 @@ impl EventCtx {
         self.messages.append(&mut other.messages);
         self.animation_requests
             .append(&mut other.animation_requests);
+        self.style_animation_requests
+            .append(&mut other.style_animation_requests);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
@@ -638,6 +733,10 @@ impl EventCtx {
 
     pub(crate) fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
         std::mem::take(&mut self.animation_requests)
+    }
+
+    pub(crate) fn take_style_animation_requests(&mut self) -> Vec<StyleAnimationRequest> {
+        std::mem::take(&mut self.style_animation_requests)
     }
 }
 
@@ -724,6 +823,7 @@ mod tests {
     use super::*;
     use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message};
     use crate::node_id::node_id_from_ffi;
+    use crate::style::{Color, Scalar, Spacing, Tint};
     use std::time::Duration;
 
     #[test]
@@ -921,6 +1021,121 @@ mod tests {
         assert_eq!(e.node, id);
         let ev = Event::Blur(e);
         assert!(matches!(ev, Event::Blur(BlurEvent { node }) if node == id));
+    }
+
+    // ── StyleValue / StyleAnimationRequest tests ─────────────────────
+
+    #[test]
+    fn style_value_color_construction() {
+        let v = StyleValue::Color(Color::rgb(10, 20, 30));
+        assert!(matches!(v, StyleValue::Color(Color { r: 10, g: 20, b: 30, a: 255 })));
+    }
+
+    #[test]
+    fn style_value_float_construction() {
+        let v = StyleValue::Float(50.0);
+        assert!(matches!(v, StyleValue::Float(x) if (x - 50.0).abs() < 0.001));
+    }
+
+    #[test]
+    fn style_value_scalar_construction() {
+        let v = StyleValue::Scalar(Scalar::Cells(42));
+        assert!(matches!(v, StyleValue::Scalar(Scalar::Cells(42))));
+    }
+
+    #[test]
+    fn style_value_spacing_construction() {
+        let v = StyleValue::Spacing(Spacing::all(5));
+        if let StyleValue::Spacing(s) = v {
+            assert_eq!(s.top, 5);
+            assert_eq!(s.right, 5);
+        } else {
+            panic!("expected Spacing");
+        }
+    }
+
+    #[test]
+    fn style_value_tint_construction() {
+        let v = StyleValue::Tint(Tint::new(Color::rgb(255, 0, 0), 50));
+        if let StyleValue::Tint(t) = v {
+            assert_eq!(t.color, Color::rgb(255, 0, 0));
+            assert_eq!(t.percent, 50);
+        } else {
+            panic!("expected Tint");
+        }
+    }
+
+    #[test]
+    fn style_animation_request_builder() {
+        let target = node_id_from_ffi(10);
+        let req = StyleAnimationRequest::new(
+            target,
+            "bg",
+            StyleValue::Color(Color::rgb(0, 0, 0)),
+            StyleValue::Color(Color::rgb(255, 255, 255)),
+            Duration::from_millis(300),
+        )
+        .with_delay(Duration::from_millis(50))
+        .with_ease(AnimationEase::Linear)
+        .with_level(AnimationLevel::Basic);
+
+        assert_eq!(req.target, target);
+        assert_eq!(req.property, "bg");
+        assert_eq!(req.duration, Duration::from_millis(300));
+        assert_eq!(req.delay, Duration::from_millis(50));
+        assert_eq!(req.ease, AnimationEase::Linear);
+        assert_eq!(req.level, AnimationLevel::Basic);
+    }
+
+    #[test]
+    fn event_ctx_animate_style_populates_requests() {
+        let target = node_id_from_ffi(20);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(target);
+
+        ctx.animate_style(
+            target,
+            "opacity",
+            StyleValue::Float(0.0),
+            StyleValue::Float(100.0),
+            Duration::from_millis(500),
+            AnimationEase::OutCubic,
+        );
+
+        let requests = ctx.take_style_animation_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].property, "opacity");
+        assert_eq!(requests[0].ease, AnimationEase::OutCubic);
+    }
+
+    #[test]
+    fn event_ctx_merge_includes_style_animation_requests() {
+        let mut a = EventCtx::default();
+        a.set_node_id(node_id_from_ffi(1));
+        let mut b = EventCtx::default();
+        b.set_node_id(node_id_from_ffi(2));
+
+        let target = node_id_from_ffi(10);
+        a.request_style_animation(StyleAnimationRequest::new(
+            target,
+            "fg",
+            StyleValue::Color(Color::rgb(0, 0, 0)),
+            StyleValue::Color(Color::rgb(255, 0, 0)),
+            Duration::from_millis(200),
+        ));
+        b.request_style_animation(StyleAnimationRequest::new(
+            target,
+            "bg",
+            StyleValue::Color(Color::rgb(0, 0, 0)),
+            StyleValue::Color(Color::rgb(0, 255, 0)),
+            Duration::from_millis(300),
+        ));
+
+        a.merge_from(b);
+        let requests = a.take_style_animation_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].property, "fg");
+        assert_eq!(requests[1].property, "bg");
     }
 
     #[test]
