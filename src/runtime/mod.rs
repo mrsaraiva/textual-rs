@@ -1,4 +1,5 @@
 mod devtools;
+pub(crate) mod dispatch_ctx;
 mod event_loop;
 mod helpers;
 mod render;
@@ -204,11 +205,7 @@ impl App {
 
     /// Recursively extract children from a widget via `take_composed_children()`
     /// and mount them into the tree.
-    fn extract_children_to_tree(
-        tree: &mut WidgetTree,
-        parent: NodeId,
-        widget: &mut dyn Widget,
-    ) {
+    fn extract_children_to_tree(tree: &mut WidgetTree, parent: NodeId, widget: &mut dyn Widget) {
         let children = widget.take_composed_children();
         for mut child in children {
             // Recursively extract grandchildren before mounting the child.

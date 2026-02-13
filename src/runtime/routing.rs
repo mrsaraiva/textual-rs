@@ -6,6 +6,7 @@ use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
 
+use super::dispatch_ctx::set_dispatch_recipient;
 use super::types::DispatchOutcome;
 
 pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
@@ -137,6 +138,7 @@ pub(crate) fn dispatch_event_tree(
             break;
         }
         if let Some(node) = tree.get_mut(node_id) {
+            let _dispatch_guard = set_dispatch_recipient(node_id);
             node.widget.on_event_capture(event, &mut ctx);
         }
     }
@@ -145,6 +147,7 @@ pub(crate) fn dispatch_event_tree(
     if always_bubble || !ctx.handled() {
         for &node_id in path.iter().rev() {
             if let Some(node) = tree.get_mut(node_id) {
+                let _dispatch_guard = set_dispatch_recipient(node_id);
                 node.widget.on_event(event, &mut ctx);
             }
             if ctx.handled() {
@@ -189,6 +192,7 @@ pub(crate) fn dispatch_event_to_target_tree(
             break;
         }
         if let Some(node) = tree.get_mut(node_id) {
+            let _dispatch_guard = set_dispatch_recipient(node_id);
             node.widget.on_event_capture(event, &mut ctx);
         }
     }
@@ -197,6 +201,7 @@ pub(crate) fn dispatch_event_to_target_tree(
     if !ctx.handled() {
         for &node_id in path.iter().rev() {
             if let Some(node) = tree.get_mut(node_id) {
+                let _dispatch_guard = set_dispatch_recipient(node_id);
                 node.widget.on_event(event, &mut ctx);
             }
             if ctx.handled() {
@@ -256,6 +261,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
     // Bubble phase only: target → root (mouse scroll doesn't have a capture phase)
     for &node_id in path.iter().rev() {
         if let Some(node) = tree.get_mut(node_id) {
+            let _dispatch_guard = set_dispatch_recipient(node_id);
             node.widget.on_mouse_scroll(delta_x, delta_y, &mut ctx);
         }
         if ctx.handled() {
@@ -467,6 +473,7 @@ fn dispatch_message_bubble(
                 return;
             }
             if let Some(node) = tree.get_mut(node_id) {
+                let _dispatch_guard = set_dispatch_recipient(node_id);
                 node.widget.on_message(&envelope.event, ctx);
                 if ctx.handled() {
                     envelope.stop();
@@ -482,6 +489,7 @@ fn dispatch_message_bubble(
             break;
         }
         if let Some(node) = tree.get_mut(node_id) {
+            let _dispatch_guard = set_dispatch_recipient(node_id);
             node.widget.on_message(&envelope.event, ctx);
             if ctx.handled() {
                 envelope.stop();

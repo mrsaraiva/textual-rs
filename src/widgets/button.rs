@@ -4,8 +4,10 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-use crate::node_id::NodeId;
+use crate::runtime::dispatch_ctx::{is_self_target, is_self_target_opt};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+#[cfg(test)]
+use crate::node_id::NodeId;
 
 use crate::action::ParsedAction;
 
@@ -433,8 +435,7 @@ impl Widget for Button {
             return;
         }
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse) if is_self_target(mouse.target) => {
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
@@ -448,8 +449,7 @@ impl Widget for Button {
                     self.pressed = PressedState::None;
                     ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if mouse.target == Some(NodeId::default()) {
+                    if is_self_target_opt(mouse.target) {
                         debug_message(&format!(
                             "[button] emit mouse_up sender={} label=\"{}\"",
                             0u64, self.label
