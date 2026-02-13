@@ -289,8 +289,7 @@ pub(crate) fn process_worker_requests(
     for req in requests {
         let (id, _token) = registry.register(req.owner, req.exclusive_key, req.name);
         registry.set_running(id);
-        // TODO: actual async task spawning in a future sprint.
-        // For now, immediately mark as success placeholder.
+        // DEFERRED(worker-async): actual async task spawning requires runtime executor
         registry.complete(id, Ok(()));
         changes.push(WorkerStateChanged {
             worker_id: id,

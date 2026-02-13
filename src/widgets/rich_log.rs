@@ -792,8 +792,7 @@ impl Widget for RichLog {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::MouseDown(mouse) = event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            if mouse.target == self.node_id() {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);

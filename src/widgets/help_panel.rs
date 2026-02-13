@@ -4,8 +4,6 @@ use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 use crate::render::FrameBuffer;
 
-use crate::node_id::NodeId;
-
 use super::{
     FooterBinding, KeyPanel, Markdown, Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
@@ -201,18 +199,16 @@ impl Widget for HelpPanel {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::HelpPanelSetHelp(HelpPanelSetHelp { panel, markup })
-                if *panel == NodeId::default() =>
+                if *panel == self.node_id() =>
             {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::HelpPanelClearHelp(HelpPanelClearHelp { panel })
-                if *panel == NodeId::default() =>
+                if *panel == self.node_id() =>
             {
                 self.clear_help();
                 ctx.request_repaint();

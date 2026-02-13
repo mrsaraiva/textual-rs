@@ -206,6 +206,7 @@ impl App {
 
         // Render the real root widget first. Its children have been extracted,
         // so this produces only the root's CSS chrome (background, border, padding).
+        let root_node_id = tree.root().unwrap_or_default();
         let root_segments = widget.render_styled_dyn_obj(
             &self.console,
             &self.options,
@@ -214,7 +215,7 @@ impl App {
             } else {
                 None
             },
-            NodeId::default(),
+            root_node_id,
         );
         let root_lines = Segment::split_and_crop_lines(root_segments, width, None, true, false);
         for (row, line) in root_lines.iter().enumerate() {

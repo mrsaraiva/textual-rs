@@ -5,8 +5,6 @@ use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
-use crate::node_id::NodeId;
-
 use super::helpers::{adjust_line_length_no_bg, empty_classes};
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
@@ -532,42 +530,32 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     _ => {}
                 },
                 Event::MouseDown(mouse) => {
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if mouse.target != NodeId::default() && mouse.target != NodeId::default() {
+                    if mouse.target != self.node_id() {
                         // Click outside the Select widget — close dropdown.
                         self.set_open(false, ctx);
                         ctx.set_handled();
                         return;
                     }
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
-                        // Click inside dropdown list coordinates.
-                        self.list.on_event(event, ctx);
+                    // Click within Select — check if it's in the dropdown area.
+                    let (_, panel_y, _, panel_h) = self.dropdown_geometry();
+                    let click_y = mouse.y as usize;
+                    if click_y >= panel_y && click_y < panel_y + panel_h {
+                        // Forward click to the inner OptionList, preserving the raw y
+                        // coordinate so the list's offset-based index calculation works.
+                        self.list.on_event(
+                            &Event::MouseDown(MouseDownEvent {
+                                target: self.node_id(),
+                                screen_x: mouse.screen_x,
+                                screen_y: mouse.screen_y,
+                                x: mouse.x,
+                                y: mouse.y,
+                            }),
+                            ctx,
+                        );
                         self.cursor.set_highlighted(self.list.highlighted());
                     } else {
-                        // Click within Select — check if it's in the dropdown area.
-                        let (_, panel_y, _, panel_h) = self.dropdown_geometry();
-                        let click_y = mouse.y as usize;
-                        if click_y >= panel_y && click_y < panel_y + panel_h {
-                            // Translate click to OptionList coordinates and route through its
-                            // message flow.
-                            let list_y = click_y - panel_y;
-                            // TODO(P1-14 integration): wire tree-based NodeId comparison
-                            self.list.on_event(
-                                &Event::MouseDown(MouseDownEvent {
-                                    target: NodeId::default(),
-                                    screen_x: mouse.screen_x,
-                                    screen_y: mouse.screen_y,
-                                    x: mouse.x,
-                                    y: list_y as u16,
-                                }),
-                                ctx,
-                            );
-                            self.cursor.set_highlighted(self.list.highlighted());
-                        } else {
-                            // Click on the closed-state bar area — toggle closed.
-                            self.set_open(false, ctx);
-                        }
+                        // Click on the closed-state bar area — toggle closed.
+                        self.set_open(false, ctx);
                     }
                     ctx.set_handled();
                     return;
@@ -591,10 +579,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     }
                     _ => {}
                 },
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                Event::MouseDown(mouse)
-                    if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-                {
+                Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                     self.set_open(true, ctx);
                     ctx.set_handled();
                 }
@@ -605,8 +590,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         // Handle OptionSelected from inner list.
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if message.sender == NodeId::default() {
+        if message.sender == self.node_id() {
             if let Message::OptionSelected(OptionSelected { index }) = &message.message {
                 self.apply_selection(*index, ctx);
                 ctx.set_handled();
@@ -931,8 +915,6 @@ mod tests {
         sel.on_event(&Event::Key(open_key), &mut open_ctx);
         assert!(sel.is_open());
 
-        // Use NodeId::default() as target — production code compares against
-        // NodeId::default() for self/child routing (P1-14 migration).
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -1018,8 +1000,6 @@ mod tests {
         sel.on_event(&Event::Key(open), &mut open_ctx);
         assert!(sel.is_open());
 
-        // Use NodeId::default() as target — production code compares against
-        // NodeId::default() for self/child routing (P1-14 migration).
         let mut click_ctx = EventCtx::default();
         sel.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -1334,5 +1314,70 @@ mod tests {
         assert!(!sel.is_open());
         assert!(sel.execute_action(&action, &mut ctx));
         assert!(sel.is_open());
+    }
+
+    // ── P1-14 dispatch-context regression tests ─────────────────────────
+
+    #[test]
+    fn mouse_click_with_dispatch_context_opens_select() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut ctx = EventCtx::default();
+        sel.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert!(sel.is_open());
+    }
+
+    #[test]
+    fn mouse_click_with_wrong_target_closes_open_select() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        // Open via keyboard first.
+        let open_key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut open_ctx = EventCtx::default();
+        sel.on_event(&Event::Key(open_key), &mut open_ctx);
+        assert!(sel.is_open());
+
+        // Click with a different target (outside) — should close dropdown.
+        let mut ctx = EventCtx::default();
+        sel.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: other_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert!(!sel.is_open());
     }
 }

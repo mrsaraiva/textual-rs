@@ -3,8 +3,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
@@ -144,7 +142,7 @@ impl Widget for RadioButton {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, NodeId::default());
+        let outcome = self.state.handle_event(event, self.node_id());
         if outcome.toggled {
             self.on_toggled();
             self.emit_changed(ctx);

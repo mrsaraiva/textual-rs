@@ -301,10 +301,9 @@ impl ScrollView {
         }
         if let Some((duration, delay, ease)) = self.scroll_animation_params() {
             self.render_offset_y = from as f32;
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    NodeId::default(),
+                    self.node_id(),
                     Self::OFFSET_Y_ATTR,
                     from as f32,
                     to as f32,
@@ -327,10 +326,9 @@ impl ScrollView {
         }
         if let Some((duration, delay, ease)) = self.scroll_animation_params() {
             self.render_offset_x = from as f32;
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    NodeId::default(),
+                    self.node_id(),
                     Self::OFFSET_X_ATTR,
                     from as f32,
                     to as f32,
@@ -772,7 +770,7 @@ impl Widget for ScrollView {
             done,
         }) = event
         {
-            if crate::runtime::dispatch_ctx::is_self_target(*target) {
+            if *target == self.node_id() {
                 if attribute == Self::OFFSET_Y_ATTR {
                     if self.drag_v.is_none() {
                         self.render_offset_y = if *done { self.offset_y as f32 } else { *value };
@@ -792,7 +790,7 @@ impl Widget for ScrollView {
             }
         }
         if let Event::MouseDown(mouse) = event {
-            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            if mouse.target == self.node_id() {
                 let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
@@ -1161,8 +1159,15 @@ impl Renderable for ScrollView {
 mod tests {
     use super::*;
     use crate::action::ParsedAction;
-    use crate::event::EventCtx;
+    use crate::event::{AnimationValueEvent, EventCtx};
+    use crate::node_id::NodeId;
     use crate::prelude::Label;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn bindings_are_declared() {
@@ -1186,5 +1191,78 @@ mod tests {
         };
         assert!(sv.execute_action(&action, &mut ctx));
         assert!(ctx.handled());
+    }
+
+    #[test]
+    fn animation_value_matches_real_node_id() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut sv = ScrollView::new(Label::new("content"));
+        let mut ctx = EventCtx::default();
+
+        // Event targeting our real NodeId should be handled.
+        let event = Event::AnimationValue(AnimationValueEvent {
+            target: id,
+            attribute: ScrollView::OFFSET_Y_ATTR.to_string(),
+            value: 2.0,
+            done: false,
+        });
+        sv.on_event(&event, &mut ctx);
+        assert!(ctx.handled(), "AnimationValueEvent targeting real NodeId must be handled");
+    }
+
+    #[test]
+    fn animation_value_ignores_foreign_node_id() {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        let id = sm.insert(());
+        let other = sm.insert(());
+        assert_ne!(id, other);
+        let _guard = set_dispatch_recipient(id);
+
+        let mut sv = ScrollView::new(Label::new("content"));
+        let mut ctx = EventCtx::default();
+
+        // Event targeting a different NodeId should NOT be handled by this widget.
+        let event = Event::AnimationValue(AnimationValueEvent {
+            target: other,
+            attribute: ScrollView::OFFSET_Y_ATTR.to_string(),
+            value: 2.0,
+            done: false,
+        });
+        sv.on_event(&event, &mut ctx);
+        assert!(!ctx.handled(), "AnimationValueEvent targeting a foreign NodeId must not be handled");
+    }
+
+    #[test]
+    fn mouse_down_skips_scrollbar_for_foreign_node_id() {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        let id = sm.insert(());
+        let other = sm.insert(());
+        assert_ne!(id, other);
+        let _guard = set_dispatch_recipient(id);
+
+        let mut sv = ScrollView::new(Label::new("content"));
+        let mut ctx = EventCtx::default();
+
+        // MouseDown targeting a foreign NodeId should NOT enter the scrollbar
+        // hit-test branch (the `mouse.target == self.node_id()` guard must
+        // reject it), so scrollbar-specific handling is skipped.
+        let event = Event::MouseDown(crate::event::MouseDownEvent {
+            target: other,
+            screen_x: 0,
+            screen_y: 0,
+            x: 0,
+            y: 0,
+        });
+        sv.on_event(&event, &mut ctx);
+        // The scrollbar branch sets handled+returns on any scrollbar hit.
+        // Since the target doesn't match, the branch is skipped entirely
+        // and the event falls through to child dispatch (Label, which
+        // ignores mouse events). So handled must be false.
+        assert!(
+            !ctx.handled(),
+            "MouseDown with foreign NodeId must skip scrollbar logic"
+        );
     }
 }

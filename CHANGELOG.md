@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **P1-14 complete: wire tree-based NodeId across all widgets**
+  - Added `node_id()` default method to Widget trait, reading from dispatch context so widgets can identify themselves without storing an ID field.
+  - Set dispatch context guard in `render_styled_dyn_obj()` so `self.node_id()` works during rendering.
+  - Replaced all 114 `TODO(P1-14)` and `TODO(P1-15)` placeholders across 30+ widget files with real tree-wired NodeId logic: `is_self_target(target)` → `target == self.node_id()`, `NodeId::default()` sentinels → `self.node_id()` in outgoing events/messages.
+  - Removed `is_self_target` / `is_self_target_opt` from dispatch_ctx.rs — zero callers remain.
+  - Fixed RadioButton mouse targeting bug (was passing `NodeId::default()` to `handle_event`, breaking tree-routed clicks).
+  - Fixed tree render root widget dispatch context (now uses real root NodeId from arena).
+  - Converted 4 non-P1-14 TODOs to explicit `DEFERRED(<tag>)` markers for future work.
+  - Cleaned dead code in routing.rs test structs and event_loop.rs.
+  - Added 40+ regression tests across containers, input family, and remaining widgets verifying real-NodeId event dispatch.
+
 - **[wip] Dock tree-layout fill restoration + P1 container regression gates**
   - Restored Dock fill behavior in arena-tree layout: when a `Dock` parent has a single non-docked flow child, that child now receives the full remaining inner region after docked edges are carved.
   - Added `layout_dock_fill` placement helper in layout solver to preserve fill-region `layout_rect`/`content_rect` semantics under tree-driven composition.

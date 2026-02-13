@@ -27,11 +27,3 @@ pub(crate) fn set_dispatch_recipient(node_id: NodeId) -> DispatchRecipientGuard 
 pub(crate) fn dispatch_recipient() -> Option<NodeId> {
     DISPATCH_RECIPIENT.with(Cell::get)
 }
-
-pub(crate) fn is_self_target(target: NodeId) -> bool {
-    target == NodeId::default() || dispatch_recipient() == Some(target)
-}
-
-pub(crate) fn is_self_target_opt(target: Option<NodeId>) -> bool {
-    target.map(is_self_target).unwrap_or(false)
-}

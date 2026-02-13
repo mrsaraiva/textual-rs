@@ -353,10 +353,9 @@ impl CommandPalette {
         }
         if let Some((duration, delay, ease)) = self.key_panel_animation_params() {
             self.key_panel_render_width = from as f32;
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
                 AnimationRequest::new(
-                    NodeId::default(),
+                    self.node_id(),
                     Self::KEY_PANEL_WIDTH_ATTR,
                     from as f32,
                     to as f32,
@@ -378,9 +377,8 @@ impl CommandPalette {
         }
         if let Some((duration, delay, ease)) = self.panel_animation_params() {
             self.panel_render_y = from;
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             ctx.request_animation(
-                AnimationRequest::new(NodeId::default(), Self::PANEL_Y_ATTR, from, to, duration)
+                AnimationRequest::new(self.node_id(), Self::PANEL_Y_ATTR, from, to, duration)
                     .with_delay(delay)
                     .with_ease(ease)
                     .with_level(AnimationLevel::Basic),
@@ -458,7 +456,7 @@ impl CommandPalette {
 
     fn focused_widget_id(widget: &dyn Widget) -> Option<NodeId> {
         if widget.has_focus() {
-            return Some(NodeId::default());
+            return Some(widget.node_id());
         }
         None
     }
@@ -936,8 +934,7 @@ impl Widget for CommandPalette {
             done,
         }) = event
         {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if crate::runtime::dispatch_ctx::is_self_target(*target) {
+            if *target == self.node_id() {
                 if attribute == Self::KEY_PANEL_WIDTH_ATTR {
                     self.key_panel_render_width = (*value).max(0.0);
                     if *done && !self.show_key_panel {
@@ -996,27 +993,22 @@ impl Widget for CommandPalette {
         if !self.open {
             if self.show_key_panel {
                 match event {
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    Event::MouseDown(mouse)
-                        if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-                    {
+                    Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
                     Event::MouseUp(mouse)
-                        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                        if mouse.target.is_some_and(|t| t == self.node_id()) =>
                     {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
                     Event::MouseScroll(mouse)
-                        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                        if mouse.target.is_some_and(|t| t == self.node_id()) =>
                     {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
@@ -1053,8 +1045,7 @@ impl Widget for CommandPalette {
             // MouseDown coordinates are relative to the event target widget.
             // Use screen coordinates so panel hit-testing remains correct when
             // bubbling from children (e.g. search input) and during panel animation.
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            let (x, y) = if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            let (x, y) = if mouse.target == self.node_id() {
                 (mouse.x as usize, mouse.y as usize)
             } else {
                 (mouse.screen_x as usize, mouse.screen_y as usize)
@@ -1064,15 +1055,13 @@ impl Widget for CommandPalette {
                 && y >= panel_y
                 && y < panel_y.saturating_add(panel_h);
 
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if mouse.target != NodeId::default() && !inside_panel {
+            if mouse.target != self.node_id() && !inside_panel {
                 self.set_open(false, ctx);
                 ctx.set_handled();
                 return;
             }
 
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            if mouse.target == self.node_id() {
                 // Let Input handle cursor placement/focus details.
             } else {
                 let (results_x, results_y, results_w, results_h) =
@@ -1141,8 +1130,7 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if message.sender == NodeId::default() {
+        if message.sender == self.node_id() {
             if let Message::InputChanged(..) = &message.message {
                 self.rebuild_results();
                 ctx.request_repaint();
@@ -1689,7 +1677,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: NodeId::default(), // TODO(P1-14 integration): wire tree-based NodeId comparison
+                target: NodeId::default(), // matches self.node_id() in tests (no dispatch context)
                 screen_x: 5,
                 screen_y: 2,
                 x: 0,
@@ -1714,7 +1702,7 @@ mod tests {
         let mut click_ctx = EventCtx::default();
         palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: NodeId::default(), // TODO(P1-14 integration): wire tree-based NodeId comparison
+                target: NodeId::default(), // matches self.node_id() in tests (no dispatch context)
                 screen_x: 0,
                 screen_y: 0,
                 x: 2,

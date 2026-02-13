@@ -408,10 +408,7 @@ impl Widget for OptionList {
             return;
         }
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if index < self.items.len() && self.items[index].is_selectable() {
                     self.highlight_index(index, ctx);
@@ -779,7 +776,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                target: NodeId::default(),
                 screen_x: 0,
                 screen_y: 1,
                 x: 0,
@@ -999,5 +996,68 @@ mod tests {
         let a = OptionItem::new("Hello");
         let b = OptionItem::new("Hello").with_content(rich_rs::Text::plain("Hello"));
         assert_eq!(a, b);
+    }
+
+    // ── P1-14 dispatch-context regression tests ─────────────────────────
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    #[test]
+    fn mouse_click_with_dispatch_context_is_handled() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
+        let mut list = OptionList::with_items(items);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn mouse_click_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
+        let mut list = OptionList::with_items(items);
+        list.set_focus(true);
+        list.on_layout(40, 10);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: other_id,
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
     }
 }

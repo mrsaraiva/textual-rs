@@ -158,6 +158,19 @@ pub trait Widget: Send + Sync {
         Vec::new()
     }
 
+    /// Return this widget's arena-assigned NodeId.
+    ///
+    /// During event/message dispatch and rendering, the runtime sets a
+    /// thread-local dispatch context to the current node, so this returns
+    /// the real tree-assigned identity. Outside dispatch (e.g. standalone
+    /// tests without context setup) it returns `NodeId::default()`.
+    ///
+    /// Aligns with B-06 Identity Principle: widgets receive NodeId through
+    /// context, they don't own it.
+    fn node_id(&self) -> NodeId {
+        crate::runtime::dispatch_ctx::dispatch_recipient().unwrap_or_default()
+    }
+
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so
@@ -169,6 +182,12 @@ pub trait Widget: Send + Sync {
         debug: Option<&DebugLayout>,
         _node_id: NodeId,
     ) -> Segments {
+        // Set dispatch context so self.node_id() returns the correct arena
+        // NodeId during render(). The guard restores the previous recipient
+        // on drop, so nested/sibling renders don't leak context.
+        let _dispatch_guard =
+            crate::runtime::dispatch_ctx::set_dispatch_recipient(_node_id);
+
         // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
         // checks this value, so it must match the tag used here.
         let meta = crate::css::selector_meta_generic(self);
@@ -656,6 +675,8 @@ impl WidgetStyles {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::{dispatch_recipient, set_dispatch_recipient};
     use crate::style::{Display, Layout, Overflow, Visibility};
 
     #[test]
@@ -795,5 +816,64 @@ mod tests {
         let mut b = WidgetStyles::default();
         b.style.bg = Some(crate::style::Color::rgb(0, 255, 0));
         assert_eq!(a.invalidation_kind(&b), StyleChangeKind::Visual);
+    }
+
+    fn make_node_id() -> NodeId {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        sm.insert(())
+    }
+
+    /// Minimal widget for dispatch context tests.
+    struct CtxProbe;
+    impl Widget for CtxProbe {
+        fn render(
+            &self,
+            _console: &rich_rs::Console,
+            _options: &rich_rs::ConsoleOptions,
+        ) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+    }
+
+    #[test]
+    fn node_id_returns_dispatch_recipient() {
+        let w = CtxProbe;
+        // Without context, falls back to default.
+        assert_eq!(w.node_id(), NodeId::default());
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+        assert_eq!(w.node_id(), id);
+        assert_ne!(id, NodeId::default());
+    }
+
+    #[test]
+    fn render_styled_dyn_obj_sets_dispatch_context_and_restores() {
+        let console = rich_rs::Console::new();
+        let mut opts = rich_rs::ConsoleOptions::default();
+        opts.size = (10, 1);
+        opts.max_width = 10;
+        opts.max_height = 1;
+
+        // Create from same SlotMap so keys are distinct.
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        let id_a = sm.insert(());
+        let id_b = sm.insert(());
+        assert_ne!(id_a, id_b);
+
+        // Set an outer context (simulating parent render).
+        let _outer = set_dispatch_recipient(id_a);
+        assert_eq!(dispatch_recipient(), Some(id_a));
+
+        // Rendering widget B should temporarily set context to id_b.
+        let widget_b = CtxProbe;
+        let _ = widget_b.render_styled_dyn_obj(&console, &opts, None, id_b);
+
+        // After render_styled_dyn_obj returns, the guard should restore id_a.
+        assert_eq!(
+            dispatch_recipient(),
+            Some(id_a),
+            "dispatch context must be restored after sibling render"
+        );
     }
 }

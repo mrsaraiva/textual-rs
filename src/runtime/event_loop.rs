@@ -1618,8 +1618,7 @@ impl App {
                 let pending_workers = drain_accumulated_worker_requests();
                 if !pending_workers.is_empty() {
                     let _changes = process_worker_requests(&mut worker_registry, pending_workers);
-                    // TODO: deliver WorkerStateChanged messages to owning widgets
-                    // once the Message enum gains a variant for it.
+                    // DEFERRED(worker-delivery): deliver WorkerStateChanged messages to owning widgets
                 }
                 worker_registry.cleanup();
             }
@@ -1891,12 +1890,7 @@ impl App {
         _root: &mut dyn Widget,
         _pending: &mut PendingInvalidation,
     ) {
-        // TODO(P3-10): Iterate over widgets in the tree, collect their
-        // ReactiveCtx, call `crate::reactive::run_reactive_phase()` for
-        // each, and merge the ReactivePhaseResult into `_pending`:
-        //
-        //   if result.needs_repaint { _pending.request_full_content(); }
-        //   if result.needs_layout { _pending.request_flags(InvalidationFlags::layout()); }
+        // DEFERRED(P3-10): iterate tree to collect ReactiveCtx and run reactive phase per widget
     }
 
     // ===================================================================
@@ -2383,7 +2377,7 @@ mod tests {
     }
 
     struct StyleNode {
-        node_id: NodeId,
+        _node_id: NodeId,
         type_name: &'static str,
         style_id: Option<String>,
         classes: Vec<String>,
@@ -2396,7 +2390,7 @@ mod tests {
             static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
             let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Self {
-                node_id: node_id_from_ffi(n),
+                _node_id: node_id_from_ffi(n),
                 type_name,
                 style_id: None,
                 classes: Vec::new(),

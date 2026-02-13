@@ -725,8 +725,7 @@ impl Widget for Log {
         }
 
         if let Event::MouseDown(mouse) = event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            if mouse.target == self.node_id() {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);
@@ -946,7 +945,7 @@ mod tests {
         log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
         let _ = log.render(&console, &options);
 
-        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+        let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
         log.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {

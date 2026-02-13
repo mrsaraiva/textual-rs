@@ -1246,9 +1246,7 @@ impl Widget for DataTable {
 
         // Handle mouse events regardless of focus state.
         match event {
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let width = self.content_width as usize;
                 let height = self.content_height as usize;
                 if let Some(state) = self.horizontal_scrollbar_state(width, height)

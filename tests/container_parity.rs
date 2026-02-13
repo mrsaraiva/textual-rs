@@ -2,9 +2,7 @@ use rich_rs::Console;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
-// TODO(parity): container DEFAULT_CSS semantics that depend on TCSS properties like
-// `layout`, `overflow`, `align-horizontal`, and `align-vertical` still need parser/runtime support.
-// These tests lock in safe API/lifecycle parity slices until that broader CSS parity lands.
+// DEFERRED(parity): container DEFAULT_CSS semantics depend on TCSS layout properties (layout, overflow, align-*)
 
 #[test]
 fn vertical_alias_stacks_children() {

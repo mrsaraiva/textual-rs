@@ -136,14 +136,6 @@ pub enum RowAlign {
 }
 
 impl Widget for Row {
-    /// Declare children for tree-based mounting.
-    ///
-    /// TODO(P1-15): Row stores children via `with_child()`/`push()` as
-    /// owned `Box<dyn Widget>`. Because `compose()` is `&self`, we cannot move
-    /// them into `ChildDecl` entries. Once the runtime supports extracting
-    /// children from containers during mount (via `take_composed_children()`),
-    /// this will return proper declarations. Until then, render/event methods
-    /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
     }
@@ -2107,5 +2099,27 @@ impl Widget for Grid {
 impl Renderable for Grid {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::Label;
+
+    #[test]
+    fn row_compose_returns_empty() {
+        let r = Row::new().with_child(Label::new("a"));
+        assert!(r.compose().is_empty());
+    }
+
+    #[test]
+    fn row_take_composed_children_extracts_all() {
+        let mut r = Row::new()
+            .with_child(Label::new("a"))
+            .with_child(Label::new("b"));
+        let children = r.take_composed_children();
+        assert_eq!(children.len(), 2);
+        assert!(r.children().is_empty());
     }
 }

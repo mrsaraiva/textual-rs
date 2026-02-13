@@ -974,10 +974,7 @@ impl Widget for Tree {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let nodes = self.visible_nodes();
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if let Some(node) = nodes.get(index) {
@@ -1000,9 +997,8 @@ impl Widget for Tree {
                     ctx.set_handled();
                 }
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Event::MouseUp(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                if mouse.target.is_some_and(|t| t == self.node_id()) =>
             {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 let nodes = self.visible_nodes();

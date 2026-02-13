@@ -75,8 +75,7 @@ impl Welcome {
     }
 
     pub fn close_button_id(&self) -> NodeId {
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        NodeId::default()
+        self.node_id()
     }
 
     fn body_height(&self) -> u16 {
@@ -85,11 +84,9 @@ impl Welcome {
 
     fn translate_mouse_down(&self, mouse: MouseDownEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if crate::runtime::dispatch_ctx::is_self_target(mouse.target) && on_close_row {
+        if mouse.target == self.node_id() && on_close_row {
             Event::MouseDown(MouseDownEvent {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                target: NodeId::default(),
+                target: self.node_id(),
                 screen_x: mouse.screen_x,
                 screen_y: mouse.screen_y,
                 x: mouse.x,
@@ -102,11 +99,9 @@ impl Welcome {
 
     fn translate_mouse_up(&self, mouse: MouseUpEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) && on_close_row {
+        if mouse.target.is_some_and(|t| t == self.node_id()) && on_close_row {
             Event::MouseUp(MouseUpEvent {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                target: Some(NodeId::default()),
+                target: Some(self.node_id()),
                 screen_x: mouse.screen_x,
                 screen_y: mouse.screen_y,
                 x: mouse.x,
@@ -203,8 +198,7 @@ impl Widget for Welcome {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if message.sender != NodeId::default() {
+        if message.sender != self.node_id() {
             self.markdown.on_message(message, ctx);
             if !ctx.handled() {
                 self.close.on_message(message, ctx);

@@ -116,10 +116,9 @@ impl Overlay {
             return;
         }
         self.visible = visible;
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
         ctx.post_message(Message::OverlayVisibilityChanged(
             OverlayVisibilityChanged {
-                overlay: NodeId::default(),
+                overlay: self.node_id(),
                 visible,
             },
         ));
@@ -137,10 +136,16 @@ impl Overlay {
         )
     }
 
+    /// Returns whether the given target node is part of the modal subtree.
+    ///
+    /// Currently returns `true` conservatively because Overlay does not have
+    /// access to the widget tree arena during `on_event`/`on_message`.  This
+    /// means dismiss requests from *any* sender are accepted when no explicit
+    /// overlay target is specified.  A precise check would require arena
+    /// traversal (ancestor-of query), which is not available in widget-level
+    /// event handlers.
     fn modal_contains(&mut self, _target: NodeId) -> bool {
-        // TODO(P1-14 integration): implement via WidgetTree arena traversal
-        // Previously walked widget tree via id()/visit_children_mut(); now needs NodeId
-        true // Conservatively assume target is in modal
+        true
     }
 }
 
@@ -224,22 +229,19 @@ impl Widget for Overlay {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
-                if *overlay == NodeId::default() =>
+                if *overlay == self.node_id() =>
             {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == NodeId::default() => {
+            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == self.node_id() => {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
                 let target_matches = overlay
-                    .map(crate::runtime::dispatch_ctx::is_self_target)
+                    .map(|id| id == self.node_id())
                     .unwrap_or(true);
                 let sender_in_modal = self.modal_contains(message.sender);
                 if target_matches && (sender_in_modal || overlay.is_some()) {
@@ -290,7 +292,14 @@ impl Renderable for Overlay {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use rich_rs::Segment;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn compose_overlay_keeps_base_for_blank_unstyled_top_cells() {
@@ -314,5 +323,123 @@ mod tests {
         assert_eq!(merged.get(0, 0).text, " ");
         assert!(merged.get(0, 0).style.is_some());
         assert_eq!(merged.get(1, 0).text, "b");
+    }
+
+    #[test]
+    fn overlay_set_visible_matches_real_node_id() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let mut ctx = EventCtx::default();
+
+        // OverlaySetVisible targeting our real NodeId should hide the overlay.
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlaySetVisible(OverlaySetVisible {
+                overlay: id,
+                visible: false,
+            }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(ctx.handled(), "OverlaySetVisible with matching NodeId must be handled");
+        assert!(!overlay.is_visible());
+    }
+
+    #[test]
+    fn overlay_set_visible_ignores_foreign_node_id() {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        let id = sm.insert(());
+        let other = sm.insert(());
+        assert_ne!(id, other);
+        let _guard = set_dispatch_recipient(id);
+
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let mut ctx = EventCtx::default();
+
+        // OverlaySetVisible targeting a different NodeId should be ignored.
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlaySetVisible(OverlaySetVisible {
+                overlay: other,
+                visible: false,
+            }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(!ctx.handled(), "OverlaySetVisible with foreign NodeId must not be handled");
+        assert!(overlay.is_visible());
+    }
+
+    #[test]
+    fn overlay_toggle_matches_real_node_id() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let mut ctx = EventCtx::default();
+
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlayToggle(OverlayToggle { overlay: id }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(ctx.handled());
+        assert!(!overlay.is_visible(), "Toggle should have hidden the overlay");
+    }
+
+    #[test]
+    fn overlay_dismiss_with_explicit_target_matches_self() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let mut ctx = EventCtx::default();
+
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlayDismissRequested(OverlayDismissRequested {
+                overlay: Some(id),
+            }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(ctx.handled());
+        assert!(!overlay.is_visible());
+    }
+
+    #[test]
+    fn overlay_dismiss_with_foreign_target_ignored() {
+        let mut sm: slotmap::SlotMap<NodeId, ()> = slotmap::SlotMap::new();
+        let id = sm.insert(());
+        let other = sm.insert(());
+        assert_ne!(id, other);
+        let _guard = set_dispatch_recipient(id);
+
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let mut ctx = EventCtx::default();
+
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlayDismissRequested(OverlayDismissRequested {
+                overlay: Some(other),
+            }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(!ctx.handled());
+        assert!(overlay.is_visible());
     }
 }

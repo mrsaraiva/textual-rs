@@ -446,10 +446,7 @@ impl Widget for ListView {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
                     self.select_index(index, ctx);
@@ -461,9 +458,8 @@ impl Widget for ListView {
                     ctx.set_handled();
                 }
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Event::MouseUp(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                if mouse.target.is_some_and(|t| t == self.node_id()) =>
             {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.pressed_index == Some(index) && self.is_selectable(index) {

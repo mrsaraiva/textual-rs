@@ -284,14 +284,6 @@ impl Collapsible {
 }
 
 impl Widget for Collapsible {
-    /// Declare children for tree-based mounting.
-    ///
-    /// TODO(P1-15): Collapsible stores children via `with_child()`/`add_child()`
-    /// as owned `Box<dyn Widget>`. Because `compose()` is `&self`, we cannot move
-    /// them into `ChildDecl` entries. Once the runtime supports extracting
-    /// children from containers during mount (via `take_composed_children()`),
-    /// this will return proper declarations. Until then, render/event methods
-    /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
     }
@@ -383,10 +375,7 @@ impl Widget for Collapsible {
         }
 
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 // Click on the title bar area (y == 0) toggles
                 if mouse.y == 0 {
                     self.title_widget.set_pressed(true);
@@ -398,8 +387,7 @@ impl Widget for Collapsible {
                 if self.title_widget.is_pressed() {
                     self.title_widget.set_pressed(false);
                     ctx.request_repaint();
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target)
+                    if mouse.target.is_some_and(|t| t == self.node_id())
                         && mouse.y == 0
                     {
                         self.toggle_with_ctx(ctx);

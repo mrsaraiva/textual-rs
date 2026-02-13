@@ -7,8 +7,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -263,16 +261,14 @@ impl Widget for Header {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::MouseDown(mouse) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                if mouse.target != NodeId::default() {
+                if mouse.target != self.node_id() {
                     return;
                 }
                 self.pressed_icon = Some((mouse.x as usize) < self.icon_width);
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                if mouse.target != Some(NodeId::default()) {
+                if !mouse.target.is_some_and(|t| t == self.node_id()) {
                     self.pressed_icon = None;
                     return;
                 }
@@ -478,7 +474,7 @@ mod tests {
     #[test]
     fn header_body_click_toggles_tall_and_emits_message() {
         let mut header = Header::new();
-        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+        let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -518,7 +514,7 @@ mod tests {
     #[test]
     fn header_icon_click_does_not_emit_toggle_message() {
         let mut header = Header::new();
-        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+        let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -578,7 +574,7 @@ mod tests {
     #[test]
     fn header_cross_region_press_release_is_noop() {
         let mut header = Header::new();
-        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+        let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
         header.on_event(
             &Event::MouseDown(MouseDownEvent {

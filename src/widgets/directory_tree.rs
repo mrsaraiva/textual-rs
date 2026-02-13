@@ -158,8 +158,7 @@ impl DirectoryTree {
     }
 
     pub fn tree_id(&self) -> NodeId {
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        NodeId::default()
+        self.node_id()
     }
 
     pub fn selected_path(&self) -> Option<&Path> {
@@ -249,8 +248,7 @@ impl DirectoryTree {
             .insert(task_id, path_buf.clone());
         ctx.post_message(Message::AsyncTaskSpawn(AsyncTaskSpawn {
             task_id,
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            target: NodeId::default(),
+            target: self.node_id(),
             request: AsyncTaskRequest::ReadDirectory {
                 path: path_buf.display().to_string(),
                 show_hidden: self.show_hidden,
@@ -425,14 +423,10 @@ impl Widget for DirectoryTree {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.tree.on_event(
                     &Event::MouseDown(MouseDownEvent {
-                        // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        target: NodeId::default(),
+                        target: self.node_id(),
                         screen_x: mouse.screen_x,
                         screen_y: mouse.screen_y,
                         x: mouse.x,
@@ -451,21 +445,18 @@ impl Widget for DirectoryTree {
                 task_id,
                 target,
                 result,
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-            }) if crate::runtime::dispatch_ctx::is_self_target(*target) => {
+            }) if *target == self.node_id() => {
                 self.apply_directory_load_result(*task_id, result, ctx);
                 ctx.set_handled();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target })
-                if crate::runtime::dispatch_ctx::is_self_target(*target) =>
+                if *target == self.node_id() =>
             {
                 self.clear_inflight_task(*task_id);
                 ctx.set_handled();
             }
             Message::TreeNodeSelected(TreeNodeSelected { index, .. }) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                if message.sender != NodeId::default() {
+                if message.sender != self.node_id() {
                     return;
                 }
                 if let Some(entry) = self.visible_entries.get(*index) {
@@ -488,8 +479,7 @@ impl Widget for DirectoryTree {
             Message::TreeNodeToggled(TreeNodeToggled {
                 index, expanded, ..
             }) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                if message.sender != NodeId::default() {
+                if message.sender != self.node_id() {
                     return;
                 }
                 let label = self
@@ -821,7 +811,7 @@ mod tests {
                     target,
                     request: AsyncTaskRequest::ReadDirectory { .. },
                     ..
-                }) if crate::runtime::dispatch_ctx::is_self_target(*target) // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                }) if *target == NodeId::default()
             )
         }));
     }

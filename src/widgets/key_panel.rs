@@ -480,8 +480,7 @@ impl Widget for KeyPanel {
             return;
         }
         if let Event::MouseDown(mouse) = event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
+            if mouse.target == self.node_id() {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);
@@ -683,7 +682,7 @@ mod tests {
         let mut panel = KeyPanel::new().with_bindings(bindings);
         let _ = panel.render(&console, &options);
 
-        let id = NodeId::default(); // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+        let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
         panel.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {

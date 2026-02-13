@@ -216,10 +216,7 @@ impl Widget for Switch {
             return;
         }
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -228,7 +225,7 @@ impl Widget for Switch {
                 if self.pressed {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) {
+                    if mouse.target.is_some_and(|t| t == self.node_id()) {
                         self.value = !self.value;
                         self.on_toggled();
                         self.emit_changed(ctx);
@@ -421,7 +418,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         widget.on_event(
             &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                target: NodeId::default(),
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,

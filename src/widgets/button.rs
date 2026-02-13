@@ -440,9 +440,7 @@ impl Widget for Button {
             return;
         }
         match event {
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 // Enter active visual state immediately on targeted press even if
                 // hover-move events haven't run yet in this frame.
                 self.hovered = true;
@@ -459,7 +457,7 @@ impl Widget for Button {
                     self.pressed = PressedState::None;
                     ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
-                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) {
+                    if mouse.target.is_some_and(|t| t == self.node_id()) {
                         debug_message(&format!(
                             "[button] emit mouse_up sender={} label=\"{}\"",
                             0u64, self.label

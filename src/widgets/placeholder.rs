@@ -236,10 +236,7 @@ impl Widget for Placeholder {
             return;
         }
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.cycle_variant();
                 ctx.post_message(Message::PlaceholderVariantChanged(
                     PlaceholderVariantChanged {
@@ -451,7 +448,7 @@ mod tests {
             y: 0,
             screen_x: 0,
             screen_y: 0,
-            target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+            target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
         ph.on_event(&event, &mut ctx);
@@ -470,7 +467,7 @@ mod tests {
             y: 0,
             screen_x: 0,
             screen_y: 0,
-            target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+            target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
         ph.on_event(&event, &mut ctx);

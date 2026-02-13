@@ -10,8 +10,6 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
-use crate::node_id::NodeId;
-
 use crate::action::ParsedAction;
 
 use super::{
@@ -685,10 +683,7 @@ impl Widget for Input {
                 self.chrome.handle_app_focus(*active);
                 ctx.request_repaint();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 if self.text.is_empty() {
                     self.cursor = 0;
                 } else {
@@ -792,10 +787,9 @@ impl Widget for Input {
                         }
                     }
                     EditCommand::Paste => {
-                        // TODO(P1-14 integration): wire tree-based NodeId comparison
                         ctx.post_message(Message::TextEditClipboardPasteRequested(
                             TextEditClipboardPasteRequested {
-                                target: NodeId::default(),
+                                target: self.node_id(),
                             },
                         ));
                     }
@@ -939,8 +933,7 @@ impl Widget for Input {
         if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
             &message.message
         {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if *target != NodeId::default() {
+            if *target != self.node_id() {
                 return;
             }
             if self.insert_text_from_clipboard(text) {
@@ -1428,7 +1421,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(matches!(
             messages.first().map(|m| &m.message),
-            Some(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target })) if crate::runtime::dispatch_ctx::is_self_target(*target)
+            Some(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target })) if *target == NodeId::default()
         ));
 
         let mut ctx = EventCtx::default();
@@ -1830,5 +1823,91 @@ mod tests {
         let mut ctx = ReactiveCtx::new(id);
         input.set_placeholder(Some("Enter name".to_string()), &mut ctx);
         assert!(!ctx.has_changes());
+    }
+
+    // ── P1-14 dispatch-context regression tests ─────────────────────────
+
+    #[test]
+    fn mouse_click_with_dispatch_context_is_handled() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+        let mut input = Input::new();
+        input.set_text("hello");
+        input.set_focus(true);
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 2,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn mouse_click_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut input = Input::new();
+        input.set_text("hello");
+        input.set_focus(true);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: other_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 2,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn paste_message_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("abc");
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
+                    target: other_id,
+                    text: "XYZ".to_string(),
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+        assert_eq!(input.text(), "abc");
     }
 }

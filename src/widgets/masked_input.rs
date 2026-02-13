@@ -7,8 +7,6 @@ use crate::message::*;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
@@ -863,10 +861,7 @@ impl Widget for MaskedInput {
                 self.chrome.handle_app_focus(*active);
                 ctx.request_repaint();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let pos = self.cursor_from_x(mouse.x);
                 self.cursor = pos;
                 if self.template.at_separator(self.cursor) {
@@ -929,10 +924,9 @@ impl Widget for MaskedInput {
                         }
                     }
                     EditCommand::Paste => {
-                        // TODO(P1-14 integration): wire tree-based NodeId comparison
                         ctx.post_message(Message::TextEditClipboardPasteRequested(
                             TextEditClipboardPasteRequested {
-                                target: NodeId::default(),
+                                target: self.node_id(),
                             },
                         ));
                     }
@@ -1003,8 +997,7 @@ impl Widget for MaskedInput {
         if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
             &message.message
         {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if *target != NodeId::default() {
+            if *target != self.node_id() {
                 return;
             }
             if let Some(line) = first_clipboard_line(text) {
@@ -1473,5 +1466,93 @@ mod tests {
 
         let rendered = Widget::render(&input, &console, &options);
         assert_eq!(rendered.cell_len(), 1);
+    }
+
+    // ── P1-14 dispatch-context regression tests ─────────────────────────
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    #[test]
+    fn mouse_click_with_dispatch_context_is_handled() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn mouse_click_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: other_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn paste_message_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut input = MaskedInput::new("9999");
+        input.set_focus(true);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        input.on_message(
+            &crate::message::MessageEvent {
+                sender: NodeId::default(),
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
+                    target: other_id,
+                    text: "1234".to_string(),
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+        assert_eq!(input.text(), "");
     }
 }

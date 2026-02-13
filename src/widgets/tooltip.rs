@@ -83,8 +83,7 @@ impl Tooltip {
     }
 
     pub fn anchor_target_id(&self) -> NodeId {
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        NodeId::default()
+        self.node_id()
     }
 
     fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
@@ -94,8 +93,7 @@ impl Tooltip {
         self.visible = visible;
         ctx.post_message(Message::OverlayVisibilityChanged(
             OverlayVisibilityChanged {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                overlay: NodeId::default(),
+                overlay: self.node_id(),
                 visible,
             },
         ));
@@ -396,21 +394,16 @@ impl Widget for Tooltip {
                     ctx.set_handled();
                 }
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Event::MouseUp(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                if mouse.target.is_some_and(|t| t == self.node_id()) =>
             {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Event::MouseScroll(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                if mouse.target.is_some_and(|t| t == self.node_id()) =>
             {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
@@ -435,38 +428,35 @@ impl Widget for Tooltip {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
-                if *overlay == NodeId::default() =>
+                if *overlay == self.node_id() =>
             {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::OverlaySetAnchor(OverlaySetAnchor { overlay, x, y })
-                if *overlay == NodeId::default() =>
+                if *overlay == self.node_id() =>
             {
                 self.set_anchor(*x, *y);
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::OverlayClearAnchor(OverlayClearAnchor { overlay })
-                if *overlay == NodeId::default() =>
+                if *overlay == self.node_id() =>
             {
                 self.clear_anchor();
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == NodeId::default() => {
+            Message::OverlayToggle(OverlayToggle { overlay })
+                if *overlay == self.node_id() =>
+            {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
                 let target_matches = overlay
-                    .map(crate::runtime::dispatch_ctx::is_self_target)
+                    .map(|t| t == self.node_id())
                     .unwrap_or(true);
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);

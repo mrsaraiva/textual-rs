@@ -645,7 +645,6 @@ mod message_tests {
         focused: bool,
         hints: Vec<BindingHint>,
         help_markup: Option<String>,
-        child: Option<Box<HintNode>>,
     }
 
     impl HintNode {
@@ -654,13 +653,7 @@ mod message_tests {
                 focused,
                 hints,
                 help_markup: None,
-                child: None,
             }
-        }
-
-        fn with_child(mut self, child: HintNode) -> Self {
-            self.child = Some(Box::new(child));
-            self
         }
 
         fn with_help(mut self, help_markup: impl Into<String>) -> Self {
@@ -779,13 +772,6 @@ mod message_tests {
     }
 
     impl Receiver {
-        fn new(child: impl Widget + 'static) -> Self {
-            Self {
-                child: Box::new(child),
-                seen: 0,
-            }
-        }
-
         fn new_leaf() -> Self {
             Self {
                 child: Box::new(Label::new("")),
@@ -820,14 +806,13 @@ mod message_tests {
         let recv_id = tree.mount(root_id, Box::new(Receiver::new_leaf()));
         let button_id = tree.mount(recv_id, Box::new(Button::new("x")));
 
-        // Button checks target == NodeId::default() (P1-14 workaround).
-        // Tree dispatch routes the event to the correct node regardless.
-        let default_id = NodeId::default();
+        // Button checks target == self.node_id(). Tree dispatch sets dispatch
+        // context to button_id, so events must carry button_id as target.
         let down = dispatch_event_to_target_tree(
             &mut tree,
             button_id,
             &Event::MouseDown(MouseDownEvent {
-                target: default_id,
+                target: button_id,
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,
@@ -840,7 +825,7 @@ mod message_tests {
             &mut tree,
             button_id,
             &Event::MouseUp(MouseUpEvent {
-                target: Some(default_id),
+                target: Some(button_id),
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,
@@ -859,15 +844,15 @@ mod message_tests {
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let recv_id = tree.mount(root_id, Box::new(Receiver::new_leaf()));
         let scroll_id = tree.mount(recv_id, Box::new(ScrollView::new(Label::new(""))));
-        let _button_id = tree.mount(scroll_id, Box::new(Button::new("x")));
+        let button_id = tree.mount(scroll_id, Box::new(Button::new("x")));
 
-        // Button checks target == NodeId::default() (P1-14 workaround).
-        let default_id = NodeId::default();
+        // Button checks target == self.node_id(). Tree dispatch sets dispatch
+        // context to button_id, so events must carry button_id as target.
         let down = dispatch_event_to_target_tree(
             &mut tree,
-            _button_id,
+            button_id,
             &Event::MouseDown(MouseDownEvent {
-                target: default_id,
+                target: button_id,
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,
@@ -878,9 +863,9 @@ mod message_tests {
 
         let up = dispatch_event_to_target_tree(
             &mut tree,
-            _button_id,
+            button_id,
             &Event::MouseUp(MouseUpEvent {
-                target: Some(default_id),
+                target: Some(button_id),
                 screen_x: 0,
                 screen_y: 0,
                 x: 0,
@@ -893,17 +878,7 @@ mod message_tests {
     }
 
     struct ScrollReceiver {
-        child: Box<dyn Widget>,
         seen: usize,
-    }
-
-    impl ScrollReceiver {
-        fn new(child: impl Widget + 'static) -> Self {
-            Self {
-                child: Box::new(child),
-                seen: 0,
-            }
-        }
     }
 
     impl Widget for ScrollReceiver {
@@ -919,7 +894,7 @@ mod message_tests {
     #[test]
     fn mouse_scroll_bubbles_to_ancestor_handlers() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(ScrollReceiver::new(Label::new(""))));
+        let root_id = tree.set_root(Box::new(ScrollReceiver { seen: 0 }));
         let button_id = tree.mount(root_id, Box::new(Button::new("x")));
 
         // Button doesn't handle scroll, so it bubbles to ScrollReceiver.

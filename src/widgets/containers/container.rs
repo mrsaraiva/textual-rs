@@ -134,14 +134,6 @@ impl Widget for Container {
         }
     }
 
-    /// Declare children for tree-based mounting.
-    ///
-    /// TODO(P1-15): Container stores children via `with_child()`/`push()` as
-    /// owned `Box<dyn Widget>`. Because `compose()` is `&self`, we cannot move
-    /// them into `ChildDecl` entries. Once the runtime supports extracting
-    /// children from containers during mount (via `take_composed_children()`),
-    /// this will return proper declarations. Until then, render/event methods
-    /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
     }
@@ -522,5 +514,28 @@ impl Widget for Container {
 impl Renderable for Container {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::Label;
+
+    #[test]
+    fn compose_returns_empty() {
+        let c = Container::new().with_child(Label::new("a"));
+        assert!(c.compose().is_empty());
+    }
+
+    #[test]
+    fn take_composed_children_extracts_all() {
+        let mut c = Container::new()
+            .with_child(Label::new("a"))
+            .with_child(Label::new("b"));
+        let children = c.take_composed_children();
+        assert_eq!(children.len(), 2);
+        // After extraction, internal Vec is empty.
+        assert!(c.children().is_empty());
     }
 }

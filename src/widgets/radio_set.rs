@@ -4,7 +4,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
 
 use super::{
     Widget, WidgetStyles,
@@ -212,8 +211,7 @@ impl RadioSet {
         }
         self.cursor.set_selected(Some(index));
 
-        // TODO(P1-14 integration): wire tree-based NodeId comparison
-        let button_id = NodeId::default();
+        let button_id = self.node_id();
         ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
             index,
             button_id,
@@ -285,10 +283,7 @@ impl Widget for RadioSet {
             return;
         }
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 // Determine which button was clicked by y coordinate.
                 let index = mouse.y as usize;
                 if index < self.buttons.len() && !self.buttons[index].is_disabled() {
@@ -322,11 +317,10 @@ impl Widget for RadioSet {
         // (e.g. via its own event handler if it ever receives one).
         if let Message::RadioButtonChanged(RadioButtonChanged { value }) = &message.message {
             // Find which button sent this message.
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
             if let Some(index) = self
                 .buttons
                 .iter()
-                .position(|_b| message.sender == NodeId::default())
+                .position(|_b| message.sender == self.node_id())
             {
                 if *value {
                     // A button was turned on — enforce mutual exclusion.
@@ -340,8 +334,7 @@ impl Widget for RadioSet {
                     self.cursor.set_selected(Some(index));
                     self.cursor.set_highlighted(Some(index));
 
-                    // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    let button_id = NodeId::default();
+                    let button_id = self.node_id();
                     ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
                         index,
                         button_id,
@@ -571,7 +564,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         set.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: NodeId::default(), // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                target: NodeId::default(),
                 screen_x: 0,
                 screen_y: 1,
                 x: 0,
@@ -624,5 +617,66 @@ mod tests {
         let children = set.take_composed_children();
         assert_eq!(children.len(), 3);
         assert!(set.is_empty());
+    }
+
+    // ── P1-14 dispatch-context regression tests ─────────────────────────
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    #[test]
+    fn mouse_click_with_dispatch_context_is_handled() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+
+        let mut set = RadioSet::from_labels(&["A", "B"]);
+        set.set_focus(true);
+
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut ctx = EventCtx::default();
+        set.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        // First button (index 0) should be selected.
+        assert_eq!(set.pressed_index(), Some(0));
+    }
+
+    #[test]
+    fn mouse_click_with_wrong_target_is_ignored() {
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use slotmap::SlotMap;
+
+        let mut set = RadioSet::from_labels(&["A", "B"]);
+        set.set_focus(true);
+
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        let my_id = sm.insert(());
+        let other_id = sm.insert(());
+        let _guard = set_dispatch_recipient(my_id);
+
+        let mut ctx = EventCtx::default();
+        set.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: other_id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+        assert_eq!(set.pressed_index(), None);
     }
 }

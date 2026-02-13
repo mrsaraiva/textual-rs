@@ -196,10 +196,7 @@ impl Widget for Toast {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse)
-                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
-            {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.dismiss(ctx);
             }
             Event::Tick(_) => {
