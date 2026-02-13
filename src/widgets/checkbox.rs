@@ -6,7 +6,10 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
-use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+use crate::reactive::{
+    ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, RuntimeReactiveEntry,
+    enqueue_runtime_reactive_entry,
+};
 
 use crate::action::ParsedAction;
 
@@ -101,6 +104,16 @@ impl Checkbox {
         self.classes = classes;
         self.focused_classes = focused_classes;
     }
+
+    fn toggle_reactive(&mut self, ctx: &mut EventCtx) {
+        let node_id = self.node_id();
+        let mut reactive = ReactiveCtx::new(node_id);
+        self.set_checked(!self.checked, &mut reactive);
+        if reactive.has_changes() {
+            enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(node_id, reactive));
+            self.emit_changed(ctx);
+        }
+    }
 }
 
 impl ReactiveWidget for Checkbox {
@@ -176,15 +189,16 @@ impl Widget for Checkbox {
                 if self.disabled {
                     return false;
                 }
-                self.checked = !self.checked;
-                self.rebuild_classes_in_place();
-                self.emit_changed(ctx);
-                ctx.request_repaint();
+                self.toggle_reactive(ctx);
                 ctx.set_handled();
                 true
             }
             _ => false,
         }
+    }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -202,9 +216,7 @@ impl Widget for Checkbox {
                     self.pressed = false;
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
-                        self.checked = !self.checked;
-                        self.rebuild_classes_in_place();
-                        self.emit_changed(ctx);
+                        self.toggle_reactive(ctx);
                         ctx.set_handled();
                     }
                 }
@@ -216,18 +228,12 @@ impl Widget for Checkbox {
                 }
             }
             Event::Action(Action::Toggle) if self.focused => {
-                self.checked = !self.checked;
-                self.rebuild_classes_in_place();
-                self.emit_changed(ctx);
-                ctx.request_repaint();
+                self.toggle_reactive(ctx);
                 ctx.set_handled();
             }
             Event::Key(key) if self.focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.checked = !self.checked;
-                    self.rebuild_classes_in_place();
-                    self.emit_changed(ctx);
-                    ctx.request_repaint();
+                    self.toggle_reactive(ctx);
                     ctx.set_handled();
                 }
                 _ => {}

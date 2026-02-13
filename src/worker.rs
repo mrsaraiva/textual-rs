@@ -9,6 +9,9 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::thread;
+use std::time::Duration;
 
 use crate::node_id::NodeId;
 
@@ -120,6 +123,14 @@ struct WorkerEntry {
     name: Option<String>,
 }
 
+type WorkerJob = Box<dyn FnOnce(CancellationToken) -> Result<(), String> + Send + 'static>;
+
+#[derive(Debug)]
+struct WorkerCompletion {
+    id: WorkerId,
+    state: WorkerState,
+}
+
 // ── WorkerRegistry ────────────────────────────────────────────────────
 
 /// Tracks all active workers.
@@ -127,13 +138,20 @@ struct WorkerEntry {
 /// Owned by the runtime; **not** thread-safe (single event-loop access).
 pub struct WorkerRegistry {
     workers: Vec<WorkerEntry>,
+    completion_tx: Sender<WorkerCompletion>,
+    completion_rx: Receiver<WorkerCompletion>,
+    pending_changes: Vec<WorkerStateChanged>,
 }
 
 impl WorkerRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
+        let (completion_tx, completion_rx) = mpsc::channel();
         Self {
             workers: Vec::new(),
+            completion_tx,
+            completion_rx,
+            pending_changes: Vec::new(),
         }
     }
 
@@ -159,6 +177,10 @@ impl WorkerRegistry {
                 {
                     entry.cancel_token.cancel();
                     entry.state = WorkerState::Cancelled;
+                    self.pending_changes.push(WorkerStateChanged {
+                        worker_id: entry.id,
+                        state: WorkerState::Cancelled,
+                    });
                 }
             }
         }
@@ -197,6 +219,11 @@ impl WorkerRegistry {
                     Ok(()) => WorkerState::Success,
                     Err(msg) => WorkerState::Error(msg),
                 };
+                let state = entry.state.clone();
+                self.pending_changes.push(WorkerStateChanged {
+                    worker_id: id,
+                    state,
+                });
             }
         }
     }
@@ -207,6 +234,10 @@ impl WorkerRegistry {
             if !entry.state.is_finished() {
                 entry.cancel_token.cancel();
                 entry.state = WorkerState::Cancelled;
+                self.pending_changes.push(WorkerStateChanged {
+                    worker_id: id,
+                    state: WorkerState::Cancelled,
+                });
             }
         }
     }
@@ -217,13 +248,68 @@ impl WorkerRegistry {
             if entry.owner == owner && !entry.state.is_finished() {
                 entry.cancel_token.cancel();
                 entry.state = WorkerState::Cancelled;
+                self.pending_changes.push(WorkerStateChanged {
+                    worker_id: entry.id,
+                    state: WorkerState::Cancelled,
+                });
             }
         }
+    }
+
+    /// Spawn and track a background worker task.
+    ///
+    /// The worker state is moved to `Running` immediately, then to a terminal
+    /// state once the background job reports completion.
+    pub fn spawn(
+        &mut self,
+        owner: NodeId,
+        exclusive_key: Option<String>,
+        name: Option<String>,
+        job: WorkerJob,
+    ) -> WorkerId {
+        let (id, token) = self.register(owner, exclusive_key, name);
+        self.set_running(id);
+
+        let completion_tx = self.completion_tx.clone();
+        std::thread::spawn(move || {
+            if token.is_cancelled() {
+                let _ = completion_tx.send(WorkerCompletion {
+                    id,
+                    state: WorkerState::Cancelled,
+                });
+                return;
+            }
+
+            let result = job(token.clone());
+            let state = if token.is_cancelled() {
+                WorkerState::Cancelled
+            } else {
+                match result {
+                    Ok(()) => WorkerState::Success,
+                    Err(error) => WorkerState::Error(error),
+                }
+            };
+
+            let _ = completion_tx.send(WorkerCompletion { id, state });
+        });
+
+        id
+    }
+
+    /// Drain completion queue and return pending terminal state notifications.
+    pub fn drain_state_changes(&mut self) -> Vec<WorkerStateChanged> {
+        self.drain_completion_queue_nonblocking();
+        std::mem::take(&mut self.pending_changes)
     }
 
     /// Query the current state of a worker.
     pub fn state(&self, id: WorkerId) -> Option<&WorkerState> {
         self.find(id).map(|e| &e.state)
+    }
+
+    /// Return the owning widget node for a worker id, when present.
+    pub(crate) fn owner(&self, id: WorkerId) -> Option<NodeId> {
+        self.find(id).map(|e| e.owner)
     }
 
     /// Return IDs of all workers that are not in a terminal state.
@@ -249,6 +335,27 @@ impl WorkerRegistry {
     fn find_mut(&mut self, id: WorkerId) -> Option<&mut WorkerEntry> {
         self.workers.iter_mut().find(|e| e.id == id)
     }
+
+    fn drain_completion_queue_nonblocking(&mut self) {
+        loop {
+            match self.completion_rx.try_recv() {
+                Ok(completion) => self.apply_completion(completion),
+                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+            }
+        }
+    }
+
+    fn apply_completion(&mut self, completion: WorkerCompletion) {
+        if let Some(entry) = self.find_mut(completion.id) {
+            if !entry.state.is_finished() {
+                entry.state = completion.state.clone();
+                self.pending_changes.push(WorkerStateChanged {
+                    worker_id: completion.id,
+                    state: completion.state,
+                });
+            }
+        }
+    }
 }
 
 impl Default for WorkerRegistry {
@@ -262,9 +369,7 @@ impl Default for WorkerRegistry {
 /// Notification delivered when a worker transitions to a terminal state.
 ///
 /// The runtime produces one of these after a worker reaches `Success`,
-/// `Error`, or `Cancelled`.  In a future sprint this will be delivered
-/// to the owning widget as a message; for now it is returned from
-/// [`process_worker_requests`] for test observability.
+/// `Error`, or `Cancelled`, then converts it to a routed runtime message.
 #[derive(Clone, Debug)]
 pub struct WorkerStateChanged {
     pub worker_id: WorkerId,
@@ -275,28 +380,90 @@ pub struct WorkerStateChanged {
 
 /// Process a batch of [`WorkerRequest`]s against a [`WorkerRegistry`].
 ///
-/// For each request the helper registers the worker, transitions it to
-/// `Running`, and (as a placeholder until async spawning lands)
-/// immediately completes it with `Success`.
+/// For each request the helper spawns an async worker job that executes
+/// [`WorkerRequestPayload`]. This function is non-blocking: it never waits
+/// for new completions and only drains completions already available.
 ///
-/// Returns one [`WorkerStateChanged`] per completed worker so the
-/// caller can deliver notifications in a future sprint.
+/// Returns pending [`WorkerStateChanged`] notifications (including
+/// synchronous exclusive cancellations and any async completions available
+/// at call time).
 pub(crate) fn process_worker_requests(
     registry: &mut WorkerRegistry,
     requests: Vec<WorkerRequest>,
 ) -> Vec<WorkerStateChanged> {
-    let mut changes = Vec::new();
     for req in requests {
-        let (id, _token) = registry.register(req.owner, req.exclusive_key, req.name);
-        registry.set_running(id);
-        // DEFERRED(worker-async): actual async task spawning requires runtime executor
-        registry.complete(id, Ok(()));
-        changes.push(WorkerStateChanged {
-            worker_id: id,
-            state: WorkerState::Success,
-        });
+        registry.spawn(
+            req.owner,
+            req.exclusive_key,
+            req.name,
+            Box::new(move |token| req.payload.execute(token)),
+        );
     }
-    changes
+    registry.drain_state_changes()
+}
+
+/// Payload that defines meaningful, deterministic worker behavior.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkerRequestPayload {
+    /// Perform deterministic CPU work with optional delay and error.
+    ComputeDigest {
+        /// Input bytes mixed into a simple deterministic checksum.
+        input: String,
+        /// Number of digest rounds to execute (minimum 1 in execution).
+        rounds: u16,
+        /// Optional pause between rounds for cancellation/concurrency tests.
+        delay_per_round_ms: u64,
+        /// If set, return this terminal error after all rounds complete.
+        fail_with: Option<String>,
+    },
+}
+
+impl WorkerRequestPayload {
+    /// Execute the requested worker payload.
+    pub fn execute(self, token: CancellationToken) -> Result<(), String> {
+        match self {
+            Self::ComputeDigest {
+                input,
+                rounds,
+                delay_per_round_ms,
+                fail_with,
+            } => {
+                let rounds = rounds.max(1);
+                let mut digest = 0xcbf2_9ce4_8422_2325_u64;
+                for _ in 0..rounds {
+                    if token.is_cancelled() {
+                        return Ok(());
+                    }
+                    for byte in input.as_bytes() {
+                        digest ^= u64::from(*byte);
+                        digest = digest.wrapping_mul(0x100_0000_01b3);
+                    }
+                    if delay_per_round_ms > 0 {
+                        thread::sleep(Duration::from_millis(delay_per_round_ms));
+                    }
+                }
+                if token.is_cancelled() {
+                    return Ok(());
+                }
+                if let Some(error) = fail_with {
+                    return Err(error);
+                }
+                let _ = digest;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Default for WorkerRequestPayload {
+    fn default() -> Self {
+        Self::ComputeDigest {
+            input: "worker".to_string(),
+            rounds: 1,
+            delay_per_round_ms: 0,
+            fail_with: None,
+        }
+    }
 }
 
 // ── WorkerRequest (EventCtx integration) ──────────────────────────────
@@ -314,6 +481,8 @@ pub struct WorkerRequest {
     pub exclusive_key: Option<String>,
     /// Optional descriptive name for debugging.
     pub name: Option<String>,
+    /// Work definition executed by the spawned worker.
+    pub payload: WorkerRequestPayload,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -322,6 +491,46 @@ pub struct WorkerRequest {
 mod tests {
     use super::*;
     use crate::node_id::node_id_from_ffi;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    fn wait_for_changes(
+        reg: &mut WorkerRegistry,
+        mut expected: usize,
+        timeout: Duration,
+    ) -> Vec<WorkerStateChanged> {
+        let deadline = Instant::now() + timeout;
+        let mut out = Vec::new();
+        while expected > 0 && Instant::now() < deadline {
+            let mut batch = reg.drain_state_changes();
+            if !batch.is_empty() {
+                expected = expected.saturating_sub(batch.len());
+                out.append(&mut batch);
+            } else {
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+        out
+    }
+
+    fn wait_for_request_changes(
+        reg: &mut WorkerRegistry,
+        mut expected: usize,
+        timeout: Duration,
+    ) -> Vec<WorkerStateChanged> {
+        let deadline = Instant::now() + timeout;
+        let mut out = Vec::new();
+        while expected > 0 && Instant::now() < deadline {
+            let mut batch = process_worker_requests(reg, Vec::new());
+            if !batch.is_empty() {
+                expected = expected.saturating_sub(batch.len());
+                out.append(&mut batch);
+            } else {
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+        out
+    }
 
     // ── WorkerId ──────────────────────────────────────────────────────
 
@@ -414,6 +623,10 @@ mod tests {
         reg.set_running(id);
         reg.complete(id, Ok(()));
         assert_eq!(reg.state(id), Some(&WorkerState::Success));
+        let changes = reg.drain_state_changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id);
+        assert_eq!(changes[0].state, WorkerState::Success);
     }
 
     #[test]
@@ -424,6 +637,10 @@ mod tests {
         reg.set_running(id);
         reg.complete(id, Err("boom".into()));
         assert_eq!(reg.state(id), Some(&WorkerState::Error("boom".into())));
+        let changes = reg.drain_state_changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id);
+        assert_eq!(changes[0].state, WorkerState::Error("boom".into()));
     }
 
     #[test]
@@ -435,6 +652,10 @@ mod tests {
         reg.cancel(id);
         assert_eq!(reg.state(id), Some(&WorkerState::Cancelled));
         assert!(token.is_cancelled());
+        let changes = reg.drain_state_changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id);
+        assert_eq!(changes[0].state, WorkerState::Cancelled);
     }
 
     #[test]
@@ -464,6 +685,10 @@ mod tests {
         assert_eq!(reg.state(id1), Some(&WorkerState::Cancelled));
         assert!(token1.is_cancelled());
         assert_eq!(reg.state(id2), Some(&WorkerState::Pending));
+        let changes = reg.drain_state_changes();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id1);
+        assert_eq!(changes[0].state, WorkerState::Cancelled);
     }
 
     #[test]
@@ -519,6 +744,18 @@ mod tests {
         assert!(token1.is_cancelled());
         assert!(token2.is_cancelled());
         assert!(!token3.is_cancelled());
+        let changes = reg.drain_state_changes();
+        assert_eq!(changes.len(), 2);
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == id1 && c.state == WorkerState::Cancelled)
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == id2 && c.state == WorkerState::Cancelled)
+        );
     }
 
     // ── WorkerRegistry: active_workers ────────────────────────────────
@@ -579,10 +816,25 @@ mod tests {
             owner,
             exclusive_key: Some("load".into()),
             name: Some("data-loader".into()),
+            payload: WorkerRequestPayload::ComputeDigest {
+                input: "dataset".into(),
+                rounds: 2,
+                delay_per_round_ms: 0,
+                fail_with: None,
+            },
         };
         assert_eq!(req.owner, owner);
         assert_eq!(req.exclusive_key.as_deref(), Some("load"));
         assert_eq!(req.name.as_deref(), Some("data-loader"));
+        assert_eq!(
+            req.payload,
+            WorkerRequestPayload::ComputeDigest {
+                input: "dataset".into(),
+                rounds: 2,
+                delay_per_round_ms: 0,
+                fail_with: None,
+            }
+        );
     }
 
     // ── State transition edge cases ───────────────────────────────────
@@ -672,16 +924,26 @@ mod tests {
             owner,
             exclusive_key: None,
             name: Some("bg-task".into()),
+            payload: WorkerRequestPayload::ComputeDigest {
+                input: "ok".into(),
+                rounds: 4,
+                delay_per_round_ms: 0,
+                fail_with: None,
+            },
         }];
-        let changes = process_worker_requests(&mut reg, requests);
+        let mut changes = process_worker_requests(&mut reg, requests);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            1usize.saturating_sub(changes.len()),
+            Duration::from_millis(100),
+        ));
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].state, WorkerState::Success);
-        // Worker was immediately completed → in terminal state.
         assert_eq!(reg.state(changes[0].worker_id), Some(&WorkerState::Success));
     }
 
     #[test]
-    fn process_worker_requests_multiple() {
+    fn process_worker_requests_success_and_error_payloads() {
         let mut reg = WorkerRegistry::new();
         let owner = node_id_from_ffi(5);
         let requests = vec![
@@ -689,23 +951,51 @@ mod tests {
                 owner,
                 exclusive_key: None,
                 name: Some("a".into()),
+                payload: WorkerRequestPayload::ComputeDigest {
+                    input: "alpha".into(),
+                    rounds: 3,
+                    delay_per_round_ms: 0,
+                    fail_with: None,
+                },
             },
             WorkerRequest {
                 owner,
                 exclusive_key: None,
                 name: Some("b".into()),
+                payload: WorkerRequestPayload::ComputeDigest {
+                    input: "beta".into(),
+                    rounds: 3,
+                    delay_per_round_ms: 0,
+                    fail_with: Some("payload-fail".into()),
+                },
             },
             WorkerRequest {
                 owner,
                 exclusive_key: None,
                 name: None,
+                payload: WorkerRequestPayload::default(),
             },
         ];
-        let changes = process_worker_requests(&mut reg, requests);
+        let mut changes = process_worker_requests(&mut reg, requests);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            3usize.saturating_sub(changes.len()),
+            Duration::from_millis(150),
+        ));
+
         assert_eq!(changes.len(), 3);
-        for c in &changes {
-            assert_eq!(c.state, WorkerState::Success);
-        }
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|c| c.state == WorkerState::Success)
+                .count(),
+            2
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.state == WorkerState::Error("payload-fail".into()))
+        );
     }
 
     #[test]
@@ -722,16 +1012,27 @@ mod tests {
             owner,
             exclusive_key: Some("search".into()),
             name: Some("new".into()),
+            payload: WorkerRequestPayload::default(),
         }];
-        let changes = process_worker_requests(&mut reg, requests);
+        let mut changes = process_worker_requests(&mut reg, requests);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            2usize.saturating_sub(changes.len()),
+            Duration::from_millis(150),
+        ));
 
         // The previous worker should have been cancelled.
         assert_eq!(reg.state(prev_id), Some(&WorkerState::Cancelled));
         assert!(prev_token.is_cancelled());
 
-        // The new worker should be completed.
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].state, WorkerState::Success);
+        // One cancellation + one completion should be emitted.
+        assert_eq!(changes.len(), 2);
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == prev_id && c.state == WorkerState::Cancelled)
+        );
+        assert!(changes.iter().any(|c| c.state == WorkerState::Success));
     }
 
     #[test]
@@ -742,8 +1043,14 @@ mod tests {
             owner,
             exclusive_key: None,
             name: None,
+            payload: WorkerRequestPayload::default(),
         }];
-        let changes = process_worker_requests(&mut reg, requests);
+        let mut changes = process_worker_requests(&mut reg, requests);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            1usize.saturating_sub(changes.len()),
+            Duration::from_millis(100),
+        ));
         assert_eq!(changes.len(), 1);
         // Before cleanup: worker is in registry (Success state).
         assert!(reg.state(changes[0].worker_id).is_some());
@@ -767,11 +1074,210 @@ mod tests {
         assert_eq!(reqs.len(), 2);
 
         let mut reg = WorkerRegistry::new();
-        let changes = process_worker_requests(&mut reg, reqs);
+        let mut changes = process_worker_requests(&mut reg, reqs);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            2usize.saturating_sub(changes.len()),
+            Duration::from_millis(150),
+        ));
         assert_eq!(changes.len(), 2);
 
         // Second take should be empty.
         let reqs2 = ctx.take_worker_requests();
         assert!(reqs2.is_empty());
+    }
+
+    #[test]
+    fn process_worker_requests_cancelled_worker_reports_terminal_cancelled() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(21);
+        let requests = vec![WorkerRequest {
+            owner,
+            exclusive_key: None,
+            name: Some("slow".into()),
+            payload: WorkerRequestPayload::ComputeDigest {
+                input: "slow".into(),
+                rounds: 50,
+                delay_per_round_ms: 2,
+                fail_with: None,
+            },
+        }];
+        let _ = process_worker_requests(&mut reg, requests);
+        let worker_id = *reg
+            .active_workers()
+            .first()
+            .expect("expected spawned worker");
+
+        reg.cancel(worker_id);
+        let mut changes = process_worker_requests(&mut reg, Vec::new());
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            1usize.saturating_sub(changes.len()),
+            Duration::from_millis(150),
+        ));
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, worker_id);
+        assert_eq!(changes[0].state, WorkerState::Cancelled);
+        assert_eq!(reg.state(worker_id), Some(&WorkerState::Cancelled));
+    }
+
+    #[test]
+    fn registry_spawn_reports_success() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(31);
+        let id = reg.spawn(owner, None, Some("ok".into()), Box::new(|_token| Ok(())));
+        assert_eq!(reg.state(id), Some(&WorkerState::Running));
+
+        let changes = wait_for_changes(&mut reg, 1, Duration::from_millis(100));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id);
+        assert_eq!(changes[0].state, WorkerState::Success);
+        assert_eq!(reg.state(id), Some(&WorkerState::Success));
+    }
+
+    #[test]
+    fn registry_spawn_reports_error() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(32);
+        let id = reg.spawn(
+            owner,
+            None,
+            Some("fail".into()),
+            Box::new(|_token| Err("boom".into())),
+        );
+        let changes = wait_for_changes(&mut reg, 1, Duration::from_millis(100));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].worker_id, id);
+        assert_eq!(changes[0].state, WorkerState::Error("boom".into()));
+        assert_eq!(reg.state(id), Some(&WorkerState::Error("boom".into())));
+    }
+
+    #[test]
+    fn registry_cancel_wins_over_late_completion() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(33);
+        let id = reg.spawn(
+            owner,
+            None,
+            Some("slow".into()),
+            Box::new(|token| {
+                for _ in 0..20 {
+                    if token.is_cancelled() {
+                        return Ok(());
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            }),
+        );
+        reg.cancel(id);
+
+        let changes = wait_for_changes(&mut reg, 1, Duration::from_millis(120));
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == id && c.state == WorkerState::Cancelled)
+        );
+        assert_eq!(reg.state(id), Some(&WorkerState::Cancelled));
+    }
+
+    #[test]
+    fn registry_concurrent_workers_keep_terminal_states_deterministic() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(41);
+
+        let fast_ok = reg.spawn(owner, None, Some("fast-ok".into()), Box::new(|_t| Ok(())));
+        let fast_err = reg.spawn(
+            owner,
+            None,
+            Some("fast-err".into()),
+            Box::new(|_t| Err("e-fast".into())),
+        );
+        let slow_ok = reg.spawn(
+            owner,
+            None,
+            Some("slow-ok".into()),
+            Box::new(|token| {
+                for _ in 0..8 {
+                    if token.is_cancelled() {
+                        return Ok(());
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            }),
+        );
+
+        reg.cancel(slow_ok);
+
+        let changes = wait_for_changes(&mut reg, 3, Duration::from_millis(150));
+        assert_eq!(changes.len(), 3);
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == fast_ok && c.state == WorkerState::Success)
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == fast_err && c.state == WorkerState::Error("e-fast".into()))
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == slow_ok && c.state == WorkerState::Cancelled)
+        );
+
+        assert_eq!(reg.state(fast_ok), Some(&WorkerState::Success));
+        assert_eq!(
+            reg.state(fast_err),
+            Some(&WorkerState::Error("e-fast".into()))
+        );
+        assert_eq!(reg.state(slow_ok), Some(&WorkerState::Cancelled));
+    }
+
+    #[test]
+    fn registry_exclusive_replacement_cancels_previous_during_running_job() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(44);
+
+        let first = reg.spawn(
+            owner,
+            Some("search".into()),
+            Some("first".into()),
+            Box::new(|token| {
+                for _ in 0..25 {
+                    if token.is_cancelled() {
+                        return Ok(());
+                    }
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            }),
+        );
+
+        let second = reg.spawn(
+            owner,
+            Some("search".into()),
+            Some("second".into()),
+            Box::new(|_token| Ok(())),
+        );
+
+        let changes = wait_for_changes(&mut reg, 2, Duration::from_millis(200));
+        assert_eq!(changes.len(), 2);
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == first && c.state == WorkerState::Cancelled)
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == second && c.state == WorkerState::Success)
+        );
+
+        assert_eq!(reg.state(first), Some(&WorkerState::Cancelled));
+        assert_eq!(reg.state(second), Some(&WorkerState::Success));
     }
 }

@@ -1,5 +1,6 @@
 use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
+use crate::worker::{WorkerId, WorkerState};
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -510,6 +511,12 @@ pub struct TimerCancelled {
     pub target: NodeId,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkerStateChanged {
+    pub worker_id: WorkerId,
+    pub state: WorkerState,
+}
+
 // ---------------------------------------------------------------------------
 // User-defined message extensibility
 // ---------------------------------------------------------------------------
@@ -640,6 +647,7 @@ pub enum Message {
     TimerCancel(TimerCancel),
     TimerFired(TimerFired),
     TimerCancelled(TimerCancelled),
+    WorkerStateChanged(WorkerStateChanged),
     // User-defined messages
     Custom(Box<dyn UserMessage>),
 }
@@ -723,6 +731,7 @@ impl_message_from!(
     TimerCancel,
     TimerFired,
     TimerCancelled,
+    WorkerStateChanged,
 );
 
 // ---------------------------------------------------------------------------

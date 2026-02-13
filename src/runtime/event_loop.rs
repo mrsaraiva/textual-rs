@@ -31,6 +31,7 @@ use super::routing::{
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
+use crate::reactive::RuntimeReactiveEntry;
 use crate::widgets::Widget;
 
 // ── Worker request accumulator ──────────────────────────────────────
@@ -95,6 +96,28 @@ fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
             control: Some(sender),
         }
     }
+}
+
+fn worker_state_runtime_messages(
+    registry: &WorkerRegistry,
+    changes: Vec<crate::worker::WorkerStateChanged>,
+) -> Vec<MessageEvent> {
+    changes
+        .into_iter()
+        .map(|change| {
+            let sender = registry
+                .owner(change.worker_id)
+                .unwrap_or_else(App::runtime_message_sender);
+            MessageEvent {
+                sender,
+                message: Message::WorkerStateChanged(crate::message::WorkerStateChanged {
+                    worker_id: change.worker_id,
+                    state: change.state,
+                }),
+                control: Some(sender),
+            }
+        })
+        .collect()
 }
 
 fn collect_clipboard_runtime_messages(
@@ -1616,9 +1639,19 @@ impl App {
             // ── Process accumulated worker requests for this tick ────
             {
                 let pending_workers = drain_accumulated_worker_requests();
-                if !pending_workers.is_empty() {
-                    let _changes = process_worker_requests(&mut worker_registry, pending_workers);
-                    // DEFERRED(worker-delivery): deliver WorkerStateChanged messages to owning widgets
+                let changes = process_worker_requests(&mut worker_registry, pending_workers);
+                if !changes.is_empty() {
+                    let worker_messages = worker_state_runtime_messages(&worker_registry, changes);
+                    let mut worker_outcome =
+                        self.dispatch_message_queue_with_runtime(root, worker_messages);
+                    self.absorb_outcome(
+                        &mut worker_outcome,
+                        &mut pending_invalidation,
+                        InvalidationScope::Global,
+                    );
+                    if worker_outcome.stop_requested {
+                        break 'event_loop;
+                    }
                 }
                 worker_registry.cleanup();
             }
@@ -1880,17 +1913,71 @@ impl App {
     /// Iterates over tree nodes that have a `ReactiveCtx` with pending changes,
     /// calls `run_reactive_phase()` for each, and feeds repaint/layout results
     /// into `pending_invalidation`.
-    ///
-    /// Currently a no-op: widgets do not yet carry `ReactiveCtx` (that arrives
-    /// in P3-10..P3-13 widget migration). This method is the integration point
-    /// that the runtime calls every tick; once widgets are migrated, it will
-    /// collect their contexts and drive the reactive loop.
     fn run_event_loop_reactive_phase(
         &mut self,
         _root: &mut dyn Widget,
-        _pending: &mut PendingInvalidation,
+        pending: &mut PendingInvalidation,
     ) {
-        // DEFERRED(P3-10): iterate tree to collect ReactiveCtx and run reactive phase per widget
+        let queued = crate::reactive::take_runtime_reactive_entries();
+        if queued.is_empty() {
+            return;
+        }
+
+        let mut by_node: std::collections::HashMap<NodeId, Vec<RuntimeReactiveEntry>> =
+            std::collections::HashMap::new();
+        for entry in queued {
+            by_node.entry(entry.node_id()).or_default().push(entry);
+        }
+
+        if let Some(tree) = self.widget_tree.as_ref() {
+            if let Some(root_id) = tree.root() {
+                for node_id in tree.walk_depth_first(root_id) {
+                    if let Some(entries) = by_node.remove(&node_id) {
+                        self.process_reactive_entries_for_node(node_id, entries, pending);
+                    }
+                }
+            }
+        }
+
+        let mut remaining: Vec<(NodeId, Vec<RuntimeReactiveEntry>)> = by_node.into_iter().collect();
+        remaining.sort_by_key(|(node_id, _)| node_id_to_ffi(*node_id));
+        for (node_id, entries) in remaining {
+            self.process_reactive_entries_for_node(node_id, entries, pending);
+        }
+    }
+
+    fn process_reactive_entries_for_node(
+        &mut self,
+        node_id: NodeId,
+        entries: Vec<RuntimeReactiveEntry>,
+        pending: &mut PendingInvalidation,
+    ) {
+        let mut repaint_requested = false;
+        let mut layout_requested = false;
+        for mut entry in entries {
+            let result = if let Some(tree) = self.widget_tree.as_mut() {
+                if let Some(node) = tree.get_mut(node_id) {
+                    entry.run_with_dispatch(|changes, ctx| {
+                        if let Some(reactive_widget) = node.widget.reactive_widget() {
+                            reactive_widget.reactive_dispatch(changes, ctx);
+                        }
+                    })
+                } else {
+                    entry.run_without_dispatch()
+                }
+            } else {
+                entry.run_without_dispatch()
+            };
+            repaint_requested |= result.needs_repaint;
+            layout_requested |= result.needs_layout;
+        }
+
+        if layout_requested {
+            pending.request_flags(crate::event::InvalidationFlags::layout());
+        }
+        if repaint_requested {
+            pending.request_widget_rect(&self.hit_test, node_id);
+        }
     }
 
     // ===================================================================
@@ -2162,12 +2249,20 @@ mod tests {
         should_dispatch_binding_hints, should_dispatch_focused_help,
     };
     use crate::css::StyleSheet;
-    use crate::event::BindingHint;
+    use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
     use crate::message::{Message, MessageEvent};
     use crate::node_id::{NodeId, node_id_from_ffi};
-    use crate::widgets::Widget;
+    use crate::reactive::{
+        ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, enqueue_runtime_reactive_entry,
+        take_runtime_reactive_entries,
+    };
+    use crate::widgets::{AppRoot, Widget};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[derive(Default)]
     struct StubClipboardBackend {
@@ -2516,7 +2611,7 @@ mod tests {
 
     #[test]
     fn worker_accumulator_collects_from_outcome() {
-        use crate::worker::WorkerRequest;
+        use crate::worker::{WorkerRequest, WorkerRequestPayload};
         // Clear any leftovers.
         let _ = super::drain_accumulated_worker_requests();
 
@@ -2526,11 +2621,13 @@ mod tests {
                     owner: node_id_from_ffi(1),
                     exclusive_key: None,
                     name: Some("w1".into()),
+                    payload: WorkerRequestPayload::default(),
                 },
                 WorkerRequest {
                     owner: node_id_from_ffi(2),
                     exclusive_key: Some("exc".into()),
                     name: None,
+                    payload: WorkerRequestPayload::default(),
                 },
             ],
             ..Default::default()
@@ -2553,7 +2650,7 @@ mod tests {
 
     #[test]
     fn worker_accumulator_multiple_outcomes() {
-        use crate::worker::WorkerRequest;
+        use crate::worker::{WorkerRequest, WorkerRequestPayload};
         let _ = super::drain_accumulated_worker_requests();
 
         let mut o1 = super::DispatchOutcome {
@@ -2561,6 +2658,7 @@ mod tests {
                 owner: node_id_from_ffi(1),
                 exclusive_key: None,
                 name: Some("a".into()),
+                payload: WorkerRequestPayload::default(),
             }],
             ..Default::default()
         };
@@ -2569,6 +2667,7 @@ mod tests {
                 owner: node_id_from_ffi(2),
                 exclusive_key: None,
                 name: Some("b".into()),
+                payload: WorkerRequestPayload::default(),
             }],
             ..Default::default()
         };
@@ -2624,7 +2723,16 @@ mod tests {
         assert_eq!(pending.len(), 2);
 
         let mut registry = WorkerRegistry::new();
-        let changes = process_worker_requests(&mut registry, pending);
+        let mut changes = process_worker_requests(&mut registry, pending);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(150);
+        while changes.len() < 2 && std::time::Instant::now() < deadline {
+            let mut batch = process_worker_requests(&mut registry, Vec::new());
+            if batch.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+            changes.append(&mut batch);
+        }
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].state, WorkerState::Success);
         assert_eq!(changes[1].state, WorkerState::Success);
@@ -2632,5 +2740,377 @@ mod tests {
         // 6. Cleanup removes finished workers.
         registry.cleanup();
         assert!(registry.active_workers().is_empty());
+    }
+
+    #[test]
+    fn worker_request_processing_in_runtime_hot_path_is_non_blocking() {
+        use crate::worker::{WorkerRegistry, WorkerRequest, WorkerRequestPayload, WorkerState};
+
+        let owner = node_id_from_ffi(90);
+        let mut registry = WorkerRegistry::new();
+        let delayed_request = WorkerRequest {
+            owner,
+            exclusive_key: None,
+            name: Some("delayed".into()),
+            payload: WorkerRequestPayload::ComputeDigest {
+                input: "payload".into(),
+                rounds: 1,
+                delay_per_round_ms: 80,
+                fail_with: None,
+            },
+        };
+
+        let start = std::time::Instant::now();
+        let first = crate::worker::process_worker_requests(&mut registry, vec![delayed_request]);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(40),
+            "worker processing should not block waiting for completion; elapsed={elapsed:?}"
+        );
+        assert!(
+            first.is_empty(),
+            "delayed worker completion should not be synchronously delivered"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+        let mut completed = Vec::new();
+        while completed.is_empty() && std::time::Instant::now() < deadline {
+            completed = crate::worker::process_worker_requests(&mut registry, Vec::new());
+            if completed.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].state, WorkerState::Success);
+    }
+
+    struct WorkerDeliveryProbe {
+        success_hits: Arc<AtomicUsize>,
+        error_hits: Arc<AtomicUsize>,
+    }
+
+    impl Widget for WorkerDeliveryProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if let Message::WorkerStateChanged(crate::message::WorkerStateChanged {
+                state, ..
+            }) = &message.message
+            {
+                match state {
+                    crate::worker::WorkerState::Success => {
+                        self.success_hits.fetch_add(1, Ordering::Relaxed);
+                        ctx.set_handled();
+                    }
+                    crate::worker::WorkerState::Error(_) => {
+                        self.error_hits.fetch_add(1, Ordering::Relaxed);
+                        ctx.set_handled();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn worker_state_changes_route_to_owning_widgets_via_message_pipeline() {
+        use crate::worker::{
+            WorkerRegistry, WorkerRequest, WorkerRequestPayload, WorkerState,
+            process_worker_requests,
+        };
+
+        let success_hits = Arc::new(AtomicUsize::new(0));
+        let error_hits = Arc::new(AtomicUsize::new(0));
+        let bystander_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let owner_success = tree.mount(
+            root_id,
+            Box::new(WorkerDeliveryProbe {
+                success_hits: Arc::clone(&success_hits),
+                error_hits: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+        let owner_error = tree.mount(
+            root_id,
+            Box::new(WorkerDeliveryProbe {
+                success_hits: Arc::new(AtomicUsize::new(0)),
+                error_hits: Arc::clone(&error_hits),
+            }),
+        );
+        let _bystander = tree.mount(
+            root_id,
+            Box::new(WorkerDeliveryProbe {
+                success_hits: Arc::clone(&bystander_hits),
+                error_hits: Arc::clone(&bystander_hits),
+            }),
+        );
+
+        let mut registry = WorkerRegistry::new();
+        let (errored_worker, _) = registry.register(owner_error, None, Some("errored".into()));
+        registry.set_running(errored_worker);
+        registry.complete(errored_worker, Err("boom".into()));
+
+        let requests = vec![WorkerRequest {
+            owner: owner_success,
+            exclusive_key: None,
+            name: Some("ok".into()),
+            payload: WorkerRequestPayload::default(),
+        }];
+        let mut changes = process_worker_requests(&mut registry, requests);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(150);
+        while changes.len() < 2 && std::time::Instant::now() < deadline {
+            let mut batch = process_worker_requests(&mut registry, Vec::new());
+            if batch.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+            changes.append(&mut batch);
+        }
+        assert_eq!(changes.len(), 2);
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.worker_id == errored_worker
+                    && c.state == WorkerState::Error("boom".into()))
+        );
+        assert!(changes.iter().any(|c| c.state == WorkerState::Success));
+
+        let messages = super::worker_state_runtime_messages(&registry, changes);
+        assert_eq!(messages.len(), 2);
+        assert!(
+            messages
+                .iter()
+                .all(|event| event.control == Some(event.sender))
+        );
+        assert!(messages.iter().any(|event| event.sender == owner_success
+            && matches!(
+                event.message,
+                Message::WorkerStateChanged(crate::message::WorkerStateChanged {
+                    state: WorkerState::Success,
+                    ..
+                })
+            )));
+        assert!(messages.iter().any(|event| event.sender == owner_error
+            && matches!(
+                event.message,
+                Message::WorkerStateChanged(crate::message::WorkerStateChanged {
+                    state: WorkerState::Error(ref err),
+                    ..
+                }) if err == "boom"
+            )));
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+        let routed = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
+        assert!(routed.handled);
+        assert_eq!(success_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(error_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(bystander_hits.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn worker_state_runtime_messages_fallback_to_runtime_sender_when_owner_missing() {
+        let registry = crate::worker::WorkerRegistry::new();
+        let orphan_change = crate::worker::WorkerStateChanged {
+            worker_id: crate::worker::WorkerId::new(),
+            state: crate::worker::WorkerState::Cancelled,
+        };
+
+        let messages = super::worker_state_runtime_messages(&registry, vec![orphan_change]);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sender, crate::node_id::node_id_from_ffi(0));
+        assert_eq!(
+            messages[0].control,
+            Some(crate::node_id::node_id_from_ffi(0))
+        );
+        assert!(matches!(
+            messages[0].message,
+            Message::WorkerStateChanged(crate::message::WorkerStateChanged {
+                state: crate::worker::WorkerState::Cancelled,
+                ..
+            })
+        ));
+    }
+
+    struct ReactivePhaseProbeWidget {
+        value: i32,
+        watch_calls: Arc<AtomicUsize>,
+        init_calls: Arc<AtomicUsize>,
+        emit_init: bool,
+        init_enabled: bool,
+    }
+
+    impl ReactivePhaseProbeWidget {
+        fn new(
+            watch_calls: Arc<AtomicUsize>,
+            init_calls: Arc<AtomicUsize>,
+            emit_init: bool,
+            init_enabled: bool,
+        ) -> Self {
+            Self {
+                value: 0,
+                watch_calls,
+                init_calls,
+                emit_init,
+                init_enabled,
+            }
+        }
+
+        fn set_value(&mut self, value: i32) {
+            if self.value == value {
+                return;
+            }
+
+            let old = self.value;
+            self.value = value;
+            let node_id = self.node_id();
+            let mut rctx = ReactiveCtx::new(node_id);
+            rctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+            enqueue_runtime_reactive_entry(crate::reactive::RuntimeReactiveEntry::new(
+                node_id, rctx,
+            ));
+        }
+
+        fn enqueue_init_watcher(&mut self) {
+            if !self.emit_init || !self.init_enabled {
+                return;
+            }
+            let node_id = self.node_id();
+            let mut rctx = ReactiveCtx::new(node_id);
+            rctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(self.value),
+                Box::new(self.value),
+            );
+            enqueue_runtime_reactive_entry(crate::reactive::RuntimeReactiveEntry::new(
+                node_id, rctx,
+            ));
+        }
+    }
+
+    impl ReactiveWidget for ReactivePhaseProbeWidget {
+        fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
+            for change in changes {
+                self.watch_calls.fetch_add(1, Ordering::SeqCst);
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<i32>(),
+                    change.new_value.downcast_ref::<i32>(),
+                ) {
+                    if old == new {
+                        self.init_calls.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+    }
+
+    impl Widget for ReactivePhaseProbeWidget {
+        fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            match event {
+                Event::Action(Action::Toggle) => self.set_value(1),
+                Event::Mount(_mount) => self.enqueue_init_watcher(),
+                _ => {}
+            }
+        }
+    }
+
+    fn test_app_with_tree(tree: crate::widget_tree::WidgetTree) -> crate::runtime::App {
+        let mut app = super::App::new().expect("app should initialize for runtime tests");
+        app.widget_tree = Some(tree);
+        app
+    }
+
+    #[test]
+    fn reactive_phase_in_event_loop_runs_setter_watcher_and_repaint_invalidation() {
+        let _ = take_runtime_reactive_entries();
+        let watch_calls = Arc::new(AtomicUsize::new(0));
+        let init_calls = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let target = tree.set_root(Box::new(ReactivePhaseProbeWidget::new(
+            Arc::clone(&watch_calls),
+            Arc::clone(&init_calls),
+            false,
+            false,
+        )));
+        let _ =
+            super::dispatch_event_to_target_tree(&mut tree, target, &Event::Action(Action::Toggle));
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(watch_calls.load(Ordering::SeqCst), 1);
+        assert!(pending.flags.content);
+        assert!(pending.is_dirty());
+    }
+
+    #[test]
+    fn reactive_phase_mount_init_watcher_respects_init_flag() {
+        let _ = take_runtime_reactive_entries();
+        let init_true_calls = Arc::new(AtomicUsize::new(0));
+        let init_false_calls = Arc::new(AtomicUsize::new(0));
+        let watch_calls = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root = tree.set_root(Box::new(StyleNode::new("Root")));
+        let init_true = tree.mount(
+            root,
+            Box::new(ReactivePhaseProbeWidget::new(
+                Arc::clone(&watch_calls),
+                Arc::clone(&init_true_calls),
+                true,
+                true,
+            )),
+        );
+        let init_false = tree.mount(
+            root,
+            Box::new(ReactivePhaseProbeWidget::new(
+                Arc::clone(&watch_calls),
+                Arc::clone(&init_false_calls),
+                true,
+                false,
+            )),
+        );
+
+        let _ = super::dispatch_event_to_target_tree(
+            &mut tree,
+            init_true,
+            &Event::Mount(MountEvent { node: init_true }),
+        );
+        let _ = super::dispatch_event_to_target_tree(
+            &mut tree,
+            init_false,
+            &Event::Mount(MountEvent { node: init_false }),
+        );
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+        app.run_event_loop_reactive_phase(&mut runtime_root, &mut pending);
+
+        assert_eq!(init_true_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(init_false_calls.load(Ordering::SeqCst), 0);
+        assert!(pending.flags.content);
     }
 }

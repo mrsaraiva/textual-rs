@@ -32,6 +32,7 @@
 
 use crate::node_id::NodeId;
 use std::any::Any;
+use std::cell::RefCell;
 
 /// Flags controlling what happens when a reactive field changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +294,20 @@ pub fn run_reactive_phase(
     widget: &mut dyn ReactiveWidget,
     ctx: &mut ReactiveCtx,
 ) -> ReactivePhaseResult {
+    run_reactive_phase_with_dispatch(ctx, |changes, dispatch_ctx| {
+        widget.reactive_dispatch(changes, dispatch_ctx);
+    })
+}
+
+/// Run the reactive phase with a custom dispatch function.
+///
+/// This powers runtime integration where watcher dispatch is represented as
+/// a queued callback, and also backs [`run_reactive_phase`] for
+/// trait-object based widgets.
+pub fn run_reactive_phase_with_dispatch(
+    ctx: &mut ReactiveCtx,
+    mut dispatch: impl FnMut(&[ReactiveChange], &mut ReactiveCtx),
+) -> ReactivePhaseResult {
     let mut result = ReactivePhaseResult::default();
 
     for iteration in 0..MAX_REACTIVE_ITERATIONS {
@@ -312,7 +327,7 @@ pub fn run_reactive_phase(
 
         let changes = ctx.take_changes();
         ctx.clear_flags();
-        widget.reactive_dispatch(&changes, ctx);
+        dispatch(&changes, ctx);
     }
 
     // Check for cycle: if we hit max iterations and there are still changes.
@@ -338,6 +353,51 @@ pub fn run_reactive_phase(
     }
 
     result
+}
+
+/// Queued reactive work unit drained by the runtime event loop.
+///
+/// Widgets enqueue entries during event/lifecycle handlers after recording
+/// reactive changes in `ctx`; the runtime drains and processes them during the
+/// deterministic reactive phase.
+pub struct RuntimeReactiveEntry {
+    node_id: NodeId,
+    ctx: ReactiveCtx,
+}
+
+impl RuntimeReactiveEntry {
+    pub fn new(node_id: NodeId, ctx: ReactiveCtx) -> Self {
+        Self { node_id, ctx }
+    }
+
+    pub fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    pub fn run_with_dispatch(
+        &mut self,
+        dispatch: impl FnMut(&[ReactiveChange], &mut ReactiveCtx),
+    ) -> ReactivePhaseResult {
+        run_reactive_phase_with_dispatch(&mut self.ctx, dispatch)
+    }
+
+    pub fn run_without_dispatch(&mut self) -> ReactivePhaseResult {
+        run_reactive_phase_with_dispatch(&mut self.ctx, |_changes, _ctx| {})
+    }
+}
+
+thread_local! {
+    static RUNTIME_REACTIVE_QUEUE: RefCell<Vec<RuntimeReactiveEntry>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Enqueue a reactive work item to be processed in the runtime reactive phase.
+pub fn enqueue_runtime_reactive_entry(entry: RuntimeReactiveEntry) {
+    RUNTIME_REACTIVE_QUEUE.with(|queue| queue.borrow_mut().push(entry));
+}
+
+/// Drain all queued runtime reactive work items.
+pub fn take_runtime_reactive_entries() -> Vec<RuntimeReactiveEntry> {
+    RUNTIME_REACTIVE_QUEUE.with(|queue| std::mem::take(&mut *queue.borrow_mut()))
 }
 
 #[cfg(test)]

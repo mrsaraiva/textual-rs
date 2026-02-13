@@ -4,7 +4,7 @@ use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::style::{Color, Scalar, Spacing, Tint};
-use crate::worker::WorkerRequest;
+use crate::worker::{WorkerRequest, WorkerRequestPayload};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -730,6 +730,7 @@ impl EventCtx {
             owner: self.node_id,
             exclusive_key: None,
             name: name.map(|s| s.to_string()),
+            payload: WorkerRequestPayload::default(),
         });
     }
 
@@ -742,6 +743,7 @@ impl EventCtx {
             owner: self.node_id,
             exclusive_key: Some(key.to_string()),
             name: name.map(|s| s.to_string()),
+            payload: WorkerRequestPayload::default(),
         });
     }
 
