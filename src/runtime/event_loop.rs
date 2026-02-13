@@ -1855,6 +1855,47 @@ impl App {
     // path is used instead.
     // ===================================================================
 
+    /// Move focus forward/backward in the tree focus chain.
+    ///
+    /// Returns `true` when focus changed.
+    fn move_focus_auto(&mut self, _root: &mut dyn Widget, action: Action) -> bool {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return false;
+        };
+        let focus_chain = collect_focus_chain_tree(tree);
+        if focus_chain.is_empty() {
+            return false;
+        }
+
+        let current = focused_node_id_tree(tree);
+        let current_index =
+            current.and_then(|id| focus_chain.iter().position(|candidate| *candidate == id));
+        let next_index = match (action, current_index) {
+            (Action::FocusNext, Some(idx)) => (idx + 1) % focus_chain.len(),
+            (Action::FocusPrev, Some(0)) => focus_chain.len() - 1,
+            (Action::FocusPrev, Some(idx)) => idx - 1,
+            (Action::FocusNext, None) => 0,
+            (Action::FocusPrev, None) => focus_chain.len() - 1,
+            _ => return false,
+        };
+
+        let next = focus_chain[next_index];
+        if current == Some(next) {
+            return false;
+        }
+
+        if let Some(current) = current {
+            if let Some(node) = tree.get_mut(current) {
+                node.widget.set_focus(false);
+            }
+        }
+        if let Some(node) = tree.get_mut(next) {
+            node.widget.set_focus(true);
+            return true;
+        }
+        false
+    }
+
     /// Dispatch an event via the arena tree (if available) or the legacy path.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
