@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
 use crate::node_id::NodeId;
@@ -237,7 +237,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.set_open(false, ctx);
         if changed {
             let label = self.options[index].0.clone();
-            ctx.post_message(Message::SelectChanged { index, label });
+            ctx.post_message(Message::SelectChanged(SelectChanged { index, label }));
         }
     }
 
@@ -526,7 +526,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         // Handle OptionSelected from inner list.
         // TODO(P1-14 integration): wire tree-based NodeId comparison
         if message.sender == NodeId::default() {
-            if let Message::OptionSelected { index } = &message.message {
+            if let Message::OptionSelected(OptionSelected { index }) = &message.message {
                 self.apply_selection(*index, ctx);
                 ctx.set_handled();
                 return;
@@ -795,10 +795,10 @@ mod tests {
 
         let option_selected_pos = delivered
             .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
         let select_changed_pos = delivered
             .iter()
-            .position(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }));
+            .position(|m| matches!(m.message, Message::SelectChanged(SelectChanged { index: 1, label: _ })));
         assert!(
             option_selected_pos.is_some()
                 && select_changed_pos.is_some()
@@ -838,10 +838,10 @@ mod tests {
         assert!(click_ctx.handled());
         let option_selected_pos = delivered
             .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
         let select_changed_pos = delivered
             .iter()
-            .position(|m| matches!(m.message, Message::SelectChanged { index: 1, label: _ }));
+            .position(|m| matches!(m.message, Message::SelectChanged(SelectChanged { index: 1, label: _ })));
         assert!(
             option_selected_pos.is_some()
                 && select_changed_pos.is_some()

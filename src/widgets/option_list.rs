@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
@@ -212,13 +212,13 @@ impl OptionList {
 
     fn emit_highlighted(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(Message::OptionHighlighted { index });
+            ctx.post_message(Message::OptionHighlighted(OptionHighlighted { index }));
         }
     }
 
     fn emit_selected(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(Message::OptionSelected { index });
+            ctx.post_message(Message::OptionSelected(OptionSelected { index }));
         }
     }
 
@@ -664,7 +664,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::OptionSelected { index: 0 }))
+                .any(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 0 })))
         );
     }
 
@@ -691,10 +691,10 @@ mod tests {
         let messages = ctx.take_messages();
         let highlighted_pos = messages
             .iter()
-            .position(|m| matches!(m.message, Message::OptionHighlighted { index: 1 }));
+            .position(|m| matches!(m.message, Message::OptionHighlighted(OptionHighlighted { index: 1 })));
         let selected_pos = messages
             .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected { index: 1 }));
+            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
         assert!(
             highlighted_pos.is_some() && selected_pos.is_some() && highlighted_pos < selected_pos
         );

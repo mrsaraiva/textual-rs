@@ -45,7 +45,7 @@ impl Widget for SpyWidget {
     }
 
     fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
-        if matches!(message.message, Message::OverlayDismissRequested { .. }) {
+        if matches!(message.message, Message::OverlayDismissRequested(..)) {
             self.dismiss_messages.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -97,10 +97,10 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
     tooltip.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlaySetVisible {
+            message: Message::OverlaySetVisible(OverlaySetVisible {
                 overlay: NodeId::default(),
                 visible: false,
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -200,11 +200,11 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
     tooltip.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlaySetAnchor {
+            message: Message::OverlaySetAnchor(OverlaySetAnchor {
                 overlay: NodeId::default(),
                 x: 22,
                 y: 1,
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -220,9 +220,9 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
     tooltip.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlayClearAnchor {
+            message: Message::OverlayClearAnchor(OverlayClearAnchor {
                 overlay: NodeId::default(),
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -249,9 +249,9 @@ fn tooltip_forwards_non_matching_overlay_dismiss_to_child() {
     tooltip.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlayDismissRequested {
+            message: Message::OverlayDismissRequested(OverlayDismissRequested {
                 overlay: Some(node_id_from_ffi(999)),
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -299,10 +299,10 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
     tooltip.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlaySetVisible {
+            message: Message::OverlaySetVisible(OverlaySetVisible {
                 overlay: NodeId::default(),
                 visible: true,
-            },
+            }),
         },
         &mut EventCtx::default(),
     );

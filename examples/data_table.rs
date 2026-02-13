@@ -53,13 +53,13 @@ impl TextualApp for DataTableApp {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         let text = match &message.message {
-            Message::DataTableCursorMoved { row, column } => {
+            Message::DataTableCursorMoved(DataTableCursorMoved { row, column }) => {
                 format!("cursor=({row},{column})")
             }
-            Message::DataTableHeaderSelected { column } => {
+            Message::DataTableHeaderSelected(DataTableHeaderSelected { column }) => {
                 format!("header=({column})")
             }
-            Message::DataTableCellActivated { row, column } => {
+            Message::DataTableCellActivated(DataTableCellActivated { row, column }) => {
                 format!("activated=({row},{column})")
             }
             _ => return,

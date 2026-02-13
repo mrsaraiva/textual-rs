@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{BindingHint, Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::render::FrameBuffer;
 
 use crate::node_id::NodeId;
@@ -202,25 +202,25 @@ impl Widget for HelpPanel {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::HelpPanelSetHelp { panel, markup } if *panel == NodeId::default() => {
+            Message::HelpPanelSetHelp(HelpPanelSetHelp { panel, markup }) if *panel == NodeId::default() => {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::HelpPanelClearHelp { panel } if *panel == NodeId::default() => {
+            Message::HelpPanelClearHelp(HelpPanelClearHelp { panel }) if *panel == NodeId::default() => {
                 self.clear_help();
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            Message::HelpPanelFocusedHelpChanged { markup, .. } => {
+            Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged { markup, .. }) => {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 return;
             }
-            Message::HelpPanelFocusedHelpCleared => {
+            Message::HelpPanelFocusedHelpCleared(_) => {
                 self.clear_help();
                 ctx.request_repaint();
                 return;

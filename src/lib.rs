@@ -51,7 +51,7 @@ pub mod prelude {
         MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
     };
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
-    pub use crate::message::{Message, MessageEvent};
+    pub use crate::message::*;
     pub use crate::runtime::App;
     pub use crate::style::{Color, Style, Theme};
     pub use crate::textual_app::{

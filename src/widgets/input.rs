@@ -5,7 +5,7 @@ use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -379,10 +379,10 @@ impl Input {
     }
 
     fn post_changed(&mut self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::InputChanged {
+        ctx.post_message(Message::InputChanged(InputChanged {
             value: self.text.clone(),
             validation: self.validation_result.clone(),
-        });
+        }));
     }
 
     fn delete_selection_if_any(&mut self) -> bool {
@@ -586,9 +586,9 @@ impl Widget for Input {
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
         match action.name.as_str() {
             "submit" => {
-                ctx.post_message(Message::InputSubmitted {
+                ctx.post_message(Message::InputSubmitted(InputSubmitted {
                     value: self.text.clone(),
-                });
+                }));
                 ctx.set_handled();
                 true
             }
@@ -625,9 +625,9 @@ impl Widget for Input {
                 let _ = tick;
                 if self.pending_blur {
                     self.pending_blur = false;
-                    ctx.post_message(Message::InputBlurred {
+                    ctx.post_message(Message::InputBlurred(InputBlurred {
                         value: self.text.clone(),
-                    });
+                    }));
                 }
                 if self.chrome.handle_tick(Instant::now()) {
                     ctx.request_repaint();
@@ -685,24 +685,24 @@ impl Widget for Input {
                         }
                     }
                     EditCommand::Submit => {
-                        ctx.post_message(Message::InputSubmitted {
+                        ctx.post_message(Message::InputSubmitted(InputSubmitted {
                             value: self.text.clone(),
-                        });
+                        }));
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: false,
-                            });
+                            }));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: true,
-                            });
+                            }));
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
@@ -711,9 +711,9 @@ impl Widget for Input {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
                             target: NodeId::default(),
-                        });
+                        }));
                     }
                     EditCommand::Backspace { unit } => {
                         if self.delete_selection_if_any() {
@@ -855,7 +855,7 @@ impl Widget for Input {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -1177,7 +1177,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::InputChanged { ref value, .. } if value == "a"
+            Message::InputChanged(InputChanged { ref value, .. }) if value == "a"
         ));
     }
 
@@ -1198,7 +1198,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::InputSubmitted { ref value } if value == "done"
+            Message::InputSubmitted(InputSubmitted { ref value }) if value == "done"
         ));
     }
 
@@ -1301,7 +1301,7 @@ mod tests {
         let copy_messages = ctx.take_messages();
         assert!(matches!(
             copy_messages.first().map(|m| &m.message),
-            Some(Message::TextEditClipboardCopyRequested { text, cut }) if text == "hello" && !cut
+            Some(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { text, cut })) if text == "hello" && !cut
         ));
 
         let mut ctx = EventCtx::default();
@@ -1316,7 +1316,7 @@ mod tests {
         assert!(cut_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardCopyRequested { ref text, cut: true } if text == "hello"
+                Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { ref text, cut: true }) if text == "hello"
             )
         }));
         assert_eq!(input.text(), " world");
@@ -1341,17 +1341,17 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(matches!(
             messages.first().map(|m| &m.message),
-            Some(Message::TextEditClipboardPasteRequested { target }) if *target == NodeId::default()
+            Some(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target })) if *target == NodeId::default()
         ));
 
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste {
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "XYZ".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -1371,10 +1371,10 @@ mod tests {
         input.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste {
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "XYZ\r\n123".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -1406,7 +1406,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| matches!(
             &m.message,
-            Message::InputSubmitted { value } if value == "hello"
+            Message::InputSubmitted(InputSubmitted { value }) if value == "hello"
         )));
     }
 
@@ -1683,7 +1683,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::InputChanged { ref value, .. } if value == "Portugal"
+            Message::InputChanged(InputChanged { ref value, .. }) if value == "Portugal"
         ));
     }
 }

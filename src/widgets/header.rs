@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -210,12 +210,12 @@ impl Widget for Header {
                 if released_on_icon {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
-                    ctx.post_message(Message::HeaderIconPressed);
+                    ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
                     ctx.set_handled();
                     return;
                 }
                 self.tall = !self.tall;
-                ctx.post_message(Message::HeaderToggled { tall: self.tall });
+                ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -238,10 +238,10 @@ impl Widget for Header {
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ScreenTitleChanged {
+        if let Message::ScreenTitleChanged(ScreenTitleChanged {
             ref title,
             ref sub_title,
-        } = message.message
+        }) = message.message
         {
             self.set_title(title.as_deref());
             self.set_subtitle(sub_title.as_deref());
@@ -418,7 +418,7 @@ mod tests {
         assert_eq!(messages[0].sender, id);
         assert!(matches!(
             messages[0].message,
-            Message::HeaderToggled { tall: true }
+            Message::HeaderToggled(HeaderToggled { tall: true })
         ));
     }
 
@@ -454,7 +454,7 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(messages[0].message, Message::HeaderIconPressed));
+        assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
     }
 
     #[test]
@@ -563,10 +563,10 @@ mod tests {
         let mut header = Header::new().title("App").subtitle("Sub");
         let msg = MessageEvent {
             sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged {
+            message: Message::ScreenTitleChanged(ScreenTitleChanged {
                 title: Some("Screen Title".to_string()),
                 sub_title: Some("Screen Sub".to_string()),
-            },
+            }),
         };
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
@@ -586,10 +586,10 @@ mod tests {
         // First, override with screen title.
         let msg = MessageEvent {
             sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged {
+            message: Message::ScreenTitleChanged(ScreenTitleChanged {
                 title: Some("Screen".to_string()),
                 sub_title: None,
-            },
+            }),
         };
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
@@ -599,10 +599,10 @@ mod tests {
         // Then, revert screen title.
         let msg2 = MessageEvent {
             sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged {
+            message: Message::ScreenTitleChanged(ScreenTitleChanged {
                 title: None,
                 sub_title: None,
-            },
+            }),
         };
         let mut ctx2 = EventCtx::default();
         header.on_message(&msg2, &mut ctx2);

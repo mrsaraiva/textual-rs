@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use crate::event::{Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -614,10 +614,10 @@ impl MaskedInput {
     }
 
     fn post_changed(&mut self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::InputChanged {
+        ctx.post_message(Message::InputChanged(InputChanged {
             value: self.value_str(),
             validation: self.validation_result.clone(),
-        });
+        }));
     }
 
     fn copy_text(&self) -> Option<String> {
@@ -907,24 +907,24 @@ impl Widget for MaskedInput {
                         }
                     }
                     EditCommand::Submit => {
-                        ctx.post_message(Message::InputSubmitted {
+                        ctx.post_message(Message::InputSubmitted(InputSubmitted {
                             value: self.value_str(),
-                        });
+                        }));
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: false,
-                            });
+                            }));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: true,
-                            });
+                            }));
                             self.clear();
                             changed = true;
                             value_changed = true;
@@ -932,9 +932,9 @@ impl Widget for MaskedInput {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
                             target: NodeId::default(),
-                        });
+                        }));
                     }
                     EditCommand::Backspace { unit } => {
                         match unit {
@@ -1000,7 +1000,7 @@ impl Widget for MaskedInput {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -1347,7 +1347,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| matches!(
             m.message,
-            Message::InputChanged { ref value, .. } if value.starts_with('1')
+            Message::InputChanged(InputChanged { ref value, .. }) if value.starts_with('1')
         )));
     }
 
@@ -1389,7 +1389,7 @@ mod tests {
         assert!(copy_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardCopyRequested { ref text, cut: false } if text == "1234"
+                Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { ref text, cut: false }) if text == "1234"
             )
         }));
 
@@ -1405,7 +1405,7 @@ mod tests {
         assert!(cut_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardCopyRequested { ref text, cut: true } if text == "1234"
+                Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { ref text, cut: true }) if text == "1234"
             )
         }));
         assert_eq!(input.text(), "");
@@ -1414,10 +1414,10 @@ mod tests {
         input.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste {
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "9876".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -1434,10 +1434,10 @@ mod tests {
         input.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste {
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "9876\n1234".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );

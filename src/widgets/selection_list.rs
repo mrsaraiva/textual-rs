@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -160,8 +160,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         }
         self.selected_set[index] = !self.selected_set[index];
         let selected = self.selected_set[index];
-        ctx.post_message(Message::SelectionListToggled { index, selected });
-        ctx.post_message(Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListToggled(SelectionListToggled { index, selected }));
+        ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
         ctx.request_repaint();
     }
 
@@ -174,7 +174,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = true;
-        ctx.post_message(Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
         ctx.request_repaint();
     }
 
@@ -187,7 +187,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = false;
-        ctx.post_message(Message::SelectionListSelectedChanged);
+        ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
         ctx.request_repaint();
     }
 
@@ -204,7 +204,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
             ctx.request_repaint();
         }
     }
@@ -222,7 +222,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
             ctx.request_repaint();
         }
     }
@@ -240,7 +240,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged);
+            ctx.post_message(Message::SelectionListSelectedChanged(SelectionListSelectedChanged));
             ctx.request_repaint();
         }
     }
@@ -616,13 +616,13 @@ mod tests {
         let toggled_pos = messages.iter().position(|m| {
             matches!(
                 m.message,
-                crate::message::Message::SelectionListToggled { .. }
+                crate::message::Message::SelectionListToggled(..)
             )
         });
         let changed_pos = messages.iter().position(|m| {
             matches!(
                 m.message,
-                crate::message::Message::SelectionListSelectedChanged
+                crate::message::Message::SelectionListSelectedChanged(_)
             )
         });
         assert!(toggled_pos.is_some() && changed_pos.is_some() && toggled_pos < changed_pos);

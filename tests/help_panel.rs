@@ -140,10 +140,10 @@ fn help_panel_help_can_be_driven_via_messages() {
     panel.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::HelpPanelSetHelp {
+            message: Message::HelpPanelSetHelp(HelpPanelSetHelp {
                 panel: NodeId::default(),
                 markup: "## Runtime help".to_string(),
-            },
+            }),
         },
         &mut ctx,
     );
@@ -156,7 +156,7 @@ fn help_panel_help_can_be_driven_via_messages() {
     panel.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::HelpPanelClearHelp { panel: NodeId::default() },
+            message: Message::HelpPanelClearHelp(HelpPanelClearHelp { panel: NodeId::default() }),
         },
         &mut clear_ctx,
     );
@@ -171,10 +171,10 @@ fn help_panel_handles_focused_help_pipeline_messages() {
     panel.on_message(
         &MessageEvent {
             sender: node_id_from_ffi(100),
-            message: Message::HelpPanelFocusedHelpChanged {
+            message: Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
                 source: node_id_from_ffi(100),
                 markup: "## Focused widget help".to_string(),
-            },
+            }),
         },
         &mut set_ctx,
     );
@@ -185,7 +185,7 @@ fn help_panel_handles_focused_help_pipeline_messages() {
     panel.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::HelpPanelFocusedHelpCleared,
+            message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
         },
         &mut clear_ctx,
     );

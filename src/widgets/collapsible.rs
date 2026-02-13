@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::css;
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -84,9 +84,9 @@ impl Collapsible {
 
     fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
         self.collapsed = !self.collapsed;
-        ctx.post_message(Message::CollapsibleToggled {
+        ctx.post_message(Message::CollapsibleToggled(CollapsibleToggled {
             collapsed: self.collapsed,
-        });
+        }));
         ctx.request_repaint();
         ctx.set_handled();
     }

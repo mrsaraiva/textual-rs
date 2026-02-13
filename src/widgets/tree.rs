@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -330,10 +330,10 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(Message::TreeNodeSelected {
+            ctx.post_message(Message::TreeNodeSelected(TreeNodeSelected {
                     index: self.selected,
                     label: node.label.clone(),
-                },
+                }),
             );
         }
     }
@@ -343,42 +343,42 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(Message::TreeNodeActivated {
+            ctx.post_message(Message::TreeNodeActivated(TreeNodeActivated {
                     index,
                     label: node.label.clone(),
-                },
+                }),
             );
         }
     }
 
     fn emit_highlighted(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
-            ctx.post_message(Message::TreeNodeHighlighted {
+            ctx.post_message(Message::TreeNodeHighlighted(TreeNodeHighlighted {
                     index: self.selected,
                     label: node.label.clone(),
-                },
+                }),
             );
         }
     }
 
     fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
-        ctx.post_message(Message::TreeNodeToggled {
+        ctx.post_message(Message::TreeNodeToggled(TreeNodeToggled {
                 index,
                 label: label.clone(),
                 expanded,
-            },
+            }),
         );
         if expanded {
-            ctx.post_message(Message::TreeNodeExpanded {
+            ctx.post_message(Message::TreeNodeExpanded(TreeNodeExpanded {
                     index,
                     label,
-                },
+                }),
             );
         } else {
-            ctx.post_message(Message::TreeNodeCollapsed {
+            ctx.post_message(Message::TreeNodeCollapsed(TreeNodeCollapsed {
                     index,
                     label,
-                },
+                }),
             );
         }
     }
@@ -1160,7 +1160,7 @@ mod tests {
     use super::{Tree, TreeNode, VisibleNode};
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
-    use crate::message::Message;
+    use crate::message::*;
     use crate::node_id::NodeId;
     use crate::widgets::Widget;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1229,10 +1229,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TreeNodeActivated {
+            Message::TreeNodeActivated(TreeNodeActivated {
                 index: 0,
                 ref label
-            } if label == "Root"
+            }) if label == "Root"
         ));
 
         // Enter should not expand/collapse.
@@ -1267,15 +1267,15 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert!(matches!(
             messages[0].message,
-            Message::TreeNodeToggled {
+            Message::TreeNodeToggled(TreeNodeToggled {
                 index: 0,
                 expanded: false,
                 ..
-            }
+            })
         ));
         assert!(matches!(
             messages[1].message,
-            Message::TreeNodeCollapsed { index: 0, .. }
+            Message::TreeNodeCollapsed(TreeNodeCollapsed { index: 0, .. })
         ));
     }
 
@@ -1315,10 +1315,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TreeNodeActivated {
+            Message::TreeNodeActivated(TreeNodeActivated {
                 index: 1,
                 ref label
-            } if label == "Second"
+            }) if label == "Second"
         ));
     }
 

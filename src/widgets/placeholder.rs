@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 use crate::style::Color;
 
 use crate::node_id::NodeId;
@@ -196,9 +196,9 @@ impl Widget for Placeholder {
             Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.cycle_variant();
                 ctx.post_message(
-                    Message::PlaceholderVariantChanged {
+                    Message::PlaceholderVariantChanged(PlaceholderVariantChanged {
                         variant: self.variant.message_name().to_string(),
-                    },
+                    }),
                 );
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -293,7 +293,6 @@ impl Renderable for Placeholder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::Message;
     use crate::node_id::NodeId;
 
     #[test]
@@ -417,7 +416,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::PlaceholderVariantChanged { ref variant } if variant == "size"
+            Message::PlaceholderVariantChanged(PlaceholderVariantChanged { ref variant }) if variant == "size"
         ));
     }
 

@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::debug_message;
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
@@ -219,9 +219,9 @@ impl Footer {
         }
         self.bindings = next;
         ctx.post_message(
-            Message::FooterBindingsUpdated {
+            Message::FooterBindingsUpdated(FooterBindingsUpdated {
                 count: self.bindings.len(),
-            },
+            }),
         );
         ctx.request_repaint();
     }
@@ -466,7 +466,7 @@ impl Renderable for Footer {
 mod tests {
     use super::Footer;
     use crate::event::{BindingHint, Event, EventCtx, MouseDownEvent};
-    use crate::message::Message;
+    use crate::message::*;
     use crate::node_id::NodeId;
     use crate::widgets::Widget;
 
@@ -482,7 +482,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::FooterBindingsUpdated { count: 1 }))
+                .any(|m| matches!(m.message, Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })))
         );
     }
 
@@ -545,7 +545,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::FooterBindingsUpdated { count: 2 }
+            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 2 })
         ));
         assert!(focus_ctx.repaint_requested());
     }
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::FooterBindingsUpdated { count: 1 }
+            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
         ));
     }
 
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::FooterBindingsUpdated { count: 1 }
+            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
         ));
     }
 

@@ -73,11 +73,11 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeToggled {
+            message: Message::TreeNodeToggled(TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            },
+            }),
         },
         &mut message_ctx,
     );
@@ -96,7 +96,7 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
     tree.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted {
+            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -107,7 +107,7 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
                         is_dir: false,
                     }],
                 },
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -132,11 +132,11 @@ fn directory_tree_refresh_preserves_expanded_paths() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeToggled {
+            message: Message::TreeNodeToggled(TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            },
+            }),
         },
         &mut message_ctx,
     );
@@ -166,11 +166,11 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeToggled {
+            message: Message::TreeNodeToggled(TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            },
+            }),
         },
         &mut expand_ctx,
     );
@@ -180,11 +180,11 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeToggled {
+            message: Message::TreeNodeToggled(TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: false,
-            },
+            }),
         },
         &mut collapse_ctx,
     );
@@ -193,7 +193,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
     tree.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted {
+            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -204,7 +204,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                         is_dir: false,
                     }],
                 },
-            },
+            }),
         },
         &mut EventCtx::default(),
     );
@@ -229,10 +229,10 @@ fn directory_tree_handles_forwarded_selection_messages() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeSelected {
+            message: Message::TreeNodeSelected(TreeNodeSelected {
                 index: 1,
                 label: "alpha.txt".to_string(),
-            },
+            }),
         },
         &mut message_ctx,
     );
@@ -252,10 +252,10 @@ fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeSelected {
+            message: Message::TreeNodeSelected(TreeNodeSelected {
                 index: 1,
                 label: "nested".to_string(),
-            },
+            }),
         },
         &mut message_ctx,
     );
@@ -312,11 +312,11 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
     tree.on_message(
         &MessageEvent {
             sender: tree.tree_id(),
-            message: Message::TreeNodeToggled {
+            message: Message::TreeNodeToggled(TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            },
+            }),
         },
         &mut expand_ctx,
     );
@@ -326,7 +326,7 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
     tree.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted {
+            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -337,7 +337,7 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
                         is_dir: false,
                     }],
                 },
-            },
+            }),
         },
         &mut EventCtx::default(),
     );

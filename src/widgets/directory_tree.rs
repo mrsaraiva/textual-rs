@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent};
-use crate::message::{
-    AsyncDirectoryEntry, AsyncTaskRequest, AsyncTaskResult, Message, MessageEvent,
-};
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -246,7 +244,7 @@ impl DirectoryTree {
         self.inflight_loads_by_task
             .insert(task_id, path_buf.clone());
         ctx.post_message(
-            Message::AsyncTaskSpawn {
+            Message::AsyncTaskSpawn(AsyncTaskSpawn {
                 task_id,
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 target: NodeId::default(),
@@ -254,7 +252,7 @@ impl DirectoryTree {
                     path: path_buf.display().to_string(),
                     show_hidden: self.show_hidden,
                 },
-            },
+            }),
         );
     }
 
@@ -271,7 +269,7 @@ impl DirectoryTree {
             if let Some(pending_path) = self.inflight_loads_by_task.remove(&task_id) {
                 self.inflight_loads_by_path.remove(&pending_path);
             }
-            ctx.post_message(Message::AsyncTaskCancel { task_id });
+            ctx.post_message(Message::AsyncTaskCancel(AsyncTaskCancel { task_id }));
         }
     }
 
@@ -445,21 +443,21 @@ impl Widget for DirectoryTree {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
-            Message::AsyncTaskCompleted {
+            Message::AsyncTaskCompleted(AsyncTaskCompleted {
                 task_id,
                 target,
                 result,
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            } if *target == NodeId::default() => {
+            }) if *target == NodeId::default() => {
                 self.apply_directory_load_result(*task_id, result, ctx);
                 ctx.set_handled();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::AsyncTaskCancelled { task_id, target } if *target == NodeId::default() => {
+            Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target }) if *target == NodeId::default() => {
                 self.clear_inflight_task(*task_id);
                 ctx.set_handled();
             }
-            Message::TreeNodeSelected { index, .. } => {
+            Message::TreeNodeSelected(TreeNodeSelected { index, .. }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 if message.sender != NodeId::default() {
                     return;
@@ -467,23 +465,23 @@ impl Widget for DirectoryTree {
                 if let Some(entry) = self.visible_entries.get(*index) {
                     let path = entry.path.display().to_string();
                     let forwarded = if entry.path.is_dir() {
-                        Message::DirectoryTreeDirectorySelected {
+                        Message::DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected {
                             index: *index,
                             path,
-                        }
+                        })
                     } else {
-                        Message::DirectoryTreeFileSelected {
+                        Message::DirectoryTreeFileSelected(DirectoryTreeFileSelected {
                             index: *index,
                             path,
-                        }
+                        })
                     };
                     ctx.post_message(forwarded);
                     ctx.set_handled();
                 }
             }
-            Message::TreeNodeToggled {
+            Message::TreeNodeToggled(TreeNodeToggled {
                 index, expanded, ..
-            } => {
+            }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 if message.sender != NodeId::default() {
                     return;
@@ -495,11 +493,11 @@ impl Widget for DirectoryTree {
                     .unwrap_or_default();
                 self.update_node_expanded_state(*index, *expanded, ctx);
                 ctx.post_message(
-                    Message::TreeNodeToggled {
+                    Message::TreeNodeToggled(TreeNodeToggled {
                         index: *index,
                         label,
                         expanded: *expanded,
-                    },
+                    }),
                 );
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -737,10 +735,10 @@ mod tests {
         tree.on_message(
             &MessageEvent {
                 sender: tree.tree_id(),
-                message: Message::TreeNodeSelected {
+                message: Message::TreeNodeSelected(TreeNodeSelected {
                     index: 1,
                     label: "alpha.txt".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -750,7 +748,7 @@ mod tests {
         assert!(emitted.iter().any(|event| {
             matches!(
                 &event.message,
-                Message::DirectoryTreeFileSelected { index, path }
+                Message::DirectoryTreeFileSelected(DirectoryTreeFileSelected { index, path })
                     if *index == 1 && path.ends_with("alpha.txt")
             )
         }));
@@ -768,10 +766,10 @@ mod tests {
         tree.on_message(
             &MessageEvent {
                 sender: tree.tree_id(),
-                message: Message::TreeNodeSelected {
+                message: Message::TreeNodeSelected(TreeNodeSelected {
                     index: 1,
                     label: "nested".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -781,7 +779,7 @@ mod tests {
         assert!(emitted.iter().any(|event| {
             matches!(
                 &event.message,
-                Message::DirectoryTreeDirectorySelected { index, path }
+                Message::DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected { index, path })
                     if *index == 1 && path.ends_with("nested")
             )
         }));
@@ -799,11 +797,11 @@ mod tests {
         tree.on_message(
             &MessageEvent {
                 sender: tree.tree_id(),
-                message: Message::TreeNodeToggled {
+                message: Message::TreeNodeToggled(TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
-                },
+                }),
             },
             &mut ctx,
         );
@@ -812,11 +810,11 @@ mod tests {
         assert!(emitted.iter().any(|event| {
             matches!(
                 &event.message,
-                Message::AsyncTaskSpawn {
+                Message::AsyncTaskSpawn(AsyncTaskSpawn {
                     target,
                     request: AsyncTaskRequest::ReadDirectory { .. },
                     ..
-                } if *target == NodeId::default() // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                }) if *target == NodeId::default() // TODO(P1-14 integration): use WidgetTree-assigned NodeId
             )
         }));
     }
@@ -833,11 +831,11 @@ mod tests {
         tree.on_message(
             &MessageEvent {
                 sender: tree.tree_id(),
-                message: Message::TreeNodeToggled {
+                message: Message::TreeNodeToggled(TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
-                },
+                }),
             },
             &mut expand_ctx,
         );
@@ -847,11 +845,11 @@ mod tests {
         tree.on_message(
             &MessageEvent {
                 sender: tree.tree_id(),
-                message: Message::TreeNodeToggled {
+                message: Message::TreeNodeToggled(TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: false,
-                },
+                }),
             },
             &mut collapse_ctx,
         );
@@ -860,7 +858,7 @@ mod tests {
         assert!(
             emitted
                 .iter()
-                .any(|event| matches!(event.message, Message::AsyncTaskCancel { task_id: 1 }))
+                .any(|event| matches!(event.message, Message::AsyncTaskCancel(AsyncTaskCancel { task_id: 1 })))
         );
     }
 }

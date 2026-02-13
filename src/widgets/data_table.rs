@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 use crate::style::{Color, parse_color_like};
 
 use crate::node_id::NodeId;
@@ -1060,10 +1060,10 @@ impl Widget for DataTable {
             }
             "select_cursor" => {
                 if !self.rows.is_empty() && !self.headers.is_empty() {
-                    ctx.post_message(Message::DataTableCellActivated {
+                    ctx.post_message(Message::DataTableCellActivated(DataTableCellActivated {
                         row: self.selected,
                         column: self.cursor_column,
-                    });
+                    }));
                 }
                 true
             }
@@ -1080,10 +1080,10 @@ impl Widget for DataTable {
             && !self.rows.is_empty()
             && !self.headers.is_empty()
         {
-            ctx.post_message(Message::DataTableCursorMoved {
+            ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
                 row: self.selected,
                 column: self.cursor_column,
-            });
+            }));
         }
         if handled {
             ctx.set_handled();
@@ -1163,12 +1163,12 @@ impl Widget for DataTable {
                     self.ensure_cursor_column_visible(self.content_width as usize);
                 }
                 if let Some(col) = header_clicked {
-                    ctx.post_message(Message::DataTableHeaderSelected { column: col });
+                    ctx.post_message(Message::DataTableHeaderSelected(DataTableHeaderSelected { column: col }));
                 } else if selection_changed || cursor_changed {
-                    ctx.post_message(Message::DataTableCursorMoved {
+                    ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
                         row: self.selected,
                         column: self.cursor_column,
-                    });
+                    }));
                 }
                 ctx.set_handled();
                 return;
@@ -1415,10 +1415,10 @@ impl Widget for DataTable {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if !self.rows.is_empty() && !self.headers.is_empty() {
-                        ctx.post_message(Message::DataTableCellActivated {
+                        ctx.post_message(Message::DataTableCellActivated(DataTableCellActivated {
                             row: self.selected,
                             column: self.cursor_column,
-                        });
+                        }));
                         handled = true;
                     }
                 }
@@ -1436,10 +1436,10 @@ impl Widget for DataTable {
             && !self.rows.is_empty()
             && !self.headers.is_empty()
         {
-            ctx.post_message(Message::DataTableCursorMoved {
+            ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
                 row: self.selected,
                 column: self.cursor_column,
-            });
+            }));
         }
         if handled {
             ctx.set_handled();
@@ -1716,7 +1716,6 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
-    use crate::message::Message;
     use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -1914,7 +1913,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::DataTableHeaderSelected { column: 2 }
+            Message::DataTableHeaderSelected(DataTableHeaderSelected { column: 2 })
         ));
     }
 
@@ -2059,7 +2058,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::DataTableHeaderSelected { column: 1 }
+            Message::DataTableHeaderSelected(DataTableHeaderSelected { column: 1 })
         ));
     }
 
@@ -2088,7 +2087,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::DataTableCursorMoved { row: 1, column: 0 }
+            Message::DataTableCursorMoved(DataTableCursorMoved { row: 1, column: 0 })
         ));
     }
 
@@ -2118,7 +2117,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::DataTableCellActivated { row: 1, column: 1 }
+            Message::DataTableCellActivated(DataTableCellActivated { row: 1, column: 1 })
         ));
     }
 

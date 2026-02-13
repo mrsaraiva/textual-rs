@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 use crate::node_id::NodeId;
 
 use crate::action::ParsedAction;
@@ -205,9 +205,9 @@ impl Button {
                 ));
             }
         } else {
-            ctx.post_message(Message::ButtonPressed {
+            ctx.post_message(Message::ButtonPressed(ButtonPressed {
                 description: self.describe(),
-            });
+            }));
         }
     }
 
@@ -494,7 +494,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed { .. }))
+                .any(|m| matches!(m.message, Message::ButtonPressed(..)))
         );
     }
 
@@ -521,7 +521,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed { .. }))
+                .any(|m| matches!(m.message, Message::ButtonPressed(..)))
         );
     }
 
@@ -552,7 +552,7 @@ mod tests {
         assert!(
             !messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
             "ButtonPressed should be suppressed when action is set"
         );
     }
@@ -573,7 +573,7 @@ mod tests {
         assert!(
             !messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
             "ButtonPressed should be suppressed when action is set"
         );
     }
@@ -596,7 +596,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
             "ButtonPressed should be posted when no action is set"
         );
     }

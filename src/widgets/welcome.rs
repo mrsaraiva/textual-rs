@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::render::FrameBuffer;
 
 use crate::node_id::NodeId;
@@ -212,13 +212,13 @@ impl Widget for Welcome {
             return;
         }
 
-        if let Message::ButtonPressed { .. } = &message.message {
+        if let Message::ButtonPressed(..) = &message.message {
             ctx.post_message(
-                Message::ButtonPressed {
+                Message::ButtonPressed(ButtonPressed {
                     description: "Welcome.close".to_string(),
-                },
+                }),
             );
-            ctx.post_message(Message::OverlayDismissRequested { overlay: None });
+            ctx.post_message(Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None }));
             ctx.set_handled();
         }
     }
@@ -332,9 +332,9 @@ mod tests {
         welcome.on_message(
             &MessageEvent {
                 sender: welcome.close_button_id(),
-                message: Message::ButtonPressed {
+                message: Message::ButtonPressed(ButtonPressed {
                     description: "Button(classes='button', variant='success')".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );
@@ -344,15 +344,15 @@ mod tests {
         assert!(emitted.iter().any(|event| {
             matches!(
                 event.message,
-                Message::ButtonPressed {
+                Message::ButtonPressed(ButtonPressed {
                     ref description
-                } if description == "Welcome.close"
+                }) if description == "Welcome.close"
             )
         }));
         assert!(emitted.iter().any(|event| {
             matches!(
                 event.message,
-                Message::OverlayDismissRequested { overlay: None }
+                Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None })
             )
         }));
     }

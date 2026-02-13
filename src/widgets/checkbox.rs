@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -48,9 +48,9 @@ impl Checkbox {
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            Message::CheckboxChanged {
+            Message::CheckboxChanged(CheckboxChanged {
                 checked: self.state.value(),
-            },
+            }),
         );
     }
 }
@@ -181,7 +181,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true }))
+                .any(|m| matches!(m.message, Message::CheckboxChanged(CheckboxChanged { checked: true })))
         );
     }
 
@@ -210,7 +210,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true }))
+                .any(|m| matches!(m.message, Message::CheckboxChanged(CheckboxChanged { checked: true })))
         );
     }
 }

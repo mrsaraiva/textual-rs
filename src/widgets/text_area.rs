@@ -8,7 +8,7 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::event::{Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 use crate::style::{Color, Style, parse_color_like};
 use crate::{Error, Result};
 
@@ -473,15 +473,15 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::TextAreaChanged { value: self.text() });
+        ctx.post_message(Message::TextAreaChanged(TextAreaChanged { value: self.text() }));
     }
 
     fn post_selection_changed(&self, ctx: &mut EventCtx) {
         let (a, b) = normalized_selection(self.selection);
-        ctx.post_message(Message::TextAreaSelectionChanged {
+        ctx.post_message(Message::TextAreaSelectionChanged(TextAreaSelectionChanged {
             start: (a.row, a.col),
             end: (b.row, b.col),
-        });
+        }));
     }
 
     fn save_undo_checkpoint(&mut self) {
@@ -1431,27 +1431,27 @@ impl Widget for TextArea {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: false,
-                            });
+                            }));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: true,
-                            });
+                            }));
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
                             }
                         } else if let Some(text) = self.cut_current_line() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested {
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
                                 text,
                                 cut: true,
-                            });
+                            }));
                             changed = true;
                             value_changed = true;
                             next_preferred = Some(self.cursor_cell_x());
@@ -1459,9 +1459,9 @@ impl Widget for TextArea {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested {
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
                             target: NodeId::default(),
-                        });
+                        }));
                     }
                     EditCommand::Submit => {}
                 }
@@ -1485,7 +1485,7 @@ impl Widget for TextArea {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste { target, text } = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -1834,7 +1834,6 @@ fn cursor_lt(a: Cursor, b: Cursor) -> bool {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
-    use crate::message::{Message, MessageEvent};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1854,7 +1853,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(
             messages.iter().any(
-                |m| matches!(m.message, Message::TextAreaChanged { ref value } if value == "x")
+                |m| matches!(m.message, Message::TextAreaChanged(TextAreaChanged { ref value }) if value == "x")
             )
         );
     }
@@ -1880,7 +1879,7 @@ mod tests {
         assert!(copy_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardCopyRequested { ref text, cut: false } if text == "hello"
+                Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { ref text, cut: false }) if text == "hello"
             )
         }));
 
@@ -1896,7 +1895,7 @@ mod tests {
         assert!(paste_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardPasteRequested { target } if target == NodeId::default()
+                Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target }) if target == NodeId::default()
             )
         }));
     }
@@ -1911,10 +1910,10 @@ mod tests {
         text_area.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste {
+                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "X\nY".to_string(),
-                },
+                }),
             },
             &mut ctx,
         );

@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -75,9 +75,9 @@ impl Switch {
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            Message::SwitchChanged {
+            Message::SwitchChanged(SwitchChanged {
                 value: self.state.value(),
-            },
+            }),
         );
     }
 
@@ -303,7 +303,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::SwitchChanged { value: true }))
+                .any(|m| matches!(m.message, Message::SwitchChanged(SwitchChanged { value: true })))
         );
     }
 

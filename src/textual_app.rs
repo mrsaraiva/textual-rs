@@ -232,7 +232,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         }
 
         if !commands.is_empty() {
-            ctx.post_message(Message::CommandPaletteSetCommands { commands });
+            ctx.post_message(Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands }));
         }
     }
 
@@ -303,7 +303,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             return;
         }
         match &message.message {
-            Message::CommandPaletteOpened => {
+            Message::CommandPaletteOpened(_) => {
                 self.initialize_command_palette_providers(ctx);
                 self.app
                     .lock()
@@ -313,7 +313,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     return;
                 }
             }
-            Message::CommandPaletteClosed => {
+            Message::CommandPaletteClosed(_) => {
                 self.shutdown_command_palette_providers(ctx);
                 self.app
                     .lock()
@@ -323,7 +323,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     return;
                 }
             }
-            Message::CommandPaletteCommandSelected { id, title } => {
+            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected { id, title }) => {
                 self.handle_command_palette_selection(id, ctx);
                 self.app
                     .lock()
@@ -336,49 +336,49 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             _ => {}
         }
         match &message.message {
-            Message::ButtonPressed { description } => {
+            Message::ButtonPressed(crate::message::ButtonPressed { description }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_button_pressed(description, ctx);
             }
-            Message::InputChanged { value, validation } => {
+            Message::InputChanged(crate::message::InputChanged { value, validation }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_input_changed(value, validation, ctx);
             }
-            Message::InputSubmitted { value } => {
+            Message::InputSubmitted(crate::message::InputSubmitted { value }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_input_submitted(value, ctx);
             }
-            Message::TextAreaChanged { value } => {
+            Message::TextAreaChanged(crate::message::TextAreaChanged { value }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_text_area_changed(value, ctx);
             }
-            Message::CheckboxChanged { checked } => {
+            Message::CheckboxChanged(crate::message::CheckboxChanged { checked }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_checkbox_changed(*checked, ctx);
             }
-            Message::ListViewSelectionChanged { index, item } => {
+            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged { index, item }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_list_view_selection_changed(*index, item, ctx);
             }
-            Message::ListViewItemActivated { index, item } => {
+            Message::ListViewItemActivated(crate::message::ListViewItemActivated { index, item }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_list_view_item_activated(*index, item, ctx);
             }
-            Message::TabActivated { index, title, .. } => {
+            Message::TabActivated(crate::message::TabActivated { index, title, .. }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -670,7 +670,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteOpened,
+                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
             },
             &mut open_ctx,
         );
@@ -679,17 +679,17 @@ mod tests {
         assert!(
             open_messages
                 .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteSetCommands { .. }))
+                .any(|event| matches!(event.message, Message::CommandPaletteSetCommands(..)))
         );
 
         let mut select_ctx = EventCtx::default();
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteCommandSelected {
+                message: Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected {
                     id: "deploy".to_string(),
                     title: "Deploy".to_string(),
-                },
+                }),
             },
             &mut select_ctx,
         );
@@ -699,7 +699,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteClosed,
+                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
             },
             &mut close_ctx,
         );
@@ -723,7 +723,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteOpened,
+                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
             },
             &mut first_open_ctx,
         );
@@ -731,7 +731,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteClosed,
+                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
             },
             &mut first_close_ctx,
         );
@@ -739,7 +739,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteOpened,
+                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
             },
             &mut second_open_ctx,
         );
@@ -747,7 +747,7 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteClosed,
+                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
             },
             &mut second_close_ctx,
         );
@@ -770,33 +770,33 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
 
         let mut messages = vec![
-            Message::ButtonPressed {
+            Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ok".to_string(),
-            },
-            Message::InputChanged {
+            }),
+            Message::InputChanged(crate::message::InputChanged {
                 value: "42".to_string(),
                 validation: ValidationResult::success(),
-            },
-            Message::InputSubmitted {
+            }),
+            Message::InputSubmitted(crate::message::InputSubmitted {
                 value: "submit".to_string(),
-            },
-            Message::TextAreaChanged {
+            }),
+            Message::TextAreaChanged(crate::message::TextAreaChanged {
                 value: "textarea".to_string(),
-            },
-            Message::CheckboxChanged { checked: true },
-            Message::ListViewSelectionChanged {
+            }),
+            Message::CheckboxChanged(crate::message::CheckboxChanged { checked: true }),
+            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged {
                 index: 2,
                 item: "gamma".to_string(),
-            },
-            Message::ListViewItemActivated {
+            }),
+            Message::ListViewItemActivated(crate::message::ListViewItemActivated {
                 index: 3,
                 item: "delta".to_string(),
-            },
-            Message::TabActivated {
+            }),
+            Message::TabActivated(crate::message::TabActivated {
                 id: "general".to_string(),
                 index: 1,
                 title: "General".to_string(),
-            },
+            }),
         ];
         for message in messages.drain(..) {
             let mut ctx = EventCtx::default();
@@ -841,45 +841,45 @@ mod tests {
         assert_eq!(messages.len(), 6);
         assert!(matches!(
             messages[0].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: true
-            } if overlay == first
+                visible: true,
+            }) if overlay == first
         ));
         assert!(matches!(
             messages[1].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: false
-            } if overlay == first
+                visible: false,
+            }) if overlay == first
         ));
         assert!(matches!(
             messages[2].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: true
-            } if overlay == second
+                visible: true,
+            }) if overlay == second
         ));
         assert!(matches!(
             messages[3].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: false
-            } if overlay == second
+                visible: false,
+            }) if overlay == second
         ));
         assert!(matches!(
             messages[4].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: true
-            } if overlay == first
+                visible: true,
+            }) if overlay == first
         ));
         assert!(matches!(
             messages[5].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay,
-                visible: false
-            } if overlay == first
+                visible: false,
+            }) if overlay == first
         ));
     }
 }

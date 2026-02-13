@@ -7,7 +7,7 @@ use rich_rs::highlighter::repr_highlighter;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use crate::node_id::NodeId;
@@ -350,10 +350,10 @@ impl RichLog {
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            Message::RichLogScrolled {
+            Message::RichLogScrolled(RichLogScrolled {
                 offset: self.offset_y,
                 max_offset: self.max_offset(),
-            },
+            }),
         );
     }
 
@@ -810,7 +810,7 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
 mod tests {
     use super::RichLog;
     use crate::event::{Action, Event, EventCtx};
-    use crate::message::Message;
+    use crate::message::*;
     use crate::widgets::Widget;
     use rich_rs::Console;
 
@@ -838,7 +838,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::RichLogScrolled { .. }))
+                .any(|m| matches!(m.message, Message::RichLogScrolled(..)))
         );
     }
 }

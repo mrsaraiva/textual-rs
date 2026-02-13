@@ -61,10 +61,10 @@ fn command_palette_closes_when_overlay_visibility_changes() {
     palette.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::OverlayVisibilityChanged {
+            message: Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
                 overlay: NodeId::default(),
                 visible: true,
-            },
+            }),
         },
         &mut transition_ctx,
     );

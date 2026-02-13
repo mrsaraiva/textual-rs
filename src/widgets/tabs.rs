@@ -6,7 +6,7 @@ use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, BindingHint, Event,
     EventCtx,
 };
-use crate::message::Message;
+use crate::message::*;
 use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
@@ -256,7 +256,7 @@ impl Tabs {
         self.hovered_tab = None;
         self.underline_start = 0.0;
         self.underline_end = 0.0;
-        self.pending_messages.push(Message::TabsCleared);
+        self.pending_messages.push(Message::TabsCleared(TabsCleared));
     }
 
     /// Number of tabs.
@@ -281,10 +281,10 @@ impl Tabs {
         tab.disabled = disabled;
         if disabled {
             self.pending_messages
-                .push(Message::TabDisabled { id: tab_id });
+                .push(Message::TabDisabled(TabDisabled { id: tab_id }));
         } else {
             self.pending_messages
-                .push(Message::TabEnabled { id: tab_id });
+                .push(Message::TabEnabled(TabEnabled { id: tab_id }));
         }
         if self.active.is_none() {
             self.ensure_active_exists();
@@ -311,10 +311,10 @@ impl Tabs {
         self.tabs[index].hidden = hidden;
         if hidden {
             self.pending_messages
-                .push(Message::TabHidden { id: tab_id });
+                .push(Message::TabHidden(TabHidden { id: tab_id }));
         } else {
             self.pending_messages
-                .push(Message::TabShown { id: tab_id });
+                .push(Message::TabShown(TabShown { id: tab_id }));
         }
         if hidden && is_active {
             if let Some(next) = replacement {
@@ -402,11 +402,11 @@ impl Tabs {
                     self.underline_end = 0.0;
                 }
                 ctx.post_message(
-                    Message::TabActivated {
+                    Message::TabActivated(TabActivated {
                         id: self.tabs[next].tab_id.clone(),
                         index: next,
                         title: self.tabs[next].title.clone(),
-                    },
+                    }),
                 );
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
@@ -1126,7 +1126,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TabActivated { index: 1, ref title, .. } if title == "Two"
+            Message::TabActivated(TabActivated { index: 1, ref title, .. }) if title == "Two"
         ));
         assert_eq!(ctx.take_animation_requests().len(), 2);
     }
@@ -1321,7 +1321,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         match &messages[0].message {
-            Message::TabActivated { id, index, title } => {
+            Message::TabActivated(TabActivated { id, index, title }) => {
                 assert_eq!(id, "tab-2");
                 assert_eq!(*index, 1);
                 assert_eq!(title, "Two");

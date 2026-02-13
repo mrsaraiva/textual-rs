@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -197,10 +197,10 @@ impl ListView {
             && let Some(item) = self.items.get(self.selected)
         {
             ctx.post_message(
-                Message::ListViewSelectionChanged {
+                Message::ListViewSelectionChanged(ListViewSelectionChanged {
                     index: self.selected,
                     item: item.clone(),
-                },
+                }),
             );
         }
     }
@@ -210,10 +210,10 @@ impl ListView {
             && let Some(item) = self.items.get(index)
         {
             ctx.post_message(
-                Message::ListViewItemActivated {
+                Message::ListViewItemActivated(ListViewItemActivated {
                     index,
                     item: item.clone(),
-                },
+                }),
             );
         }
     }
@@ -586,7 +586,7 @@ mod tests {
     use super::ListView;
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
-    use crate::message::Message;
+    use crate::message::*;
     use crate::node_id::NodeId;
     use crate::widgets::Widget;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -613,10 +613,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::ListViewItemActivated {
+            Message::ListViewItemActivated(ListViewItemActivated {
                 index: 1,
                 ref item
-            } if item == "two"
+            }) if item == "two"
         ));
     }
 
@@ -655,10 +655,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::ListViewItemActivated {
+            Message::ListViewItemActivated(ListViewItemActivated {
                 index: 0,
                 ref item
-            } if item == "one"
+            }) if item == "one"
         ));
     }
 

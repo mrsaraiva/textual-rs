@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::{Message, MessageEvent};
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -195,7 +195,7 @@ impl RadioSet {
 
         // TODO(P1-14 integration): wire tree-based NodeId comparison
         let button_id = NodeId::default();
-        ctx.post_message(Message::RadioSetChanged { index, button_id });
+        ctx.post_message(Message::RadioSetChanged(RadioSetChanged { index, button_id }));
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -275,7 +275,7 @@ impl Widget for RadioSet {
         // Intercept RadioButtonChanged messages from child buttons.
         // This handles the case where a child button is toggled directly
         // (e.g. via its own event handler if it ever receives one).
-        if let Message::RadioButtonChanged { value } = &message.message {
+        if let Message::RadioButtonChanged(RadioButtonChanged { value }) = &message.message {
             // Find which button sent this message.
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if let Some(index) = self.buttons.iter().position(|_b| message.sender == NodeId::default()) {
@@ -293,7 +293,7 @@ impl Widget for RadioSet {
 
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
                     let button_id = NodeId::default();
-                    ctx.post_message(Message::RadioSetChanged { index, button_id });
+                    ctx.post_message(Message::RadioSetChanged(RadioSetChanged { index, button_id }));
                     ctx.request_repaint();
                 } else {
                     // A button was turned off — in a radio set, prevent deselection.
@@ -477,7 +477,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::RadioSetChanged { index: 1, .. }))
+                .any(|m| matches!(m.message, Message::RadioSetChanged(RadioSetChanged { index: 1, .. })))
         );
     }
 

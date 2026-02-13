@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -91,7 +91,7 @@ impl Toast {
             return;
         }
         self.dismissed = true;
-        ctx.post_message(Message::ToastDismissed);
+        ctx.post_message(Message::ToastDismissed(ToastDismissed));
         ctx.request_repaint();
         ctx.set_handled();
     }

@@ -6,7 +6,7 @@ use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, BindingHint, Event,
     EventCtx,
 };
-use crate::message::Message;
+use crate::message::*;
 use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
@@ -358,7 +358,7 @@ impl TabbedContent {
                 let pane = &self.panes[next];
                 let id = pane.pane_id.clone().unwrap_or_default();
                 let title = pane.title.clone();
-                ctx.post_message(Message::TabActivated { id, index: next, title });
+                ctx.post_message(Message::TabActivated(TabActivated { id, index: next, title }));
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;
@@ -1035,7 +1035,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages[0].message,
-            Message::TabActivated { index: 1, ref title, .. } if title == "Two"
+            Message::TabActivated(TabActivated { index: 1, ref title, .. }) if title == "Two"
         ));
         assert_eq!(ctx.take_animation_requests().len(), 2);
     }

@@ -126,7 +126,7 @@ impl Widget for KeyLog {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ClearRequested = &message.message {
+        if let Message::ClearRequested(_) = &message.message {
             self.clear();
             ctx.request_repaint();
             ctx.set_handled();
@@ -227,7 +227,7 @@ impl TextualApp for KeysApp {
     fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
         match description {
             "Clear" => {
-                ctx.post_message(Message::ClearRequested);
+                ctx.post_message(Message::ClearRequested(ClearRequested));
                 ctx.set_handled();
             }
             "Quit" => {

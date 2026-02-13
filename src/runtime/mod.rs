@@ -232,7 +232,7 @@ impl App {
     pub(super) fn clipboard_message_event(target: NodeId, text: String) -> MessageEvent {
         MessageEvent {
             sender: Self::clipboard_message_sender(),
-            message: crate::message::Message::TextEditClipboardPaste { target, text },
+            message: crate::message::Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste { target, text }),
         }
     }
 

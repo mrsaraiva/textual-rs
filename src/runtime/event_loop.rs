@@ -79,12 +79,12 @@ fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
     if let Some((source, markup)) = current {
         MessageEvent {
             sender: source,
-            message: Message::HelpPanelFocusedHelpChanged { source, markup },
+            message: Message::HelpPanelFocusedHelpChanged(crate::message::HelpPanelFocusedHelpChanged { source, markup }),
         }
     } else {
         MessageEvent {
             sender: App::runtime_message_sender(),
-            message: Message::HelpPanelFocusedHelpCleared,
+            message: Message::HelpPanelFocusedHelpCleared(crate::message::HelpPanelFocusedHelpCleared),
         }
     }
 }
@@ -122,13 +122,13 @@ fn collect_clipboard_runtime_messages_with_backend(
     let mut generated = Vec::new();
     for event in messages {
         match &event.message {
-            Message::TextEditClipboardCopyRequested { text, .. } => {
+            Message::TextEditClipboardCopyRequested(crate::message::TextEditClipboardCopyRequested { text, .. }) => {
                 *clipboard = Some(text.clone());
                 if !backend.copy(text) {
                     debug_input("[clipboard] system copy unavailable; runtime fallback updated");
                 }
             }
-            Message::TextEditClipboardPasteRequested { target } => {
+            Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }) => {
                 let text = if let Some(system_text) = backend.paste() {
                     *clipboard = Some(system_text.clone());
                     Some(system_text)
@@ -162,34 +162,34 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
     let mut pass = RuntimeMessagePass::default();
     for event in queue {
         match event.message {
-            Message::AsyncTaskSpawn {
+            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
                 task_id,
                 target,
                 request,
-            } => {
+            }) => {
                 if let Some(cancelled) = app.async_tasks.spawn(task_id, target, request) {
                     pass.generated.push(cancelled);
                 }
             }
-            Message::AsyncTaskCancel { task_id } => {
+            Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }) => {
                 if let Some(cancelled) = app.async_tasks.cancel(task_id) {
                     pass.generated.push(cancelled);
                 }
             }
-            Message::AsyncTaskCancelTarget { target } => {
+            Message::AsyncTaskCancelTarget(crate::message::AsyncTaskCancelTarget { target }) => {
                 pass.generated
                     .extend(app.async_tasks.cancel_for_target(target));
             }
-            Message::TimerSchedule {
+            Message::TimerSchedule(crate::message::TimerSchedule {
                 timer_id,
                 target,
                 delay,
-            } => {
+            }) => {
                 if let Some(cancelled) = app.one_shot_timers.schedule(timer_id, target, delay) {
                     pass.generated.push(cancelled);
                 }
             }
-            Message::TimerCancel { timer_id } => {
+            Message::TimerCancel(crate::message::TimerCancel { timer_id }) => {
                 if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
                     pass.generated.push(cancelled);
                 }
@@ -2069,10 +2069,10 @@ mod tests {
         assert_eq!(event.sender, source);
         assert!(matches!(
             event.message,
-            Message::HelpPanelFocusedHelpChanged {
+            Message::HelpPanelFocusedHelpChanged(crate::message::HelpPanelFocusedHelpChanged {
                 source: msg_source,
                 markup,
-            } if msg_source == source && markup == "## Source help"
+            }) if msg_source == source && markup == "## Source help"
         ));
     }
 
@@ -2082,7 +2082,7 @@ mod tests {
         assert_eq!(event.sender, node_id_from_ffi(0));
         assert!(matches!(
             event.message,
-            Message::HelpPanelFocusedHelpCleared
+            Message::HelpPanelFocusedHelpCleared(_)
         ));
     }
 
@@ -2100,14 +2100,14 @@ mod tests {
             &[
                 MessageEvent {
                     sender: node_id_from_ffi(1),
-                    message: Message::TextEditClipboardCopyRequested {
+                    message: Message::TextEditClipboardCopyRequested(crate::message::TextEditClipboardCopyRequested {
                         text: "hello".to_string(),
                         cut: false,
-                    },
+                    }),
                 },
                 MessageEvent {
                     sender: node_id_from_ffi(2),
-                    message: Message::TextEditClipboardPasteRequested { target },
+                    message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
                 },
             ],
             &mut backend,
@@ -2117,10 +2117,10 @@ mod tests {
         assert_eq!(generated.len(), 1);
         assert!(matches!(
             &generated[0].message,
-            Message::TextEditClipboardPaste {
+            Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste {
                 target: t,
                 text
-            } if *t == target && text == "hello"
+            }) if *t == target && text == "hello"
         ));
     }
 
@@ -2133,7 +2133,7 @@ mod tests {
             &mut clipboard,
             &[MessageEvent {
                 sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested { target },
+                message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
             }],
             &mut backend,
         );
@@ -2154,7 +2154,7 @@ mod tests {
             &mut clipboard,
             &[MessageEvent {
                 sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested { target },
+                message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
             }],
             &mut backend,
         );
@@ -2163,7 +2163,7 @@ mod tests {
         assert_eq!(generated.len(), 1);
         assert!(matches!(
             &generated[0].message,
-            Message::TextEditClipboardPaste { target: t, text } if *t == target && text == "system"
+            Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste { target: t, text }) if *t == target && text == "system"
         ));
     }
 

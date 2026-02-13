@@ -56,10 +56,10 @@ impl AsyncTaskRuntime {
                 previous.generation,
                 Some(MessageEvent {
                     sender: super::App::runtime_message_sender(),
-                    message: Message::AsyncTaskCancelled {
+                    message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
                         task_id,
                         target: previous.target,
-                    },
+                    }),
                 }),
             )
         } else {
@@ -101,10 +101,10 @@ impl AsyncTaskRuntime {
         task.cancel_flag.store(true, Ordering::Relaxed);
         Some(MessageEvent {
             sender: super::App::runtime_message_sender(),
-            message: Message::AsyncTaskCancelled {
+            message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
                 task_id,
                 target: task.target,
-            },
+            }),
         })
     }
 
@@ -142,11 +142,11 @@ impl AsyncTaskRuntime {
             self.running.remove(&completion.task_id);
             out.push(MessageEvent {
                 sender: super::App::runtime_message_sender(),
-                message: Message::AsyncTaskCompleted {
+                message: Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted {
                     task_id: completion.task_id,
                     target: completion.target,
                     result: completion.result,
-                },
+                }),
             });
         }
         out
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             &messages[0].message,
-            Message::AsyncTaskCompleted { task_id, target, .. }
+            Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted { task_id, target, .. })
                 if *task_id == 7 && *target == target_id
         ));
     }
@@ -298,7 +298,7 @@ mod tests {
         let cancelled = runtime.cancel(5).expect("cancelled message");
         assert!(matches!(
             cancelled.message,
-            Message::AsyncTaskCancelled { task_id: 5, target } if target == target_id
+            Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled { task_id, target }) if task_id == 5 && target == target_id
         ));
 
         let messages = wait_for_messages(&mut runtime);

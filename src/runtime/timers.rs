@@ -58,10 +58,10 @@ impl OneShotTimerRuntime {
             };
             ready.push(MessageEvent {
                 sender: super::App::runtime_message_sender(),
-                message: Message::TimerFired {
+                message: Message::TimerFired(crate::message::TimerFired {
                     timer_id,
                     target: timer.target,
-                },
+                }),
             });
         }
         ready
@@ -70,7 +70,7 @@ impl OneShotTimerRuntime {
     fn cancelled_event(&self, timer_id: u64, target: NodeId) -> MessageEvent {
         MessageEvent {
             sender: super::App::runtime_message_sender(),
-            message: Message::TimerCancelled { timer_id, target },
+            message: Message::TimerCancelled(crate::message::TimerCancelled { timer_id, target }),
         }
     }
 }
@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(ready.len(), 1);
         assert!(matches!(
             ready[0].message,
-            Message::TimerFired { timer_id: 4, target } if target == target_id
+            Message::TimerFired(crate::message::TimerFired { timer_id: 4, target }) if target == target_id
         ));
     }
 
@@ -111,7 +111,7 @@ mod tests {
             .expect("replacement should emit cancellation");
         assert!(matches!(
             replaced.message,
-            Message::TimerCancelled { timer_id: 9, target } if target == first
+            Message::TimerCancelled(crate::message::TimerCancelled { timer_id: 9, target }) if target == first
         ));
     }
 
@@ -123,7 +123,7 @@ mod tests {
         let cancelled = runtime.cancel(17).expect("cancelled event");
         assert!(matches!(
             cancelled.message,
-            Message::TimerCancelled { timer_id: 17, target } if target == target_id
+            Message::TimerCancelled(crate::message::TimerCancelled { timer_id: 17, target }) if target == target_id
         ));
         thread::sleep(Duration::from_millis(2));
         assert!(runtime.drain_ready(Instant::now()).is_empty());
@@ -150,17 +150,17 @@ mod tests {
             let timer_events = timers.drain_ready(Instant::now());
             saw_timer |= timer_events
                 .iter()
-                .any(|event| matches!(event.message, Message::TimerFired { timer_id: 2, .. }));
+                .any(|event| matches!(event.message, Message::TimerFired(..)));
 
             let task_events = tasks.drain_completed();
             saw_task |= task_events.iter().any(|event| {
                 matches!(
-                    event.message,
-                    Message::AsyncTaskCompleted {
-                        task_id: 1,
+                    &event.message,
+                    Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted {
+                        task_id,
                         target,
                         result: AsyncTaskResult::SleepFinished { .. },
-                    } if target == widget_id
+                    }) if *task_id == 1 && *target == widget_id
                 )
             });
 

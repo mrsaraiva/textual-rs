@@ -280,17 +280,17 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
 fn is_message_replaceable(message: &Message) -> bool {
     matches!(
         message,
-        Message::InputChanged { .. }
-            | Message::TextAreaChanged { .. }
-            | Message::TextAreaSelectionChanged { .. }
-            | Message::DataTableCursorMoved { .. }
-            | Message::DataTableCellHighlighted { .. }
-            | Message::DataTableRowHighlighted { .. }
-            | Message::DataTableColumnHighlighted { .. }
-            | Message::TreeNodeHighlighted { .. }
-            | Message::OptionHighlighted { .. }
-            | Message::KeyPanelScrolled { .. }
-            | Message::RichLogScrolled { .. }
+        Message::InputChanged(..)
+            | Message::TextAreaChanged(..)
+            | Message::TextAreaSelectionChanged(..)
+            | Message::DataTableCursorMoved(..)
+            | Message::DataTableCellHighlighted(..)
+            | Message::DataTableRowHighlighted(..)
+            | Message::DataTableColumnHighlighted(..)
+            | Message::TreeNodeHighlighted(..)
+            | Message::OptionHighlighted(..)
+            | Message::KeyPanelScrolled(..)
+            | Message::RichLogScrolled(..)
     )
 }
 
@@ -706,10 +706,10 @@ mod message_tests {
             if let Event::Key(key) = event {
                 if matches!(key.code, KeyCode::Char('x')) {
                     ctx.post_message(
-                        Message::InputChanged {
+                        Message::InputChanged(crate::message::InputChanged {
                             value: "ok".into(),
                             validation: crate::validation::ValidationResult::success(),
-                        },
+                        }),
                     );
                     ctx.set_handled();
                 }
@@ -745,7 +745,7 @@ mod message_tests {
         }
 
         fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::InputChanged { .. }) {
+            if matches!(message.message, Message::InputChanged(..)) {
                 self.seen += 1;
                 ctx.set_handled();
             }
@@ -801,7 +801,7 @@ mod message_tests {
             self.child.on_event(event, ctx);
         }
         fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::ButtonPressed { .. }) {
+            if matches!(message.message, Message::ButtonPressed(..)) {
                 self.seen += 1;
                 ctx.set_handled();
             }
@@ -1271,7 +1271,7 @@ mod envelope_tests {
         }
 
         fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::ButtonPressed { .. }) {
+            if matches!(message.message, Message::ButtonPressed(..)) {
                 self.count.fetch_add(1, Ordering::Relaxed);
                 if self.stop_on_match {
                     ctx.set_handled();
@@ -1306,9 +1306,9 @@ mod envelope_tests {
 
         let messages = vec![MessageEvent {
             sender: leaf_id,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "test".into(),
-            },
+            }),
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
@@ -1337,9 +1337,9 @@ mod envelope_tests {
 
         let messages = vec![MessageEvent {
             sender: leaf_id,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "stop".into(),
-            },
+            }),
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
@@ -1364,9 +1364,9 @@ mod envelope_tests {
 
         let messages = vec![msg_event(
             99999,
-            Message::ButtonPressed {
+            Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ghost".into(),
-            },
+            }),
         )];
 
         dispatch_message_queue_tree(&mut tree, messages);
@@ -1387,9 +1387,9 @@ mod envelope_tests {
 
         let messages = vec![MessageEvent {
             sender: root_id,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "dp".into(),
-            },
+            }),
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
@@ -1411,19 +1411,19 @@ mod envelope_tests {
         // Two InputChanged from the same sender — both replaceable.
         let mut env1 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env1.set_replaceable(true);
 
         let mut env2 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env2.set_replaceable(true);
 
@@ -1433,7 +1433,7 @@ mod envelope_tests {
 
         assert_eq!(queue.len(), 1, "should coalesce to one message");
         match queue[0].message() {
-            Message::InputChanged { value, .. } => {
+            Message::InputChanged(crate::message::InputChanged { value, .. }) => {
                 assert_eq!(value, "ab", "should keep the latest value");
             }
             other => panic!("unexpected message: {:?}", other),
@@ -1448,15 +1448,15 @@ mod envelope_tests {
         // Two ButtonPressed — not replaceable by default.
         let env1 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "first".into(),
-            },
+            }),
         });
         let env2 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "second".into(),
-            },
+            }),
         });
 
         queue.push_back(env1);
@@ -1474,19 +1474,19 @@ mod envelope_tests {
 
         let mut env1 = MessageEnvelope::new(MessageEvent {
             sender: sender_a,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env1.set_replaceable(true);
 
         let mut env2 = MessageEnvelope::new(MessageEvent {
             sender: sender_b,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "b".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env2.set_replaceable(true);
 
@@ -1509,28 +1509,28 @@ mod envelope_tests {
         // Replaceable InputChanged #1
         let mut env1 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env1.set_replaceable(true);
 
         // Non-replaceable ButtonPressed
         let env2 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "click".into(),
-            },
+            }),
         });
 
         // Replaceable InputChanged #2
         let mut env3 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env3.set_replaceable(true);
 
@@ -1544,11 +1544,11 @@ mod envelope_tests {
         // First remaining should be ButtonPressed (index 0 InputChanged was removed).
         assert!(matches!(
             queue[0].message(),
-            Message::ButtonPressed { .. }
+            Message::ButtonPressed(..)
         ));
         // Second should be the latest InputChanged.
         match queue[1].message() {
-            Message::InputChanged { value, .. } => {
+            Message::InputChanged(crate::message::InputChanged { value, .. }) => {
                 assert_eq!(value, "ab");
             }
             other => panic!("unexpected: {:?}", other),
@@ -1567,10 +1567,10 @@ mod envelope_tests {
         let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
         let mut env = MessageEnvelope::new(MessageEvent {
             sender: node_id_from_ffi(1),
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "x".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env.set_replaceable(true);
         queue.push_back(env);
@@ -1592,24 +1592,24 @@ mod envelope_tests {
         let messages = vec![
             MessageEvent {
                 sender,
-                message: Message::InputChanged {
+                message: Message::InputChanged(crate::message::InputChanged {
                     value: "a".into(),
                     validation: crate::validation::ValidationResult::success(),
-                },
+                }),
             },
             MessageEvent {
                 sender,
-                message: Message::InputChanged {
+                message: Message::InputChanged(crate::message::InputChanged {
                     value: "ab".into(),
                     validation: crate::validation::ValidationResult::success(),
-                },
+                }),
             },
             MessageEvent {
                 sender,
-                message: Message::InputChanged {
+                message: Message::InputChanged(crate::message::InputChanged {
                     value: "abc".into(),
                     validation: crate::validation::ValidationResult::success(),
-                },
+                }),
             },
         ];
 
@@ -1624,27 +1624,27 @@ mod envelope_tests {
     #[test]
     fn is_message_replaceable_covers_known_variants() {
         // Spot-check that known rapid-fire message types are replaceable.
-        assert!(is_message_replaceable(&Message::InputChanged {
+        assert!(is_message_replaceable(&Message::InputChanged(crate::message::InputChanged {
             value: "x".into(),
             validation: crate::validation::ValidationResult::success(),
-        }));
-        assert!(is_message_replaceable(&Message::TextAreaChanged {
+        })));
+        assert!(is_message_replaceable(&Message::TextAreaChanged(crate::message::TextAreaChanged {
             value: "x".into(),
-        }));
-        assert!(is_message_replaceable(&Message::DataTableCursorMoved {
+        })));
+        assert!(is_message_replaceable(&Message::DataTableCursorMoved(crate::message::DataTableCursorMoved {
             row: 0,
             column: 0,
-        }));
-        assert!(is_message_replaceable(&Message::OptionHighlighted {
+        })));
+        assert!(is_message_replaceable(&Message::OptionHighlighted(crate::message::OptionHighlighted {
             index: 0,
-        }));
+        })));
         // Non-replaceable variants.
-        assert!(!is_message_replaceable(&Message::ButtonPressed {
+        assert!(!is_message_replaceable(&Message::ButtonPressed(crate::message::ButtonPressed {
             description: "x".into(),
-        }));
-        assert!(!is_message_replaceable(&Message::InputSubmitted {
+        })));
+        assert!(!is_message_replaceable(&Message::InputSubmitted(crate::message::InputSubmitted {
             value: "x".into(),
-        }));
+        })));
     }
 
     // =====================================================================
@@ -1661,9 +1661,9 @@ mod envelope_tests {
 
         let messages = vec![MessageEvent {
             sender,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ctrl".into(),
-            },
+            }),
         }];
 
         // Build the envelope the same way dispatch does and verify control.
@@ -1689,9 +1689,9 @@ mod envelope_tests {
 
         let evt = MessageEvent {
             sender: leaf_id,
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "bubble".into(),
-            },
+            }),
         };
         let mut env = MessageEnvelope::new(evt.clone());
         // Control should be the leaf (sender) before and after dispatch.
@@ -1717,19 +1717,19 @@ mod envelope_tests {
 
         let mut env1 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env1.set_replaceable(true);
 
         let mut env2 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env2.set_replaceable(true);
 
@@ -1755,19 +1755,19 @@ mod envelope_tests {
 
         let mut env1 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env1.set_replaceable(true);
 
         let mut env2 = MessageEnvelope::new(MessageEvent {
             sender,
-            message: Message::InputChanged {
+            message: Message::InputChanged(crate::message::InputChanged {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
-            },
+            }),
         });
         env2.set_replaceable(true);
         env2.set_control(override_node);
@@ -1964,7 +1964,7 @@ mod binding_tests {
             false,
             vec![BindingDecl::new("escape", "close_app", "Close app").priority()],
         )));
-        let child_id = tree.mount(
+        let _child_id = tree.mount(
             root_id,
             Box::new(BindingWidget::new(
                 true,

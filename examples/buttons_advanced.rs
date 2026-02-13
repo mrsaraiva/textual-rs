@@ -79,7 +79,7 @@ impl TextualApp for ButtonsAdvancedApp {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed { description } = &message.message {
+        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
             *self.status.lock().unwrap_or_else(|e| e.into_inner()) = description.clone();
             ctx.request_repaint();
             ctx.set_handled();

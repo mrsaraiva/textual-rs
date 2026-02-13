@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta};
 
 use crate::event::{Action, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 
 use crate::node_id::NodeId;
 
@@ -93,9 +93,9 @@ impl Link {
                 eprintln!("Link: failed to open URL {:?}: {}", self.url, err);
             }
             ctx.post_message(
-                Message::LinkClicked {
+                Message::LinkClicked(LinkClicked {
                     url: self.url.clone(),
-                },
+                }),
             );
         }
         ctx.request_repaint();
@@ -361,7 +361,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         match &messages[0].message {
-            Message::LinkClicked { url } => assert_eq!(url, "https://example.com"),
+            Message::LinkClicked(LinkClicked { url }) => assert_eq!(url, "https://example.com"),
             other => panic!("expected LinkClicked, got {:?}", other),
         }
     }
@@ -393,7 +393,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         match &messages[0].message {
-            Message::LinkClicked { url } => assert_eq!(url, "https://example.com"),
+            Message::LinkClicked(LinkClicked { url }) => assert_eq!(url, "https://example.com"),
             other => panic!("expected LinkClicked, got {:?}", other),
         }
     }

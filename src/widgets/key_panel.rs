@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, BindingHint, Event, EventCtx};
-use crate::message::Message;
+use crate::message::*;
 use crate::style::parse_color_like;
 
 use super::footer::FooterBinding;
@@ -340,10 +340,10 @@ impl KeyPanel {
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
         ctx.post_message(
-            Message::KeyPanelScrolled {
+            Message::KeyPanelScrolled(KeyPanelScrolled {
                 offset: self.offset_y,
                 max_offset: self.max_offset(),
-            },
+            }),
         );
     }
 
@@ -476,9 +476,9 @@ impl Widget for KeyPanel {
             self.set_binding_hints(bindings);
             if self.table.bindings != previous {
                 ctx.post_message(
-                    Message::KeyPanelBindingsUpdated {
+                    Message::KeyPanelBindingsUpdated(KeyPanelBindingsUpdated {
                         count: self.table.bindings.len(),
-                    },
+                    }),
                 );
                 ctx.request_repaint();
             }
@@ -627,7 +627,7 @@ impl Renderable for KeyPanel {
 mod tests {
     use super::KeyPanel;
     use crate::event::{Action, BindingHint, Event, EventCtx};
-    use crate::message::Message;
+    use crate::message::*;
     use crate::node_id::NodeId;
     use crate::widgets::{FooterBinding, Widget};
     use rich_rs::Console;
@@ -652,7 +652,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::KeyPanelBindingsUpdated { count: 1 }))
+                .any(|m| matches!(m.message, Message::KeyPanelBindingsUpdated(KeyPanelBindingsUpdated { count: 1 })))
         );
     }
 
@@ -675,7 +675,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::KeyPanelScrolled { .. }))
+                .any(|m| matches!(m.message, Message::KeyPanelScrolled(..)))
         );
     }
 

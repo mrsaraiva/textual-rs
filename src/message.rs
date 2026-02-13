@@ -2,6 +2,10 @@ use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
 use std::time::Duration;
 
+// ---------------------------------------------------------------------------
+// Helper types (unchanged)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandPaletteCommand {
     pub id: String,
@@ -38,281 +42,692 @@ pub enum AsyncTaskResult {
     },
 }
 
+// ---------------------------------------------------------------------------
+// Per-message structs — unit messages
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClearRequested;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeaderIconPressed;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HelpPanelFocusedHelpCleared;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandPaletteOpened;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandPaletteClosed;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionListSelectedChanged;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToastDismissed;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabsCleared;
+
+// ---------------------------------------------------------------------------
+// Per-message structs — input / text editing
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct InputChanged {
+    pub value: String,
+    pub validation: ValidationResult,
+}
+
+#[derive(Debug, Clone)]
+pub struct InputSubmitted {
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct InputBlurred {
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextAreaChanged {
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextAreaSelectionChanged {
+    pub start: (usize, usize),
+    pub end: (usize, usize),
+}
+
+#[derive(Debug, Clone)]
+pub struct TextEditClipboardCopyRequested {
+    pub text: String,
+    pub cut: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextEditClipboardPasteRequested {
+    pub target: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextEditClipboardPaste {
+    pub target: NodeId,
+    pub text: String,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — button / checkbox / switch / radio
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct ButtonPressed {
+    pub description: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckboxChanged {
+    pub checked: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SwitchChanged {
+    pub value: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadioButtonChanged {
+    pub value: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadioSetChanged {
+    pub index: usize,
+    pub button_id: NodeId,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — list / select / option
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct ListViewSelectionChanged {
+    pub index: usize,
+    pub item: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListViewItemActivated {
+    pub index: usize,
+    pub item: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OptionHighlighted {
+    pub index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OptionSelected {
+    pub index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectChanged {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectionListToggled {
+    pub index: usize,
+    pub selected: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — tabs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct TabActivated {
+    pub id: String,
+    pub index: usize,
+    pub title: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabDisabled {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabEnabled {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabHidden {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabShown {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabPaneFocused {
+    pub id: String,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — header / footer
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct HeaderToggled {
+    pub tall: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FooterBindingsUpdated {
+    pub count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScreenTitleChanged {
+    pub title: Option<String>,
+    pub sub_title: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — help panel
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct HelpPanelSetHelp {
+    pub panel: NodeId,
+    pub markup: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct HelpPanelClearHelp {
+    pub panel: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct HelpPanelFocusedHelpChanged {
+    pub source: NodeId,
+    pub markup: String,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — tree / directory tree
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeSelected {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeActivated {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeToggled {
+    pub index: usize,
+    pub label: String,
+    pub expanded: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeCollapsed {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeExpanded {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeNodeHighlighted {
+    pub index: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectoryTreeFileSelected {
+    pub index: usize,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectoryTreeDirectorySelected {
+    pub index: usize,
+    pub path: String,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — overlay
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct OverlaySetVisible {
+    pub overlay: NodeId,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlaySetAnchor {
+    pub overlay: NodeId,
+    pub x: usize,
+    pub y: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlayClearAnchor {
+    pub overlay: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlayToggle {
+    pub overlay: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlayDismissRequested {
+    pub overlay: Option<NodeId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlayVisibilityChanged {
+    pub overlay: NodeId,
+    pub visible: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — command palette
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct CommandPaletteCommandSelected {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommandPaletteSetCommands {
+    pub commands: Vec<CommandPaletteCommand>,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — data table
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct DataTableCursorMoved {
+    pub row: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableHeaderSelected {
+    pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableCellActivated {
+    pub row: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableCellHighlighted {
+    pub row: usize,
+    pub col: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableRowHighlighted {
+    pub row: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableRowSelected {
+    pub row: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableColumnHighlighted {
+    pub col: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataTableColumnSelected {
+    pub col: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — misc widgets
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct PlaceholderVariantChanged {
+    pub variant: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollapsibleToggled {
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct LinkClicked {
+    pub url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyPanelBindingsUpdated {
+    pub count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyPanelScrolled {
+    pub offset: usize,
+    pub max_offset: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct RichLogScrolled {
+    pub offset: usize,
+    pub max_offset: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — async tasks / timers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct AsyncTaskSpawn {
+    pub task_id: u64,
+    pub target: NodeId,
+    pub request: AsyncTaskRequest,
+}
+
+#[derive(Debug, Clone)]
+pub struct AsyncTaskCancel {
+    pub task_id: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AsyncTaskCancelTarget {
+    pub target: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct AsyncTaskCompleted {
+    pub task_id: u64,
+    pub target: NodeId,
+    pub result: AsyncTaskResult,
+}
+
+#[derive(Debug, Clone)]
+pub struct AsyncTaskCancelled {
+    pub task_id: u64,
+    pub target: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimerSchedule {
+    pub timer_id: u64,
+    pub target: NodeId,
+    pub delay: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimerCancel {
+    pub timer_id: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimerFired {
+    pub timer_id: u64,
+    pub target: NodeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimerCancelled {
+    pub timer_id: u64,
+    pub target: NodeId,
+}
+
+// ---------------------------------------------------------------------------
+// User-defined message extensibility
+// ---------------------------------------------------------------------------
+
+/// Trait for user-defined messages that can be sent through the framework's
+/// message system. Framework messages use the closed `Message` enum; user
+/// messages implement this trait and are carried via `Message::Custom`.
+pub trait UserMessage: std::any::Any + Send + Sync + std::fmt::Debug + 'static {
+    /// Downcast to concrete type.
+    fn as_any(&self) -> &dyn std::any::Any;
+    /// Clone into a boxed trait object.
+    fn clone_box(&self) -> Box<dyn UserMessage>;
+}
+
+impl Clone for Box<dyn UserMessage> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Message enum — newtype wrappers around individual structs
+// ---------------------------------------------------------------------------
+
+/// Generates `From<Struct> for Message` for each variant.
+macro_rules! impl_message_from {
+    ($($Variant:ident),* $(,)?) => {
+        $(
+            impl From<$Variant> for Message {
+                fn from(v: $Variant) -> Self {
+                    Message::$Variant(v)
+                }
+            }
+        )*
+    };
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
+    // Unit messages
+    ClearRequested(ClearRequested),
+    HeaderIconPressed(HeaderIconPressed),
+    HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
+    CommandPaletteOpened(CommandPaletteOpened),
+    CommandPaletteClosed(CommandPaletteClosed),
+    SelectionListSelectedChanged(SelectionListSelectedChanged),
+    ToastDismissed(ToastDismissed),
+    TabsCleared(TabsCleared),
+    // Input / text editing
+    InputChanged(InputChanged),
+    InputSubmitted(InputSubmitted),
+    InputBlurred(InputBlurred),
+    TextAreaChanged(TextAreaChanged),
+    TextAreaSelectionChanged(TextAreaSelectionChanged),
+    TextEditClipboardCopyRequested(TextEditClipboardCopyRequested),
+    TextEditClipboardPasteRequested(TextEditClipboardPasteRequested),
+    TextEditClipboardPaste(TextEditClipboardPaste),
+    // Button / checkbox / switch / radio
+    ButtonPressed(ButtonPressed),
+    CheckboxChanged(CheckboxChanged),
+    SwitchChanged(SwitchChanged),
+    RadioButtonChanged(RadioButtonChanged),
+    RadioSetChanged(RadioSetChanged),
+    // List / select / option
+    ListViewSelectionChanged(ListViewSelectionChanged),
+    ListViewItemActivated(ListViewItemActivated),
+    OptionHighlighted(OptionHighlighted),
+    OptionSelected(OptionSelected),
+    SelectChanged(SelectChanged),
+    SelectionListToggled(SelectionListToggled),
+    // Tabs
+    TabActivated(TabActivated),
+    TabDisabled(TabDisabled),
+    TabEnabled(TabEnabled),
+    TabHidden(TabHidden),
+    TabShown(TabShown),
+    TabPaneFocused(TabPaneFocused),
+    // Header / footer
+    HeaderToggled(HeaderToggled),
+    FooterBindingsUpdated(FooterBindingsUpdated),
+    ScreenTitleChanged(ScreenTitleChanged),
+    // Help panel
+    HelpPanelSetHelp(HelpPanelSetHelp),
+    HelpPanelClearHelp(HelpPanelClearHelp),
+    HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged),
+    // Tree / directory tree
+    TreeNodeSelected(TreeNodeSelected),
+    TreeNodeActivated(TreeNodeActivated),
+    TreeNodeToggled(TreeNodeToggled),
+    TreeNodeCollapsed(TreeNodeCollapsed),
+    TreeNodeExpanded(TreeNodeExpanded),
+    TreeNodeHighlighted(TreeNodeHighlighted),
+    DirectoryTreeFileSelected(DirectoryTreeFileSelected),
+    DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected),
+    // Overlay
+    OverlaySetVisible(OverlaySetVisible),
+    OverlaySetAnchor(OverlaySetAnchor),
+    OverlayClearAnchor(OverlayClearAnchor),
+    OverlayToggle(OverlayToggle),
+    OverlayDismissRequested(OverlayDismissRequested),
+    OverlayVisibilityChanged(OverlayVisibilityChanged),
+    // Command palette
+    CommandPaletteCommandSelected(CommandPaletteCommandSelected),
+    CommandPaletteSetCommands(CommandPaletteSetCommands),
+    // Data table
+    DataTableCursorMoved(DataTableCursorMoved),
+    DataTableHeaderSelected(DataTableHeaderSelected),
+    DataTableCellActivated(DataTableCellActivated),
+    DataTableCellHighlighted(DataTableCellHighlighted),
+    DataTableRowHighlighted(DataTableRowHighlighted),
+    DataTableRowSelected(DataTableRowSelected),
+    DataTableColumnHighlighted(DataTableColumnHighlighted),
+    DataTableColumnSelected(DataTableColumnSelected),
+    // Misc widgets
+    PlaceholderVariantChanged(PlaceholderVariantChanged),
+    CollapsibleToggled(CollapsibleToggled),
+    LinkClicked(LinkClicked),
+    KeyPanelBindingsUpdated(KeyPanelBindingsUpdated),
+    KeyPanelScrolled(KeyPanelScrolled),
+    RichLogScrolled(RichLogScrolled),
+    // Async tasks / timers
+    AsyncTaskSpawn(AsyncTaskSpawn),
+    AsyncTaskCancel(AsyncTaskCancel),
+    AsyncTaskCancelTarget(AsyncTaskCancelTarget),
+    AsyncTaskCompleted(AsyncTaskCompleted),
+    AsyncTaskCancelled(AsyncTaskCancelled),
+    TimerSchedule(TimerSchedule),
+    TimerCancel(TimerCancel),
+    TimerFired(TimerFired),
+    TimerCancelled(TimerCancelled),
+    // User-defined messages
+    Custom(Box<dyn UserMessage>),
+}
+
+impl_message_from!(
     ClearRequested,
-    InputChanged {
-        value: String,
-        validation: ValidationResult,
-    },
-    InputSubmitted {
-        value: String,
-    },
-    TextAreaChanged {
-        value: String,
-    },
-    TextEditClipboardCopyRequested {
-        text: String,
-        cut: bool,
-    },
-    TextEditClipboardPasteRequested {
-        target: NodeId,
-    },
-    TextEditClipboardPaste {
-        target: NodeId,
-        text: String,
-    },
-    ButtonPressed {
-        description: String,
-    },
-    CheckboxChanged {
-        checked: bool,
-    },
-    ListViewSelectionChanged {
-        index: usize,
-        item: String,
-    },
-    ListViewItemActivated {
-        index: usize,
-        item: String,
-    },
-    TabActivated {
-        id: String,
-        index: usize,
-        title: String,
-    },
-    HeaderToggled {
-        tall: bool,
-    },
     HeaderIconPressed,
-    FooterBindingsUpdated {
-        count: usize,
-    },
-    HelpPanelSetHelp {
-        panel: NodeId,
-        markup: String,
-    },
-    HelpPanelClearHelp {
-        panel: NodeId,
-    },
-    HelpPanelFocusedHelpChanged {
-        source: NodeId,
-        markup: String,
-    },
     HelpPanelFocusedHelpCleared,
-    PlaceholderVariantChanged {
-        variant: String,
-    },
-    TreeNodeSelected {
-        index: usize,
-        label: String,
-    },
-    TreeNodeActivated {
-        index: usize,
-        label: String,
-    },
-    TreeNodeToggled {
-        index: usize,
-        label: String,
-        expanded: bool,
-    },
-    DirectoryTreeFileSelected {
-        index: usize,
-        path: String,
-    },
-    DirectoryTreeDirectorySelected {
-        index: usize,
-        path: String,
-    },
-    OverlaySetVisible {
-        overlay: NodeId,
-        visible: bool,
-    },
-    OverlaySetAnchor {
-        overlay: NodeId,
-        x: usize,
-        y: usize,
-    },
-    OverlayClearAnchor {
-        overlay: NodeId,
-    },
-    OverlayToggle {
-        overlay: NodeId,
-    },
-    OverlayDismissRequested {
-        overlay: Option<NodeId>,
-    },
-    OverlayVisibilityChanged {
-        overlay: NodeId,
-        visible: bool,
-    },
     CommandPaletteOpened,
     CommandPaletteClosed,
-    CommandPaletteCommandSelected {
-        id: String,
-        title: String,
-    },
-    CommandPaletteSetCommands {
-        commands: Vec<CommandPaletteCommand>,
-    },
-    DataTableCursorMoved {
-        row: usize,
-        column: usize,
-    },
-    DataTableHeaderSelected {
-        column: usize,
-    },
-    DataTableCellActivated {
-        row: usize,
-        column: usize,
-    },
-    SwitchChanged {
-        value: bool,
-    },
-    RadioButtonChanged {
-        value: bool,
-    },
-    RadioSetChanged {
-        index: usize,
-        button_id: NodeId,
-    },
-    OptionHighlighted {
-        index: usize,
-    },
-    OptionSelected {
-        index: usize,
-    },
-    SelectChanged {
-        index: usize,
-        label: String,
-    },
-    // SelectionList
-    SelectionListToggled {
-        index: usize,
-        selected: bool,
-    },
     SelectionListSelectedChanged,
-    // Collapsible
-    CollapsibleToggled {
-        collapsed: bool,
-    },
-    // Link
-    LinkClicked {
-        url: String,
-    },
-    // Toast
     ToastDismissed,
-    // Key panel
-    KeyPanelBindingsUpdated {
-        count: usize,
-    },
-    KeyPanelScrolled {
-        offset: usize,
-        max_offset: usize,
-    },
-    // Rich log
-    RichLogScrolled {
-        offset: usize,
-        max_offset: usize,
-    },
-    AsyncTaskSpawn {
-        task_id: u64,
-        target: NodeId,
-        request: AsyncTaskRequest,
-    },
-    AsyncTaskCancel {
-        task_id: u64,
-    },
-    AsyncTaskCancelTarget {
-        target: NodeId,
-    },
-    TimerSchedule {
-        timer_id: u64,
-        target: NodeId,
-        delay: Duration,
-    },
-    TimerCancel {
-        timer_id: u64,
-    },
-    TimerFired {
-        timer_id: u64,
-        target: NodeId,
-    },
-    TimerCancelled {
-        timer_id: u64,
-        target: NodeId,
-    },
-    AsyncTaskCompleted {
-        task_id: u64,
-        target: NodeId,
-        result: AsyncTaskResult,
-    },
-    AsyncTaskCancelled {
-        task_id: u64,
-        target: NodeId,
-    },
-    // Tree: separate expand/collapse + highlight messages
-    TreeNodeCollapsed {
-        index: usize,
-        label: String,
-    },
-    TreeNodeExpanded {
-        index: usize,
-        label: String,
-    },
-    TreeNodeHighlighted {
-        index: usize,
-        label: String,
-    },
-    // DataTable highlight/select messages
-    DataTableCellHighlighted {
-        row: usize,
-        col: usize,
-    },
-    DataTableRowHighlighted {
-        row: usize,
-    },
-    DataTableRowSelected {
-        row: usize,
-    },
-    DataTableColumnHighlighted {
-        col: usize,
-    },
-    DataTableColumnSelected {
-        col: usize,
-    },
-    // TextArea selection change
-    TextAreaSelectionChanged {
-        start: (usize, usize),
-        end: (usize, usize),
-    },
-    // Input blur
-    InputBlurred {
-        value: String,
-    },
-    // Tabs lifecycle messages
-    TabDisabled {
-        id: String,
-    },
-    TabEnabled {
-        id: String,
-    },
-    TabHidden {
-        id: String,
-    },
-    TabShown {
-        id: String,
-    },
     TabsCleared,
-    TabPaneFocused {
-        id: String,
-    },
-    // Screen title updates (dispatched to Header widget when screens change)
-    ScreenTitleChanged {
-        title: Option<String>,
-        sub_title: Option<String>,
-    },
-}
+    InputChanged,
+    InputSubmitted,
+    InputBlurred,
+    TextAreaChanged,
+    TextAreaSelectionChanged,
+    TextEditClipboardCopyRequested,
+    TextEditClipboardPasteRequested,
+    TextEditClipboardPaste,
+    ButtonPressed,
+    CheckboxChanged,
+    SwitchChanged,
+    RadioButtonChanged,
+    RadioSetChanged,
+    ListViewSelectionChanged,
+    ListViewItemActivated,
+    OptionHighlighted,
+    OptionSelected,
+    SelectChanged,
+    SelectionListToggled,
+    TabActivated,
+    TabDisabled,
+    TabEnabled,
+    TabHidden,
+    TabShown,
+    TabPaneFocused,
+    HeaderToggled,
+    FooterBindingsUpdated,
+    ScreenTitleChanged,
+    HelpPanelSetHelp,
+    HelpPanelClearHelp,
+    HelpPanelFocusedHelpChanged,
+    TreeNodeSelected,
+    TreeNodeActivated,
+    TreeNodeToggled,
+    TreeNodeCollapsed,
+    TreeNodeExpanded,
+    TreeNodeHighlighted,
+    DirectoryTreeFileSelected,
+    DirectoryTreeDirectorySelected,
+    OverlaySetVisible,
+    OverlaySetAnchor,
+    OverlayClearAnchor,
+    OverlayToggle,
+    OverlayDismissRequested,
+    OverlayVisibilityChanged,
+    CommandPaletteCommandSelected,
+    CommandPaletteSetCommands,
+    DataTableCursorMoved,
+    DataTableHeaderSelected,
+    DataTableCellActivated,
+    DataTableCellHighlighted,
+    DataTableRowHighlighted,
+    DataTableRowSelected,
+    DataTableColumnHighlighted,
+    DataTableColumnSelected,
+    PlaceholderVariantChanged,
+    CollapsibleToggled,
+    LinkClicked,
+    KeyPanelBindingsUpdated,
+    KeyPanelScrolled,
+    RichLogScrolled,
+    AsyncTaskSpawn,
+    AsyncTaskCancel,
+    AsyncTaskCancelTarget,
+    AsyncTaskCompleted,
+    AsyncTaskCancelled,
+    TimerSchedule,
+    TimerCancel,
+    TimerFired,
+    TimerCancelled,
+);
+
+// ---------------------------------------------------------------------------
+// MessageEvent / MessageEnvelope (unchanged structure)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct MessageEvent {
@@ -432,9 +847,9 @@ mod tests {
     fn test_event() -> MessageEvent {
         MessageEvent {
             sender: node_id_from_ffi(1),
-            message: Message::ButtonPressed {
+            message: Message::ButtonPressed(ButtonPressed {
                 description: "ok".into(),
-            },
+            }),
         }
     }
 
@@ -523,7 +938,7 @@ mod tests {
     fn message_returns_event_message() {
         let env = MessageEnvelope::new(test_event());
         match env.message() {
-            Message::ButtonPressed { description } => {
+            Message::ButtonPressed(ButtonPressed { description }) => {
                 assert_eq!(description, "ok");
             }
             other => panic!("unexpected message variant: {:?}", other),
@@ -546,7 +961,7 @@ mod tests {
         let expected_sender = evt.sender;
         let env: MessageEnvelope = evt.into();
         assert_eq!(env.sender(), expected_sender);
-        assert!(matches!(env.message(), Message::ButtonPressed { .. }));
+        assert!(matches!(env.message(), Message::ButtonPressed(..)));
     }
 
     // --- Flag independence ---
@@ -626,5 +1041,22 @@ mod tests {
         env.set_control(other);
         let cloned = env.clone();
         assert_eq!(cloned.control(), Some(other));
+    }
+
+    // --- From impls ---
+
+    #[test]
+    fn from_unit_struct_into_message() {
+        let msg: Message = ClearRequested.into();
+        assert!(matches!(msg, Message::ClearRequested(..)));
+    }
+
+    #[test]
+    fn from_field_struct_into_message() {
+        let msg: Message = ButtonPressed {
+            description: "test".into(),
+        }
+        .into();
+        assert!(matches!(msg, Message::ButtonPressed(..)));
     }
 }

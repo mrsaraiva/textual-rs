@@ -584,11 +584,11 @@ impl EventCtx {
         request: AsyncTaskRequest,
     ) {
         self.post_message(
-            Message::AsyncTaskSpawn {
+            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
                 task_id,
                 target,
                 request,
-            },
+            }),
         );
     }
 
@@ -602,11 +602,11 @@ impl EventCtx {
     }
 
     pub fn cancel_async_task(&mut self, task_id: u64) {
-        self.post_message(Message::AsyncTaskCancel { task_id });
+        self.post_message(Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }));
     }
 
     pub fn cancel_async_tasks_for(&mut self, target: NodeId) {
-        self.post_message(Message::AsyncTaskCancelTarget { target });
+        self.post_message(Message::AsyncTaskCancelTarget(crate::message::AsyncTaskCancelTarget { target }));
     }
 
     pub fn schedule_timer(
@@ -616,11 +616,11 @@ impl EventCtx {
         delay: Duration,
     ) {
         self.post_message(
-            Message::TimerSchedule {
+            Message::TimerSchedule(crate::message::TimerSchedule {
                 timer_id,
                 target,
                 delay,
-            },
+            }),
         );
     }
 
@@ -630,11 +630,11 @@ impl EventCtx {
     }
 
     pub fn cancel_timer(&mut self, timer_id: u64) {
-        self.post_message(Message::TimerCancel { timer_id });
+        self.post_message(Message::TimerCancel(crate::message::TimerCancel { timer_id }));
     }
 
     pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
-        self.post_message(Message::OverlaySetVisible { overlay, visible });
+        self.post_message(Message::OverlaySetVisible(crate::message::OverlaySetVisible { overlay, visible }));
     }
 
     pub fn show_overlay(&mut self, overlay: NodeId) {
@@ -646,26 +646,26 @@ impl EventCtx {
     }
 
     pub fn toggle_overlay(&mut self, overlay: NodeId) {
-        self.post_message(Message::OverlayToggle { overlay });
+        self.post_message(Message::OverlayToggle(crate::message::OverlayToggle { overlay }));
     }
 
     pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
-        self.post_message(Message::OverlayDismissRequested { overlay });
+        self.post_message(Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay }));
     }
 
     pub fn open_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteOpened);
+        self.post_message(Message::CommandPaletteOpened(crate::message::CommandPaletteOpened));
     }
 
     pub fn close_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteClosed);
+        self.post_message(Message::CommandPaletteClosed(crate::message::CommandPaletteClosed));
     }
 
     pub fn set_command_palette_commands(
         &mut self,
         commands: Vec<CommandPaletteCommand>,
     ) {
-        self.post_message(Message::CommandPaletteSetCommands { commands });
+        self.post_message(Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands }));
     }
 
     pub fn select_command_palette_command(
@@ -674,10 +674,10 @@ impl EventCtx {
         title: impl Into<String>,
     ) {
         self.post_message(
-            Message::CommandPaletteCommandSelected {
+            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected {
                 id: id.into(),
                 title: title.into(),
-            },
+            }),
         );
     }
 
@@ -892,27 +892,27 @@ mod tests {
         assert_eq!(messages.len(), 4);
         assert!(matches!(
             &messages[0].message,
-            Message::AsyncTaskSpawn {
+            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
                 task_id,
                 target,
                 request: AsyncTaskRequest::Sleep { label, .. },
-            } if *task_id == 5 && *target == sender_id && label == "work"
+            }) if *task_id == 5 && *target == sender_id && label == "work"
         ));
         assert!(matches!(
             messages[1].message,
-            Message::TimerSchedule {
-                timer_id: 9,
+            Message::TimerSchedule(crate::message::TimerSchedule {
+                timer_id,
                 target,
                 ..
-            } if target == sender_id
+            }) if timer_id == 9 && target == sender_id
         ));
         assert!(matches!(
             messages[2].message,
-            Message::AsyncTaskCancel { task_id: 5 }
+            Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }) if task_id == 5
         ));
         assert!(matches!(
             messages[3].message,
-            Message::TimerCancel { timer_id: 9 }
+            Message::TimerCancel(crate::message::TimerCancel { timer_id }) if timer_id == 9
         ));
     }
 
@@ -941,37 +941,37 @@ mod tests {
         assert_eq!(messages.len(), 8);
         assert!(matches!(
             messages[0].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay: target,
                 visible: true
-            } if target == overlay_id
+            }) if target == overlay_id
         ));
         assert!(matches!(
             messages[1].message,
-            Message::OverlaySetVisible {
+            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
                 overlay: target,
                 visible: false
-            } if target == overlay_id
+            }) if target == overlay_id
         ));
         assert!(matches!(
             messages[2].message,
-            Message::OverlayToggle { overlay: target } if target == overlay_id
+            Message::OverlayToggle(crate::message::OverlayToggle { overlay: target }) if target == overlay_id
         ));
         assert!(matches!(
             messages[3].message,
-            Message::OverlayDismissRequested { overlay: Some(target) } if target == overlay_id
+            Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay: Some(target) }) if target == overlay_id
         ));
-        assert!(matches!(messages[4].message, Message::CommandPaletteOpened));
+        assert!(matches!(messages[4].message, Message::CommandPaletteOpened(_)));
         assert!(matches!(
             &messages[5].message,
-            Message::CommandPaletteSetCommands { commands }
+            Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands })
                 if commands.len() == 1 && commands[0].id == "open"
         ));
         assert!(matches!(
             &messages[6].message,
-            Message::CommandPaletteCommandSelected { id, title } if id == "open" && title == "Open"
+            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected { id, title }) if id == "open" && title == "Open"
         ));
-        assert!(matches!(messages[7].message, Message::CommandPaletteClosed));
+        assert!(matches!(messages[7].message, Message::CommandPaletteClosed(_)));
     }
 
     // ── New event struct construction tests ──────────────────────────
