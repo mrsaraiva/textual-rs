@@ -86,7 +86,7 @@ impl Welcome {
     fn translate_mouse_down(&self, mouse: MouseDownEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
         // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if mouse.target == NodeId::default() && on_close_row {
+        if crate::runtime::dispatch_ctx::is_self_target(mouse.target) && on_close_row {
             Event::MouseDown(MouseDownEvent {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 target: NodeId::default(),
@@ -103,7 +103,7 @@ impl Welcome {
     fn translate_mouse_up(&self, mouse: MouseUpEvent) -> Event {
         let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
         // TODO(P1-14 integration): wire tree-based NodeId comparison
-        if mouse.target == Some(NodeId::default()) && on_close_row {
+        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) && on_close_row {
             Event::MouseUp(MouseUpEvent {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 target: Some(NodeId::default()),

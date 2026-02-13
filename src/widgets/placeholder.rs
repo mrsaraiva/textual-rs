@@ -6,8 +6,6 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::style::Color;
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
@@ -239,7 +237,9 @@ impl Widget for Placeholder {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.cycle_variant();
                 ctx.post_message(Message::PlaceholderVariantChanged(
                     PlaceholderVariantChanged {

@@ -860,7 +860,7 @@ impl Widget for Tabs {
         }) = event
         {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if *target == NodeId::default() {
+            if crate::runtime::dispatch_ctx::is_self_target(*target) {
                 if attribute == Self::UNDERLINE_START_ATTR {
                     self.underline_start = *value;
                     ctx.request_repaint();
@@ -904,7 +904,7 @@ impl Widget for Tabs {
         }
         if let Event::MouseDown(mouse) = event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if mouse.target == NodeId::default() {
+            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                 if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
                     if self.activate(index, Some(ctx)) {
                         ctx.set_handled();

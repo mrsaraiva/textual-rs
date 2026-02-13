@@ -540,7 +540,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                         return;
                     }
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if mouse.target == NodeId::default() {
+                    if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                         // Click inside dropdown list coordinates.
                         self.list.on_event(event, ctx);
                         self.cursor.set_highlighted(self.list.highlighted());
@@ -592,7 +592,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     _ => {}
                 },
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
-                Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+                Event::MouseDown(mouse)
+                    if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+                {
                     self.set_open(true, ctx);
                     ctx.set_handled();
                 }

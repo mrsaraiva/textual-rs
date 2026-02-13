@@ -4,8 +4,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -977,7 +975,9 @@ impl Widget for Tree {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let nodes = self.visible_nodes();
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if let Some(node) = nodes.get(index) {
@@ -1001,7 +1001,9 @@ impl Widget for Tree {
                 }
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
+            Event::MouseUp(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+            {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 let nodes = self.visible_nodes();
                 if self.pressed_activation_index == Some(index) {

@@ -3,8 +3,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
@@ -199,7 +197,9 @@ impl Widget for Toast {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.dismiss(ctx);
             }
             Event::Tick(_) => {

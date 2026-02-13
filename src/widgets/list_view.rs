@@ -5,8 +5,6 @@ use crate::compose::ComposeResult;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use crate::action::ParsedAction;
 
 use super::{
@@ -449,7 +447,9 @@ impl Widget for ListView {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
                     self.select_index(index, ctx);
@@ -462,7 +462,9 @@ impl Widget for ListView {
                 }
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
+            Event::MouseUp(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+            {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.pressed_index == Some(index) && self.is_selectable(index) {
                     self.emit_item_activated(index, ctx);

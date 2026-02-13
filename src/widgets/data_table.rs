@@ -7,7 +7,6 @@ use crate::style::{Color, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
-use crate::runtime::dispatch_ctx::is_self_target;
 
 use super::{
     BindingDecl, ScrollView, Widget, WidgetStyles,
@@ -1247,7 +1246,9 @@ impl Widget for DataTable {
 
         // Handle mouse events regardless of focus state.
         match event {
-            Event::MouseDown(mouse) if is_self_target(mouse.target) => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let width = self.content_width as usize;
                 let height = self.content_height as usize;
                 if let Some(state) = self.horizontal_scrollbar_state(width, height)

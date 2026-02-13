@@ -239,7 +239,7 @@ impl Widget for Overlay {
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 let target_matches = overlay
-                    .map(|target| target == NodeId::default())
+                    .map(crate::runtime::dispatch_ctx::is_self_target)
                     .unwrap_or(true);
                 let sender_in_modal = self.modal_contains(message.sender);
                 if target_matches && (sender_in_modal || overlay.is_some()) {

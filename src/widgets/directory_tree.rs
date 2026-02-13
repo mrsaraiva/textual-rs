@@ -426,7 +426,9 @@ impl Widget for DirectoryTree {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.tree.on_event(
                     &Event::MouseDown(MouseDownEvent {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
@@ -450,13 +452,13 @@ impl Widget for DirectoryTree {
                 target,
                 result,
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
-            }) if *target == NodeId::default() => {
+            }) if crate::runtime::dispatch_ctx::is_self_target(*target) => {
                 self.apply_directory_load_result(*task_id, result, ctx);
                 ctx.set_handled();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target })
-                if *target == NodeId::default() =>
+                if crate::runtime::dispatch_ctx::is_self_target(*target) =>
             {
                 self.clear_inflight_task(*task_id);
                 ctx.set_handled();
@@ -819,7 +821,7 @@ mod tests {
                     target,
                     request: AsyncTaskRequest::ReadDirectory { .. },
                     ..
-                }) if *target == NodeId::default() // TODO(P1-14 integration): use WidgetTree-assigned NodeId
+                }) if crate::runtime::dispatch_ctx::is_self_target(*target) // TODO(P1-14 integration): use WidgetTree-assigned NodeId
             )
         }));
     }

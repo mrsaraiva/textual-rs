@@ -6,8 +6,6 @@ use crate::css;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{
@@ -80,11 +78,7 @@ impl CollapsibleTitle {
     /// This is called by `Collapsible::render()` which resolves the component
     /// style on `&Collapsible` (not `&CollapsibleTitle`) so that CSS selectors
     /// like `Collapsible > .collapsible--title` match correctly.
-    pub(crate) fn render_title_line(
-        &self,
-        width: usize,
-        style: rich_rs::Style,
-    ) -> Vec<Segment> {
+    pub(crate) fn render_title_line(&self, width: usize, style: rich_rs::Style) -> Vec<Segment> {
         let title_text = format!("{} {}", self.current_symbol(), self.title);
         let title_text = rich_rs::set_cell_size(&title_text, width);
         let title_line = vec![Segment::styled(title_text, style)];
@@ -390,7 +384,9 @@ impl Widget for Collapsible {
 
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 // Click on the title bar area (y == 0) toggles
                 if mouse.y == 0 {
                     self.title_widget.set_pressed(true);
@@ -403,7 +399,9 @@ impl Widget for Collapsible {
                     self.title_widget.set_pressed(false);
                     ctx.request_repaint();
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if mouse.target == Some(NodeId::default()) && mouse.y == 0 {
+                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target)
+                        && mouse.y == 0
+                    {
                         self.toggle_with_ctx(ctx);
                         return;
                     }

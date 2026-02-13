@@ -6,7 +6,6 @@ use crate::message::*;
 
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
-use crate::node_id::NodeId;
 
 use super::{
     Widget, WidgetStyles,
@@ -410,7 +409,9 @@ impl Widget for OptionList {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if index < self.items.len() && self.items[index].is_selectable() {
                     self.highlight_index(index, ctx);

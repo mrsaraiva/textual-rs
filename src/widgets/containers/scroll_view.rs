@@ -11,7 +11,6 @@ use crate::style::{TransitionTiming, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
-use crate::runtime::dispatch_ctx::is_self_target;
 use crate::widgets::{
     BindingDecl, Widget, WidgetStyles,
     helpers::{
@@ -743,7 +742,7 @@ impl Widget for ScrollView {
             done,
         }) = event
         {
-            if is_self_target(*target) {
+            if crate::runtime::dispatch_ctx::is_self_target(*target) {
                 if attribute == Self::OFFSET_Y_ATTR {
                     if self.drag_v.is_none() {
                         self.render_offset_y = if *done { self.offset_y as f32 } else { *value };
@@ -763,7 +762,7 @@ impl Widget for ScrollView {
             }
         }
         if let Event::MouseDown(mouse) = event {
-            if is_self_target(mouse.target) {
+            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                 let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);

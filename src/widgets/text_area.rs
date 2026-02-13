@@ -1400,7 +1400,9 @@ impl Widget for TextArea {
                 }
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let gutter = self.line_number_gutter_width() as u16;
                 let row = self.scroll_row.saturating_add(mouse.y as usize);
                 let row = row.min(self.lines.len().saturating_sub(1));
@@ -2072,7 +2074,7 @@ mod tests {
         assert!(paste_messages.iter().any(|m| {
             matches!(
                 m.message,
-                Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target }) if target == NodeId::default()
+                Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target }) if crate::runtime::dispatch_ctx::is_self_target(target)
             )
         }));
     }

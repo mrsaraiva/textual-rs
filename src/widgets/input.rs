@@ -686,7 +686,9 @@ impl Widget for Input {
                 ctx.request_repaint();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 if self.text.is_empty() {
                     self.cursor = 0;
                 } else {
@@ -1426,7 +1428,7 @@ mod tests {
         let messages = ctx.take_messages();
         assert!(matches!(
             messages.first().map(|m| &m.message),
-            Some(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target })) if *target == NodeId::default()
+            Some(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target })) if crate::runtime::dispatch_ctx::is_self_target(*target)
         ));
 
         let mut ctx = EventCtx::default();

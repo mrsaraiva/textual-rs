@@ -4,6 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::compose::ComposeResult;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
+#[cfg(test)]
 use crate::node_id::NodeId;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -192,7 +193,9 @@ impl Widget for Checkbox {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -201,7 +204,7 @@ impl Widget for Checkbox {
                 if self.pressed {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target == Some(NodeId::default()) {
+                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) {
                         self.checked = !self.checked;
                         self.rebuild_classes_in_place();
                         self.emit_changed(ctx);

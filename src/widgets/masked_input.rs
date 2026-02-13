@@ -864,7 +864,9 @@ impl Widget for MaskedInput {
                 ctx.request_repaint();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 let pos = self.cursor_from_x(mouse.x);
                 self.cursor = pos;
                 if self.template.at_separator(self.cursor) {

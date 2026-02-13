@@ -937,7 +937,7 @@ impl Widget for CommandPalette {
         }) = event
         {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if *target == NodeId::default() {
+            if crate::runtime::dispatch_ctx::is_self_target(*target) {
                 if attribute == Self::KEY_PANEL_WIDTH_ATTR {
                     self.key_panel_render_width = (*value).max(0.0);
                     if *done && !self.show_key_panel {
@@ -997,21 +997,27 @@ impl Widget for CommandPalette {
             if self.show_key_panel {
                 match event {
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+                    Event::MouseDown(mouse)
+                        if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+                    {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
+                    Event::MouseUp(mouse)
+                        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                    {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
                         }
                     }
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    Event::MouseScroll(mouse) if mouse.target == Some(NodeId::default()) => {
+                    Event::MouseScroll(mouse)
+                        if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+                    {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
@@ -1048,7 +1054,7 @@ impl Widget for CommandPalette {
             // Use screen coordinates so panel hit-testing remains correct when
             // bubbling from children (e.g. search input) and during panel animation.
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            let (x, y) = if mouse.target == NodeId::default() {
+            let (x, y) = if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                 (mouse.x as usize, mouse.y as usize)
             } else {
                 (mouse.screen_x as usize, mouse.screen_y as usize)
@@ -1066,7 +1072,7 @@ impl Widget for CommandPalette {
             }
 
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if mouse.target == NodeId::default() {
+            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                 // Let Input handle cursor placement/focus details.
             } else {
                 let (results_x, results_y, results_w, results_h) =

@@ -239,9 +239,7 @@ impl RadioSet {
     pub fn children_mut(&mut self) -> &mut Vec<RadioButton> {
         &mut self.buttons
     }
-
 }
-
 
 impl Widget for RadioSet {
     fn compose(&self) -> ComposeResult {
@@ -288,7 +286,9 @@ impl Widget for RadioSet {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 // Determine which button was clicked by y coordinate.
                 let index = mouse.y as usize;
                 if index < self.buttons.len() && !self.buttons[index].is_disabled() {

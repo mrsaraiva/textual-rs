@@ -3,7 +3,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-use crate::node_id::NodeId;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
@@ -218,7 +217,9 @@ impl Widget for Switch {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -227,7 +228,7 @@ impl Widget for Switch {
                 if self.pressed {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target == Some(NodeId::default()) {
+                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) {
                         self.value = !self.value;
                         self.on_toggled();
                         self.emit_changed(ctx);

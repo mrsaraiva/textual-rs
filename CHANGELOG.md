@@ -10,6 +10,7 @@ until the API stabilizes.
 ### 2026-02-13
 - **Pillar 1 DOM hardening: dispatch recipient context for tree routing**
   - Added runtime dispatch recipient context (`src/runtime/dispatch_ctx.rs`) and wired it into tree/event/message routing so handlers can resolve "self target" against the currently dispatched node instead of relying on `NodeId::default()`.
+  - Migrated remaining widget-side `NodeId::default()` self-target checks to recipient-aware predicates across controls, inputs, lists/tables, tree/tabs, overlays/tooltips, command palette, and related mouse/message handlers.
   - Updated Button, ScrollView, and DataTable target checks to use recipient-aware helpers, unblocking tree-routed mouse/animation handling paths.
   - Added focused gate coverage in `tests/p1_dom_input_gates.rs` for click targeting, hover forwarding, focus cycling, repeated click delivery, and DataTable arrow-key routing via Container/Row focus.
 

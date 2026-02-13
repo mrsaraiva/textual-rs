@@ -4,8 +4,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta}
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
@@ -133,7 +131,9 @@ impl Widget for Link {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -143,7 +143,7 @@ impl Widget for Link {
                     self.pressed = false;
                     ctx.request_repaint();
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
-                    if mouse.target == Some(NodeId::default()) {
+                    if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) {
                         self.activate(ctx);
                         return;
                     }

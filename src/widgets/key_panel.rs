@@ -10,7 +10,6 @@ use super::footer::FooterBinding;
 use super::helpers::{
     adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints, pad_lines_to_width,
 };
-use crate::node_id::NodeId;
 
 use super::{ScrollView, Widget, WidgetStyles};
 
@@ -482,7 +481,7 @@ impl Widget for KeyPanel {
         }
         if let Event::MouseDown(mouse) = event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if mouse.target == NodeId::default() {
+            if crate::runtime::dispatch_ctx::is_self_target(mouse.target) {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);

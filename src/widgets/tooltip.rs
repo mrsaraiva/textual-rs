@@ -397,15 +397,21 @@ impl Widget for Tooltip {
                 }
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseUp(mouse) if mouse.target == Some(NodeId::default()) => {
+            Event::MouseUp(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+            {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseScroll(mouse) if mouse.target == Some(NodeId::default()) => {
+            Event::MouseScroll(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target_opt(mouse.target) =>
+            {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
             _ => {}
@@ -460,7 +466,7 @@ impl Widget for Tooltip {
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 let target_matches = overlay
-                    .map(|target| target == NodeId::default())
+                    .map(crate::runtime::dispatch_ctx::is_self_target)
                     .unwrap_or(true);
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);

@@ -4,8 +4,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use crate::node_id::NodeId;
-
 use super::option_list::{OptionItem, OptionList};
 use super::{
     Widget, WidgetStyles,
@@ -352,7 +350,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         }
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse)
+                if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
+            {
                 // Compute the item index from the click position.
                 let index = self
                     .inner
