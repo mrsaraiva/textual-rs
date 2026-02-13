@@ -216,8 +216,7 @@ impl App {
             },
             NodeId::default(),
         );
-        let root_lines =
-            Segment::split_and_crop_lines(root_segments, width, None, true, false);
+        let root_lines = Segment::split_and_crop_lines(root_segments, width, None, true, false);
         for (row, line) in root_lines.iter().enumerate() {
             next.write_line_at(0, row, line, true);
         }
@@ -549,8 +548,7 @@ fn render_tree_node(
     let h = (rect.y1.saturating_sub(rect.y0)) as usize;
 
     // Only render if the node is visible AND has a non-zero extent.
-    let should_render =
-        node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
+    let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
 
     if should_render {
         // Create options sized to this widget's layout rect.
@@ -562,17 +560,12 @@ fn render_tree_node(
         // render_styled_dyn_obj handles CSS resolution, border composition,
         // segment tagging with the real arena NodeId, and style stack
         // push/pop for this node's own content rendering.
-        let segments = node.widget.render_styled_dyn_obj(
-            console,
-            &opts,
-            None,
-            node_id,
-        );
+        let segments = node
+            .widget
+            .render_styled_dyn_obj(console, &opts, None, node_id);
 
         // Split into lines and paint at the layout position.
-        let lines = rich_rs::Segment::split_and_crop_lines(
-            segments, w, None, true, false,
-        );
+        let lines = rich_rs::Segment::split_and_crop_lines(segments, w, None, true, false);
         for (row_idx, line) in lines.iter().enumerate() {
             let y = rect.y0 as usize + row_idx;
             if y >= frame.height {
@@ -1101,5 +1094,4 @@ mod tests {
             "display:none child should be marked as not rendered"
         );
     }
-
 }

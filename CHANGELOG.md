@@ -14,6 +14,7 @@ until the API stabilizes.
   - Removed stale focus interception in `AppRoot` (`FocusNext`/`FocusPrev`/`Tab`) that was swallowing focus actions while the old stub focus API is inactive.
   - Forwarded `on_layout` through alias wrappers that already forwarded `on_resize` (`Horizontal`, `Vertical`, `VerticalGroup`, `HorizontalGroup`, `Center*`, `Right`, `Middle`, `ScrollableContainer`, `HorizontalScroll`, `ItemGrid`).
   - Updated container Y-hit-testing to account for child margins and expanded P1 DOM input gates with wrapper-chain button-click coverage.
+  - Added container-level focus propagation for blur (`set_focus(false)` clears focused descendants) and a focused gate to prevent stale focus when clicking across independent wrapper columns.
 
 - **Pillar 1 DOM hardening: dispatch recipient context for tree routing**
   - Added runtime dispatch recipient context (`src/runtime/dispatch_ctx.rs`) and wired it into tree/event/message routing so handlers can resolve "self target" against the currently dispatched node instead of relying on `NodeId::default()`.

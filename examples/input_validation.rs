@@ -38,8 +38,7 @@ impl InputValidationApp {
 
 impl TextualApp for InputValidationApp {
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_child(
-            Container::new().with_compose(compose![
+        AppRoot::new().with_child(Container::new().with_compose(compose![
                 Label::new(
                     "Enter an even number between 1 and 100 that is also a palindrome.",
                 ),
@@ -51,8 +50,7 @@ impl TextualApp for InputValidationApp {
                         Arc::new(Palindrome) as ValidatorRef,
                     ]),
                 Pretty::shared(self.pretty_str.clone()),
-            ]),
-        )
+            ]))
     }
 
     fn configure(&mut self, app: &mut App) -> Result<()> {

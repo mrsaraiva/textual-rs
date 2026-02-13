@@ -847,3 +847,83 @@ fn p1_gate_container_header_plus_button_click_is_handled() {
         "P1 gate: container with header+buttons should handle click on some rows; handled_rows={handled_rows:?}"
     );
 }
+
+#[test]
+fn p1_gate_buttons_wrapper_chain_click_clears_previous_focus() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+        VerticalScroll::new().with_compose(compose![
+            Static::new("Left"),
+            FocusProbe::new("left", sink.clone()),
+        ]),
+        VerticalScroll::new().with_compose(compose![
+            Static::new("Right"),
+            FocusProbe::new("right", sink.clone()),
+        ]),
+    ])));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (80, 20);
+    opts.max_width = 80;
+    opts.max_height = 20;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    // Click left column.
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    // Click right column.
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 45,
+            screen_y: 1,
+            x: 45,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 45,
+            screen_y: 1,
+            x: 45,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"left:true".to_string()),
+        "P1 gate: left probe should receive focus on first click; events={events:?}"
+    );
+    assert!(
+        events.contains(&"left:false".to_string()),
+        "P1 gate: previous focused probe must be cleared when clicking another column; events={events:?}"
+    );
+    assert!(
+        events.contains(&"right:true".to_string()),
+        "P1 gate: right probe should receive focus on second click; events={events:?}"
+    );
+}

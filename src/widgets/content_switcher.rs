@@ -90,9 +90,7 @@ impl ContentSwitcher {
     pub fn children_mut(&mut self) -> &mut Vec<Box<dyn Widget>> {
         &mut self.children
     }
-
 }
-
 
 impl Widget for ContentSwitcher {
     /// Declare children for tree-based mounting.

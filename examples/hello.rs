@@ -82,8 +82,7 @@ impl TextualApp for HelloApp {
         grid.set(1, 1, Label::new("g(1,1)"));
 
         let controls = Constrained::new(
-            Panel::new(
-                Container::new().with_compose(compose![
+            Panel::new(Container::new().with_compose(compose![
                     Constrained::new(ListView::new(vec![
                         "item one".to_string(),
                         "item two".to_string(),
@@ -93,15 +92,13 @@ impl TextualApp for HelloApp {
                     .max_height(3),
                     Spacer::new(1),
                     Frame::new(Button::new("Toggle me with Enter/Space")).padding(1),
-                ]),
-            )
+                ]))
             .title("Controls")
             .padding(1),
         );
 
         AppRoot::new().with_child(
-            ScrollView::new(
-                AppRoot::new().with_compose(compose![
+            ScrollView::new(AppRoot::new().with_compose(compose![
                     Label::new("textual-rs demo (widget tree + layout)"),
                     SizeLabel::new(),
                     Row::new().with_compose(compose![
@@ -149,8 +146,7 @@ impl TextualApp for HelloApp {
                     MountedLabel::new(),
                     Spacer::new(1),
                     Label::new("press ctrl+q to quit"),
-                ]),
-            )
+                ]))
             .scroll_step(2)
             .scroll_step_x(4),
         )

@@ -18,14 +18,32 @@ pub(crate) enum EditCommand {
     Copy,
     Cut,
     Paste,
-    MoveLeft { select: bool, unit: MoveUnit },
-    MoveRight { select: bool, unit: MoveUnit },
-    MoveUp { select: bool },
-    MoveDown { select: bool },
-    MoveHome { select: bool },
-    MoveEnd { select: bool },
-    Backspace { unit: MoveUnit },
-    Delete { unit: MoveUnit },
+    MoveLeft {
+        select: bool,
+        unit: MoveUnit,
+    },
+    MoveRight {
+        select: bool,
+        unit: MoveUnit,
+    },
+    MoveUp {
+        select: bool,
+    },
+    MoveDown {
+        select: bool,
+    },
+    MoveHome {
+        select: bool,
+    },
+    MoveEnd {
+        select: bool,
+    },
+    Backspace {
+        unit: MoveUnit,
+    },
+    Delete {
+        unit: MoveUnit,
+    },
     DeleteToStart,
     DeleteToEnd,
     DeleteLine,

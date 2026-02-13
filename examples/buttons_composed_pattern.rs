@@ -7,42 +7,40 @@ struct ButtonsApp {
 
 impl TextualApp for ButtonsApp {
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_compose(compose![
-            Horizontal::new().with_compose(compose![
-                VerticalScroll::new().with_compose(compose![
-                    Static::new("Standard Buttons").class("header"),
-                    Button::new("Default"),
-                    Button::primary("Primary!"),
-                    Button::success("Success!"),
-                    Button::warning("Warning!"),
-                    Button::error("Error!"),
-                ]),
-                VerticalScroll::new().with_compose(compose![
-                    Static::new("Disabled Buttons").class("header"),
-                    Button::new("Default").disabled(true),
-                    Button::primary("Primary!").disabled(true),
-                    Button::success("Success!").disabled(true),
-                    Button::warning("Warning!").disabled(true),
-                    Button::error("Error!").disabled(true),
-                ]),
-                VerticalScroll::new().with_compose(compose![
-                    Static::new("Flat Buttons").class("header"),
-                    Button::new("Default").flat(true),
-                    Button::primary("Primary!").flat(true),
-                    Button::success("Success!").flat(true),
-                    Button::warning("Warning!").flat(true),
-                    Button::error("Error!").flat(true),
-                ]),
-                VerticalScroll::new().with_compose(compose![
-                    Static::new("Disabled Flat Buttons").class("header"),
-                    Button::new("Default").disabled(true).flat(true),
-                    Button::primary("Primary!").disabled(true).flat(true),
-                    Button::success("Success!").disabled(true).flat(true),
-                    Button::warning("Warning!").disabled(true).flat(true),
-                    Button::error("Error!").disabled(true).flat(true),
-                ]),
+        AppRoot::new().with_compose(compose![Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Standard Buttons").class("header"),
+                Button::new("Default"),
+                Button::primary("Primary!"),
+                Button::success("Success!"),
+                Button::warning("Warning!"),
+                Button::error("Error!"),
             ]),
-        ])
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Disabled Buttons").class("header"),
+                Button::new("Default").disabled(true),
+                Button::primary("Primary!").disabled(true),
+                Button::success("Success!").disabled(true),
+                Button::warning("Warning!").disabled(true),
+                Button::error("Error!").disabled(true),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Flat Buttons").class("header"),
+                Button::new("Default").flat(true),
+                Button::primary("Primary!").flat(true),
+                Button::success("Success!").flat(true),
+                Button::warning("Warning!").flat(true),
+                Button::error("Error!").flat(true),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Disabled Flat Buttons").class("header"),
+                Button::new("Default").disabled(true).flat(true),
+                Button::primary("Primary!").disabled(true).flat(true),
+                Button::success("Success!").disabled(true).flat(true),
+                Button::warning("Warning!").disabled(true).flat(true),
+                Button::error("Error!").disabled(true).flat(true),
+            ]),
+        ]),])
     }
 
     fn css_path(&self) -> Option<&'static str> {

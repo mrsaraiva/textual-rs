@@ -119,6 +119,21 @@ impl Container {
 }
 
 impl Widget for Container {
+    fn has_focus(&self) -> bool {
+        self.children.iter().any(|child| child.has_focus())
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        if focused {
+            return;
+        }
+        for child in &mut self.children {
+            if child.has_focus() {
+                child.set_focus(false);
+            }
+        }
+    }
+
     /// Declare children for tree-based mounting.
     ///
     /// TODO(P1-15): Container stores children via `with_child()`/`push()` as
