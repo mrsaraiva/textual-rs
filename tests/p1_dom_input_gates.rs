@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Segments};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use textual::compose;
 use textual::event::{Action, Event, EventCtx, MouseDownEvent, MouseUpEvent};
@@ -42,6 +43,64 @@ impl Widget for ClickProbe {
             Event::MouseUp(mouse) if self.pressed && mouse.target == Some(NodeId::default()) => {
                 self.pressed = false;
                 self.sink
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(self.id.to_string());
+                ctx.set_handled();
+            }
+            _ => {}
+        }
+    }
+}
+
+#[derive(Clone)]
+struct LayoutClickProbe {
+    id: &'static str,
+    pressed: bool,
+    click_sink: Arc<Mutex<Vec<String>>>,
+    layout_sink: Arc<Mutex<HashMap<String, (u16, u16)>>>,
+}
+
+impl LayoutClickProbe {
+    fn new(
+        id: &'static str,
+        click_sink: Arc<Mutex<Vec<String>>>,
+        layout_sink: Arc<Mutex<HashMap<String, (u16, u16)>>>,
+    ) -> Self {
+        Self {
+            id,
+            pressed: false,
+            click_sink,
+            layout_sink,
+        }
+    }
+}
+
+impl Widget for LayoutClickProbe {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        self.layout_sink
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                self.id.to_string(),
+                (options.max_width as u16, options.max_height as u16),
+            );
+        Segments::new()
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+                self.pressed = true;
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(NodeId::default()) => {
+                self.pressed = false;
+                self.click_sink
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .push(self.id.to_string());
@@ -806,6 +865,163 @@ fn p1_gate_buttons_advanced_like_chain_click_on_first_button_is_handled() {
     assert!(
         !handled_points.is_empty(),
         "P1 gate: buttons_advanced-like chain should handle some click points; handled_points={handled_points:?}"
+    );
+}
+
+#[test]
+fn p1_gate_buttons_advanced_like_fill_button_has_non_zero_layout_and_is_clickable() {
+    let click_sink = Arc::new(Mutex::new(Vec::new()));
+    let layout_sink = Arc::new(Mutex::new(HashMap::new()));
+    let mut root = Dock::new()
+        .push_top(
+            Some(3),
+            Container::new().with_child(LayoutClickProbe::new(
+                "top_probe",
+                click_sink.clone(),
+                layout_sink.clone(),
+            )),
+        )
+        .push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Standard Buttons"),
+                LayoutClickProbe::new("fill_probe", click_sink.clone(), layout_sink.clone()),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Disabled Buttons"),
+                LayoutClickProbe::new("fill_probe_2", click_sink.clone(), layout_sink.clone()),
+            ]),
+        ])))
+        .push_bottom(
+            Some(3),
+            Container::new().with_child(LayoutClickProbe::new(
+                "bottom_probe",
+                click_sink.clone(),
+                layout_sink.clone(),
+            )),
+        );
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (80, 24);
+    opts.max_width = 80;
+    opts.max_height = 24;
+    let _ = root.render(&console, &opts);
+
+    let layouts = layout_sink
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let fill_layout = layouts
+        .get("fill_probe")
+        .copied()
+        .expect("P1 gate: fill probe in buttons-style chain should receive layout");
+    assert!(
+        fill_layout.0 > 0 && fill_layout.1 > 0,
+        "P1 gate: fill probe should get non-zero layout area; layout={fill_layout:?}"
+    );
+
+    // With a 3-row top dock and a 1-row section header inside the fill column,
+    // y=4 lands on the first interactive probe in the fill region.
+    let mut ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 4,
+            x: 2,
+            y: 4,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 2,
+            screen_y: 4,
+            x: 2,
+            y: 4,
+        }),
+        &mut ctx,
+    );
+
+    let clicks = click_sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        clicks.contains(&"fill_probe".to_string()),
+        "P1 gate: click in fill content band should reach fill probe; clicks={clicks:?}"
+    );
+}
+
+#[test]
+fn p1_gate_dock_fill_band_remains_interactive_between_header_and_footer() {
+    let click_sink = Arc::new(Mutex::new(Vec::new()));
+    let layout_sink = Arc::new(Mutex::new(HashMap::new()));
+    let mut root = Dock::new()
+        .push_top(
+            Some(2),
+            Container::new().with_child(LayoutClickProbe::new(
+                "top_probe",
+                click_sink.clone(),
+                layout_sink.clone(),
+            )),
+        )
+        .push_fill(ScrollView::new(Container::new().with_child(
+            LayoutClickProbe::new("fill_probe", click_sink.clone(), layout_sink.clone()),
+        )))
+        .push_bottom(
+            Some(2),
+            Container::new().with_child(LayoutClickProbe::new(
+                "bottom_probe",
+                click_sink.clone(),
+                layout_sink.clone(),
+            )),
+        );
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (40, 10);
+    opts.max_width = 40;
+    opts.max_height = 10;
+    let _ = root.render(&console, &opts);
+
+    let layouts = layout_sink
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let fill_layout = layouts
+        .get("fill_probe")
+        .copied()
+        .expect("P1 gate: fill probe should receive layout under dock");
+    assert!(
+        fill_layout.0 > 0 && fill_layout.1 > 0,
+        "P1 gate: dock fill area must get non-zero interactive layout; layout={fill_layout:?}"
+    );
+
+    // Height=10 with top=2 and bottom=2 means fill starts at y=2.
+    // Clicking y=2 targets the first row of the fill region.
+    let mut fill_click_ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 1,
+            screen_y: 2,
+            x: 1,
+            y: 2,
+        }),
+        &mut fill_click_ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 1,
+            screen_y: 2,
+            x: 1,
+            y: 2,
+        }),
+        &mut fill_click_ctx,
+    );
+
+    let clicks = click_sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        clicks.iter().any(|entry| entry == "fill_probe"),
+        "P1 gate: fill band click should route to fill probe, not only top/bottom; clicks={clicks:?}"
     );
 }
 

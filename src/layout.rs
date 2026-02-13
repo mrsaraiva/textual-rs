@@ -9,7 +9,7 @@
 //! - Top-level dispatch ([`resolve_layout`])
 
 use crate::node_id::NodeId;
-use crate::style::{Dock, Layout, Scalar, Spacing, Style, resolve_scalar};
+use crate::style::{resolve_scalar, Dock, Layout, Scalar, Spacing, Style};
 use crate::widget_tree::{Rect, WidgetTree};
 
 /// Extract border spacing (top, bottom, left, right) from a style.
@@ -383,6 +383,10 @@ pub fn resolve_layout(
 ) {
     let style = get_node_style(tree, node);
     let strategy = style.layout.unwrap_or(Layout::Vertical);
+    let is_dock_parent = tree
+        .get(node)
+        .map(|n| n.widget.style_type() == "Dock")
+        .unwrap_or(false);
 
     // Collect children (snapshot to avoid borrow conflict).
     let children: Vec<NodeId> = tree.children(node).to_vec();
@@ -414,15 +418,19 @@ pub fn resolve_layout(
 
     // Dispatch flow children to the appropriate layout.
     if !flow.is_empty() {
-        match strategy {
-            Layout::Vertical => {
-                layout_vertical(tree, &flow, inner, viewport);
-            }
-            Layout::Grid => {
-                layout_grid(tree, &flow, inner, viewport, &style);
-            }
-            Layout::Horizontal => {
-                layout_horizontal(tree, &flow, inner, viewport);
+        if is_dock_parent && flow.len() == 1 {
+            layout_dock_fill(tree, flow[0], inner);
+        } else {
+            match strategy {
+                Layout::Vertical => {
+                    layout_vertical(tree, &flow, inner, viewport);
+                }
+                Layout::Grid => {
+                    layout_grid(tree, &flow, inner, viewport, &style);
+                }
+                Layout::Horizontal => {
+                    layout_horizontal(tree, &flow, inner, viewport);
+                }
             }
         }
     }
@@ -933,6 +941,34 @@ pub fn arrange_dock(
 
     // Return the reduced available region.
     Region::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+}
+
+/// Place a Dock fill child into the remaining region.
+///
+/// Tree layout must preserve Dock semantics where one non-docked child (fill)
+/// consumes all space left after docking.
+fn layout_dock_fill(tree: &mut WidgetTree, child: NodeId, inner: Region) {
+    let style = get_node_style(tree, child);
+    let padding = style.padding.unwrap_or_default();
+    let (bt, bb, bl, br) = border_spacing(&style);
+
+    let border_top = bt as u16;
+    let border_bottom = bb as u16;
+    let border_left = bl as u16;
+    let border_right = br as u16;
+
+    let chrome_w = border_left + border_right + padding.left + padding.right;
+    let chrome_h = border_top + border_bottom + padding.top + padding.bottom;
+
+    let content_x = inner.x.saturating_add(border_left + padding.left);
+    let content_y = inner.y.saturating_add(border_top + padding.top);
+    let content_w = inner.width.saturating_sub(chrome_w);
+    let content_h = inner.height.saturating_sub(chrome_h);
+
+    if let Some(node) = tree.get_mut(child) {
+        node.layout_rect = inner.to_rect();
+        node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1676,6 +1712,29 @@ mod tests {
 
         // Body fills remaining space: y=3, h=47.
         assert_layout_rect(&tree, body, 0, 3, 80, 50);
+    }
+
+    #[test]
+    fn dock_parent_top_plus_fill_uses_remaining_region() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Dock"));
+        let header = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Header", {
+                let mut s = Style::new().height(Scalar::Cells(3));
+                s.dock = Some(Dock::Top);
+                s
+            }),
+        );
+        let fill = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Fill", Style::new().height(Scalar::Cells(1))),
+        );
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+
+        assert_layout_rect(&tree, header, 0, 0, 80, 3);
+        assert_layout_rect(&tree, fill, 0, 3, 80, 50);
     }
 
     // =========================================================================

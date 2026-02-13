@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **[wip] Dock tree-layout fill restoration + P1 container regression gates**
+  - Restored Dock fill behavior in arena-tree layout: when a `Dock` parent has a single non-docked flow child, that child now receives the full remaining inner region after docked edges are carved.
+  - Added `layout_dock_fill` placement helper in layout solver to preserve fill-region `layout_rect`/`content_rect` semantics under tree-driven composition.
+  - Added regression coverage for Dock top+fill remaining-region allocation in layout tests.
+  - Expanded `tests/p1_dom_input_gates.rs` with `buttons_advanced`-like dock/scroll/fill clickability gates to ensure fill regions retain non-zero interactive layout and route clicks correctly.
+
 - **[wip] DOM tree targeting now reaches deep widgets (hover/click path), layout follow-up in progress**
   - Improved tree hit-target selection to prefer deeper valid descendants when frame metadata and tree targets disagree, reducing coarse row-level targeting.
   - Added richer runtime diagnostics for target selection (`id/type/parent/children`) to trace tree-routing mismatches in wrapper-heavy demos.

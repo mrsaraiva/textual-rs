@@ -112,10 +112,7 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     // This allows the runtime to call any generated dispatcher through a single
     // interface regardless of whether a selector was specified.
     let selector_items = if let Some(ref selector_str) = args.selector {
-        let selector_const = format_ident!(
-            "__ON_SELECTOR_{}",
-            fn_name.to_string().to_uppercase()
-        );
+        let selector_const = format_ident!("__ON_SELECTOR_{}", fn_name.to_string().to_uppercase());
         quote! {
             #[doc(hidden)]
             #[allow(non_upper_case_globals)]

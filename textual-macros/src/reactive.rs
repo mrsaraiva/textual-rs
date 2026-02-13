@@ -193,7 +193,10 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                     &nv.path,
                                     format!(
                                         "unknown reactive attribute `{}`; expected `layout`, `watch`, or `init`",
-                                        nv.path.get_ident().map(|i| i.to_string()).unwrap_or_default()
+                                        nv.path
+                                            .get_ident()
+                                            .map(|i| i.to_string())
+                                            .unwrap_or_default()
                                     ),
                                 ));
                             }
