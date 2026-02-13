@@ -1059,11 +1059,39 @@ impl App {
                                     pending_invalidation.request_full_content();
                                     continue;
                                 }
-                                if matches!(action, Action::FocusNext | Action::FocusPrev)
-                                    && self.move_focus_auto(root, action)
-                                {
-                                    pending_invalidation.request_full_content();
-                                    continue;
+                                if matches!(action, Action::FocusNext | Action::FocusPrev) {
+                                    // Give the currently-focused branch a chance to descend
+                                    // focus into non-tree descendants (legacy wrappers)
+                                    // before falling back to tree-level focus cycling.
+                                    let mut focus_outcome =
+                                        self.dispatch_event_auto(root, Event::Action(action));
+                                    self.absorb_outcome(
+                                        &mut focus_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    let mut focus_msg_outcome = self
+                                        .dispatch_message_queue_with_runtime(
+                                            root,
+                                            focus_outcome.messages,
+                                        );
+                                    self.absorb_outcome(
+                                        &mut focus_msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if focus_outcome.stop_requested
+                                        || focus_msg_outcome.stop_requested
+                                    {
+                                        break 'event_loop;
+                                    }
+                                    if focus_outcome.handled {
+                                        continue;
+                                    }
+                                    if self.move_focus_auto(root, action) {
+                                        pending_invalidation.request_full_content();
+                                        continue;
+                                    }
                                 }
                                 debug_input(&format!(
                                     "[input] action-map {:?} -> {:?}",

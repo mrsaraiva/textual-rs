@@ -551,10 +551,9 @@ fn p1_gate_dock_scroll_click_routes_to_nested_child() {
 #[test]
 fn p1_gate_dock_scroll_focus_next_descends_to_nested_focusable() {
     let sink = Arc::new(Mutex::new(Vec::new()));
-    let mut root = Dock::new().push_fill(ScrollView::new(Row::new().with_child(FocusProbe::new(
-        "first",
-        sink.clone(),
-    ))));
+    let mut root = Dock::new().push_fill(ScrollView::new(
+        Row::new().with_child(FocusProbe::new("first", sink.clone())),
+    ));
 
     root.set_focus(true);
     let mut ctx = EventCtx::default();
@@ -595,5 +594,67 @@ fn p1_gate_dock_scroll_datatable_click_updates_row() {
     assert!(
         events.contains(&"row:0->1".to_string()),
         "P1 gate: DataTable click under Dock->ScrollView should update selected row; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_vertical_scroll_click_routes_to_nested_child() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = VerticalScroll::new()
+        .with_child(ClickProbe::new("row0", sink.clone()))
+        .with_child(ClickProbe::new("row1", sink.clone()))
+        .with_child(ClickProbe::new("row2", sink.clone()));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (40, 8);
+    opts.max_width = 40;
+    opts.max_height = 8;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 1,
+            screen_y: 2,
+            x: 1,
+            y: 2,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 1,
+            screen_y: 2,
+            x: 1,
+            y: 2,
+        }),
+        &mut ctx,
+    );
+
+    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(
+        descriptions,
+        vec!["row2".to_string()],
+        "P1 gate: VerticalScroll should route mouse click to nested child by local y"
+    );
+}
+
+#[test]
+fn p1_gate_vertical_scroll_focus_next_descends_to_nested_focusable() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = VerticalScroll::new()
+        .with_child(Static::new("header"))
+        .with_child(FocusProbe::new("button_like", sink.clone()));
+
+    root.set_focus(true);
+    let mut ctx = EventCtx::default();
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.iter().any(|entry| entry == "button_like:true"),
+        "P1 gate: VerticalScroll focus should descend into nested focusables"
     );
 }

@@ -3,12 +3,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
+use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::helpers::{clamp_with_constraints, crop_line_horizontal, pad_lines_to_width};
-use crate::compose::ComposeResult;
 use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetStyles};
+use crate::compose::ComposeResult;
 
 fn scrollbar_thumb(
     track_len: usize,
@@ -833,6 +834,7 @@ pub struct VerticalScroll {
     offset_y: usize,
     scroll_step: usize,
     content_height: AtomicUsize,
+    viewport_width: AtomicUsize,
     viewport_height: AtomicUsize,
     styles: WidgetStyles,
 }
@@ -846,6 +848,7 @@ impl VerticalScroll {
             offset_y: 0,
             scroll_step: 1,
             content_height: AtomicUsize::new(0),
+            viewport_width: AtomicUsize::new(1),
             viewport_height: AtomicUsize::new(0),
             styles: WidgetStyles::default(),
         }
@@ -897,6 +900,16 @@ impl VerticalScroll {
             self.offset_y = max_y;
         }
     }
+
+    fn child_coords(&self, x: u16, y: u16) -> (u16, u16) {
+        (x, y.saturating_add(self.offset_y as u16))
+    }
+
+    fn sync_child_layout(&mut self) {
+        let width = self.viewport_width.load(Ordering::Relaxed).max(1) as u16;
+        let height = self.viewport_height.load(Ordering::Relaxed).max(1) as u16;
+        self.child.on_layout(width, height);
+    }
 }
 
 impl Widget for VerticalScroll {
@@ -906,6 +919,12 @@ impl Widget for VerticalScroll {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+        self.child.set_focus(focused);
+        if focused && !self.child.has_focus() {
+            let mut child_ctx = EventCtx::default();
+            self.child
+                .on_event(&Event::Action(Action::FocusNext), &mut child_ctx);
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -915,6 +934,7 @@ impl Widget for VerticalScroll {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1)).max(1);
+        self.viewport_width.store(width, Ordering::Relaxed);
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
 
@@ -1050,6 +1070,16 @@ impl Widget for VerticalScroll {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.child.on_resize(width, height);
+        self.viewport_width.store(width as usize, Ordering::Relaxed);
+        self.viewport_height
+            .store(height as usize, Ordering::Relaxed);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.viewport_width.store(width as usize, Ordering::Relaxed);
+        self.viewport_height
+            .store(height as usize, Ordering::Relaxed);
+        self.child.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1057,6 +1087,7 @@ impl Widget for VerticalScroll {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.sync_child_layout();
         if let Event::Action(action) = event {
             match action {
                 Action::ScrollHome => {
@@ -1094,7 +1125,47 @@ impl Widget for VerticalScroll {
                 _ => {}
             }
         }
-        self.child.on_event(event, ctx);
+        let child_event = match event {
+            Event::MouseDown(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseDown(crate::event::MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                }))
+            }
+            Event::MouseUp(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseUp(crate::event::MouseUpEvent {
+                    target: Some(NodeId::default()),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                }))
+            }
+            Event::MouseScroll(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseScroll(crate::event::MouseScrollEvent {
+                    target: Some(NodeId::default()),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                    delta_x: mouse.delta_x,
+                    delta_y: mouse.delta_y,
+                    modifiers: mouse.modifiers,
+                }))
+            }
+            _ => None,
+        };
+        if let Some(child_event) = child_event.as_ref() {
+            self.child.on_event(child_event, ctx);
+        } else {
+            self.child.on_event(event, ctx);
+        }
     }
 
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -1107,6 +1178,12 @@ impl Widget for VerticalScroll {
             ctx.request_repaint();
             ctx.set_handled();
         }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.sync_child_layout();
+        let (child_x, child_y) = self.child_coords(x, y);
+        self.child.on_mouse_move(child_x, child_y)
     }
 
     fn layout_height(&self) -> Option<usize> {

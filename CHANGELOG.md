@@ -18,6 +18,9 @@ until the API stabilizes.
   - Synced wrapper-delivered child layout before forwarding mouse/hover events (`ScrollView` and `Dock`) so nested widgets like `DataTable` compute row/column hit tests from real viewport dimensions.
   - Added focus descent handoff in `ScrollView::set_focus` so wrapper focus can reach nested focusable descendants under `Dock`/`ScrollView` chains.
   - Expanded `tests/p1_dom_input_gates.rs` with `Dock+ScrollView` routing gates for nested click targeting, focus descent, and DataTable row selection by mouse.
+  - Applied the same wrapper-delegation model to `VerticalScroll` (aliases layer): child layout sync, mouse coordinate translation with scroll offset, hover forwarding, and focus descent handoff.
+  - Adjusted Tab handling flow so focused branches can consume `FocusNext/FocusPrev` before tree-level fallback focus cycling, enabling nested non-tree descendants to receive focus actions.
+  - Expanded `tests/p1_dom_input_gates.rs` with `VerticalScroll` click/focus gates.
 
 - **Sprint 25: Complete tree-driven rendering (P1-12/P1-13)**
   - **Tree-driven compositor:** New `render_tree_composed()` path walks the arena tree depth-first, rendering each widget at its `layout_rect` position with CSS style stack management for proper inheritance. Replaces the legacy recursive `render_styled()` path when the tree is populated.
