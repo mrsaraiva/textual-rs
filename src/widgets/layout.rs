@@ -4,6 +4,7 @@ use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::{DebugLayout, debug_layout};
 use crate::event::{Event, EventCtx};
+use crate::node_id::NodeId;
 
 use super::{
     LayoutConstraints, Widget, WidgetStyles,
@@ -18,6 +19,7 @@ use crate::style::{Margin, Scalar};
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
     align: RowAlign,
+    last_layout_width: u16,
     styles: WidgetStyles,
 }
 
@@ -26,6 +28,7 @@ impl Row {
         Self {
             children: Vec::new(),
             align: RowAlign::Top,
+            last_layout_width: 0,
             styles: WidgetStyles::default(),
         }
     }
@@ -64,8 +67,28 @@ impl Row {
         &mut self.children
     }
 
-}
+    fn child_at_x(&self, x: u16) -> Option<(usize, u16)> {
+        let count = self.children.len();
+        if count == 0 {
+            return None;
+        }
+        let total_width = self.last_layout_width.max(x.saturating_add(1)).max(1) as usize;
+        let base = total_width / count;
+        let remainder = total_width % count;
 
+        let mut cursor = 0usize;
+        for idx in 0..count {
+            let width = (base + usize::from(idx < remainder)).max(1);
+            let end = cursor + width;
+            let xu = x as usize;
+            if xu < end {
+                return Some((idx, (xu - cursor) as u16));
+            }
+            cursor = end;
+        }
+        Some((count - 1, 0))
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum RowAlign {
@@ -541,8 +564,16 @@ impl Widget for Row {
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_layout_width = width;
         for child in &mut self.children {
             child.on_resize(width, height);
+        }
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.last_layout_width = width;
+        for child in &mut self.children {
+            child.on_layout(width, height);
         }
     }
 
@@ -556,6 +587,57 @@ impl Widget for Row {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::MouseDown(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseUp(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseScroll(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
         for child in &mut self.children {
             child.on_event(event, ctx);
             if ctx.handled() {

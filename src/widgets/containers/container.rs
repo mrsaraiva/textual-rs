@@ -4,6 +4,7 @@ use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
+use crate::node_id::NodeId;
 
 use crate::widgets::{
     Widget, WidgetStyles,
@@ -55,8 +56,19 @@ impl Container {
         &mut self.children
     }
 
+    fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
+        let mut cursor = 0u16;
+        for (idx, child) in self.children.iter().enumerate() {
+            let height = child.layout_height().unwrap_or(1).max(1) as u16;
+            let end = cursor.saturating_add(height);
+            if y < end {
+                return Some((idx, y.saturating_sub(cursor)));
+            }
+            cursor = end;
+        }
+        None
+    }
 }
-
 
 impl Widget for Container {
     /// Declare children for tree-based mounting.
@@ -298,6 +310,57 @@ impl Widget for Container {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::MouseDown(mouse) => {
+                if let Some((idx, local_y)) = self.child_at_y(mouse.y) {
+                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: local_y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseUp(mouse) => {
+                if let Some((idx, local_y)) = self.child_at_y(mouse.y) {
+                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: local_y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseScroll(mouse) => {
+                if let Some((idx, local_y)) = self.child_at_y(mouse.y) {
+                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: local_y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
         for child in &mut self.children {
             child.on_event(event, ctx);
             if ctx.handled() {
