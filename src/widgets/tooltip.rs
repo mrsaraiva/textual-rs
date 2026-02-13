@@ -397,14 +397,10 @@ impl Widget for Tooltip {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            Event::MouseUp(mouse)
-                if mouse.target.is_some_and(|t| t == self.node_id()) =>
-            {
+            Event::MouseUp(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
-            Event::MouseScroll(mouse)
-                if mouse.target.is_some_and(|t| t == self.node_id()) =>
-            {
+            Event::MouseScroll(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }
             _ => {}
@@ -448,16 +444,12 @@ impl Widget for Tooltip {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Message::OverlayToggle(OverlayToggle { overlay })
-                if *overlay == self.node_id() =>
-            {
+            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == self.node_id() => {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                let target_matches = overlay
-                    .map(|t| t == self.node_id())
-                    .unwrap_or(true);
+                let target_matches = overlay.map(|t| t == self.node_id()).unwrap_or(true);
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);
                     ctx.set_handled();

@@ -208,10 +208,24 @@ pub(crate) fn tree_content_local_coords(
     } else {
         node.layout_rect
     };
-    (
-        screen_x.saturating_sub(rect.x0),
-        screen_y.saturating_sub(rect.y0),
-    )
+    // Tree rendering may shift descendants via scroll containers. Mirror that
+    // translation here so pointer coordinates map to rendered positions.
+    let mut render_shift_x: i32 = 0;
+    let mut render_shift_y: i32 = 0;
+    for ancestor_id in tree.ancestors(target) {
+        let Some(ancestor) = tree.get(ancestor_id) else {
+            continue;
+        };
+        let (ox, oy) = ancestor.widget.scroll_offset();
+        render_shift_x -= ox as i32;
+        render_shift_y -= oy as i32;
+    }
+
+    let origin_x = i32::from(rect.x0) + render_shift_x;
+    let origin_y = i32::from(rect.y0) + render_shift_y;
+    let local_x = i32::from(screen_x).saturating_sub(origin_x).max(0) as u16;
+    let local_y = i32::from(screen_y).saturating_sub(origin_y).max(0) as u16;
+    (local_x, local_y)
 }
 
 /// Check whether any widget in the tree reports `is_active() == true`.

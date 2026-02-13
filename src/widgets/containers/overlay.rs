@@ -240,9 +240,7 @@ impl Widget for Overlay {
                 ctx.set_handled();
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                let target_matches = overlay
-                    .map(|id| id == self.node_id())
-                    .unwrap_or(true);
+                let target_matches = overlay.map(|id| id == self.node_id()).unwrap_or(true);
                 let sender_in_modal = self.modal_contains(message.sender);
                 if target_matches && (sender_in_modal || overlay.is_some()) {
                     self.set_visible(false, ctx);
@@ -345,7 +343,10 @@ mod tests {
             control: None,
         };
         overlay.on_message(&msg_event, &mut ctx);
-        assert!(ctx.handled(), "OverlaySetVisible with matching NodeId must be handled");
+        assert!(
+            ctx.handled(),
+            "OverlaySetVisible with matching NodeId must be handled"
+        );
         assert!(!overlay.is_visible());
     }
 
@@ -372,7 +373,10 @@ mod tests {
             control: None,
         };
         overlay.on_message(&msg_event, &mut ctx);
-        assert!(!ctx.handled(), "OverlaySetVisible with foreign NodeId must not be handled");
+        assert!(
+            !ctx.handled(),
+            "OverlaySetVisible with foreign NodeId must not be handled"
+        );
         assert!(overlay.is_visible());
     }
 
@@ -393,7 +397,10 @@ mod tests {
         };
         overlay.on_message(&msg_event, &mut ctx);
         assert!(ctx.handled());
-        assert!(!overlay.is_visible(), "Toggle should have hidden the overlay");
+        assert!(
+            !overlay.is_visible(),
+            "Toggle should have hidden the overlay"
+        );
     }
 
     #[test]

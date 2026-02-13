@@ -71,6 +71,7 @@ pub use header::Header;
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::border_spacing_from_style;
+pub(crate) use helpers::crop_line_horizontal;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};

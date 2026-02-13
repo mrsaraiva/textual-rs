@@ -352,9 +352,16 @@ impl ScrollView {
     }
 
     fn sync_child_layout(&mut self) {
+        if self.child_extracted {
+            return;
+        }
         let width = self.viewport_width.load(Ordering::Relaxed).max(1) as u16;
         let height = self.viewport_height.load(Ordering::Relaxed).max(1) as u16;
         self.child.on_layout(width, height);
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.child_extracted
     }
 }
 
@@ -378,7 +385,9 @@ impl Widget for ScrollView {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        self.child.set_focus(focused);
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -390,6 +399,24 @@ impl Widget for ScrollView {
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(viewport_height, Ordering::Relaxed);
+        if self.is_tree_mode() {
+            self.viewport_height
+                .store(viewport_height, Ordering::Relaxed);
+            self.viewport_width.store(width, Ordering::Relaxed);
+            self.content_height
+                .store(viewport_height, Ordering::Relaxed);
+            self.content_width.store(width, Ordering::Relaxed);
+
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..viewport_height {
+                out.extend(blank.clone());
+                if row + 1 < viewport_height {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[scroll] id={} viewport=({}, {}) offset=({}, {})",
@@ -658,23 +685,33 @@ impl Widget for ScrollView {
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn action_namespace(&self) -> &str {
@@ -872,52 +909,54 @@ impl Widget for ScrollView {
             }
         }
 
-        let child_event = match event {
-            Event::MouseDown(mouse) => {
-                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
-                Some(Event::MouseDown(crate::event::MouseDownEvent {
-                    target: NodeId::default(),
-                    screen_x: mouse.screen_x,
-                    screen_y: mouse.screen_y,
-                    x: child_x,
-                    y: child_y,
-                }))
+        if !self.is_tree_mode() {
+            let child_event = match event {
+                Event::MouseDown(mouse) => {
+                    let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                    Some(Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: child_x,
+                        y: child_y,
+                    }))
+                }
+                Event::MouseUp(mouse) => {
+                    let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                    Some(Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: child_x,
+                        y: child_y,
+                    }))
+                }
+                Event::MouseScroll(mouse) => {
+                    let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                    Some(Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: child_x,
+                        y: child_y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    }))
+                }
+                _ => None,
+            };
+            let mut child_ctx = EventCtx::default();
+            if let Some(child_event) = child_event.as_ref() {
+                self.child.on_event(child_event, &mut child_ctx);
+            } else {
+                self.child.on_event(event, &mut child_ctx);
             }
-            Event::MouseUp(mouse) => {
-                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
-                Some(Event::MouseUp(crate::event::MouseUpEvent {
-                    target: Some(NodeId::default()),
-                    screen_x: mouse.screen_x,
-                    screen_y: mouse.screen_y,
-                    x: child_x,
-                    y: child_y,
-                }))
+            let child_handled = child_ctx.handled();
+            ctx.merge_from(child_ctx);
+            if child_handled {
+                return;
             }
-            Event::MouseScroll(mouse) => {
-                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
-                Some(Event::MouseScroll(crate::event::MouseScrollEvent {
-                    target: Some(NodeId::default()),
-                    screen_x: mouse.screen_x,
-                    screen_y: mouse.screen_y,
-                    x: child_x,
-                    y: child_y,
-                    delta_x: mouse.delta_x,
-                    delta_y: mouse.delta_y,
-                    modifiers: mouse.modifiers,
-                }))
-            }
-            _ => None,
-        };
-        let mut child_ctx = EventCtx::default();
-        if let Some(child_event) = child_event.as_ref() {
-            self.child.on_event(child_event, &mut child_ctx);
-        } else {
-            self.child.on_event(event, &mut child_ctx);
-        }
-        let child_handled = child_ctx.handled();
-        ctx.merge_from(child_ctx);
-        if child_handled {
-            return;
         }
         if let Event::Action(action) = event {
             match action {
@@ -1131,14 +1170,24 @@ impl Widget for ScrollView {
                 }
             }
         } else {
-            let (child_x, child_y) = self.child_coords(x, y);
-            debug_input(&format!(
-                "[hover][scrollview] x={} y={} child=({}, {})",
-                x, y, child_x, child_y
-            ));
-            changed |= self.child.on_mouse_move(child_x, child_y);
+            if !self.is_tree_mode() {
+                let (child_x, child_y) = self.child_coords(x, y);
+                debug_input(&format!(
+                    "[hover][scrollview] x={} y={} child=({}, {})",
+                    x, y, child_x, child_y
+                ));
+                changed |= self.child.on_mouse_move(child_x, child_y);
+            }
         }
         changed
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (self.offset_x, self.offset_y)
+    }
+
+    fn clips_descendants_to_content(&self) -> bool {
+        true
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -1209,7 +1258,10 @@ mod tests {
             done: false,
         });
         sv.on_event(&event, &mut ctx);
-        assert!(ctx.handled(), "AnimationValueEvent targeting real NodeId must be handled");
+        assert!(
+            ctx.handled(),
+            "AnimationValueEvent targeting real NodeId must be handled"
+        );
     }
 
     #[test]
@@ -1231,7 +1283,10 @@ mod tests {
             done: false,
         });
         sv.on_event(&event, &mut ctx);
-        assert!(!ctx.handled(), "AnimationValueEvent targeting a foreign NodeId must not be handled");
+        assert!(
+            !ctx.handled(),
+            "AnimationValueEvent targeting a foreign NodeId must not be handled"
+        );
     }
 
     #[test]

@@ -387,9 +387,7 @@ impl Widget for Collapsible {
                 if self.title_widget.is_pressed() {
                     self.title_widget.set_pressed(false);
                     ctx.request_repaint();
-                    if mouse.target.is_some_and(|t| t == self.node_id())
-                        && mouse.y == 0
-                    {
+                    if mouse.target.is_some_and(|t| t == self.node_id()) && mouse.y == 0 {
                         self.toggle_with_ctx(ctx);
                         return;
                     }

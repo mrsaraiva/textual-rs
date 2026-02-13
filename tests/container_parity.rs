@@ -2,7 +2,9 @@ use rich_rs::Console;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
-// DEFERRED(parity): container DEFAULT_CSS semantics depend on TCSS layout properties (layout, overflow, align-*)
+// DEFERRED(parity): container DEFAULT_CSS semantics depend on missing TCSS layout properties.
+// See ROADMAP.md "TCSS Property Parity Audit" — Tier 1 (position, box-sizing) and Tier 2
+// (individual padding/margin sides) are the primary blockers for full container CSS parity.
 
 #[test]
 fn vertical_alias_stacks_children() {

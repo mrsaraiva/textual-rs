@@ -9,7 +9,7 @@
 //! - Top-level dispatch ([`resolve_layout`])
 
 use crate::node_id::NodeId;
-use crate::style::{resolve_scalar, Dock, Layout, Scalar, Spacing, Style};
+use crate::style::{Dock, Layout, Scalar, Spacing, Style, resolve_scalar};
 use crate::widget_tree::{Rect, WidgetTree};
 
 /// Extract border spacing (top, bottom, left, right) from a style.

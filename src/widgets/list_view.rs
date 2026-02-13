@@ -458,9 +458,7 @@ impl Widget for ListView {
                     ctx.set_handled();
                 }
             }
-            Event::MouseUp(mouse)
-                if mouse.target.is_some_and(|t| t == self.node_id()) =>
-            {
+            Event::MouseUp(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.pressed_index == Some(index) && self.is_selectable(index) {
                     self.emit_item_activated(index, ctx);

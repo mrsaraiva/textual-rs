@@ -4,7 +4,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-
 use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},

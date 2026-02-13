@@ -997,9 +997,7 @@ impl Widget for Tree {
                     ctx.set_handled();
                 }
             }
-            Event::MouseUp(mouse)
-                if mouse.target.is_some_and(|t| t == self.node_id()) =>
-            {
+            Event::MouseUp(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 let nodes = self.visible_nodes();
                 if self.pressed_activation_index == Some(index) {

@@ -152,8 +152,19 @@ they require engine-level work.
 
 | Gap | Description | Python Textual Behavior | Tracking |
 |-----|-------------|------------------------|----------|
-| Split overflow axes | Only `overflow` (both axes). Parser accepts `overflow-x`/`overflow-y` but maps to single field. | `overflow-x: hidden; overflow-y: auto` on OptionList, etc. | P2-22 |
 | `pointer` CSS → runtime wiring | `Pointer` enum + parser exist (P2-02, P2-06), but `pointer_shape_for_hover_tree` uses hardcoded type-name checks instead of reading the CSS property. | `pointer: text` on Input, `pointer: not-allowed` on disabled, etc. | P2-23 |
+| Per-property `transition` | Rust `transition` shorthand sets global duration/delay/timing. No per-property targeting. | `transition: offset 400ms in_out_cubic, opacity 200ms linear` | — |
+
+### TCSS Property Parity Audit (2026-02-13)
+
+**~56 of ~108** Python Textual TCSS properties are implemented. **52 remain.**
+
+Full property-by-property gap analysis with 8 priority tiers lives in:
+- **Gap details:** `docs/devel/PARITY_ANALYSIS.md` → Appendix D
+- **Action items:** `docs/devel/PARITY_ACTION_PLAN.md` → Pillar 2 (P2-24 through P2-36)
+
+Previously tracked P2-22 (split overflow axes) is **RESOLVED** — separate
+`overflow_x`/`overflow_y` fields with per-axis parser + ScrollView handling.
 
 ---
 
@@ -468,7 +479,9 @@ Reference plan:
 - DevTools panel + external live-inspection plumbing closure: landed.
 
 ### Active Streams (Open Todo/Partial)
-- None in the current v0.2 closure scope.
+- **TCSS Property Parity**: 52 missing CSS properties documented in Phase 5 audit (2026-02-13). See "TCSS Property Parity Audit" section under Phase 5 for the full gap table with priority tiers.
+- **P2-23**: `pointer` CSS property parsed but not runtime-wired (hardcoded type-name checks instead).
+- **Per-property `transition`**: Shorthand exists but doesn't support per-property targeting.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.

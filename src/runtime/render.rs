@@ -6,7 +6,7 @@ use crate::debug::debug_render;
 use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widget_tree::WidgetTree;
-use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style};
+use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style, crop_line_horizontal};
 
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 
@@ -231,8 +231,13 @@ impl App {
             push_style_context(root_meta, root_resolved);
 
             let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
+            let root_ctx = TreeRenderCtx {
+                origin_x: 0,
+                origin_y: 0,
+                clip: ClipRect::for_frame(&next),
+            };
             for child_id in child_ids {
-                render_tree_node(&tree, child_id, &mut next, &self.console);
+                render_tree_node(&tree, child_id, root_ctx, &mut next, &self.console);
             }
 
             pop_style_context();
@@ -531,6 +536,7 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 fn render_tree_node(
     tree: &WidgetTree,
     node_id: NodeId,
+    ctx: TreeRenderCtx,
     frame: &mut FrameBuffer,
     console: &rich_rs::Console,
 ) {
@@ -567,12 +573,35 @@ fn render_tree_node(
 
         // Split into lines and paint at the layout position.
         let lines = rich_rs::Segment::split_and_crop_lines(segments, w, None, true, false);
+        let dest_x = i32::from(rect.x0) + ctx.origin_x;
+        let dest_y = i32::from(rect.y0) + ctx.origin_y;
+        let frame_clip = ClipRect::for_frame(frame);
+        let Some(paint_clip) = ctx.clip.intersect(frame_clip) else {
+            return;
+        };
         for (row_idx, line) in lines.iter().enumerate() {
-            let y = rect.y0 as usize + row_idx;
-            if y >= frame.height {
+            let y = dest_y + row_idx as i32;
+            if y < paint_clip.y0 {
+                continue;
+            }
+            if y >= paint_clip.y1 {
                 break;
             }
-            frame.write_line_at(rect.x0 as usize, y, line, false);
+            let line_start = dest_x;
+            let line_end = dest_x + w as i32;
+            let x0 = line_start.max(paint_clip.x0);
+            let x1 = line_end.min(paint_clip.x1);
+            if x1 <= x0 {
+                continue;
+            }
+            let crop_start = (x0 - line_start) as usize;
+            let crop_width = (x1 - x0) as usize;
+            let cropped = if crop_start == 0 && crop_width == w {
+                line.clone()
+            } else {
+                crop_line_horizontal(line, crop_start, crop_width)
+            };
+            frame.write_line_at(x0 as usize, y as usize, &cropped, false);
         }
     }
 
@@ -582,12 +611,79 @@ fn render_tree_node(
     let resolved = resolve_style(node.widget.as_ref(), &meta);
     push_style_context(meta, resolved);
 
+    let mut child_ctx = ctx;
+    if node.widget.clips_descendants_to_content() {
+        let clip_rect = node_content_or_layout_rect(node);
+        let node_clip = ClipRect {
+            x0: i32::from(clip_rect.x0) + ctx.origin_x,
+            y0: i32::from(clip_rect.y0) + ctx.origin_y,
+            x1: i32::from(clip_rect.x1) + ctx.origin_x,
+            y1: i32::from(clip_rect.y1) + ctx.origin_y,
+        };
+        if let Some(intersection) = child_ctx.clip.intersect(node_clip) {
+            child_ctx.clip = intersection;
+        } else {
+            pop_style_context();
+            return;
+        }
+    }
+    let (scroll_x, scroll_y) = node.widget.scroll_offset();
+    child_ctx.origin_x -= scroll_x as i32;
+    child_ctx.origin_y -= scroll_y as i32;
+
     let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
     for child_id in child_ids {
-        render_tree_node(tree, child_id, frame, console);
+        render_tree_node(tree, child_id, child_ctx, frame, console);
     }
 
     pop_style_context();
+}
+
+#[derive(Clone, Copy)]
+struct TreeRenderCtx {
+    origin_x: i32,
+    origin_y: i32,
+    clip: ClipRect,
+}
+
+#[derive(Clone, Copy)]
+struct ClipRect {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl ClipRect {
+    fn for_frame(frame: &FrameBuffer) -> Self {
+        Self {
+            x0: 0,
+            y0: 0,
+            x1: frame.width as i32,
+            y1: frame.height as i32,
+        }
+    }
+
+    fn intersect(self, other: Self) -> Option<Self> {
+        let x0 = self.x0.max(other.x0);
+        let y0 = self.y0.max(other.y0);
+        let x1 = self.x1.min(other.x1);
+        let y1 = self.y1.min(other.y1);
+        if x1 <= x0 || y1 <= y0 {
+            None
+        } else {
+            Some(Self { x0, y0, x1, y1 })
+        }
+    }
+}
+
+fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::widget_tree::Rect {
+    let content = node.content_rect;
+    if content.x1 > content.x0 && content.y1 > content.y0 {
+        content
+    } else {
+        node.layout_rect
+    }
 }
 
 // ===========================================================================

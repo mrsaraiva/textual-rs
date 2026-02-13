@@ -185,8 +185,7 @@ pub trait Widget: Send + Sync {
         // Set dispatch context so self.node_id() returns the correct arena
         // NodeId during render(). The guard restores the previous recipient
         // on drop, so nested/sibling renders don't leak context.
-        let _dispatch_guard =
-            crate::runtime::dispatch_ctx::set_dispatch_recipient(_node_id);
+        let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(_node_id);
 
         // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
         // checks this value, so it must match the tag used here.
@@ -323,6 +322,20 @@ pub trait Widget: Send + Sync {
         None
     }
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
+        false
+    }
+
+    /// Return content scroll offset applied to descendants during render.
+    ///
+    /// Default widgets do not offset descendants.
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, 0)
+    }
+
+    /// Whether descendant rendering should be clipped to this widget's content box.
+    ///
+    /// Default widgets do not clip descendants.
+    fn clips_descendants_to_content(&self) -> bool {
         false
     }
     /// Mouse wheel / touchpad scroll input.

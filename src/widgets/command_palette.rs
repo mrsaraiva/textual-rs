@@ -999,9 +999,7 @@ impl Widget for CommandPalette {
                             return;
                         }
                     }
-                    Event::MouseUp(mouse)
-                        if mouse.target.is_some_and(|t| t == self.node_id()) =>
-                    {
+                    Event::MouseUp(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                         self.key_panel.on_event(event, ctx);
                         if ctx.handled() {
                             return;
