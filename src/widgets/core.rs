@@ -1,5 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
 
+use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
 use crate::debug::DebugLayout;
 use crate::event::{BindingHint, Event, EventCtx};
@@ -10,6 +11,49 @@ use crate::style::{Color, Style};
 use super::helpers;
 
 const META_WIDGET_ID: &str = "textual:widget_id";
+
+/// A declarative key-binding declaration, analogous to Python Textual's `Binding`.
+///
+/// Widgets return these from [`Widget::bindings()`] to declare key→action mappings.
+/// The runtime collects bindings along the focused widget chain and dispatches
+/// matching actions before falling through to raw `on_event` handling.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BindingDecl {
+    /// Key specification (e.g. `"enter"`, `"j,down"`). Comma-separated alternatives.
+    pub key: String,
+    /// Action string to dispatch (e.g. `"select_cursor"`, `"app.quit"`).
+    pub action: String,
+    /// Human-readable description shown in footer/help.
+    pub description: String,
+    /// Whether this binding is displayed in footer/help panels.
+    pub show: bool,
+    /// Priority bindings are checked before normal bindings across the whole chain.
+    pub priority: bool,
+}
+
+impl BindingDecl {
+    pub fn new(key: &str, action: &str, description: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            action: action.to_string(),
+            description: description.to_string(),
+            show: true,
+            priority: false,
+        }
+    }
+
+    /// Mark this binding as hidden (not shown in footer/help).
+    pub fn hidden(mut self) -> Self {
+        self.show = false;
+        self
+    }
+
+    /// Mark this binding as priority (dispatched before normal bindings).
+    pub fn priority(mut self) -> Self {
+        self.priority = true;
+        self
+    }
+}
 
 /// Behavior-only widget trait.
 ///
@@ -147,6 +191,27 @@ pub trait Widget: Send + Sync {
     /// Runtime dispatch uses focused-path hints as part of active binding lifecycle updates.
     fn binding_hints(&self) -> Vec<BindingHint> {
         Vec::new()
+    }
+    /// Declarative key bindings for this widget (analogous to Python Textual's BINDINGS).
+    ///
+    /// The runtime collects these along the focused widget chain. Priority bindings
+    /// are checked first across the entire chain, then normal bindings (focused→root).
+    fn bindings(&self) -> Vec<BindingDecl> {
+        Vec::new()
+    }
+    /// The namespace this widget owns for action routing (e.g. `"button"`).
+    ///
+    /// Used by [`crate::action::resolve_action`] to route namespaced actions.
+    fn action_namespace(&self) -> &str {
+        ""
+    }
+    /// List of actions this widget can handle.
+    fn action_registry(&self) -> &[ActionDecl] {
+        &[]
+    }
+    /// Execute a parsed action. Returns `true` if the action was handled.
+    fn execute_action(&mut self, _action: &ParsedAction, _ctx: &mut EventCtx) -> bool {
+        false
     }
     /// Optional focused HELP markup exposed to framework-level help panels.
     fn help_markup(&self) -> Option<&str> {

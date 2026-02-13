@@ -1,18 +1,16 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::style::TextAlign;
+
 use super::{Widget, WidgetStyles};
 
-/// Text alignment for the Digits widget.
+/// Deprecated: use [`TextAlign`] from `crate::style` instead.
 ///
-/// Python Textual respects the `text-align` CSS property; since the Rust style system
-/// does not yet have `text-align`, this enum provides widget-level alignment control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DigitsAlign {
-    #[default]
-    Left,
-    Center,
-    Right,
-}
+/// Previously the Digits widget used its own alignment enum. Now it reads
+/// `text-align` from the resolved CSS style, so this is a backward-compatible
+/// alias kept for code that still references the old name.
+#[deprecated(note = "Use crate::style::TextAlign instead")]
+pub type DigitsAlign = TextAlign;
 
 /// Characters recognized by the 3×3 digit font.
 const DIGITS: &str = " 0123456789+-^x:ABCDEF$£€()";
@@ -251,9 +249,11 @@ const DIGITS3X3_BOLD: &[&str] = &[
 ///
 /// The widget is always 3 lines tall. When the CSS `text-style: bold` is applied,
 /// the bold glyph table is used automatically.
+///
+/// Text alignment is controlled via the CSS `text-align` property on the widget's
+/// resolved style. Defaults to left-aligned when no CSS rule is set.
 pub struct Digits {
     value: String,
-    text_align: DigitsAlign,
     styles: WidgetStyles,
 }
 
@@ -261,7 +261,6 @@ impl Digits {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
-            text_align: DigitsAlign::Left,
             styles: WidgetStyles::default(),
         }
     }
@@ -279,22 +278,6 @@ impl Digits {
     /// Set a new display value (alias matching Python's `update` method).
     pub fn update(&mut self, value: impl Into<String>) {
         self.set_value(value);
-    }
-
-    /// Get the current text alignment.
-    pub fn text_align(&self) -> DigitsAlign {
-        self.text_align
-    }
-
-    /// Set the text alignment.
-    pub fn set_text_align(&mut self, align: DigitsAlign) {
-        self.text_align = align;
-    }
-
-    /// Builder-style text alignment setter.
-    pub fn with_text_align(mut self, align: DigitsAlign) -> Self {
-        self.text_align = align;
-        self
     }
 
     /// Calculate the display width for a given text.
@@ -353,16 +336,16 @@ impl Digits {
         rows: [String; 3],
         content_width: usize,
         available_width: usize,
-        align: DigitsAlign,
+        align: TextAlign,
     ) -> [String; 3] {
         if available_width <= content_width {
             return rows;
         }
         let pad = available_width - content_width;
         let (left_pad, right_pad) = match align {
-            DigitsAlign::Left => (0, pad),
-            DigitsAlign::Right => (pad, 0),
-            DigitsAlign::Center => {
+            TextAlign::Left | TextAlign::Justify => (0, pad),
+            TextAlign::Right => (pad, 0),
+            TextAlign::Center => {
                 let left = pad / 2;
                 (left, pad - left)
             }
@@ -375,16 +358,17 @@ impl Digits {
 
 impl Widget for Digits {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        // Detect bold from resolved CSS style
+        // Detect bold and text-align from resolved CSS style
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
         let bold = resolved.bold == Some(true);
         let rich_style = resolved.to_rich().unwrap_or_default();
+        let align = resolved.text_align.unwrap_or(TextAlign::Left);
 
         let rows = self.render_rows(bold);
         let content_width = Self::get_width(&self.value);
         let available_width = options.size.0.max(1);
-        let rows = Self::align_rows(rows, content_width, available_width, self.text_align);
+        let rows = Self::align_rows(rows, content_width, available_width, align);
 
         let mut out = Segments::new();
         for (i, row) in rows.iter().enumerate() {
@@ -430,7 +414,6 @@ mod tests {
 
     #[test]
     fn get_width_digits() {
-        // Each recognized char is 3 cells wide
         assert_eq!(Digits::get_width("0"), 3);
         assert_eq!(Digits::get_width("12"), 6);
         assert_eq!(Digits::get_width("0123456789"), 30);
@@ -467,9 +450,8 @@ mod tests {
 
     #[test]
     fn get_width_unknown_char() {
-        // Unknown characters are 1 cell wide
         assert_eq!(Digits::get_width("z"), 1);
-        assert_eq!(Digits::get_width("0z"), 4); // 3 + 1
+        assert_eq!(Digits::get_width("0z"), 4);
     }
 
     #[test]
@@ -513,7 +495,6 @@ mod tests {
     fn render_rows_dot_replaced_with_bullet() {
         let d = Digits::new("1.0");
         let rows = d.render_rows(false);
-        // '.' becomes '•' which is unknown, so 1 cell with spaces above
         assert!(rows[2].contains('•'));
     }
 
@@ -521,7 +502,6 @@ mod tests {
     fn render_rows_multiple_digits() {
         let d = Digits::new("12");
         let rows = d.render_rows(false);
-        // Each digit is 3 cells wide, so 6 total
         assert_eq!(rich_rs::cell_len(&rows[0]), 6);
         assert_eq!(rich_rs::cell_len(&rows[1]), 6);
         assert_eq!(rich_rs::cell_len(&rows[2]), 6);
@@ -536,7 +516,7 @@ mod tests {
     #[test]
     fn content_width_empty_is_at_least_1() {
         let d = Digits::new("");
-        assert_eq!(d.content_width(), Some(1)); // max(0, 1) = 1
+        assert_eq!(d.content_width(), Some(1));
     }
 
     #[test]
@@ -566,35 +546,16 @@ mod tests {
     }
 
     #[test]
-    fn text_align_default_is_left() {
-        let d = Digits::new("0");
-        assert_eq!(d.text_align(), DigitsAlign::Left);
-    }
-
-    #[test]
-    fn set_text_align() {
-        let mut d = Digits::new("0");
-        d.set_text_align(DigitsAlign::Center);
-        assert_eq!(d.text_align(), DigitsAlign::Center);
-    }
-
-    #[test]
-    fn with_text_align_builder() {
-        let d = Digits::new("0").with_text_align(DigitsAlign::Right);
-        assert_eq!(d.text_align(), DigitsAlign::Right);
-    }
-
-    #[test]
     fn align_rows_left_no_change_when_exact_fit() {
         let rows = ["abc".to_string(), "def".to_string(), "ghi".to_string()];
-        let aligned = Digits::align_rows(rows.clone(), 3, 3, DigitsAlign::Left);
+        let aligned = Digits::align_rows(rows.clone(), 3, 3, TextAlign::Left);
         assert_eq!(aligned, rows);
     }
 
     #[test]
     fn align_rows_left_pads_right() {
         let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
-        let aligned = Digits::align_rows(rows, 2, 6, DigitsAlign::Left);
+        let aligned = Digits::align_rows(rows, 2, 6, TextAlign::Left);
         assert_eq!(aligned[0], "ab    ");
         assert_eq!(aligned[1], "cd    ");
         assert_eq!(aligned[2], "ef    ");
@@ -603,7 +564,7 @@ mod tests {
     #[test]
     fn align_rows_right_pads_left() {
         let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
-        let aligned = Digits::align_rows(rows, 2, 6, DigitsAlign::Right);
+        let aligned = Digits::align_rows(rows, 2, 6, TextAlign::Right);
         assert_eq!(aligned[0], "    ab");
         assert_eq!(aligned[1], "    cd");
         assert_eq!(aligned[2], "    ef");
@@ -612,7 +573,7 @@ mod tests {
     #[test]
     fn align_rows_center_pads_both() {
         let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
-        let aligned = Digits::align_rows(rows, 2, 6, DigitsAlign::Center);
+        let aligned = Digits::align_rows(rows, 2, 6, TextAlign::Center);
         assert_eq!(aligned[0], "  ab  ");
         assert_eq!(aligned[1], "  cd  ");
         assert_eq!(aligned[2], "  ef  ");
@@ -621,10 +582,26 @@ mod tests {
     #[test]
     fn align_rows_center_odd_pad() {
         let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
-        let aligned = Digits::align_rows(rows, 2, 5, DigitsAlign::Center);
-        // 3 pad total: left=1, right=2
+        let aligned = Digits::align_rows(rows, 2, 5, TextAlign::Center);
         assert_eq!(aligned[0], " ab  ");
         assert_eq!(aligned[1], " cd  ");
         assert_eq!(aligned[2], " ef  ");
+    }
+
+    #[test]
+    fn align_rows_justify_treated_as_left() {
+        let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
+        let aligned = Digits::align_rows(rows, 2, 6, TextAlign::Justify);
+        assert_eq!(aligned[0], "ab    ");
+        assert_eq!(aligned[1], "cd    ");
+        assert_eq!(aligned[2], "ef    ");
+    }
+
+    #[test]
+    fn alignment_defaults_to_left_without_css() {
+        let rows = ["ab".to_string(), "cd".to_string(), "ef".to_string()];
+        let default_align = TextAlign::Left;
+        let aligned = Digits::align_rows(rows, 2, 6, default_align);
+        assert_eq!(aligned[0], "ab    ");
     }
 }

@@ -1,5 +1,6 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
+use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
@@ -494,6 +495,57 @@ pub(crate) fn focused_help_metadata_tree(
     None
 }
 
+/// Check whether a `KeyEventData` matches a binding key specification.
+///
+/// The binding key may contain comma-separated alternatives (e.g. `"j,down"`).
+/// Matching is performed against the key's `aliases()` which include the
+/// canonical name plus any alias variants.
+fn key_matches_binding(key: &KeyEventData, binding_key: &str) -> bool {
+    let aliases = key.aliases();
+    binding_key
+        .split(',')
+        .map(str::trim)
+        .any(|alt| aliases.iter().any(|a| *a == alt))
+}
+
+/// Walk the focused widget chain and find the first matching `BindingDecl`.
+///
+/// Phase 1: priority bindings (focused→root).
+/// Phase 2: normal bindings (focused→root).
+///
+/// Returns `(node_id, action_string)` of the first match, or `None`.
+pub(crate) fn match_binding_tree(
+    tree: &WidgetTree,
+    key: &KeyEventData,
+) -> Option<(NodeId, String)> {
+    let focus_id = focused_node_id_tree(tree)?;
+    let path = build_path_to_node(tree, focus_id);
+
+    // Phase 1: priority bindings (focused → root)
+    for &node_id in path.iter().rev() {
+        if let Some(node) = tree.get(node_id) {
+            for binding in node.widget.bindings() {
+                if binding.priority && key_matches_binding(key, &binding.key) {
+                    return Some((node_id, binding.action.clone()));
+                }
+            }
+        }
+    }
+
+    // Phase 2: normal bindings (focused → root)
+    for &node_id in path.iter().rev() {
+        if let Some(node) = tree.get(node_id) {
+            for binding in node.widget.bindings() {
+                if !binding.priority && key_matches_binding(key, &binding.key) {
+                    return Some((node_id, binding.action.clone()));
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Collect binding hints along the focused path (root→focused).
 ///
 /// If no widget has focus, falls back to root + single-child chain.
@@ -508,6 +560,14 @@ pub(crate) fn active_binding_hints_tree(
             if let Some(node) = tree.get(node_id) {
                 sources.push(node_id);
                 hints.extend(node.widget.binding_hints());
+                // Also include hints derived from declarative bindings.
+                for decl in node.widget.bindings() {
+                    hints.push(
+                        BindingHint::new(&decl.key, &decl.description)
+                            .hidden(!decl.show)
+                            .with_priority(decl.priority),
+                    );
+                }
             }
         }
         return (hints, sources);
@@ -530,6 +590,13 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
         if let Some(node) = tree.get(current) {
             sources.push(current);
             hints.extend(node.widget.binding_hints());
+            for decl in node.widget.bindings() {
+                hints.push(
+                    BindingHint::new(&decl.key, &decl.description)
+                        .hidden(!decl.show)
+                        .with_priority(decl.priority),
+                );
+            }
             let children = tree.children(current);
             if children.len() == 1 {
                 current = children[0];
@@ -1704,5 +1771,293 @@ mod envelope_tests {
             Some(override_node),
             "overridden control on the latest envelope should survive coalescing"
         );
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    use crate::keys::KeyEventData;
+    use crate::widget_tree::WidgetTree;
+    use crate::widgets::BindingDecl;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rich_rs::{Console, ConsoleOptions, Segments};
+
+    fn key_event(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, mods)
+    }
+
+    // -- BindingDecl construction tests --
+
+    #[test]
+    fn binding_decl_new_defaults() {
+        let b = BindingDecl::new("enter", "submit", "Submit form");
+        assert_eq!(b.key, "enter");
+        assert_eq!(b.action, "submit");
+        assert_eq!(b.description, "Submit form");
+        assert!(b.show);
+        assert!(!b.priority);
+    }
+
+    #[test]
+    fn binding_decl_hidden_builder() {
+        let b = BindingDecl::new("q", "quit", "Quit").hidden();
+        assert!(!b.show);
+        assert!(!b.priority);
+    }
+
+    #[test]
+    fn binding_decl_priority_builder() {
+        let b = BindingDecl::new("escape", "close", "Close").priority();
+        assert!(b.show);
+        assert!(b.priority);
+    }
+
+    #[test]
+    fn binding_decl_chained_builders() {
+        let b = BindingDecl::new("x", "delete", "Delete").hidden().priority();
+        assert!(!b.show);
+        assert!(b.priority);
+    }
+
+    // -- key_matches_binding tests --
+
+    #[test]
+    fn key_matches_single_binding() {
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
+        assert!(key_matches_binding(&key, "enter"));
+        assert!(!key_matches_binding(&key, "space"));
+    }
+
+    #[test]
+    fn key_matches_comma_separated_alternatives() {
+        let key =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char('j'), KeyModifiers::empty()));
+        assert!(key_matches_binding(&key, "j,down"));
+        assert!(key_matches_binding(&key, "up,j"));
+    }
+
+    #[test]
+    fn key_matches_via_alias() {
+        // Tab and ctrl+i are aliases
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Tab, KeyModifiers::empty()));
+        assert!(key_matches_binding(&key, "ctrl+i"));
+        assert!(key_matches_binding(&key, "tab"));
+    }
+
+    #[test]
+    fn key_no_match_returns_false() {
+        let key =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char('z'), KeyModifiers::empty()));
+        assert!(!key_matches_binding(&key, "a,b,c"));
+    }
+
+    // -- match_binding_tree tests --
+
+    /// Minimal widget that declares bindings and reports focus state.
+    struct BindingWidget {
+        focused: bool,
+        decls: Vec<BindingDecl>,
+    }
+
+    impl BindingWidget {
+        fn new(focused: bool, decls: Vec<BindingDecl>) -> Self {
+            Self { focused, decls }
+        }
+    }
+
+    impl Widget for BindingWidget {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn bindings(&self) -> Vec<BindingDecl> {
+            self.decls.clone()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+    }
+
+    /// Inert root widget.
+    struct Root;
+
+    impl Widget for Root {
+        fn render(&self, _: &Console, _: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
+
+    #[test]
+    fn match_binding_focused_widget() {
+        // Tree: root → child (focused, binding "enter" → "submit")
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Root));
+        let _child_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(
+                true,
+                vec![BindingDecl::new("enter", "submit", "Submit")],
+            )),
+        );
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert!(result.is_some());
+        let (node_id, action) = result.unwrap();
+        assert_eq!(action, "submit");
+        assert_eq!(node_id, _child_id);
+    }
+
+    #[test]
+    fn match_binding_ancestor_fallback() {
+        // Tree: root (binding "q" → "quit") → child (focused, no bindings)
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("q", "app.quit", "Quit")],
+        )));
+        let _child_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(false, vec![])),
+        );
+        // Focus the child
+        if let Some(node) = tree.get_mut(_child_id) {
+            node.widget.set_focus(true);
+        }
+
+        let key =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char('q'), KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert!(result.is_some());
+        let (node_id, action) = result.unwrap();
+        assert_eq!(action, "app.quit");
+        assert_eq!(node_id, root_id);
+    }
+
+    #[test]
+    fn match_binding_priority_wins_over_normal() {
+        // Tree: root (priority binding "escape" → "close_app")
+        //       → child (focused, normal binding "escape" → "cancel")
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("escape", "close_app", "Close app").priority()],
+        )));
+        let child_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(
+                true,
+                vec![BindingDecl::new("escape", "cancel", "Cancel")],
+            )),
+        );
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Esc, KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert!(result.is_some());
+        let (node_id, action) = result.unwrap();
+        // Priority binding on child should be checked first (focused → root),
+        // but child has normal binding, root has priority. Priority phase checks
+        // child first (no priority there), then root (priority match!).
+        assert_eq!(action, "close_app");
+        assert_eq!(node_id, root_id);
+
+        // Now verify that without priority, child would win.
+        // Remove priority from root, make it normal.
+        let mut tree2 = WidgetTree::new();
+        let root_id2 = tree2.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("escape", "close_app", "Close app")],
+        )));
+        let child_id2 = tree2.mount(
+            root_id2,
+            Box::new(BindingWidget::new(
+                true,
+                vec![BindingDecl::new("escape", "cancel", "Cancel")],
+            )),
+        );
+
+        let result2 = match_binding_tree(&tree2, &key);
+        assert!(result2.is_some());
+        let (node_id2, action2) = result2.unwrap();
+        // Normal bindings: focused child wins (checked first in focused → root order).
+        assert_eq!(action2, "cancel");
+        assert_eq!(node_id2, child_id2);
+    }
+
+    #[test]
+    fn match_binding_no_match_returns_none() {
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("enter", "submit", "Submit")],
+        )));
+        let _child_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(true, vec![])),
+        );
+
+        let key =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char('z'), KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn match_binding_no_focus_returns_none() {
+        let mut tree = WidgetTree::new();
+        let _root_id = tree.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("enter", "submit", "Submit")],
+        )));
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert!(result.is_none());
+    }
+
+    // -- binding hints integration --
+
+    #[test]
+    fn active_hints_include_declared_bindings() {
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("q", "quit", "Quit application")],
+        )));
+        let _child_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(
+                true,
+                vec![
+                    BindingDecl::new("enter", "submit", "Submit form"),
+                    BindingDecl::new("escape", "cancel", "Cancel").hidden(),
+                ],
+            )),
+        );
+
+        let (hints, _sources) = active_binding_hints_tree(&tree);
+        // Root has 1 binding, child has 2 bindings = 3 total hints.
+        assert_eq!(hints.len(), 3);
+
+        // Check that the hidden binding is marked hidden in the hint.
+        let escape_hint = hints.iter().find(|h| h.key == "escape").unwrap();
+        assert!(!escape_hint.show); // hidden binding → show=false
+
+        let enter_hint = hints.iter().find(|h| h.key == "enter").unwrap();
+        assert!(enter_hint.show);
+
+        let q_hint = hints.iter().find(|h| h.key == "q").unwrap();
+        assert!(q_hint.show);
+        assert_eq!(q_hint.description, "Quit application");
     }
 }

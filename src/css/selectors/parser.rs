@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::style::{
-    BorderEdge, BorderType, Display, Dock, Layout, Margin, Overflow, Scalar, Style, StyleProperty,
-    Tint, TransitionTiming, Visibility, parse_auto_color_like, parse_color_like,
+    Align, BorderEdge, BorderType, ContentAlign, Display, Dock, HorizontalAlign, Layout, Margin,
+    Offset, Overflow, Scalar, Style, StyleProperty, TextAlign, Tint, TransitionTiming,
+    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -260,6 +261,10 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
             StyleProperty::GridGutterHorizontal,
             StyleProperty::GridGutterVertical,
         ],
+        "text-align" => &[StyleProperty::TextAlign],
+        "content-align" => &[StyleProperty::ContentAlign],
+        "align" | "align-horizontal" | "align-vertical" => &[StyleProperty::Align],
+        "offset" | "offset-x" | "offset-y" => &[StyleProperty::Offset],
         "layer" => &[StyleProperty::Layer],
         "layers" => &[StyleProperty::Layers],
         _ => &[],
@@ -599,6 +604,90 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     style.layers = Some(names);
                 }
             }
+            "text-align" => {
+                style.text_align = parse_text_align(value);
+            }
+            "content-align" => {
+                if let Some(ca) = parse_content_align(value) {
+                    style.content_align = Some(ca);
+                }
+            }
+            "align" => {
+                if let Some(a) = parse_align(value) {
+                    style.align = Some(a);
+                }
+            }
+            "align-horizontal" => {
+                if let Some(h) = parse_horizontal_align(value) {
+                    let existing = style.align.unwrap_or(Align {
+                        horizontal: HorizontalAlign::Left,
+                        vertical: VerticalAlign::Top,
+                    });
+                    style.align = Some(Align {
+                        horizontal: h,
+                        vertical: existing.vertical,
+                    });
+                }
+            }
+            "align-vertical" => {
+                if let Some(v) = parse_vertical_align(value) {
+                    let existing = style.align.unwrap_or(Align {
+                        horizontal: HorizontalAlign::Left,
+                        vertical: VerticalAlign::Top,
+                    });
+                    style.align = Some(Align {
+                        horizontal: existing.horizontal,
+                        vertical: v,
+                    });
+                }
+            }
+            "content-align-horizontal" => {
+                if let Some(h) = parse_horizontal_align(value) {
+                    let existing = style.content_align.unwrap_or(ContentAlign {
+                        horizontal: HorizontalAlign::Left,
+                        vertical: VerticalAlign::Top,
+                    });
+                    style.content_align = Some(ContentAlign {
+                        horizontal: h,
+                        vertical: existing.vertical,
+                    });
+                }
+            }
+            "content-align-vertical" => {
+                if let Some(v) = parse_vertical_align(value) {
+                    let existing = style.content_align.unwrap_or(ContentAlign {
+                        horizontal: HorizontalAlign::Left,
+                        vertical: VerticalAlign::Top,
+                    });
+                    style.content_align = Some(ContentAlign {
+                        horizontal: existing.horizontal,
+                        vertical: v,
+                    });
+                }
+            }
+            "offset" => {
+                if let Some(o) = parse_offset(value) {
+                    style.offset = Some(o);
+                }
+            }
+            "offset-x" => {
+                if let Ok(x) = value.trim().parse::<i16>() {
+                    let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+                    style.offset = Some(Offset {
+                        x,
+                        y: existing.y,
+                    });
+                }
+            }
+            "offset-y" => {
+                if let Ok(y) = value.trim().parse::<i16>() {
+                    let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+                    style.offset = Some(Offset {
+                        x: existing.x,
+                        y,
+                    });
+                }
+            }
             _ => {}
         }
         // For non-shorthand properties, apply importance generically.
@@ -877,6 +966,70 @@ fn parse_dock(value: &str) -> Option<Dock> {
         "left" => Some(Dock::Left),
         _ => None,
     }
+}
+
+fn parse_text_align(value: &str) -> Option<TextAlign> {
+    match value.trim().to_lowercase().as_str() {
+        "left" | "start" => Some(TextAlign::Left),
+        "center" => Some(TextAlign::Center),
+        "right" | "end" => Some(TextAlign::Right),
+        "justify" => Some(TextAlign::Justify),
+        _ => None,
+    }
+}
+
+fn parse_horizontal_align(value: &str) -> Option<HorizontalAlign> {
+    match value.trim().to_lowercase().as_str() {
+        "left" | "start" => Some(HorizontalAlign::Left),
+        "center" => Some(HorizontalAlign::Center),
+        "right" | "end" => Some(HorizontalAlign::Right),
+        _ => None,
+    }
+}
+
+fn parse_vertical_align(value: &str) -> Option<VerticalAlign> {
+    match value.trim().to_lowercase().as_str() {
+        "top" | "start" => Some(VerticalAlign::Top),
+        "middle" | "center" => Some(VerticalAlign::Middle),
+        "bottom" | "end" => Some(VerticalAlign::Bottom),
+        _ => None,
+    }
+}
+
+fn parse_content_align(value: &str) -> Option<ContentAlign> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let horizontal = parse_horizontal_align(parts[0])?;
+    let vertical = parse_vertical_align(parts[1])?;
+    Some(ContentAlign {
+        horizontal,
+        vertical,
+    })
+}
+
+fn parse_align(value: &str) -> Option<Align> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let horizontal = parse_horizontal_align(parts[0])?;
+    let vertical = parse_vertical_align(parts[1])?;
+    Some(Align {
+        horizontal,
+        vertical,
+    })
+}
+
+fn parse_offset(value: &str) -> Option<Offset> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let x = parts[0].trim().parse::<i16>().ok()?;
+    let y = parts[1].trim().parse::<i16>().ok()?;
+    Some(Offset { x, y })
 }
 
 pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
@@ -1218,5 +1371,247 @@ mod tests {
         };
         let style = sheet.style_for_meta(&meta);
         assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
+    }
+
+    // ---- text-align parsing tests ----
+
+    #[test]
+    fn parse_text_align_center() {
+        let style = parse_style_body("text-align: center;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Center));
+    }
+
+    #[test]
+    fn parse_text_align_right() {
+        let style = parse_style_body("text-align: right;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Right));
+    }
+
+    #[test]
+    fn parse_text_align_left() {
+        let style = parse_style_body("text-align: left;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Left));
+    }
+
+    #[test]
+    fn parse_text_align_justify() {
+        let style = parse_style_body("text-align: justify;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Justify));
+    }
+
+    #[test]
+    fn parse_text_align_start_maps_to_left() {
+        let style = parse_style_body("text-align: start;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Left));
+    }
+
+    #[test]
+    fn parse_text_align_end_maps_to_right() {
+        let style = parse_style_body("text-align: end;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Right));
+    }
+
+    #[test]
+    fn parse_text_align_case_insensitive() {
+        let style = parse_style_body("text-align: CENTER;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Center));
+    }
+
+    #[test]
+    fn parse_text_align_important() {
+        let style = parse_style_body("text-align: center !important;");
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Center));
+        assert!(style.importance.get(StyleProperty::TextAlign));
+    }
+
+    // ---- content-align parsing tests ----
+
+    #[test]
+    fn parse_content_align_center_middle() {
+        let style = parse_style_body("content-align: center middle;");
+        let ca = style.content_align.expect("content_align should be Some");
+        assert_eq!(ca.horizontal, crate::style::HorizontalAlign::Center);
+        assert_eq!(ca.vertical, crate::style::VerticalAlign::Middle);
+    }
+
+    #[test]
+    fn parse_content_align_left_top() {
+        let style = parse_style_body("content-align: left top;");
+        let ca = style.content_align.expect("content_align should be Some");
+        assert_eq!(ca.horizontal, crate::style::HorizontalAlign::Left);
+        assert_eq!(ca.vertical, crate::style::VerticalAlign::Top);
+    }
+
+    #[test]
+    fn parse_content_align_right_bottom() {
+        let style = parse_style_body("content-align: right bottom;");
+        let ca = style.content_align.expect("content_align should be Some");
+        assert_eq!(ca.horizontal, crate::style::HorizontalAlign::Right);
+        assert_eq!(ca.vertical, crate::style::VerticalAlign::Bottom);
+    }
+
+    #[test]
+    fn parse_content_align_important() {
+        let style = parse_style_body("content-align: center middle !important;");
+        assert!(style.content_align.is_some());
+        assert!(style.importance.get(StyleProperty::ContentAlign));
+    }
+
+    #[test]
+    fn parse_content_align_single_value_rejected() {
+        // content-align requires exactly two values.
+        let style = parse_style_body("content-align: center;");
+        assert!(style.content_align.is_none());
+    }
+
+    // ---- align parsing tests ----
+
+    #[test]
+    fn parse_align_center_middle() {
+        let style = parse_style_body("align: center middle;");
+        let a = style.align.expect("align should be Some");
+        assert_eq!(a.horizontal, crate::style::HorizontalAlign::Center);
+        assert_eq!(a.vertical, crate::style::VerticalAlign::Middle);
+    }
+
+    #[test]
+    fn parse_align_left_top() {
+        let style = parse_style_body("align: left top;");
+        let a = style.align.expect("align should be Some");
+        assert_eq!(a.horizontal, crate::style::HorizontalAlign::Left);
+        assert_eq!(a.vertical, crate::style::VerticalAlign::Top);
+    }
+
+    #[test]
+    fn parse_align_right_bottom() {
+        let style = parse_style_body("align: right bottom;");
+        let a = style.align.expect("align should be Some");
+        assert_eq!(a.horizontal, crate::style::HorizontalAlign::Right);
+        assert_eq!(a.vertical, crate::style::VerticalAlign::Bottom);
+    }
+
+    #[test]
+    fn parse_align_important() {
+        let style = parse_style_body("align: center middle !important;");
+        assert!(style.align.is_some());
+        assert!(style.importance.get(StyleProperty::Align));
+    }
+
+    #[test]
+    fn parse_align_single_value_rejected() {
+        let style = parse_style_body("align: center;");
+        assert!(style.align.is_none());
+    }
+
+    // ---- offset parsing tests ----
+
+    #[test]
+    fn parse_offset_basic() {
+        let style = parse_style_body("offset: 1 2;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, 1);
+        assert_eq!(o.y, 2);
+    }
+
+    #[test]
+    fn parse_offset_negative() {
+        let style = parse_style_body("offset: -5 3;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, -5);
+        assert_eq!(o.y, 3);
+    }
+
+    #[test]
+    fn parse_offset_zero() {
+        let style = parse_style_body("offset: 0 0;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, 0);
+        assert_eq!(o.y, 0);
+    }
+
+    #[test]
+    fn parse_offset_important() {
+        let style = parse_style_body("offset: 1 2 !important;");
+        assert!(style.offset.is_some());
+        assert!(style.importance.get(StyleProperty::Offset));
+    }
+
+    #[test]
+    fn parse_offset_single_value_rejected() {
+        let style = parse_style_body("offset: 1;");
+        assert!(style.offset.is_none());
+    }
+
+    // ---- Full stylesheet integration tests ----
+
+    #[test]
+    fn parse_stylesheet_with_alignment_properties() {
+        use super::super::ast::StyleSheet;
+        let css = r#"
+            Screen {
+                align: center middle;
+                content-align: right bottom;
+                text-align: justify;
+                offset: 3 -1;
+            }
+        "#;
+        let sheet = StyleSheet::parse(css);
+        assert_eq!(sheet.rules.len(), 1);
+        let style = &sheet.rules[0].style;
+        let a = style.align.expect("align");
+        assert_eq!(a.horizontal, crate::style::HorizontalAlign::Center);
+        assert_eq!(a.vertical, crate::style::VerticalAlign::Middle);
+        let ca = style.content_align.expect("content_align");
+        assert_eq!(ca.horizontal, crate::style::HorizontalAlign::Right);
+        assert_eq!(ca.vertical, crate::style::VerticalAlign::Bottom);
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Justify));
+        let o = style.offset.expect("offset");
+        assert_eq!(o.x, 3);
+        assert_eq!(o.y, -1);
+    }
+
+    #[test]
+    fn parse_stylesheet_alignment_with_important() {
+        use super::super::ast::StyleSheet;
+        let css = ".centered { text-align: center !important; align: center middle !important; }";
+        let sheet = StyleSheet::parse(css);
+        assert_eq!(sheet.rules.len(), 1);
+        let style = &sheet.rules[0].style;
+        assert_eq!(style.text_align, Some(crate::style::TextAlign::Center));
+        assert!(style.importance.get(StyleProperty::TextAlign));
+        assert!(style.align.is_some());
+        assert!(style.importance.get(StyleProperty::Align));
+    }
+
+    // ---- Sub-property parsing tests ----
+
+    #[test]
+    fn parse_align_horizontal_only() {
+        let style = parse_style_body("align-horizontal: right;");
+        let a = style.align.expect("align should be Some");
+        assert_eq!(a.horizontal, crate::style::HorizontalAlign::Right);
+    }
+
+    #[test]
+    fn parse_align_vertical_only() {
+        let style = parse_style_body("align-vertical: bottom;");
+        let a = style.align.expect("align should be Some");
+        assert_eq!(a.vertical, crate::style::VerticalAlign::Bottom);
+    }
+
+    #[test]
+    fn parse_offset_x_only() {
+        let style = parse_style_body("offset-x: 5;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, 5);
+        assert_eq!(o.y, 0);
+    }
+
+    #[test]
+    fn parse_offset_y_only() {
+        let style = parse_style_body("offset-y: -3;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, 0);
+        assert_eq!(o.y, -3);
     }
 }

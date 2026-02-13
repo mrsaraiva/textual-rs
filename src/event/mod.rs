@@ -4,6 +4,7 @@ use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::style::{Color, Scalar, Spacing, Tint};
+use crate::worker::WorkerRequest;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -454,6 +455,7 @@ pub struct EventCtx {
     messages: Vec<MessageEvent>,
     animation_requests: Vec<AnimationRequest>,
     style_animation_requests: Vec<StyleAnimationRequest>,
+    worker_requests: Vec<WorkerRequest>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -709,6 +711,35 @@ impl EventCtx {
         self.style_animation_requests.push(request);
     }
 
+    /// Request a background worker to be spawned by the runtime.
+    ///
+    /// Returns after recording the request — actual spawning happens in the
+    /// runtime event loop after dispatch completes.
+    pub fn request_worker(&mut self, name: Option<&str>) {
+        self.worker_requests.push(WorkerRequest {
+            owner: self.node_id,
+            exclusive_key: None,
+            name: name.map(|s| s.to_string()),
+        });
+    }
+
+    /// Request an exclusive background worker.
+    ///
+    /// Any existing worker with the same `key` owned by this widget will be
+    /// cancelled before the new one starts.
+    pub fn request_exclusive_worker(&mut self, key: &str, name: Option<&str>) {
+        self.worker_requests.push(WorkerRequest {
+            owner: self.node_id,
+            exclusive_key: Some(key.to_string()),
+            name: name.map(|s| s.to_string()),
+        });
+    }
+
+    /// Take pending worker requests (called by runtime after dispatch).
+    pub(crate) fn take_worker_requests(&mut self) -> Vec<WorkerRequest> {
+        std::mem::take(&mut self.worker_requests)
+    }
+
     pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
         if other.handled {
             self.handled = true;
@@ -725,6 +756,8 @@ impl EventCtx {
             .append(&mut other.animation_requests);
         self.style_animation_requests
             .append(&mut other.style_animation_requests);
+        self.worker_requests
+            .append(&mut other.worker_requests);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
@@ -1173,5 +1206,66 @@ mod tests {
             AnimationEase::InOutElastic,
         ];
         assert_eq!(variants.len(), 30);
+    }
+
+    // ── Worker request tests ───────────────────────────────────────────
+
+    #[test]
+    fn event_ctx_request_worker() {
+        let owner = node_id_from_ffi(10);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(owner);
+        ctx.request_worker(Some("bg-fetch"));
+
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].owner, owner);
+        assert!(reqs[0].exclusive_key.is_none());
+        assert_eq!(reqs[0].name.as_deref(), Some("bg-fetch"));
+    }
+
+    #[test]
+    fn event_ctx_request_exclusive_worker() {
+        let owner = node_id_from_ffi(11);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(owner);
+        ctx.request_exclusive_worker("search", Some("search-worker"));
+
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].owner, owner);
+        assert_eq!(reqs[0].exclusive_key.as_deref(), Some("search"));
+        assert_eq!(reqs[0].name.as_deref(), Some("search-worker"));
+    }
+
+    #[test]
+    fn event_ctx_take_worker_requests_drains() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+        ctx.request_worker(None);
+        ctx.request_worker(None);
+
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 2);
+        // Second take should be empty.
+        let reqs2 = ctx.take_worker_requests();
+        assert!(reqs2.is_empty());
+    }
+
+    #[test]
+    fn event_ctx_merge_includes_worker_requests() {
+        let mut a = EventCtx::default();
+        a.set_node_id(node_id_from_ffi(1));
+        a.request_worker(Some("a"));
+
+        let mut b = EventCtx::default();
+        b.set_node_id(node_id_from_ffi(2));
+        b.request_worker(Some("b"));
+
+        a.merge_from(b);
+        let reqs = a.take_worker_requests();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].name.as_deref(), Some("a"));
+        assert_eq!(reqs[1].name.as_deref(), Some("b"));
     }
 }

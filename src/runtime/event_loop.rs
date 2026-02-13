@@ -24,7 +24,7 @@ use super::routing::{
     active_binding_hints_tree, dispatch_event, dispatch_event_to_target_tree, dispatch_event_tree,
     dispatch_message_queue_tree, dispatch_mouse_scroll, dispatch_mouse_scroll_to_target_tree,
     dispatch_scroll_action_tree, focused_help_metadata_tree, focused_node_id_tree,
-    is_priority_action, is_scroll_action,
+    is_priority_action, is_scroll_action, match_binding_tree,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
@@ -912,6 +912,73 @@ impl App {
                             }
                             if outcome.handled {
                                 continue;
+                            }
+                        }
+
+                        // Declarative BINDINGS: check focused widget chain for matching binding.
+                        if let Some(tree) = self.widget_tree.as_ref() {
+                            if let Some((_node_id, action_str)) =
+                                match_binding_tree(tree, &key)
+                            {
+                                if let Some(parsed) =
+                                    crate::action::parse_action(&action_str)
+                                {
+                                    if let Some(tree_mut) = self.widget_tree.as_mut() {
+                                        let focused = focused_node_id_tree(tree_mut);
+                                        let resolved = {
+                                            let tree_ref = &*tree_mut;
+                                            focused.and_then(|fid| {
+                                                crate::action::resolve_action(
+                                                    &parsed,
+                                                    tree_ref,
+                                                    fid,
+                                                    |nid| {
+                                                        tree_ref.get(nid).map(|n| {
+                                                            (
+                                                                n.widget.action_namespace(),
+                                                                n.widget.action_registry(),
+                                                            )
+                                                        })
+                                                    },
+                                                )
+                                            })
+                                        };
+                                        if let Some(ra) = resolved {
+                                            let mut ctx = EventCtx::default();
+                                            if let Some(node) = tree_mut.get_mut(ra.node) {
+                                                let handled =
+                                                    node.widget.execute_action(&parsed, &mut ctx);
+                                                debug_input(&format!(
+                                                    "[input] binding action={action_str:?} handled={handled}"
+                                                ));
+                                                if handled || ctx.handled() {
+                                                    if ctx.repaint_requested() {
+                                                        pending_invalidation.request_full_content();
+                                                    }
+                                                    let messages = ctx.take_messages();
+                                                    if !messages.is_empty() {
+                                                        let mut msg_outcome = self
+                                                            .dispatch_message_queue_with_runtime(
+                                                                root, messages,
+                                                            );
+                                                        self.absorb_outcome(
+                                                            &mut msg_outcome,
+                                                            &mut pending_invalidation,
+                                                            InvalidationScope::Global,
+                                                        );
+                                                        if msg_outcome.stop_requested {
+                                                            break 'event_loop;
+                                                        }
+                                                    }
+                                                    if ctx.stop_requested() {
+                                                        break 'event_loop;
+                                                    }
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 

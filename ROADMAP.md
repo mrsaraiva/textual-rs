@@ -94,6 +94,10 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 | Done | Message control reference | `control: Option<NodeId>` on `MessageEnvelope` — originating widget reference (Python's `event.control`). |
 | Done | Widget CSS defaults batch | Header dock:top, Footer dock:bottom, Button/Placeholder alignment, Input width:100%, Collapsible display:none, Rule 1fr margins, TextArea 1fr+padding. |
 | Done | CSS property animation | `StyleValue` enum + per-property interpolation + `StyleAnimation` on Animator + `animate_style()` on EventCtx. Animatable: colors, opacity, scalars, spacing, tint. |
+| Done | Declarative BINDINGS | `BindingDecl` struct + `Widget::bindings()` + `match_binding_tree()` focused chain walk (priority then normal) + event loop wiring + action routing via `execute_action()`. |
+| Done | Worker system | `WorkerId`, `WorkerState`, `CancellationToken`, `WorkerRegistry` with register/cancel/exclusive/cleanup. `EventCtx::request_worker()` / `request_exclusive_worker()`. |
+| Done | CSS parser: align/offset | `text-align`, `content-align`, `content-align-horizontal/vertical`, `align`, `align-horizontal/vertical`, `offset`, `offset-x/y` all parsed and applied. |
+| Done | Widget polish batch 2 | Digits CSS text-align integration, ProgressBar gradient, Select allow_blank mode. |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 

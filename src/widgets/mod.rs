@@ -58,7 +58,7 @@ pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
 pub use content_switcher::ContentSwitcher;
-pub use core::{LayoutConstraints, Widget, WidgetStyles};
+pub use core::{BindingDecl, LayoutConstraints, Widget, WidgetStyles};
 pub use data_table::{CursorType, DataTable};
 pub use digits::{Digits, DigitsAlign};
 pub use directory_tree::DirectoryTree;

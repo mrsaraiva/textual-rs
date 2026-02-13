@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 15: Declarative bindings + Worker system + CSS parser gaps + widget polish**
+  - **P4-16 complete:** Declarative `BINDINGS` on widgets — `BindingDecl` struct with `new()`/`hidden()`/`priority()` builders. `Widget::bindings()` trait method. `match_binding_tree()` walks focused chain (priority first, then normal). Wired into event loop before `on_event` dispatch. Binding hints auto-collected for footer/help. Action routing via `action_namespace()`/`action_registry()`/`execute_action()` on Widget trait. 12 tests.
+  - **P5-07 + P5-08 complete:** Worker abstraction — `WorkerId`, `WorkerState` (Pending/Running/Cancelled/Success/Error), `CancellationToken` (cooperative), `WorkerEntry` lifecycle, `WorkerRegistry` (register/cancel/cancel_by_owner/exclusive mode/cleanup). `WorkerRequest` via `EventCtx::request_worker()`/`request_exclusive_worker()`. 29 tests.
+  - **CSS parser gaps closed:** `text-align`, `content-align`, `content-align-horizontal`, `content-align-vertical`, `align`, `align-horizontal`, `align-vertical`, `offset`, `offset-x`, `offset-y` — all now parsed and applied to Style. Importance mapping for all new properties. ~37 tests.
+  - **WP-09 (Digits):** CSS `text-align` integration — reads alignment from resolved style instead of widget-local enum. `DigitsAlign` deprecated as alias to `TextAlign`.
+  - **WP-26 (ProgressBar):** Gradient support — `with_gradient(start, end)` linearly interpolates color across filled portion. `lerp_color()` helper.
+  - **WP-29 (Select):** `allow_blank` mode — when false (default), first option auto-selected; `clear()` is no-op. When true, starts blank, user can deselect. Builder + setter API.
+  - Build: 0 errors. Tests: 1054 passed (+100 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 14: !important + control ref + widget CSS defaults + CSS animation**
   - **P2-05 + P2-07 complete:** Per-property `!important` tracking via `ImportanceBitset(u64)` with `StyleProperty` enum (45 variants). Importance-aware cascade in `combine()` — `!important` declarations win over normal regardless of specificity. Parser detects `!important` per-declaration with safe non-ASCII slicing. 27 tests.
   - **P4-17 complete:** `control: Option<NodeId>` added to `MessageEnvelope` — originating widget reference (like Python's `event.control`). Defaults to sender, preserved during bubble, survives coalescing. 8 tests.

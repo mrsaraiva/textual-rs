@@ -27,6 +27,9 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     cursor: OptionCursorState,
     prompt: String,
     disabled: bool,
+    /// When `true`, the selection can be blank (no value). When `false` (default),
+    /// the first option is auto-selected and the user cannot clear the selection.
+    allow_blank: bool,
     open: bool,
     list: OptionList,
     focused: bool,
@@ -57,11 +60,20 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         let mut list = OptionList::with_items(list_items);
         list.set_focus(true);
 
+        // Default allow_blank=false: auto-select first option.
+        let mut cursor = OptionCursorState::default();
+        if !options.is_empty() {
+            cursor.set_selected(Some(0));
+            cursor.set_highlighted(Some(0));
+            list.set_highlighted(0);
+        }
+
         Self {
             options,
-            cursor: OptionCursorState::default(),
+            cursor,
             prompt: prompt.into(),
             disabled: false,
+            allow_blank: false,
             open: false,
             list,
             focused: false,
@@ -99,7 +111,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     }
 
     /// Clear the current selection (revert to prompt state).
+    ///
+    /// This is a no-op when `allow_blank` is `false`.
     pub fn clear(&mut self) {
+        if !self.allow_blank {
+            return;
+        }
         self.cursor.clear();
         self.list.clear_highlighted();
     }
@@ -107,6 +124,46 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     /// Whether the dropdown overlay is currently open.
     pub fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// Whether blank (no selection) is allowed.
+    pub fn allow_blank(&self) -> bool {
+        self.allow_blank
+    }
+
+    /// Set whether blank (no selection) is allowed.
+    ///
+    /// When switching from `allow_blank=true` to `false` and no option is
+    /// currently selected, the first option is auto-selected.
+    pub fn set_allow_blank(&mut self, allow: bool) {
+        self.allow_blank = allow;
+        if !allow && self.cursor.selected().is_none() && !self.options.is_empty() {
+            self.cursor.set_selected(Some(0));
+            self.cursor.set_highlighted(Some(0));
+            self.list.set_highlighted(0);
+        }
+    }
+
+    /// Builder: set whether blank (no selection) is allowed.
+    ///
+    /// When `true`, the initial state is no selection (placeholder is shown)
+    /// and the user can deselect. When `false` (default), the first option
+    /// is auto-selected and the user cannot clear the selection.
+    pub fn with_allow_blank(mut self, allow: bool) -> Self {
+        if allow {
+            // Undo the auto-selection from new() — start blank.
+            self.allow_blank = true;
+            self.cursor.clear();
+            self.list.clear_highlighted();
+        } else {
+            self.allow_blank = false;
+            if self.cursor.selected().is_none() && !self.options.is_empty() {
+                self.cursor.set_selected(Some(0));
+                self.cursor.set_highlighted(Some(0));
+                self.list.set_highlighted(0);
+            }
+        }
+        self
     }
 
     /// Builder: set disabled state for the entire select.
@@ -121,14 +178,22 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     }
 
     /// Replace all options. Clears the current selection.
+    ///
+    /// When `allow_blank` is `false` and new options are non-empty,
+    /// the first option is auto-selected.
     pub fn set_options(&mut self, options: Vec<(String, T)>) {
         let list_items: Vec<OptionItem> = options
             .iter()
             .map(|(label, _)| OptionItem::new(label.as_str()))
             .collect();
-        self.options = options;
         self.cursor.clear();
         self.list.set_items(list_items);
+        self.options = options;
+        if !self.allow_blank && !self.options.is_empty() {
+            self.cursor.set_selected(Some(0));
+            self.cursor.set_highlighted(Some(0));
+            self.list.set_highlighted(0);
+        }
     }
 
     // ── Internals ───────────────────────────────────────────────────
@@ -312,6 +377,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             match event {
                 Event::Key(key) => match key.code {
                     KeyCode::Esc => {
+                        if self.allow_blank {
+                            // Deselect: revert to blank/placeholder state.
+                            self.cursor.clear();
+                            self.list.clear_highlighted();
+                        }
                         self.set_open(false, ctx);
                         ctx.set_handled();
                         return;
@@ -596,6 +666,10 @@ mod tests {
         )
     }
 
+    fn make_select_blank() -> Select<i32> {
+        make_select().with_allow_blank(true)
+    }
+
     fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut EventCtx) -> Vec<MessageEvent> {
         let mut delivered = Vec::new();
         loop {
@@ -612,10 +686,11 @@ mod tests {
     }
 
     #[test]
-    fn select_starts_closed_with_no_value() {
+    fn select_starts_closed_with_first_selected() {
+        // Default allow_blank=false auto-selects the first option.
         let sel = make_select();
         assert!(!sel.is_open());
-        assert!(sel.value().is_none());
+        assert_eq!(sel.value(), Some(&1)); // Alpha
     }
 
     #[test]
@@ -738,8 +813,8 @@ mod tests {
     }
 
     #[test]
-    fn select_clear_resets() {
-        let mut sel = make_select();
+    fn select_clear_resets_when_allow_blank() {
+        let mut sel = make_select_blank();
         sel.set_value(&2);
         sel.clear();
         assert!(sel.value().is_none());
@@ -747,7 +822,7 @@ mod tests {
 
     #[test]
     fn select_clear_then_reopen_highlights_first_selectable() {
-        let mut sel = make_select();
+        let mut sel = make_select_blank();
         sel.set_value(&3);
         sel.clear();
         sel.set_focus(true);
@@ -791,7 +866,8 @@ mod tests {
             &mut click_ctx,
         );
 
-        assert!(sel.value().is_none());
+        // Value unchanged — still Alpha (auto-selected, disabled Beta ignored).
+        assert_eq!(sel.value(), Some(&1));
         assert!(sel.is_open());
     }
 
@@ -921,5 +997,112 @@ mod tests {
         let mut ctx3 = EventCtx::default();
         sel.on_event(&Event::Key(a_key), &mut ctx3);
         assert_eq!(sel.list.highlighted(), Some(0));
+    }
+
+    // ── allow_blank tests ─────────────────────────────────────────────
+
+    #[test]
+    fn allow_blank_true_starts_with_no_selection() {
+        let sel = make_select_blank();
+        assert!(sel.allow_blank());
+        assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn allow_blank_false_auto_selects_first() {
+        let sel = make_select();
+        assert!(!sel.allow_blank());
+        assert_eq!(sel.value(), Some(&1)); // Alpha
+    }
+
+    #[test]
+    fn allow_blank_true_escape_clears_selection() {
+        let mut sel = make_select_blank();
+        sel.set_value(&2); // Beta
+        assert_eq!(sel.value(), Some(&2));
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+        assert!(sel.is_open());
+
+        // Escape — should clear selection (allow_blank=true)
+        let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        sel.on_event(&Event::Key(esc), &mut ctx2);
+        assert!(!sel.is_open());
+        assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn allow_blank_false_escape_keeps_selection() {
+        let mut sel = make_select();
+        sel.set_value(&2); // Beta
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+        assert!(sel.is_open());
+
+        // Escape — should NOT clear (allow_blank=false)
+        let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let mut ctx2 = EventCtx::default();
+        sel.on_event(&Event::Key(esc), &mut ctx2);
+        assert!(!sel.is_open());
+        assert_eq!(sel.value(), Some(&2)); // Still Beta
+    }
+
+    #[test]
+    fn allow_blank_false_clear_is_noop() {
+        let mut sel = make_select();
+        assert_eq!(sel.value(), Some(&1)); // Alpha auto-selected
+        sel.clear();
+        assert_eq!(sel.value(), Some(&1)); // Still Alpha — clear is a no-op
+    }
+
+    #[test]
+    fn with_allow_blank_builder() {
+        let sel = make_select().with_allow_blank(true);
+        assert!(sel.allow_blank());
+        assert!(sel.value().is_none());
+
+        let sel2 = make_select().with_allow_blank(false);
+        assert!(!sel2.allow_blank());
+        assert_eq!(sel2.value(), Some(&1)); // Alpha
+    }
+
+    #[test]
+    fn set_allow_blank_auto_selects_when_switching_to_false() {
+        let mut sel = make_select_blank();
+        assert!(sel.value().is_none());
+        sel.set_allow_blank(false);
+        assert!(!sel.allow_blank());
+        assert_eq!(sel.value(), Some(&1)); // Alpha auto-selected
+    }
+
+    #[test]
+    fn set_options_auto_selects_when_not_allow_blank() {
+        let mut sel = make_select();
+        sel.set_options(vec![
+            ("Delta".to_string(), 10),
+            ("Echo".to_string(), 20),
+        ]);
+        assert_eq!(sel.value(), Some(&10)); // Delta auto-selected
+    }
+
+    #[test]
+    fn set_options_does_not_auto_select_when_allow_blank() {
+        let mut sel = make_select_blank();
+        sel.set_options(vec![
+            ("Delta".to_string(), 10),
+            ("Echo".to_string(), 20),
+        ]);
+        assert!(sel.value().is_none());
     }
 }
