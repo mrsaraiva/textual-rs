@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Segments};
 use std::sync::{Arc, Mutex};
-use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
+use textual::event::{Action, Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::node_id::NodeId;
 use textual::prelude::*;
 
@@ -86,6 +86,47 @@ impl Widget for HoverProbe {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(format!("{}:{hovered}", self.id));
+        }
+    }
+}
+
+#[derive(Clone)]
+struct FocusProbe {
+    id: &'static str,
+    focused: bool,
+    sink: Arc<Mutex<Vec<String>>>,
+}
+
+impl FocusProbe {
+    fn new(id: &'static str, sink: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            id,
+            focused: false,
+            sink,
+        }
+    }
+}
+
+impl Widget for FocusProbe {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        if self.focused != focused {
+            self.focused = focused;
+            self.sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("{}:{focused}", self.id));
         }
     }
 }
@@ -263,5 +304,88 @@ fn p1_gate_row_hover_targets_child_by_x() {
     assert!(
         events.contains(&"right:false".to_string()) && events.contains(&"left:true".to_string()),
         "P1 gate: moving to left side should swap hover from right to left; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_container_focus_next_prev_cycles_children() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Container::new()
+        .with_child(FocusProbe::new("first", sink.clone()))
+        .with_child(FocusProbe::new("second", sink.clone()));
+    let mut ctx = EventCtx::default();
+
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    root.on_event(&Event::Action(Action::FocusPrev), &mut ctx);
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"first:true".to_string()),
+        "P1 gate: first FocusNext should focus first child; events={events:?}"
+    );
+    assert!(
+        events.contains(&"first:false".to_string()) && events.contains(&"second:true".to_string()),
+        "P1 gate: second FocusNext should move focus to second child; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_row_focus_next_prev_cycles_children() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Row::new()
+        .with_child(FocusProbe::new("left", sink.clone()))
+        .with_child(FocusProbe::new("right", sink.clone()));
+    let mut ctx = EventCtx::default();
+
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    root.on_event(&Event::Action(Action::FocusPrev), &mut ctx);
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"left:true".to_string()),
+        "P1 gate: first FocusNext should focus left child; events={events:?}"
+    );
+    assert!(
+        events.contains(&"left:false".to_string()) && events.contains(&"right:true".to_string()),
+        "P1 gate: second FocusNext should move focus to right child; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_repeated_clicks_emit_repeated_events() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Container::new().with_child(ClickProbe::new("only", sink.clone()));
+    let mut ctx = EventCtx::default();
+
+    for _ in 0..2 {
+        root.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        root.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                target: Some(NodeId::default()),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+    }
+
+    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(
+        descriptions,
+        vec!["only".to_string(), "only".to_string()],
+        "P1 gate: repeated clicks must emit repeated events"
     );
 }

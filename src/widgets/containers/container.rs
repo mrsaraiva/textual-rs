@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::{Action, Event, EventCtx};
 use crate::node_id::NodeId;
 
 use crate::widgets::{
@@ -67,6 +67,43 @@ impl Container {
             cursor = end;
         }
         None
+    }
+
+    fn focus_child(&mut self, index: usize) -> bool {
+        let mut changed = false;
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            let should_focus = idx == index && child.focusable() && !child.is_disabled();
+            if child.has_focus() != should_focus {
+                child.set_focus(should_focus);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn cycle_focus(&mut self, action: Action) -> bool {
+        let mut focusable = Vec::new();
+        let mut current = None;
+        for (idx, child) in self.children.iter().enumerate() {
+            if child.focusable() && !child.is_disabled() {
+                if child.has_focus() {
+                    current = Some(focusable.len());
+                }
+                focusable.push(idx);
+            }
+        }
+        if focusable.is_empty() {
+            return false;
+        }
+        let next_pos = match (action, current) {
+            (Action::FocusNext, Some(pos)) => (pos + 1) % focusable.len(),
+            (Action::FocusPrev, Some(0)) => focusable.len() - 1,
+            (Action::FocusPrev, Some(pos)) => pos - 1,
+            (Action::FocusNext, None) => 0,
+            (Action::FocusPrev, None) => focusable.len() - 1,
+            _ => return false,
+        };
+        self.focus_child(focusable[next_pos])
     }
 }
 
@@ -311,8 +348,18 @@ impl Widget for Container {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
+            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
+                if let Event::Action(action) = event {
+                    if self.cycle_focus(*action) {
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                }
+                return;
+            }
             Event::MouseDown(mouse) => {
                 if let Some((idx, local_y)) = self.child_at_y(mouse.y) {
+                    let _ = self.focus_child(idx);
                     let child_event = Event::MouseDown(crate::event::MouseDownEvent {
                         target: NodeId::default(),
                         screen_x: mouse.screen_x,
