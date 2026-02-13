@@ -1,4 +1,5 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -739,6 +740,9 @@ pub struct DockItem {
 pub struct Dock {
     items: Vec<DockItem>,
     fixed_height: Option<usize>,
+    focused: bool,
+    last_layout_width: AtomicUsize,
+    last_layout_height: AtomicUsize,
     styles: WidgetStyles,
 }
 
@@ -747,6 +751,9 @@ impl Dock {
         Self {
             items: Vec::new(),
             fixed_height: None,
+            focused: false,
+            last_layout_width: AtomicUsize::new(1),
+            last_layout_height: AtomicUsize::new(1),
             styles: WidgetStyles::default(),
         }
     }
@@ -800,10 +807,169 @@ impl Dock {
         });
         self
     }
+
+    fn focus_child(&mut self, index: usize) -> bool {
+        let mut changed = false;
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            let should_focus = idx == index && item.child.focusable() && !item.child.is_disabled();
+            if item.child.has_focus() != should_focus {
+                item.child.set_focus(should_focus);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn cycle_focus(&mut self, action: Action) -> bool {
+        let mut focusable = Vec::new();
+        let mut current = None;
+        for (idx, item) in self.items.iter().enumerate() {
+            if item.child.focusable() && !item.child.is_disabled() {
+                if item.child.has_focus() {
+                    current = Some(focusable.len());
+                }
+                focusable.push(idx);
+            }
+        }
+        if focusable.is_empty() {
+            return false;
+        }
+        let next_pos = match (action, current) {
+            (Action::FocusNext, Some(pos)) => (pos + 1) % focusable.len(),
+            (Action::FocusPrev, Some(0)) => focusable.len() - 1,
+            (Action::FocusPrev, Some(pos)) => pos - 1,
+            (Action::FocusNext, None) => 0,
+            (Action::FocusPrev, None) => focusable.len() - 1,
+            _ => return false,
+        };
+        self.focus_child(focusable[next_pos])
+    }
+
+    fn child_at_xy(&self, x: u16, y: u16) -> Option<(usize, u16, u16)> {
+        let mut x0 = 0u16;
+        let mut y0 = 0u16;
+        let mut width = self.last_layout_width.load(Ordering::Relaxed).max(1) as u16;
+        let mut height = self.last_layout_height.load(Ordering::Relaxed).max(1) as u16;
+        let mut fill_idx: Option<usize> = None;
+        let mut fill_rect: Option<(u16, u16, u16, u16)> = None;
+
+        for (idx, item) in self.items.iter().enumerate() {
+            match item.kind {
+                DockKind::Top => {
+                    let h = item
+                        .size
+                        .or_else(|| item.child.layout_height())
+                        .unwrap_or(1)
+                        .max(1)
+                        .min(height as usize) as u16;
+                    if x >= x0
+                        && x < x0.saturating_add(width)
+                        && y >= y0
+                        && y < y0.saturating_add(h)
+                    {
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0)));
+                    }
+                    y0 = y0.saturating_add(h);
+                    height = height.saturating_sub(h);
+                }
+                DockKind::Bottom => {
+                    let h = item
+                        .size
+                        .or_else(|| item.child.layout_height())
+                        .unwrap_or(1)
+                        .max(1)
+                        .min(height as usize) as u16;
+                    let by = y0.saturating_add(height.saturating_sub(h));
+                    if x >= x0
+                        && x < x0.saturating_add(width)
+                        && y >= by
+                        && y < by.saturating_add(h)
+                    {
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(by)));
+                    }
+                    height = height.saturating_sub(h);
+                }
+                DockKind::Left => {
+                    let w = item.size.unwrap_or(1).max(1).min(width as usize) as u16;
+                    if x >= x0
+                        && x < x0.saturating_add(w)
+                        && y >= y0
+                        && y < y0.saturating_add(height)
+                    {
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0)));
+                    }
+                    x0 = x0.saturating_add(w);
+                    width = width.saturating_sub(w);
+                }
+                DockKind::Right => {
+                    let w = item.size.unwrap_or(1).max(1).min(width as usize) as u16;
+                    let bx = x0.saturating_add(width.saturating_sub(w));
+                    if x >= bx
+                        && x < bx.saturating_add(w)
+                        && y >= y0
+                        && y < y0.saturating_add(height)
+                    {
+                        return Some((idx, x.saturating_sub(bx), y.saturating_sub(y0)));
+                    }
+                    width = width.saturating_sub(w);
+                }
+                DockKind::Fill => {
+                    fill_idx = Some(idx);
+                    fill_rect = Some((x0, y0, width.max(1), height.max(1)));
+                }
+            }
+        }
+
+        if let (Some(idx), Some((fx, fy, fw, fh))) = (fill_idx, fill_rect)
+            && x >= fx
+            && x < fx.saturating_add(fw)
+            && y >= fy
+            && y < fy.saturating_add(fh)
+        {
+            return Some((idx, x.saturating_sub(fx), y.saturating_sub(fy)));
+        }
+        None
+    }
 }
 
 impl Widget for Dock {
+    fn focusable(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| item.child.focusable() && !item.child.is_disabled())
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+        if !focused {
+            for item in &mut self.items {
+                item.child.set_focus(false);
+            }
+            return;
+        }
+        if self.items.iter().any(|item| item.child.has_focus()) {
+            return;
+        }
+        if let Some(idx) = self
+            .items
+            .iter()
+            .position(|item| item.child.focusable() && !item.child.is_disabled())
+        {
+            let _ = self.focus_child(idx);
+        }
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused || self.items.iter().any(|item| item.child.has_focus())
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.last_layout_width
+            .store(options.size.0.max(1), Ordering::Relaxed);
+        self.last_layout_height.store(
+            self.fixed_height.unwrap_or_else(|| options.size.1.max(1)),
+            Ordering::Relaxed,
+        );
         let mut remaining_width = options.size.0.max(1);
         let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
 
@@ -1022,6 +1188,102 @@ impl Widget for Dock {
             }
         }
         out
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
+                if let Event::Action(action) = event
+                    && self.cycle_focus(*action)
+                {
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+            }
+            Event::MouseDown(mouse) => {
+                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                    let _ = self.focus_child(idx);
+                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Event::MouseUp(mouse) => {
+                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Event::MouseScroll(mouse) => {
+                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for item in &mut self.items {
+            item.child.on_event(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let mut changed = false;
+        let hit = self
+            .child_at_xy(x, y)
+            .map(|(idx, local_x, local_y)| (idx, local_x, local_y));
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            let hovered = hit.map(|(hit_idx, _, _)| hit_idx == idx).unwrap_or(false);
+            if item.child.is_hovered() != hovered {
+                item.child.set_hovered(hovered);
+                changed = true;
+            }
+        }
+        if let Some((idx, local_x, local_y)) = hit
+            && let Some(item) = self.items.get_mut(idx)
+        {
+            changed |= item.child.on_mouse_move(local_x, local_y);
+        }
+        changed
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1350,15 +1612,6 @@ impl Widget for Dock {
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         for item in &mut self.items {
             item.child.on_event_capture(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        for item in &mut self.items {
-            item.child.on_event(event, ctx);
             if ctx.handled() {
                 break;
             }

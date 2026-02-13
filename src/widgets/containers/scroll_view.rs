@@ -343,6 +343,13 @@ impl ScrollView {
         }
         ctx.request_repaint();
     }
+
+    fn child_coords(&self, x: u16, y: u16) -> (u16, u16) {
+        (
+            x.saturating_add(self.offset_x as u16),
+            y.saturating_add(self.offset_y as u16),
+        )
+    }
 }
 
 impl Widget for ScrollView {
@@ -352,6 +359,7 @@ impl Widget for ScrollView {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+        self.child.set_focus(focused);
     }
 
     fn has_focus(&self) -> bool {
@@ -844,8 +852,48 @@ impl Widget for ScrollView {
             }
         }
 
+        let child_event = match event {
+            Event::MouseDown(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseDown(crate::event::MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                }))
+            }
+            Event::MouseUp(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseUp(crate::event::MouseUpEvent {
+                    target: Some(NodeId::default()),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                }))
+            }
+            Event::MouseScroll(mouse) => {
+                let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
+                Some(Event::MouseScroll(crate::event::MouseScrollEvent {
+                    target: Some(NodeId::default()),
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: child_x,
+                    y: child_y,
+                    delta_x: mouse.delta_x,
+                    delta_y: mouse.delta_y,
+                    modifiers: mouse.modifiers,
+                }))
+            }
+            _ => None,
+        };
         let mut child_ctx = EventCtx::default();
-        self.child.on_event(event, &mut child_ctx);
+        if let Some(child_event) = child_event.as_ref() {
+            self.child.on_event(child_event, &mut child_ctx);
+        } else {
+            self.child.on_event(event, &mut child_ctx);
+        }
         let child_handled = child_ctx.handled();
         ctx.merge_from(child_ctx);
         if child_handled {
@@ -1061,6 +1109,9 @@ impl Widget for ScrollView {
                     changed = true;
                 }
             }
+        } else {
+            let (child_x, child_y) = self.child_coords(x, y);
+            changed |= self.child.on_mouse_move(child_x, child_y);
         }
         changed
     }

@@ -1158,7 +1158,12 @@ impl App {
                                     crossterm::event::MouseButton::Middle => 1,
                                 };
                                 self.click_tracker.on_mouse_down(
-                                    target, x, y, mouse.column, mouse.row, button,
+                                    target,
+                                    x,
+                                    y,
+                                    mouse.column,
+                                    mouse.row,
+                                    button,
                                 );
                                 let down_event = Event::MouseDown(MouseDownEvent {
                                     target,
@@ -1216,10 +1221,11 @@ impl App {
                                 .click_tracker
                                 .on_mouse_up(target, x, y, mouse.column, mouse.row)
                             {
-                                let mut click_outcome = self
-                                    .dispatch_event_to_target_auto(
-                                        root, click_target, &click_event,
-                                    );
+                                let mut click_outcome = self.dispatch_event_to_target_auto(
+                                    root,
+                                    click_target,
+                                    &click_event,
+                                );
                                 self.absorb_outcome(
                                     &mut click_outcome,
                                     &mut pending_invalidation,
@@ -1964,7 +1970,26 @@ impl App {
         initial: Vec<MessageEvent>,
     ) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
-            dispatch_message_queue_tree(tree, initial)
+            let mut outcome = dispatch_message_queue_tree(tree, initial.clone());
+
+            // Tree routing delivers to arena nodes, but the TextualApp adapter root
+            // also hosts typed hooks (e.g. on_button_pressed). Forward top-level
+            // messages to root so app hooks still run in tree mode.
+            for message in initial {
+                let mut ctx = EventCtx::default();
+                root.on_message(&message, &mut ctx);
+                outcome.handled |= ctx.handled();
+                outcome.repaint_requested |= ctx.repaint_requested();
+                outcome.invalidation.merge(ctx.invalidation());
+                outcome.stop_requested |= ctx.stop_requested();
+                outcome.messages.extend(ctx.take_messages());
+                outcome
+                    .animation_requests
+                    .extend(ctx.take_animation_requests());
+                outcome.worker_requests.extend(ctx.take_worker_requests());
+            }
+
+            outcome
         } else {
             // Root-only fallback: deliver each message to root.on_message,
             // re-queuing follow-up messages like the tree-based version.

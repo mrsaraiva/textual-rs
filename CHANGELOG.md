@@ -13,6 +13,8 @@ until the API stabilizes.
   - Migrated remaining widget-side `NodeId::default()` self-target checks to recipient-aware predicates across controls, inputs, lists/tables, tree/tabs, overlays/tooltips, command palette, and related mouse/message handlers.
   - Updated Button, ScrollView, and DataTable target checks to use recipient-aware helpers, unblocking tree-routed mouse/animation handling paths.
   - Added focused gate coverage in `tests/p1_dom_input_gates.rs` for click targeting, hover forwarding, focus cycling, repeated click delivery, and DataTable arrow-key routing via Container/Row focus.
+  - Restored tree-mode forwarding of top-level messages to the root adapter so `TextualApp` typed hooks (for example `on_button_pressed`) continue to fire when message delivery runs via `WidgetTree`.
+  - Added legacy-child delegation in `Dock` and `ScrollView` for focus cycling, mouse targeting, and hover forwarding so composed wrappers route input to real descendants even before those descendants are fully represented as arena nodes.
 
 - **Sprint 25: Complete tree-driven rendering (P1-12/P1-13)**
   - **Tree-driven compositor:** New `render_tree_composed()` path walks the arena tree depth-first, rendering each widget at its `layout_rect` position with CSS style stack management for proper inheritance. Replaces the legacy recursive `render_styled()` path when the tree is populated.
