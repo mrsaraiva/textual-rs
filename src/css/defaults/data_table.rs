@@ -10,5 +10,6 @@ DataTable {
     bg: $surface;
     fg: $foreground;
     height: auto;
+    max-height: 100%;
 }
 "#;

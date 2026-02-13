@@ -1,3 +1,4 @@
+use crossterm::event::{KeyCode, KeyModifiers};
 use regex::Regex;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::time::Instant;
@@ -22,6 +23,84 @@ use super::{
         next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     },
 };
+
+// ---------------------------------------------------------------------------
+// Suggester trait + built-in implementations
+// ---------------------------------------------------------------------------
+
+/// Provides auto-completion suggestions for an [`Input`] widget.
+///
+/// Implement this trait to supply custom suggestion logic.  The built-in
+/// [`SuggestFromList`] covers the common case of matching against a fixed
+/// list of strings.
+pub trait Suggester: Send + Sync {
+    /// Return a completion suggestion for the current input `value`, or
+    /// `None` if no suggestion applies.
+    ///
+    /// The returned string should be the **full** replacement value (not just
+    /// the suffix).  For example, if the user typed `"Por"` and the
+    /// suggestion is `"Portugal"`, return `Some("Portugal")`.
+    fn suggest(&self, value: &str) -> Option<String>;
+}
+
+/// A [`Suggester`] that matches against a fixed list of strings by prefix.
+///
+/// By default matching is **case-insensitive**.  The canonical casing of the
+/// suggestion list is preserved in the returned value.
+///
+/// ```rust,ignore
+/// use textual_rs::widgets::input::{Input, SuggestFromList};
+///
+/// let countries = vec!["England", "Scotland", "Portugal", "Spain", "France"];
+/// let input = Input::new()
+///     .with_suggester(SuggestFromList::new(countries, false));
+/// ```
+pub struct SuggestFromList {
+    suggestions: Vec<String>,
+    folded: Vec<String>,
+    case_sensitive: bool,
+}
+
+impl SuggestFromList {
+    /// Create a new prefix-matching suggester.
+    ///
+    /// * `suggestions` – the valid completions, ordered by priority
+    ///   (first match wins).
+    /// * `case_sensitive` – when `false` (the default), incoming values are
+    ///   case-folded before comparison.
+    pub fn new(suggestions: impl IntoIterator<Item = impl Into<String>>, case_sensitive: bool) -> Self {
+        let suggestions: Vec<String> = suggestions.into_iter().map(Into::into).collect();
+        let folded = if case_sensitive {
+            suggestions.clone()
+        } else {
+            suggestions.iter().map(|s| s.to_lowercase()).collect()
+        };
+        Self {
+            suggestions,
+            folded,
+            case_sensitive,
+        }
+    }
+}
+
+impl Suggester for SuggestFromList {
+    fn suggest(&self, value: &str) -> Option<String> {
+        if value.is_empty() {
+            return None;
+        }
+        let needle = if self.case_sensitive {
+            value.to_string()
+        } else {
+            value.to_lowercase()
+        };
+        for (idx, candidate) in self.folded.iter().enumerate() {
+            if candidate.starts_with(&needle) {
+                return Some(self.suggestions[idx].clone());
+            }
+        }
+        None
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputType {
@@ -68,6 +147,8 @@ pub struct Input {
     validation_result: ValidationResult,
     chrome: InputChrome,
     styles: WidgetStyles,
+    suggester: Option<Box<dyn Suggester>>,
+    suggestion: String,
 }
 
 impl Input {
@@ -86,6 +167,8 @@ impl Input {
             validation_result: ValidationResult::success(),
             chrome: InputChrome::new(),
             styles: WidgetStyles::default(),
+            suggester: None,
+            suggestion: String::new(),
         }
     }
 
@@ -125,6 +208,12 @@ impl Input {
         self
     }
 
+    /// Attach a [`Suggester`] that provides auto-completion ghost text.
+    pub fn with_suggester(mut self, suggester: impl Suggester + 'static) -> Self {
+        self.suggester = Some(Box::new(suggester));
+        self
+    }
+
     pub fn set_class(&mut self, class: &str, enabled: bool) {
         self.chrome.set_class(class, enabled);
     }
@@ -144,6 +233,7 @@ impl Input {
         }
         self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
         self.selection = Selection::cursor(self.cursor);
+        self.suggestion.clear();
         self.revalidate();
     }
 
@@ -152,6 +242,7 @@ impl Input {
         self.text.clear();
         self.cursor = 0;
         self.selection = Selection::cursor(0);
+        self.suggestion.clear();
         self.revalidate();
     }
 
@@ -190,12 +281,14 @@ impl Input {
         self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
         self.selection = Selection::cursor(self.cursor);
         self.revalidate();
+        self.update_suggestion();
     }
 
     /// Delete the selection if any, otherwise delete the character after the cursor.
     pub fn delete(&mut self) {
         if self.delete_selection_if_any() {
             self.revalidate();
+            self.update_suggestion();
             return;
         }
         if self.cursor < self.text.len() {
@@ -203,6 +296,7 @@ impl Input {
             self.text.drain(self.cursor..end);
             self.selection = Selection::cursor(self.cursor);
             self.revalidate();
+            self.update_suggestion();
         }
     }
 
@@ -364,6 +458,46 @@ impl Input {
         true
     }
 
+    /// Whether the cursor is at the end of the text.
+    fn cursor_at_end(&self) -> bool {
+        self.cursor >= self.text.len()
+    }
+
+    /// Query the attached suggester and update `self.suggestion`.
+    fn update_suggestion(&mut self) {
+        self.suggestion.clear();
+        if let Some(ref suggester) = self.suggester {
+            if !self.text.is_empty() {
+                if let Some(s) = suggester.suggest(&self.text) {
+                    // Only accept suggestions that are longer than the current value
+                    // (matching Python Textual behaviour).
+                    if s.len() > self.text.len() {
+                        self.suggestion = s;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Accept the current suggestion: replace the input value with the
+    /// suggestion and move the cursor to the end.  Returns `true` if a
+    /// suggestion was accepted.
+    fn accept_suggestion(&mut self) -> bool {
+        if self.suggestion.is_empty() || !self.cursor_at_end() {
+            return false;
+        }
+        // Validate the suggestion against restrict/max_length before accepting.
+        if !self.is_value_allowed(&self.suggestion) {
+            self.suggestion.clear();
+            return false;
+        }
+        self.text = std::mem::take(&mut self.suggestion);
+        self.cursor = self.text.len();
+        self.selection = Selection::cursor(self.cursor);
+        self.revalidate();
+        true
+    }
+
     fn revalidate(&mut self) {
         if self.validators.is_empty() {
             self.validation_result = ValidationResult::success();
@@ -413,6 +547,8 @@ impl Widget for Input {
         if was_focused && !focused {
             self.pending_blur = true;
         }
+        // Clear suggestion on focus change (matches Python Textual).
+        self.suggestion.clear();
     }
 
     fn has_focus(&self) -> bool {
@@ -498,6 +634,23 @@ impl Widget for Input {
                 }
             }
             Event::Key(key) if self.chrome.has_focus() => {
+                // Tab accepts the current suggestion (intercept before edit_command_from_key,
+                // which returns None for Tab).  When no suggestion is active, Tab falls
+                // through (not handled) so the runtime can use it for focus navigation.
+                if key.code == KeyCode::Tab
+                    && key.modifiers == KeyModifiers::NONE
+                    && !self.suggestion.is_empty()
+                    && self.cursor_at_end()
+                {
+                    if self.accept_suggestion() {
+                        self.post_changed(ctx);
+                        self.chrome.reset_blink();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                    return;
+                }
+
                 let Some(cmd) = edit_command_from_key(key, false) else {
                     return;
                 };
@@ -623,17 +776,32 @@ impl Widget for Input {
                         changed = self.move_cursor_to(next, select);
                     }
                     EditCommand::MoveRight { select, unit } => {
-                        let next = if self.selection.start != self.selection.end && !select {
-                            self.selection.start.max(self.selection.end)
-                        } else {
-                            match unit {
-                                MoveUnit::Grapheme => {
-                                    next_grapheme_boundary(&self.text, self.cursor)
-                                }
-                                MoveUnit::Word => next_word_boundary(&self.text, self.cursor),
+                        // Accept suggestion on Right at end of text (Python Textual parity).
+                        if !select
+                            && self.cursor_at_end()
+                            && self.selection.start == self.selection.end
+                            && !self.suggestion.is_empty()
+                        {
+                            if self.accept_suggestion() {
+                                changed = true;
+                                value_changed = true;
                             }
-                        };
-                        changed = self.move_cursor_to(next, select);
+                        } else {
+                            let next =
+                                if self.selection.start != self.selection.end && !select {
+                                    self.selection.start.max(self.selection.end)
+                                } else {
+                                    match unit {
+                                        MoveUnit::Grapheme => {
+                                            next_grapheme_boundary(&self.text, self.cursor)
+                                        }
+                                        MoveUnit::Word => {
+                                            next_word_boundary(&self.text, self.cursor)
+                                        }
+                                    }
+                                };
+                            changed = self.move_cursor_to(next, select);
+                        }
                     }
                     EditCommand::MoveHome { select } => {
                         changed = self.move_cursor_to(0, select);
@@ -673,6 +841,7 @@ impl Widget for Input {
 
                 if value_changed {
                     self.revalidate();
+                    self.update_suggestion();
                     self.post_changed(ctx);
                 }
                 if changed || value_changed {
@@ -693,6 +862,7 @@ impl Widget for Input {
             }
             if self.insert_text_from_clipboard(text) {
                 self.revalidate();
+                self.update_suggestion();
                 self.post_changed(ctx);
                 self.chrome.reset_blink();
                 ctx.request_repaint();
@@ -734,6 +904,7 @@ impl Widget for Input {
         let cursor_style = resolve_component_rich("input--cursor");
         let selection_style = resolve_component_rich("input--selection");
         let placeholder_style = resolve_component_rich("input--placeholder");
+        let suggestion_style = resolve_component_rich("input--suggestion");
 
         if self.text.is_empty() {
             let placeholder = self.placeholder.clone().unwrap_or_default();
@@ -825,11 +996,62 @@ impl Widget for Input {
 
         flush(&mut out, &mut pending_style, &mut pending_text);
 
-        if self.chrome.has_focus()
+        // Show suggestion ghost text (the suffix beyond what the user typed).
+        let show_suggestion = self.chrome.has_focus()
+            && !self.suggestion.is_empty()
+            && self.suggestion.len() > self.text.len()
+            && self.suggestion.is_char_boundary(self.text.len());
+        if show_suggestion {
+            let ghost = &self.suggestion[self.text.len()..];
+            // When cursor is at end, the first ghost character gets cursor style
+            // (Python Textual renders the cursor over the first ghost char).
+            if self.cursor == self.text.len() && self.chrome.cursor_visible() {
+                let mut ghost_graphemes = ghost.grapheme_indices(true);
+                if let Some((_idx, first_g)) = ghost_graphemes.next() {
+                    let first_w = grapheme_cell_width(first_g);
+                    if cells_used.saturating_add(first_w) <= width {
+                        out.push(rich_rs::Segment::styled(first_g.to_string(), cursor_style));
+                        cells_used = cells_used.saturating_add(first_w);
+                    }
+                }
+                // Remaining ghost text in suggestion style
+                let rest_start = ghost.grapheme_indices(true).nth(1).map(|(i, _)| i).unwrap_or(ghost.len());
+                let rest = &ghost[rest_start..];
+                if !rest.is_empty() && cells_used < width {
+                    let mut ghost_text = String::new();
+                    for grapheme in rest.graphemes(true) {
+                        let w = grapheme_cell_width(grapheme);
+                        if cells_used.saturating_add(w) > width {
+                            break;
+                        }
+                        ghost_text.push_str(grapheme);
+                        cells_used = cells_used.saturating_add(w);
+                    }
+                    if !ghost_text.is_empty() {
+                        out.push(rich_rs::Segment::styled(ghost_text, suggestion_style));
+                    }
+                }
+            } else {
+                // Cursor not at end — just show ghost text after typed text
+                let mut ghost_text = String::new();
+                for grapheme in ghost.graphemes(true) {
+                    let w = grapheme_cell_width(grapheme);
+                    if cells_used.saturating_add(w) > width {
+                        break;
+                    }
+                    ghost_text.push_str(grapheme);
+                    cells_used = cells_used.saturating_add(w);
+                }
+                if !ghost_text.is_empty() {
+                    out.push(rich_rs::Segment::styled(ghost_text, suggestion_style));
+                }
+            }
+        } else if self.chrome.has_focus()
             && self.chrome.cursor_visible()
             && self.cursor == self.text.len()
             && cells_used < width
         {
+            // No suggestion — render trailing cursor space (original behaviour).
             out.push(rich_rs::Segment::styled(" ".to_string(), cursor_style));
             cells_used += 1;
         }
@@ -1186,5 +1408,282 @@ mod tests {
             &m.message,
             Message::InputSubmitted { value } if value == "hello"
         )));
+    }
+
+    // -----------------------------------------------------------------------
+    // Suggester tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn suggest_from_list_case_insensitive_prefix() {
+        let suggester = SuggestFromList::new(
+            vec!["Portugal", "Poland", "Spain"],
+            false,
+        );
+        assert_eq!(suggester.suggest("por"), Some("Portugal".to_string()));
+        assert_eq!(suggester.suggest("POR"), Some("Portugal".to_string()));
+        assert_eq!(suggester.suggest("pol"), Some("Poland".to_string()));
+        assert_eq!(suggester.suggest("sp"), Some("Spain".to_string()));
+        assert_eq!(suggester.suggest("fr"), None);
+        assert_eq!(suggester.suggest(""), None);
+    }
+
+    #[test]
+    fn suggest_from_list_case_sensitive() {
+        let suggester = SuggestFromList::new(
+            vec!["Portugal", "Poland"],
+            true,
+        );
+        assert_eq!(suggester.suggest("Por"), Some("Portugal".to_string()));
+        assert_eq!(suggester.suggest("por"), None); // case-sensitive: no match
+    }
+
+    #[test]
+    fn suggest_from_list_returns_first_match() {
+        let suggester = SuggestFromList::new(
+            vec!["Apple", "Application", "Banana"],
+            false,
+        );
+        // First match wins (ordered by priority).
+        assert_eq!(suggester.suggest("app"), Some("Apple".to_string()));
+    }
+
+    #[test]
+    fn typing_updates_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal", "Spain"], false));
+        input.set_focus(true);
+
+        // Type 'p' => should suggest "Portugal"
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "p");
+        assert_eq!(input.suggestion, "Portugal");
+    }
+
+    #[test]
+    fn typing_clears_stale_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_focus(true);
+
+        // Type 'p' => "Portugal"
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.suggestion, "Portugal");
+
+        // Type 'x' => no match, suggestion cleared
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "px");
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn tab_accepts_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_focus(true);
+
+        // Type 'p'
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.suggestion, "Portugal");
+
+        // Tab accepts suggestion
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "Portugal");
+        assert!(input.suggestion.is_empty());
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn tab_without_suggestion_is_not_handled() {
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("hello");
+        input.cursor = input.text.len();
+        input.selection = Selection::cursor(input.cursor);
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        // Tab with no suggestion should not be handled (allows focus navigation).
+        assert!(!ctx.handled());
+        assert_eq!(input.text(), "hello");
+    }
+
+    #[test]
+    fn right_arrow_at_end_accepts_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Spain"], false));
+        input.set_focus(true);
+
+        // Type 's'
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('s'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.suggestion, "Spain");
+        assert!(input.cursor_at_end());
+
+        // Right arrow at end accepts
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        assert_eq!(input.text(), "Spain");
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn right_arrow_not_at_end_does_not_accept_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_focus(true);
+        input.set_text("po");
+        input.cursor = 0; // cursor NOT at end
+        input.selection = Selection::cursor(0);
+        input.suggestion = "Portugal".to_string();
+
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        // Should just move cursor, not accept suggestion
+        assert_eq!(input.text(), "po");
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn set_text_clears_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.suggestion = "Portugal".to_string();
+        input.set_text("new value");
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn clear_clears_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_text("po");
+        input.suggestion = "Portugal".to_string();
+        input.clear();
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn focus_change_clears_suggestion() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_focus(true);
+        input.suggestion = "Portugal".to_string();
+        input.set_focus(false);
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn suggestion_not_shown_when_matches_value_exactly() {
+        let suggester = SuggestFromList::new(vec!["abc"], false);
+        let mut input = Input::new().with_suggester(suggester);
+        input.set_focus(true);
+
+        // Type the full value "abc"
+        for ch in ['a', 'b', 'c'] {
+            let mut ctx = EventCtx::default();
+            input.on_event(
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    KeyModifiers::NONE,
+                ))),
+                &mut ctx,
+            );
+        }
+        // Suggestion should be empty because "abc" matches exactly (no ghost text to show).
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn tab_accept_emits_input_changed() {
+        let mut input = Input::new()
+            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        input.set_focus(true);
+
+        // Type 'p'
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        let _ = ctx.take_messages(); // discard the first InputChanged
+
+        // Tab accepts
+        let mut ctx = EventCtx::default();
+        input.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Tab,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::InputChanged { ref value, .. } if value == "Portugal"
+        ));
     }
 }

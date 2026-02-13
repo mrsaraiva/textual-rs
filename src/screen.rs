@@ -52,6 +52,18 @@ pub trait Screen: Send + Sync {
     fn is_modal(&self) -> bool {
         true
     }
+
+    /// Screen title (overrides the app title in the Header widget).
+    /// Return `None` to use the app's default title.
+    fn title(&self) -> Option<&str> {
+        None
+    }
+
+    /// Screen sub-title (overrides the app sub-title in the Header widget).
+    /// Return `None` to use the app's default sub-title.
+    fn sub_title(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +79,13 @@ pub enum ScreenResult {
 }
 
 // ---------------------------------------------------------------------------
+// Result callback type
+// ---------------------------------------------------------------------------
+
+/// Type-erased callback invoked when a screen is dismissed with a result.
+pub type ScreenResultCallback = Box<dyn FnOnce(ScreenResult) + Send>;
+
+// ---------------------------------------------------------------------------
 // ScreenEntry (internal)
 // ---------------------------------------------------------------------------
 
@@ -75,6 +94,13 @@ pub(crate) struct ScreenEntry {
     pub screen: Box<dyn Screen>,
     pub widget_tree: WidgetTree,
     pub stylesheet: Option<StyleSheet>,
+    /// Optional callback invoked when this screen is popped.
+    result_callback: Option<ScreenResultCallback>,
+    /// Pending result set by `dismiss(value)` before the screen is popped.
+    pending_result: Option<ScreenResult>,
+    /// If this screen was pushed by `switch_mode`, this holds the mode name.
+    /// Used to identify the correct screen when switching/removing modes.
+    pub(crate) mode_name: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +129,72 @@ impl ScreenStack {
     /// - Builds the widget tree from `screen.compose()`.
     /// - Parses the screen's CSS (if any).
     /// - Calls `on_mount` on the new screen.
-    pub fn push(&mut self, mut screen: Box<dyn Screen>) {
+    pub fn push(&mut self, screen: Box<dyn Screen>) {
+        self.push_inner(screen, None, None);
+    }
+
+    /// Push a screen onto the stack with a result callback.
+    ///
+    /// The callback is invoked with the `ScreenResult` when the screen is
+    /// popped (either via `pop()` or via `dismiss()`).
+    pub fn push_with_callback(
+        &mut self,
+        screen: Box<dyn Screen>,
+        callback: ScreenResultCallback,
+    ) {
+        self.push_inner(screen, Some(callback), None);
+    }
+
+    /// Push a mode screen onto the stack.
+    ///
+    /// The mode name is stored in the entry so that `pop_mode()` can identify
+    /// and remove the correct screen even if transient screens are on top.
+    pub fn push_mode(&mut self, screen: Box<dyn Screen>, mode_name: String) {
+        self.push_inner(screen, None, Some(mode_name));
+    }
+
+    /// Pop the screen associated with the given mode name.
+    ///
+    /// If the mode screen is not on top (i.e. transient screens are above it),
+    /// this pops the mode screen from its position in the stack and calls its
+    /// lifecycle hooks. Returns the mode name if found and popped, `None` if
+    /// no screen with that mode name exists.
+    pub fn pop_mode(&mut self, mode_name: &str) -> Option<String> {
+        // Find the entry with the matching mode name.
+        let idx = self.screens.iter().position(|e| {
+            e.mode_name.as_deref() == Some(mode_name)
+        })?;
+
+        let mut entry = self.screens.remove(idx);
+        entry.screen.on_unmount();
+
+        // If we removed the top screen and there's a new top, resume it.
+        if idx == self.screens.len() {
+            if let Some(new_top) = self.screens.last_mut() {
+                new_top.screen.on_resume();
+            }
+        }
+
+        // Invoke the result callback if one was registered.
+        let result = entry.pending_result.unwrap_or(ScreenResult::Dismissed);
+        if let Some(callback) = entry.result_callback {
+            callback(result);
+        }
+
+        entry.mode_name
+    }
+
+    /// Return the mode name of the topmost screen (if it has one).
+    pub fn top_mode_name(&self) -> Option<&str> {
+        self.screens.last().and_then(|e| e.mode_name.as_deref())
+    }
+
+    fn push_inner(
+        &mut self,
+        mut screen: Box<dyn Screen>,
+        callback: Option<ScreenResultCallback>,
+        mode_name: Option<String>,
+    ) {
         // Suspend the currently active screen.
         if let Some(top) = self.screens.last_mut() {
             top.screen.on_suspend();
@@ -126,17 +217,41 @@ impl ScreenStack {
             screen,
             widget_tree,
             stylesheet,
+            result_callback: callback,
+            pending_result: None,
+            mode_name,
         });
+    }
+
+    /// Set a pending dismiss result on the topmost screen.
+    ///
+    /// This is called by the screen itself (via runtime methods) to store a
+    /// result value before the screen is popped. When `pop()` is called, the
+    /// pending result takes precedence over the default `Dismissed` variant.
+    pub fn dismiss(&mut self, result: ScreenResult) -> bool {
+        if let Some(top) = self.screens.last_mut() {
+            top.pending_result = Some(result);
+            true
+        } else {
+            false
+        }
     }
 
     /// Pop the topmost screen from the stack.
     ///
     /// - Calls `on_unmount` on the popped screen.
     /// - Calls `on_resume` on the new topmost screen (if any).
-    /// - Returns the popped screen and a `ScreenResult::Dismissed`.
+    /// - If a result callback was registered (via `push_with_callback`), it is
+    ///   invoked with the result and the returned `ScreenResult` will be
+    ///   `Dismissed` (the callback owns the real value).
+    /// - If no callback was registered, the actual `ScreenResult` (pending
+    ///   result from `dismiss()`, or `Dismissed` by default) is returned.
+    /// - The third tuple element is the mode name of the popped screen (if it
+    ///   was a mode screen). Callers should clear `current_mode` when this
+    ///   is `Some`.
     ///
     /// Returns `None` if the stack is empty.
-    pub fn pop(&mut self) -> Option<(Box<dyn Screen>, ScreenResult)> {
+    pub fn pop(&mut self) -> Option<(Box<dyn Screen>, ScreenResult, Option<String>)> {
         let mut entry = self.screens.pop()?;
         entry.screen.on_unmount();
 
@@ -145,7 +260,20 @@ impl ScreenStack {
             new_top.screen.on_resume();
         }
 
-        Some((entry.screen, ScreenResult::Dismissed))
+        // Determine the result: use pending_result if set, otherwise Dismissed.
+        let result = entry.pending_result.unwrap_or(ScreenResult::Dismissed);
+
+        let mode_name = entry.mode_name;
+
+        // Invoke the result callback if one was registered.
+        if let Some(callback) = entry.result_callback {
+            callback(result);
+            // After callback consumed the result, return Dismissed to caller
+            // since the callback already handled it.
+            Some((entry.screen, ScreenResult::Dismissed, mode_name))
+        } else {
+            Some((entry.screen, result, mode_name))
+        }
     }
 
     /// Reference to the topmost screen entry.
@@ -166,6 +294,16 @@ impl ScreenStack {
     /// Whether the stack is empty.
     pub fn is_empty(&self) -> bool {
         self.screens.is_empty()
+    }
+
+    /// Get the title from the topmost screen (if it defines one).
+    pub fn active_title(&self) -> Option<&str> {
+        self.screens.last().and_then(|e| e.screen.title())
+    }
+
+    /// Get the sub-title from the topmost screen (if it defines one).
+    pub fn active_sub_title(&self) -> Option<&str> {
+        self.screens.last().and_then(|e| e.screen.sub_title())
     }
 }
 
@@ -228,6 +366,8 @@ mod tests {
         log: LifecycleLog,
         modal: bool,
         css_text: Option<String>,
+        screen_title: Option<String>,
+        screen_sub_title: Option<String>,
     }
 
     impl TestScreen {
@@ -237,6 +377,8 @@ mod tests {
                 log,
                 modal: true,
                 css_text: None,
+                screen_title: None,
+                screen_sub_title: None,
             }
         }
 
@@ -247,6 +389,16 @@ mod tests {
 
         fn with_css(mut self, css: &str) -> Self {
             self.css_text = Some(css.to_string());
+            self
+        }
+
+        fn with_title(mut self, title: &str) -> Self {
+            self.screen_title = Some(title.to_string());
+            self
+        }
+
+        fn with_sub_title(mut self, sub_title: &str) -> Self {
+            self.screen_sub_title = Some(sub_title.to_string());
             self
         }
 
@@ -286,6 +438,14 @@ mod tests {
 
         fn is_modal(&self) -> bool {
             self.modal
+        }
+
+        fn title(&self) -> Option<&str> {
+            self.screen_title.as_deref()
+        }
+
+        fn sub_title(&self) -> Option<&str> {
+            self.screen_sub_title.as_deref()
         }
     }
 
@@ -328,7 +488,7 @@ mod tests {
         let result = stack.pop();
         assert!(result.is_some());
 
-        let (screen, screen_result) = result.unwrap();
+        let (screen, screen_result, _mode) = result.unwrap();
         assert_eq!(screen.name(), "Main");
         assert!(matches!(screen_result, ScreenResult::Dismissed));
         assert!(stack.is_empty());
@@ -543,6 +703,8 @@ mod tests {
         assert_eq!(screen.name(), "Screen");
         assert!(screen.css().is_none());
         assert!(screen.is_modal());
+        assert!(screen.title().is_none());
+        assert!(screen.sub_title().is_none());
     }
 
     // -- Pop last screen has no resume target --------------------------------
@@ -585,5 +747,150 @@ mod tests {
             ]
         );
         assert_eq!(stack.len(), 4);
+    }
+
+    // =========================================================================
+    // P5-04: Screen results with callbacks
+    // =========================================================================
+
+    #[test]
+    fn push_with_callback_invokes_on_pop() {
+        let mut stack = ScreenStack::new();
+        let log = LifecycleLog::new();
+        let callback_log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let cb_log = callback_log.clone();
+
+        stack.push_with_callback(
+            TestScreen::boxed("Dialog", log.clone()),
+            Box::new(move |result| {
+                let msg = match result {
+                    ScreenResult::Dismissed => "dismissed".to_string(),
+                    ScreenResult::Value(v) => {
+                        format!("value:{}", v.downcast_ref::<i32>().unwrap())
+                    }
+                };
+                cb_log.lock().unwrap().push(msg);
+            }),
+        );
+
+        // Pop without dismiss — should get Dismissed.
+        stack.pop();
+        assert_eq!(callback_log.lock().unwrap().as_slice(), &["dismissed"]);
+    }
+
+    #[test]
+    fn dismiss_with_value_invokes_callback_with_value() {
+        let mut stack = ScreenStack::new();
+        let log = LifecycleLog::new();
+        let callback_log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let cb_log = callback_log.clone();
+
+        stack.push_with_callback(
+            TestScreen::boxed("Dialog", log.clone()),
+            Box::new(move |result| {
+                let msg = match result {
+                    ScreenResult::Dismissed => "dismissed".to_string(),
+                    ScreenResult::Value(v) => {
+                        format!("value:{}", v.downcast_ref::<String>().unwrap())
+                    }
+                };
+                cb_log.lock().unwrap().push(msg);
+            }),
+        );
+
+        // Dismiss with a value, then pop.
+        stack.dismiss(ScreenResult::Value(Box::new("confirmed".to_string())));
+        stack.pop();
+        assert_eq!(
+            callback_log.lock().unwrap().as_slice(),
+            &["value:confirmed"]
+        );
+    }
+
+    #[test]
+    fn pop_without_callback_returns_pending_result() {
+        let mut stack = ScreenStack::new();
+        let log = LifecycleLog::new();
+
+        stack.push(TestScreen::boxed("Dialog", log.clone()));
+        stack.dismiss(ScreenResult::Value(Box::new(42i32)));
+
+        let (_, result, _) = stack.pop().unwrap();
+        match result {
+            ScreenResult::Value(v) => assert_eq!(*v.downcast_ref::<i32>().unwrap(), 42),
+            ScreenResult::Dismissed => panic!("expected Value"),
+        }
+    }
+
+    #[test]
+    fn dismiss_on_empty_stack_returns_false() {
+        let mut stack = ScreenStack::new();
+        assert!(!stack.dismiss(ScreenResult::Dismissed));
+    }
+
+    #[test]
+    fn callback_receives_dismissed_when_no_pending_result() {
+        let mut stack = ScreenStack::new();
+        let log = LifecycleLog::new();
+        let received = Arc::new(Mutex::new(false));
+        let received_clone = received.clone();
+
+        stack.push_with_callback(
+            TestScreen::boxed("X", log.clone()),
+            Box::new(move |result| {
+                *received_clone.lock().unwrap() = matches!(result, ScreenResult::Dismissed);
+            }),
+        );
+
+        stack.pop();
+        assert!(*received.lock().unwrap());
+    }
+
+    // =========================================================================
+    // P5-14: Screen title/sub_title
+    // =========================================================================
+
+    #[test]
+    fn screen_title_default_is_none() {
+        let log = LifecycleLog::new();
+        let screen = TestScreen::new("test", log);
+        assert!(screen.title().is_none());
+        assert!(screen.sub_title().is_none());
+    }
+
+    #[test]
+    fn screen_title_can_be_set() {
+        let log = LifecycleLog::new();
+        let screen = TestScreen::new("test", log)
+            .with_title("My App")
+            .with_sub_title("v1.0");
+        assert_eq!(screen.title(), Some("My App"));
+        assert_eq!(screen.sub_title(), Some("v1.0"));
+    }
+
+    #[test]
+    fn active_title_from_topmost_screen() {
+        let mut stack = ScreenStack::new();
+        let log = LifecycleLog::new();
+
+        // No screens — no title.
+        assert!(stack.active_title().is_none());
+        assert!(stack.active_sub_title().is_none());
+
+        // Push screen without title.
+        stack.push(TestScreen::boxed("Base", log.clone()));
+        assert!(stack.active_title().is_none());
+
+        // Push screen with title.
+        let titled = TestScreen::new("Settings", log.clone())
+            .with_title("Settings")
+            .with_sub_title("General");
+        stack.push(Box::new(titled));
+        assert_eq!(stack.active_title(), Some("Settings"));
+        assert_eq!(stack.active_sub_title(), Some("General"));
+
+        // Pop titled screen — back to base with no title.
+        stack.pop();
+        assert!(stack.active_title().is_none());
     }
 }

@@ -47,7 +47,10 @@ pub fn default_widget_stylesheet() -> StyleSheet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::{Display, Dock, Overflow, Scalar};
+    use crate::style::{
+        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Scalar,
+        Spacing, TextAlign, VerticalAlign,
+    };
 
     /// Helper: find the first rule whose primary selector matches the given type name
     /// (with no classes / no pseudo-classes).
@@ -114,7 +117,6 @@ mod tests {
 
     #[test]
     fn all_default_fragments_parse_without_panic() {
-        // Parsing the combined stylesheet should not panic and should produce rules.
         let sheet = default_widget_stylesheet();
         assert!(
             !sheet.rules().is_empty(),
@@ -122,55 +124,65 @@ mod tests {
         );
     }
 
-    // WP-07: Header dock: top
+    // ---- base.rs: Screen + ScrollView ----
+
     #[test]
-    fn header_has_dock_top() {
-        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Header");
-        assert_eq!(style.dock, Some(Dock::Top));
+    fn screen_has_layout_vertical() {
+        let sheet = StyleSheet::parse(base::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Screen");
+        assert_eq!(style.layout, Some(Layout::Vertical));
     }
 
-    // WP-07: Header width: 100%
     #[test]
-    fn header_has_width_100_percent() {
-        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Header");
-        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    fn screen_has_overflow_auto() {
+        let sheet = StyleSheet::parse(base::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Screen");
+        assert_eq!(style.overflow, Some(Overflow::Auto));
     }
 
-    // WP-08: Footer dock: bottom
     #[test]
-    fn footer_has_dock_bottom() {
-        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Footer");
-        assert_eq!(style.dock, Some(Dock::Bottom));
+    fn scrollview_has_overflow_auto() {
+        let sheet = StyleSheet::parse(base::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "ScrollView");
+        assert_eq!(style.overflow, Some(Overflow::Auto));
     }
 
-    // WP-13: Input width: 100%
+    // ---- button.rs: content-align + text-align now parsed ----
+
     #[test]
-    fn input_has_width_100_percent() {
-        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Input");
-        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    fn button_has_content_align_center_middle() {
+        let sheet = StyleSheet::parse(button::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Button");
+        let ca = style.content_align.expect("Button should have content-align");
+        assert_eq!(ca.horizontal, HorizontalAlign::Center);
+        assert_eq!(ca.vertical, VerticalAlign::Middle);
     }
 
-    // WP-13: MaskedInput width: 100%
     #[test]
-    fn masked_input_has_width_100_percent() {
-        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "MaskedInput");
-        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    fn button_has_text_align_center() {
+        let sheet = StyleSheet::parse(button::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Button");
+        assert_eq!(style.text_align, Some(TextAlign::Center));
     }
 
-    // WP-12: Placeholder overflow: hidden
     #[test]
-    fn placeholder_has_overflow_hidden() {
-        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Placeholder");
-        assert_eq!(style.overflow, Some(Overflow::Hidden));
+    fn button_has_width_auto_and_min_width() {
+        let sheet = StyleSheet::parse(button::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Button");
+        assert_eq!(style.width, Some(Scalar::Auto));
+        assert_eq!(style.min_width, Some(Scalar::Cells(16)));
     }
 
-    // WP-14: Collapsible.-collapsed > Contents display: none
+    // ---- collapsible.rs: padding shorthand fix ----
+
+    #[test]
+    fn collapsible_has_padding_shorthand() {
+        let sheet = StyleSheet::parse(collapsible::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Collapsible");
+        let p = style.padding.expect("Collapsible should have padding");
+        assert_eq!(p, Spacing::new(0, 0, 1, 1));
+    }
+
     #[test]
     fn collapsible_collapsed_contents_display_none() {
         let sheet = StyleSheet::parse(collapsible::DEFAULT_CSS);
@@ -178,18 +190,88 @@ mod tests {
         assert_eq!(style.display, Some(Display::None));
     }
 
-    // WP-30: Rule.-horizontal has width 1fr and margin
+    // ---- data_table.rs: max-height ----
+
+    #[test]
+    fn data_table_has_max_height_100_percent() {
+        let sheet = StyleSheet::parse(data_table::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "DataTable");
+        assert_eq!(style.max_height, Some(Scalar::Percent(100.0)));
+    }
+
+    // ---- header_footer.rs ----
+
+    #[test]
+    fn header_has_dock_top() {
+        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Header");
+        assert_eq!(style.dock, Some(Dock::Top));
+    }
+
+    #[test]
+    fn header_has_width_100_percent() {
+        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Header");
+        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    }
+
+    #[test]
+    fn footer_has_dock_bottom() {
+        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Footer");
+        assert_eq!(style.dock, Some(Dock::Bottom));
+    }
+
+    #[test]
+    fn footer_has_layout_horizontal() {
+        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Footer");
+        assert_eq!(style.layout, Some(Layout::Horizontal));
+    }
+
+    // ---- input.rs ----
+
+    #[test]
+    fn input_has_width_100_percent() {
+        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Input");
+        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    }
+
+    #[test]
+    fn masked_input_has_width_100_percent() {
+        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "MaskedInput");
+        assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    }
+
+    // ---- misc.rs ----
+
+    #[test]
+    fn placeholder_has_overflow_hidden() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Placeholder");
+        assert_eq!(style.overflow, Some(Overflow::Hidden));
+    }
+
+    #[test]
+    fn placeholder_has_content_align_center_middle() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Placeholder");
+        let ca = style.content_align.expect("Placeholder should have content-align");
+        assert_eq!(ca.horizontal, HorizontalAlign::Center);
+        assert_eq!(ca.vertical, VerticalAlign::Middle);
+    }
+
     #[test]
     fn rule_horizontal_has_width_1fr_and_margin() {
         let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
         let style = find_type_class_style(&sheet, "Rule", "-horizontal");
         assert_eq!(style.width, Some(Scalar::Fraction(1.0)));
         assert_eq!(style.height, Some(Scalar::Cells(1)));
-        // margin: 1 0 means top=1, right=0, bottom=1, left=0
         assert!(style.margin.is_some(), "Rule.-horizontal should have margin");
     }
 
-    // WP-30: Rule.-vertical has height 1fr and margin
     #[test]
     fn rule_vertical_has_height_1fr_and_margin() {
         let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
@@ -199,7 +281,125 @@ mod tests {
         assert!(style.margin.is_some(), "Rule.-vertical should have margin");
     }
 
-    // WP-31: TextArea width/height 1fr + padding
+    #[test]
+    fn log_has_overflow_scroll() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Log");
+        assert_eq!(style.overflow, Some(Overflow::Scroll));
+    }
+
+    #[test]
+    fn richlog_has_overflow_scroll() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "RichLog");
+        assert_eq!(style.overflow, Some(Overflow::Scroll));
+    }
+
+    #[test]
+    fn switch_has_padding() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Switch");
+        let p = style.padding.expect("Switch should have padding");
+        assert_eq!(p, Spacing::new(0, 2, 0, 2));
+    }
+
+    #[test]
+    fn radiobutton_has_padding() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "RadioButton");
+        let p = style.padding.expect("RadioButton should have padding");
+        assert_eq!(p, Spacing::new(0, 1, 0, 1));
+    }
+
+    #[test]
+    fn radioset_has_padding() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "RadioSet");
+        let p = style.padding.expect("RadioSet should have padding");
+        assert_eq!(p, Spacing::new(0, 1, 0, 1));
+    }
+
+    #[test]
+    fn progressbar_has_layout_horizontal() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "ProgressBar");
+        assert_eq!(style.layout, Some(Layout::Horizontal));
+    }
+
+    #[test]
+    fn link_has_min_height_1() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Link");
+        assert_eq!(style.min_height, Some(Scalar::Cells(1)));
+    }
+
+    #[test]
+    fn toast_has_padding() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Toast");
+        let p = style.padding.expect("Toast should have padding");
+        assert_eq!(p, Spacing::all(1));
+    }
+
+    #[test]
+    fn toast_has_max_width_50_percent() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Toast");
+        assert_eq!(style.max_width, Some(Scalar::Percent(50.0)));
+    }
+
+    #[test]
+    fn loading_indicator_has_content_align_center_middle() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "LoadingIndicator");
+        let ca = style
+            .content_align
+            .expect("LoadingIndicator should have content-align");
+        assert_eq!(ca.horizontal, HorizontalAlign::Center);
+        assert_eq!(ca.vertical, VerticalAlign::Middle);
+    }
+
+    #[test]
+    fn digits_has_text_align_left() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Digits");
+        assert_eq!(style.text_align, Some(TextAlign::Left));
+    }
+
+    #[test]
+    fn command_palette_has_align_horizontal() {
+        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "CommandPalette");
+        let a = style.align.expect("CommandPalette should have align");
+        assert_eq!(a.horizontal, HorizontalAlign::Center);
+    }
+
+    // ---- select.rs ----
+
+    #[test]
+    fn option_list_has_max_height_100_percent() {
+        let sheet = StyleSheet::parse(select::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "OptionList");
+        assert_eq!(style.max_height, Some(Scalar::Percent(100.0)));
+    }
+
+    #[test]
+    fn option_list_has_padding() {
+        let sheet = StyleSheet::parse(select::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "OptionList");
+        let p = style.padding.expect("OptionList should have padding");
+        assert_eq!(p, Spacing::new(0, 1, 0, 1));
+    }
+
+    #[test]
+    fn option_list_has_overflow_hidden() {
+        let sheet = StyleSheet::parse(select::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "OptionList");
+        assert_eq!(style.overflow, Some(Overflow::Hidden));
+    }
+
+    // ---- text_area.rs ----
+
     #[test]
     fn text_area_has_1fr_dimensions_and_padding() {
         let sheet = StyleSheet::parse(text_area::DEFAULT_CSS);
@@ -209,24 +409,56 @@ mod tests {
         assert!(style.padding.is_some(), "TextArea should have padding");
     }
 
-    // WP-11/12: content-align and text-align are present in the CSS text
-    // but NOT yet parsed by the CSS engine (parser support needed).
-    // These tests verify the CSS fragments still parse without error.
+    // ---- tooltip.rs ----
+
     #[test]
-    fn button_css_fragment_parses_without_error() {
-        let sheet = StyleSheet::parse(button::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Button");
-        // content-align and text-align are not parsed yet, so they'll be None.
-        // Just verify the fragment parsed and other properties are intact.
-        assert_eq!(style.width, Some(Scalar::Auto));
-        assert_eq!(style.min_width, Some(Scalar::Cells(16)));
+    fn tooltip_has_constrain_inside() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(style.constrain, Some(Constrain::Inside));
     }
 
     #[test]
-    fn placeholder_css_fragment_parses_without_error() {
-        let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
-        let style = find_type_style(&sheet, "Placeholder");
-        // content-align not parsed yet; overflow should be there
-        assert_eq!(style.overflow, Some(Overflow::Hidden));
+    fn tooltip_has_layer() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(style.layer.as_deref(), Some("_tooltips"));
+    }
+
+    #[test]
+    fn tooltip_has_margin() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        let m = style.margin.expect("Tooltip should have margin");
+        assert_eq!(m, Spacing::new(1, 0, 1, 0));
+    }
+
+    #[test]
+    fn tooltip_has_padding() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        let p = style.padding.expect("Tooltip should have padding");
+        assert_eq!(p, Spacing::new(1, 2, 1, 2));
+    }
+
+    #[test]
+    fn tooltip_has_max_width_40() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(style.max_width, Some(Scalar::Cells(40)));
+    }
+
+    #[test]
+    fn tooltip_has_width_auto() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(style.width, Some(Scalar::Auto));
+    }
+
+    #[test]
+    fn tooltip_has_height_auto() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(style.height, Some(Scalar::Auto));
     }
 }

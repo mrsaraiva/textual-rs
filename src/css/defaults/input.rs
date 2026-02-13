@@ -18,6 +18,7 @@ Input:disabled { dim: true; }
 Input > .input--cursor { bg: $input-cursor-background; fg: $input-cursor-foreground; }
 Input > .input--selection { bg: $input-selection-background; }
 Input > .input--placeholder { fg: $text-disabled; }
+Input > .input--suggestion { fg: $text-disabled; }
 
 MaskedInput {
     width: 100%;

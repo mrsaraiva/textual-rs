@@ -1041,6 +1041,87 @@ impl Renderable for CommandPalette {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SystemModalScreen — marker trait for system-level modal screens
+// ---------------------------------------------------------------------------
+
+/// A variant of `Screen` for system-level modal overlays.
+///
+/// System modal screens (such as the command palette) are isolated from the
+/// main application CSS and are used for internal/system UI. They always
+/// render as modal (blocking interaction with screens below) and do not
+/// inherit the app's stylesheet by default.
+///
+/// This follows the Python Textual `SystemModalScreen` pattern.
+pub trait SystemModalScreen: crate::screen::Screen {
+    /// Whether this screen inherits CSS from the application.
+    ///
+    /// Default: `false` — system screens are style-isolated.
+    fn inherit_css(&self) -> bool {
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CommandPaletteScreen — Screen wrapper for CommandPalette
+// ---------------------------------------------------------------------------
+
+/// A screen that displays the command palette as a full-screen modal overlay.
+///
+/// This wraps `CommandPalette` as a `Screen` so it can be pushed onto the
+/// screen stack via `App::push_screen()`. The palette is automatically opened
+/// when the screen is mounted.
+///
+/// Implements both `Screen` and `SystemModalScreen` (style-isolated modal).
+pub struct CommandPaletteScreen {
+    commands: Vec<PaletteCommand>,
+}
+
+impl CommandPaletteScreen {
+    /// Create a new command palette screen with default commands.
+    pub fn new() -> Self {
+        Self {
+            commands: Vec::new(),
+        }
+    }
+
+    /// Create a command palette screen with the given commands.
+    pub fn with_commands(commands: Vec<PaletteCommand>) -> Self {
+        Self { commands }
+    }
+}
+
+impl Default for CommandPaletteScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::screen::Screen for CommandPaletteScreen {
+    fn name(&self) -> &str {
+        "CommandPaletteScreen"
+    }
+
+    fn compose(&self) -> Box<dyn Widget> {
+        // Use a blank Label as the child — when the palette opens as a screen
+        // the underlying content is the screen below in the stack.
+        let mut palette = CommandPalette::new(super::Label::new(""));
+        if !self.commands.is_empty() {
+            palette.set_commands(self.commands.clone());
+        }
+        // Auto-open: the palette opens immediately when composed as a screen.
+        let mut ctx = crate::event::EventCtx::default();
+        palette.set_open(true, &mut ctx);
+        Box::new(palette)
+    }
+
+    fn is_modal(&self) -> bool {
+        true
+    }
+}
+
+impl SystemModalScreen for CommandPaletteScreen {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

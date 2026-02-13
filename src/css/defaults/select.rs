@@ -3,10 +3,12 @@
 pub(super) const DEFAULT_CSS: &str = r#"
 OptionList {
     height: auto;
+    max-height: 100%;
     bg: $surface;
     fg: $foreground;
     border: tall $border-blurred;
-    line-pad: 1;
+    padding: 0 1;
+    overflow: hidden;
 }
 
 OptionList:focus { border: tall $border; background-tint: $foreground 5%; }

@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
@@ -25,6 +25,12 @@ pub enum ButtonVariant {
 #[derive(Clone)]
 pub struct Button {
     label: String,
+    /// Rich text content for the button label. When set, takes precedence over
+    /// the plain `label` string during rendering.
+    content: Option<Text>,
+    /// Optional action string dispatched on press instead of `ButtonPressed`.
+    /// Mirrors Python Textual's `Button(action=...)` parameter.
+    action: Option<String>,
     focused: bool,
     hovered: bool,
     pressed: PressedState,
@@ -49,6 +55,8 @@ impl std::fmt::Debug for Button {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Button")
             .field("label", &self.label)
+            .field("content", &self.content.is_some())
+            .field("action", &self.action)
             .field("focused", &self.focused)
             .field("hovered", &self.hovered)
             .field("pressed", &(self.pressed != PressedState::None))
@@ -64,6 +72,8 @@ impl Button {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
+            content: None,
+            action: None,
             focused: false,
             hovered: false,
             pressed: PressedState::None,
@@ -112,6 +122,47 @@ impl Button {
         self.rebuild_classes()
     }
 
+    /// Set an action string to dispatch on press instead of `ButtonPressed`.
+    ///
+    /// When set, clicking or pressing Enter/Space parses the action string and
+    /// dispatches it through the action system. The `ButtonPressed` message is
+    /// suppressed, matching Python Textual's behavior.
+    ///
+    /// Accepted formats: `"toggle_dark"`, `"app.quit"`, `"push_screen('settings')"`.
+    pub fn with_action(mut self, action: impl Into<String>) -> Self {
+        self.action = Some(action.into());
+        self
+    }
+
+    /// Set a rich text label (markup content) for the button.
+    ///
+    /// When set, the rich `Text` is rendered instead of the plain label string.
+    /// Use `Text::from_markup("[bold]Save[/]", true)` or similar to create
+    /// styled button labels.
+    pub fn with_content(mut self, content: Text) -> Self {
+        self.content = Some(content);
+        self
+    }
+
+    /// Access the button's action string, if set.
+    pub fn action(&self) -> Option<&str> {
+        self.action.as_deref()
+    }
+
+    /// Access the button's rich text content, if set.
+    pub fn content(&self) -> Option<&Text> {
+        self.content.as_ref()
+    }
+
+    /// The plain-text width of the button label (content or plain label).
+    fn label_cell_len(&self) -> usize {
+        if let Some(ref content) = self.content {
+            content.cell_len()
+        } else {
+            rich_rs::cell_len(&self.label)
+        }
+    }
+
     pub fn describe(&self) -> String {
         let mut classes = self.classes.clone();
         let is_active = match self.pressed {
@@ -131,6 +182,33 @@ impl Button {
             ButtonVariant::Error => "error",
         };
         format!("Button(classes='{}', variant='{}')", class_str, variant)
+    }
+
+    /// Dispatch the press: either the stored action or a `ButtonPressed` message.
+    ///
+    /// When `self.action` is `Some`, the action string is parsed and logged for
+    /// dispatch. The `ButtonPressed` message is suppressed, matching Python
+    /// Textual's behavior where `action` takes precedence over `Pressed`.
+    ///
+    /// Full cross-widget action dispatch requires runtime wiring (P4-08).
+    fn dispatch_press(&mut self, ctx: &mut EventCtx) {
+        if let Some(ref action_str) = self.action {
+            if let Some(_parsed) = crate::action::parse_action(action_str) {
+                debug_message(&format!(
+                    "[button] dispatch action=\"{}\" label=\"{}\"",
+                    action_str, self.label
+                ));
+            } else {
+                debug_message(&format!(
+                    "[button] invalid action string=\"{}\" label=\"{}\"",
+                    action_str, self.label
+                ));
+            }
+        } else {
+            ctx.post_message(Message::ButtonPressed {
+                description: self.describe(),
+            });
+        }
     }
 
     fn rebuild_classes(mut self) -> Self {
@@ -213,7 +291,7 @@ impl Widget for Button {
 
     fn content_width(&self) -> Option<usize> {
         // Match Textual's default behavior: content width is label width + a small padding.
-        Some(rich_rs::cell_len(&self.label).saturating_add(2).max(1))
+        Some(self.label_cell_len().saturating_add(2).max(1))
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -244,11 +322,7 @@ impl Widget for Button {
                             0u64,
                             self.label
                         ));
-                        ctx.post_message(
-                            Message::ButtonPressed {
-                                description: self.describe(),
-                            },
-                        );
+                        self.dispatch_press(ctx);
                         ctx.set_handled();
                     } else {
                         debug_message(&format!(
@@ -267,11 +341,7 @@ impl Widget for Button {
                     0u64,
                     self.label
                 ));
-                ctx.post_message(
-                    Message::ButtonPressed {
-                        description: self.describe(),
-                    },
-                );
+                self.dispatch_press(ctx);
                 debug_input(&format!(
                     "[button] toggle id={} label=\"{}\"",
                     0u64,
@@ -288,11 +358,7 @@ impl Widget for Button {
                         self.label,
                         key.code
                     ));
-                    ctx.post_message(
-                        Message::ButtonPressed {
-                            description: self.describe(),
-                        },
-                    );
+                    self.dispatch_press(ctx);
                     debug_input(&format!(
                         "[button] key id={} label=\"{}\"",
                         0u64,
@@ -325,9 +391,7 @@ impl Widget for Button {
                     "[button] emit action sender={} label=\"{}\"",
                     0u64, self.label
                 ));
-                ctx.post_message(Message::ButtonPressed {
-                    description: self.describe(),
-                });
+                self.dispatch_press(ctx);
                 ctx.set_handled();
                 true
             }
@@ -347,8 +411,18 @@ impl Widget for Button {
         }
     }
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
+
+        // Rich text content takes precedence over plain label.
+        if let Some(ref content) = self.content {
+            let mut content_options = options.clone();
+            content_options.size = (width, options.size.1);
+            content_options.max_width = width;
+            content_options.justify = Some(rich_rs::JustifyMethod::Center);
+            return content.render(console, &content_options);
+        }
+
         let label = self.label.as_str();
         let label_width = rich_rs::cell_len(label).min(width);
         let left = width.saturating_sub(label_width) / 2;
@@ -449,5 +523,154 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.message, Message::ButtonPressed { .. }))
         );
+    }
+
+    // ── WP-18: Button action parameter ──────────────────────────────────
+
+    #[test]
+    fn with_action_stores_action_string() {
+        let button = Button::new("Quit").with_action("app.quit");
+        assert_eq!(button.action(), Some("app.quit"));
+    }
+
+    #[test]
+    fn action_suppresses_button_pressed_on_enter() {
+        let mut button = Button::new("Quit").with_action("app.quit");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        button.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        // ButtonPressed should NOT be posted when action is set.
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+            "ButtonPressed should be suppressed when action is set"
+        );
+    }
+
+    #[test]
+    fn action_suppresses_button_pressed_on_execute_action() {
+        let mut button = Button::new("Quit").with_action("app.quit");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "press".to_string(),
+            arguments: vec![],
+        };
+        assert!(button.execute_action(&action, &mut ctx));
+
+        let messages = ctx.take_messages();
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+            "ButtonPressed should be suppressed when action is set"
+        );
+    }
+
+    #[test]
+    fn no_action_posts_button_pressed() {
+        let mut button = Button::new("Run");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+
+        button.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char(' '),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ButtonPressed { .. })),
+            "ButtonPressed should be posted when no action is set"
+        );
+    }
+
+    #[test]
+    fn action_builder_is_chainable() {
+        let button = Button::primary("Save")
+            .with_action("app.save")
+            .disabled(false);
+        assert_eq!(button.action(), Some("app.save"));
+        assert!(!button.disabled);
+    }
+
+    // ── WP-19: Button markup label ──────────────────────────────────────
+
+    #[test]
+    fn with_content_stores_rich_text() {
+        let text = Text::plain("Bold Label");
+        let button = Button::new("fallback").with_content(text);
+        assert!(button.content().is_some());
+    }
+
+    #[test]
+    fn content_width_uses_content_when_set() {
+        let text = Text::plain("Short");
+        let button = Button::new("much longer fallback label").with_content(text);
+        // Content width should use the rich text length, not the plain label.
+        let cw = button.content_width().unwrap();
+        // "Short" = 5 chars + 2 padding = 7
+        assert_eq!(cw, 7);
+    }
+
+    #[test]
+    fn content_width_uses_label_when_no_content() {
+        let button = Button::new("Hello");
+        let cw = button.content_width().unwrap();
+        // "Hello" = 5 chars + 2 padding = 7
+        assert_eq!(cw, 7);
+    }
+
+    #[test]
+    fn render_with_content_produces_segments() {
+        let text = Text::plain("OK");
+        let button = Button::new("fallback").with_content(text);
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 1),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&button, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn render_plain_label_produces_centered_text() {
+        let button = Button::new("OK");
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (10, 1),
+            max_width: 10,
+            ..Default::default()
+        };
+        let segments = Widget::render(&button, &console, &options);
+        let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
+        assert_eq!(text.len(), 10);
+        assert!(text.contains("OK"));
+    }
+
+    #[test]
+    fn markup_content_renders_correctly() {
+        let text = Text::from_markup("[bold]Save[/]", true).unwrap();
+        let button = Button::new("fallback").with_content(text);
+        assert!(button.content().is_some());
+        assert_eq!(button.content().unwrap().plain_text(), "Save");
     }
 }

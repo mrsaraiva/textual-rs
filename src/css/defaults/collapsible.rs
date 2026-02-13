@@ -3,8 +3,7 @@
 pub(super) const DEFAULT_CSS: &str = r#"
 Collapsible {
     border-top: hkey $border-blurred;
-    padding-bottom: 1;
-    padding-left: 1;
+    padding: 0 0 1 1;
 }
 
 Collapsible:focus { border-top: hkey $border; }

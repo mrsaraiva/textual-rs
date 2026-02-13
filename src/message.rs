@@ -307,6 +307,11 @@ pub enum Message {
     TabPaneFocused {
         id: String,
     },
+    // Screen title updates (dispatched to Header widget when screens change)
+    ScreenTitleChanged {
+        title: Option<String>,
+        sub_title: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]

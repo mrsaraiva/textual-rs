@@ -1,5 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
+use crate::debug::debug_message;
 use crate::event::{Event, EventCtx};
 use crate::message::Message;
 
@@ -11,6 +12,10 @@ pub struct FooterBinding {
     pub key: String,
     pub description: String,
     pub group: Option<String>,
+    /// Raw key spec from the binding hint (e.g. "ctrl+p"), used for
+    /// click-to-invoke dispatch. Distinct from `key` which may be a
+    /// display-formatted version (e.g. "^p").
+    pub action_key: Option<String>,
 }
 
 impl FooterBinding {
@@ -19,11 +24,17 @@ impl FooterBinding {
             key: key.into(),
             description: description.into(),
             group: None,
+            action_key: None,
         }
     }
 
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
         self.group = Some(group.into());
+        self
+    }
+
+    pub fn with_action_key(mut self, action_key: impl Into<String>) -> Self {
+        self.action_key = Some(action_key.into());
         self
     }
 }
@@ -195,6 +206,8 @@ impl Footer {
                     hint.description.clone(),
                 );
                 binding.group = hint.group.clone();
+                // Store the raw key spec for click-to-invoke dispatch.
+                binding.action_key = Some(hint.key.clone());
                 binding
             })
             .collect()
@@ -211,6 +224,83 @@ impl Footer {
             },
         );
         ctx.request_repaint();
+    }
+
+    /// Compute the width (in cells) of a single binding's rendered segments.
+    fn binding_width(binding: &FooterBinding, compact: bool) -> usize {
+        let key_width = if compact {
+            rich_rs::cell_len(&binding.key)
+        } else {
+            rich_rs::cell_len(&binding.key) + 1 // " " prefix
+        };
+        let desc_width = if binding.description.is_empty() {
+            if compact { 0 } else { 1 } // trailing space
+        } else {
+            rich_rs::cell_len(&binding.description) + 1 // " " prefix
+        };
+        key_width + desc_width
+    }
+
+    /// Find which binding (by flat index into `self.bindings`) is at the given
+    /// content-local x coordinate. Returns `None` if no binding is at that position.
+    ///
+    /// This replicates the left-section layout logic from `render` to compute
+    /// binding hit regions without storing mutable state.
+    fn binding_index_at_x(&self, x: u16) -> Option<usize> {
+        let (left_items, _palette) = self.split_bindings();
+        let separator_width: usize = if self.compact { 1 } else { 3 };
+        let mut pos: usize = 0;
+        let mut flat_index: usize = 0;
+
+        for (i, item) in left_items.iter().enumerate() {
+            if i > 0 {
+                pos += separator_width;
+            }
+            match item {
+                LeftBindingItem::Single(binding) => {
+                    let w = Self::binding_width(binding, self.compact);
+                    if (x as usize) >= pos && (x as usize) < pos + w {
+                        return Some(flat_index);
+                    }
+                    pos += w;
+                    flat_index += 1;
+                }
+                LeftBindingItem::Grouped { label, bindings } => {
+                    let group_start = pos;
+                    let key_sep_width: usize = if self.compact { 1 } else { 2 };
+                    for (j, binding) in bindings.iter().enumerate() {
+                        if j > 0 {
+                            pos += key_sep_width;
+                        }
+                        // In groups, only the key part is rendered (description cleared).
+                        let key_width = if self.compact {
+                            rich_rs::cell_len(&binding.key)
+                        } else {
+                            rich_rs::cell_len(&binding.key) + 1
+                        };
+                        // Trailing space when description is empty & not compact.
+                        let trail = if self.compact { 0 } else { 1 };
+                        pos += key_width + trail;
+                    }
+                    pos += rich_rs::cell_len(label) + 1; // " label"
+                    if (x as usize) >= group_start && (x as usize) < pos {
+                        // Map click within the group to the first binding.
+                        return Some(flat_index);
+                    }
+                    flat_index += bindings.len();
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Look up the `FooterBinding` at a flat index (skipping command_palette bindings).
+    fn binding_at_flat_index(&self, flat_index: usize) -> Option<&FooterBinding> {
+        self.bindings
+            .iter()
+            .filter(|b| b.group.as_deref() != Some("command_palette"))
+            .nth(flat_index)
     }
 }
 
@@ -322,6 +412,24 @@ impl Widget for Footer {
                     self.deferred_bindings = Some(next);
                 }
             }
+            // Click-to-invoke: when a binding label is clicked, log the action key
+            // for dispatch. Full key simulation requires runtime wiring.
+            Event::MouseDown(mouse) => {
+                if let Some(flat_index) = self.binding_index_at_x(mouse.x) {
+                    if let Some(binding) = self.binding_at_flat_index(flat_index) {
+                        let action_key = binding
+                            .action_key
+                            .as_deref()
+                            .unwrap_or(&binding.key);
+                        debug_message(&format!(
+                            "[footer] click binding key=\"{}\" action_key=\"{}\" desc=\"{}\"",
+                            binding.key, action_key, binding.description
+                        ));
+                        ctx.set_handled();
+                        ctx.request_repaint();
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -357,8 +465,9 @@ impl Renderable for Footer {
 #[cfg(test)]
 mod tests {
     use super::Footer;
-    use crate::event::{BindingHint, Event, EventCtx};
+    use crate::event::{BindingHint, Event, EventCtx, MouseDownEvent};
     use crate::message::Message;
+    use crate::node_id::NodeId;
     use crate::widgets::Widget;
 
     #[test]
@@ -480,5 +589,117 @@ mod tests {
             messages[0].message,
             Message::FooterBindingsUpdated { count: 1 }
         ));
+    }
+
+    // ── WP-22: Footer Signal subscription + click-to-invoke ─────────────
+
+    #[test]
+    fn bindings_from_hints_stores_action_key() {
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        let hints = vec![
+            BindingHint::new("ctrl+s", "Save").with_key_display("^s"),
+        ];
+        footer.on_event(&Event::BindingsChanged(hints), &mut ctx);
+
+        // The displayed key should be the key_display ("^s"), not the raw key.
+        assert_eq!(footer.bindings[0].key, "^s");
+        // The action_key should store the raw key spec.
+        assert_eq!(footer.bindings[0].action_key.as_deref(), Some("ctrl+s"));
+    }
+
+    #[test]
+    fn binding_index_at_x_finds_first_binding() {
+        let footer = Footer::new()
+            .with_binding("^q", "Quit")
+            .with_binding("^s", "Save");
+        // In non-compact mode, first binding starts at x=0:
+        //   " ^q Quit" = 8 chars, then "   " separator (3), then " ^s Save"
+        // So clicking at x=0 should hit the first binding.
+        assert_eq!(footer.binding_index_at_x(0), Some(0));
+    }
+
+    #[test]
+    fn binding_index_at_x_finds_second_binding() {
+        let footer = Footer::new()
+            .with_binding("^q", "Quit")
+            .with_binding("^s", "Save");
+        // First binding: " ^q Quit" = 8 chars
+        // Separator: "   " = 3 chars
+        // Second binding starts at x=11
+        assert_eq!(footer.binding_index_at_x(11), Some(1));
+    }
+
+    #[test]
+    fn binding_index_at_x_returns_none_past_bindings() {
+        let footer = Footer::new().with_binding("^q", "Quit");
+        // " ^q Quit" = 8 chars, so x=8 is past the binding.
+        assert_eq!(footer.binding_index_at_x(50), None);
+    }
+
+    #[test]
+    fn click_on_binding_is_handled() {
+        let mut footer = Footer::new()
+            .with_binding("^q", "Quit")
+            .with_binding("^s", "Save");
+        let mut ctx = EventCtx::default();
+
+        // Click at x=0 should hit the first binding.
+        footer.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn click_past_bindings_is_not_handled() {
+        let mut footer = Footer::new().with_binding("^q", "Quit");
+        let mut ctx = EventCtx::default();
+
+        // Click way past the binding region.
+        footer.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 50,
+                screen_y: 0,
+                x: 50,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn footer_binding_with_action_key_builder() {
+        use super::FooterBinding;
+        let binding = FooterBinding::new("^s", "Save")
+            .with_action_key("ctrl+s");
+        assert_eq!(binding.action_key.as_deref(), Some("ctrl+s"));
+    }
+
+    #[test]
+    fn binding_index_at_x_compact_mode() {
+        let footer = Footer::new()
+            .compact(true)
+            .with_binding("^q", "Quit")
+            .with_binding("^s", "Save");
+        // Compact mode: "^q Quit" (7 chars), " " separator (1), "^s Save" (7 chars)
+        // First binding: 0..7
+        // Separator: 7..8
+        // Second binding: 8..15
+        assert_eq!(footer.binding_index_at_x(0), Some(0));
+        assert_eq!(footer.binding_index_at_x(6), Some(0));
+        assert_eq!(footer.binding_index_at_x(8), Some(1));
     }
 }

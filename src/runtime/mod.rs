@@ -24,7 +24,7 @@ use crate::widgets::{ToastSeverity, Widget};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -84,6 +84,14 @@ pub struct App {
     /// Stack of screens. Each screen owns an independent widget tree and
     /// optional stylesheet. The topmost screen is the active one.
     screen_stack: ScreenStack,
+    /// Mode registry: maps mode names to screen factory functions.
+    ///
+    /// When `switch_mode()` is called, the current mode screen (if any) is
+    /// popped and a new screen is created from the named factory. This follows
+    /// the Python Textual MODES pattern.
+    modes: HashMap<String, Box<dyn Fn() -> Box<dyn crate::screen::Screen> + Send + Sync>>,
+    /// The name of the currently active mode, if any.
+    current_mode: Option<String>,
 }
 
 impl App {
@@ -151,6 +159,8 @@ impl App {
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             widget_tree: None,
             screen_stack: ScreenStack::new(),
+            modes: HashMap::new(),
+            current_mode: None,
         };
         Ok(app)
     }
@@ -489,17 +499,152 @@ impl App {
         self.screen_stack.push(screen);
     }
 
+    /// Push a screen onto the screen stack with a result callback.
+    ///
+    /// The callback is invoked with the `ScreenResult` when the screen is
+    /// popped (either via `pop_screen()` or via `dismiss_screen()`).
+    pub fn push_screen_with_callback(
+        &mut self,
+        screen: Box<dyn crate::screen::Screen>,
+        callback: crate::screen::ScreenResultCallback,
+    ) {
+        self.screen_stack.push_with_callback(screen, callback);
+    }
+
+    /// Dismiss the topmost screen with an optional result value.
+    ///
+    /// Sets the pending result and then pops the screen. If the screen was
+    /// pushed with a callback, the callback is invoked with the result.
+    /// If the popped screen was a mode screen, `current_mode` is cleared.
+    pub fn dismiss_screen(&mut self, result: crate::screen::ScreenResult) -> bool {
+        if self.screen_stack.dismiss(result) {
+            if let Some((_screen, _result, mode_name)) = self.screen_stack.pop() {
+                if mode_name.is_some() {
+                    self.current_mode = None;
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     /// Pop the topmost screen from the screen stack.
     ///
     /// Unmounts the popped screen and resumes the one below (if any).
+    /// If the popped screen was a mode screen, `current_mode` is cleared.
     /// Returns `None` if the stack is empty.
     pub fn pop_screen(&mut self) -> Option<crate::screen::ScreenResult> {
-        self.screen_stack.pop().map(|(_screen, result)| result)
+        self.screen_stack.pop().map(|(_screen, result, mode_name)| {
+            if mode_name.is_some() {
+                self.current_mode = None;
+            }
+            result
+        })
     }
 
     /// Number of screens on the stack.
     pub fn screen_count(&self) -> usize {
         self.screen_stack.len()
+    }
+
+    /// Get the title from the active screen (if it defines one).
+    pub fn active_screen_title(&self) -> Option<&str> {
+        self.screen_stack.active_title()
+    }
+
+    /// Get the sub-title from the active screen (if it defines one).
+    pub fn active_screen_sub_title(&self) -> Option<&str> {
+        self.screen_stack.active_sub_title()
+    }
+
+    // -----------------------------------------------------------------
+    // Mode system
+    // -----------------------------------------------------------------
+
+    /// Register a named mode with a screen factory function.
+    ///
+    /// When `switch_mode(name)` is called, the factory creates a new screen
+    /// instance that is pushed onto the screen stack. This follows the Python
+    /// Textual MODES pattern where each mode maps to a screen factory.
+    ///
+    /// # Example
+    /// ```ignore
+    /// app.add_mode("help", || Box::new(HelpScreen::new()));
+    /// app.add_mode("settings", || Box::new(SettingsScreen::new()));
+    /// ```
+    pub fn add_mode(
+        &mut self,
+        name: impl Into<String>,
+        factory: impl Fn() -> Box<dyn crate::screen::Screen> + Send + Sync + 'static,
+    ) {
+        self.modes.insert(name.into(), Box::new(factory));
+    }
+
+    /// Switch to a named mode.
+    ///
+    /// If there is a current mode screen, it is removed from the screen stack
+    /// (even if transient screens are on top of it). Then the factory for
+    /// `name` is called to create a new screen, which is pushed as a mode
+    /// screen.
+    ///
+    /// Returns `true` if the mode was switched, `false` if the mode name is
+    /// not registered or is already the current mode.
+    pub fn switch_mode(&mut self, name: &str) -> bool {
+        // No-op if already in the requested mode.
+        if self.current_mode.as_deref() == Some(name) {
+            return false;
+        }
+
+        // Verify the mode is registered.
+        let factory = match self.modes.get(name) {
+            Some(f) => f,
+            None => return false,
+        };
+
+        // Create the new screen from the factory before popping the old one,
+        // so that if the factory panics the old screen is still intact.
+        let new_screen = factory();
+
+        // Remove the current mode screen by its mode tag (safe even if
+        // transient screens are on top).
+        if let Some(mode) = self.current_mode.take() {
+            self.screen_stack.pop_mode(&mode);
+        }
+
+        // Push the new mode screen with its mode tag.
+        self.screen_stack.push_mode(new_screen, name.to_string());
+        self.current_mode = Some(name.to_string());
+        true
+    }
+
+    /// The name of the currently active mode, if any.
+    pub fn current_mode(&self) -> Option<&str> {
+        self.current_mode.as_deref()
+    }
+
+    /// Returns the list of registered mode names.
+    pub fn mode_names(&self) -> Vec<&str> {
+        self.modes.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Remove a registered mode by name.
+    ///
+    /// If the removed mode is the current mode, the mode screen is removed
+    /// from the stack (even if transient screens are above it) and
+    /// `current_mode` is reset to `None`.
+    ///
+    /// Returns `true` if the mode existed and was removed.
+    pub fn remove_mode(&mut self, name: &str) -> bool {
+        if self.modes.remove(name).is_none() {
+            return false;
+        }
+        // If we just removed the active mode, pop its tagged screen.
+        if self.current_mode.as_deref() == Some(name) {
+            self.screen_stack.pop_mode(name);
+            self.current_mode = None;
+        }
+        true
     }
 
     /// Run the CSS-layout pass on the arena tree (if present).

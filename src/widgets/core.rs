@@ -12,6 +12,78 @@ use super::helpers;
 
 const META_WIDGET_ID: &str = "textual:widget_id";
 
+// ── Style invalidation classification ──────────────────────────────
+
+/// Classification of style property changes for invalidation.
+///
+/// Used to decide whether a style mutation requires a full relayout
+/// (layout-affecting properties) or just a repaint (visual-only properties).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleChangeKind {
+    /// No properties changed.
+    None,
+    /// Only visual properties changed (color, bg, border appearance, opacity,
+    /// tint, text formatting, pointer, layer ordering, transitions).
+    /// Triggers repaint without relayout.
+    Visual,
+    /// Layout-affecting properties changed (display, visibility, overflow,
+    /// layout, dock, width/height/min/max, margin, padding, alignment,
+    /// offset, constrain, grid configuration).
+    /// Triggers full relayout + repaint.
+    Layout,
+}
+
+/// Compare two styles and classify the kind of change for invalidation.
+///
+/// **Layout-affecting properties:** display, visibility, overflow, layout, dock,
+/// width, height, min_width, max_width, min_height, max_height, margin,
+/// padding, align, content_align, offset, constrain, grid_*.
+///
+/// **Visual-only properties:** fg, bg, opacity, bold, dim, italic, underline,
+/// reverse, border edges, tint, text_align, pointer, layer, layers,
+/// transition parameters.
+pub fn classify_style_change(old: &Style, new: &Style) -> StyleChangeKind {
+    if old == new {
+        return StyleChangeKind::None;
+    }
+
+    // Check layout-affecting fields first.
+    if old.display != new.display
+        || old.visibility != new.visibility
+        || old.overflow != new.overflow
+        || old.layout != new.layout
+        || old.dock != new.dock
+        || old.width != new.width
+        || old.height != new.height
+        || old.min_width != new.min_width
+        || old.max_width != new.max_width
+        || old.min_height != new.min_height
+        || old.max_height != new.max_height
+        || old.margin != new.margin
+        || old.padding != new.padding
+        || old.align != new.align
+        || old.content_align != new.content_align
+        || old.offset != new.offset
+        || old.constrain != new.constrain
+        || old.grid_size_columns != new.grid_size_columns
+        || old.grid_size_rows != new.grid_size_rows
+        || old.grid_columns != new.grid_columns
+        || old.grid_rows != new.grid_rows
+        || old.grid_gutter_horizontal != new.grid_gutter_horizontal
+        || old.grid_gutter_vertical != new.grid_gutter_vertical
+        || old.border != new.border
+        || old.border_top != new.border_top
+        || old.border_right != new.border_right
+        || old.border_bottom != new.border_bottom
+        || old.border_left != new.border_left
+    {
+        return StyleChangeKind::Layout;
+    }
+
+    // Styles differ but no layout-affecting field changed → visual only.
+    StyleChangeKind::Visual
+}
+
 /// A declarative key-binding declaration, analogous to Python Textual's `Binding`.
 ///
 /// Widgets return these from [`Widget::bindings()`] to declare key→action mappings.
@@ -558,5 +630,156 @@ impl WidgetStyles {
 
     pub fn set_max_height(&mut self, value: usize) {
         self.layout.max_height = Some(value.max(1));
+    }
+
+    /// Compare with another set of widget styles and classify the change
+    /// for invalidation purposes.
+    pub fn invalidation_kind(&self, other: &WidgetStyles) -> StyleChangeKind {
+        classify_style_change(&self.style, &other.style)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::{Display, Layout, Overflow, Visibility};
+
+    #[test]
+    fn classify_identical_styles_returns_none() {
+        let s = Style::default();
+        assert_eq!(classify_style_change(&s, &s), StyleChangeKind::None);
+    }
+
+    #[test]
+    fn classify_visual_only_change_returns_visual() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.fg = Some(crate::style::Color::rgb(255, 0, 0));
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Visual);
+    }
+
+    #[test]
+    fn classify_bg_change_returns_visual() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.bg = Some(crate::style::Color::rgb(0, 0, 255));
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Visual);
+    }
+
+    #[test]
+    fn classify_bold_change_returns_visual() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.bold = Some(true);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Visual);
+    }
+
+    #[test]
+    fn classify_border_change_returns_layout() {
+        // Borders affect content box sizing via border_spacing_from_style.
+        let old = Style::default();
+        let mut new = old.clone();
+        new.border = Some(true);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_opacity_change_returns_visual() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.opacity = Some(128);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Visual);
+    }
+
+    #[test]
+    fn classify_display_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.display = Some(Display::None);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_visibility_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.visibility = Some(Visibility::Hidden);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_overflow_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.overflow = Some(Overflow::Hidden);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_layout_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.layout = Some(Layout::Horizontal);
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_width_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.width = Some(crate::style::Scalar::Cells(42));
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_margin_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.margin = Some(crate::style::Spacing {
+            top: 1,
+            right: 1,
+            bottom: 1,
+            left: 1,
+        });
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_padding_change_returns_layout() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.padding = Some(crate::style::Spacing {
+            top: 2,
+            right: 0,
+            bottom: 2,
+            left: 0,
+        });
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_mixed_changes_returns_layout() {
+        // When both visual and layout properties change, Layout wins.
+        let old = Style::default();
+        let mut new = old.clone();
+        new.fg = Some(crate::style::Color::rgb(255, 0, 0)); // visual
+        new.display = Some(Display::None); // layout
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Layout);
+    }
+
+    #[test]
+    fn classify_layer_change_returns_visual() {
+        let old = Style::default();
+        let mut new = old.clone();
+        new.layer = Some("overlay".into());
+        assert_eq!(classify_style_change(&old, &new), StyleChangeKind::Visual);
+    }
+
+    #[test]
+    fn widget_styles_invalidation_kind_delegates() {
+        let a = WidgetStyles::default();
+        let mut b = WidgetStyles::default();
+        b.style.bg = Some(crate::style::Color::rgb(0, 255, 0));
+        assert_eq!(a.invalidation_kind(&b), StyleChangeKind::Visual);
     }
 }

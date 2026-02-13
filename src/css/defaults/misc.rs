@@ -15,6 +15,7 @@ Markdown > .markdown--h6 { fg: $text-disabled; text-style: dim; }
 Log {
     bg: $surface;
     fg: $text;
+    overflow: scroll;
 }
 
 Log:focus {
@@ -30,6 +31,7 @@ Pretty { fg: $foreground; height: auto; }
 RichLog {
     bg: $surface;
     fg: $foreground;
+    overflow: scroll;
 }
 
 RichLog:focus {
@@ -122,7 +124,7 @@ Switch {
     height: auto;
     border: tall $border-blurred;
     bg: $surface;
-    line-pad: 2;
+    padding: 0 2;
 }
 
 Switch:focus { border: tall $border; background-tint: $foreground 5%; }
@@ -136,7 +138,7 @@ RadioButton {
     height: auto;
     border: tall $border-blurred;
     bg: $surface;
-    line-pad: 1;
+    padding: 0 1;
 }
 
 RadioButton:focus { border: tall $border; background-tint: $foreground 5%; }
@@ -149,7 +151,7 @@ RadioButton > .radio-button--label.-focus { fg: $text; bg: $primary; text-style:
 RadioSet {
     border: tall $border-blurred;
     bg: $surface;
-    line-pad: 1;
+    padding: 0 1;
     height: auto;
     width: 1fr;
 }
@@ -188,6 +190,7 @@ Rule.-vertical {
 }
 
 ProgressBar {
+    layout: horizontal;
     width: 32;
     height: 1;
     fg: $foreground;
@@ -214,6 +217,7 @@ ContentSwitcher {
 Link {
     width: auto;
     height: auto;
+    min-height: 1;
     fg: $text-accent;
     text-style: underline;
 }
@@ -225,7 +229,7 @@ Toast {
     width: 60;
     max-width: 50%;
     height: auto;
-    line-pad: 1;
+    padding: 1 1;
     bg: $panel-lighten-1;
     fg: $foreground;
 }
@@ -242,6 +246,7 @@ LoadingIndicator {
     width: 1fr;
     height: 1fr;
     min-height: 1;
+    content-align: center middle;
     fg: $primary;
 }
 
@@ -252,11 +257,13 @@ Sparkline > .sparkline--min-color { fg: $primary 30%; }
 Digits {
     width: 1fr;
     height: auto;
+    text-align: left;
 }
 
 CommandPalette {
     bg: $surface;
     fg: $foreground;
+    align-horizontal: center;
 }
 
 CommandPalette > .command-palette--panel {

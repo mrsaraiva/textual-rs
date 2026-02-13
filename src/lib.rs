@@ -30,7 +30,7 @@ pub use widgets::BindingDecl;
 pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use runtime::App;
-pub use screen::{Screen, ScreenResult, ScreenStack};
+pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use textual_app::{
     OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,
@@ -65,22 +65,24 @@ pub mod prelude {
     };
     pub use crate::widgets::{
         AppRoot, BindingsTable, Button, ButtonVariant, Center, CenterMiddle, Checkbox, Collapsible,
-        CommandPalette, Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits,
+        CommandPalette, CommandPaletteScreen, Constrained, Container, ContentSwitcher, CursorType, DataTable, Digits,
         DigitsAlign, DirectoryTree, Dock, Footer, FooterBinding, Frame, FuzzyMatcher, Grid, Header, HelpPanel,
         Horizontal, HorizontalGroup, HorizontalScroll, Input, InputType, ItemGrid, KeyPanel, Label, LabelVariant,
+        SuggestFromList, Suggester,
         LayoutConstraints, LineStyle, Link, ListView, LoadingIndicator, Log, Markdown, MaskedInput,
         Middle, Node, OptionItem, OptionList, Overlay, PaletteCommand, Panel, Placeholder,
         PlaceholderVariant, Pretty, ProgressBar, RadioButton, RadioSet, RichLog, Right, Row,
         RowAlign, Rule, RuleOrientation, ScrollView, ScrollableContainer, Select, Selection,
         SelectionList, SelectionListString, Spacer, Sparkline, Static, Styled, SummaryFunction,
-        Switch, TabPane,
+        Switch, SystemModalScreen, TabPane,
         TabbedContent, Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Toast,
         ToastSeverity, Tooltip, Tree, TreeNode, Vertical, VerticalGroup, VerticalScroll, Welcome,
-        BindingDecl, Widget, WidgetRenderable, WidgetStyles, preview_root, preview_root_with_bottom,
+        BindingDecl, StyleChangeKind, Widget, WidgetRenderable, WidgetStyles, classify_style_change,
+        preview_root, preview_root_with_bottom,
         preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
-    pub use crate::screen::{Screen, ScreenResult, ScreenStack};
+    pub use crate::screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
     pub use crate::signal::{Signal, SignalResponse};
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::worker::{CancellationToken, WorkerId, WorkerRegistry, WorkerRequest, WorkerState};

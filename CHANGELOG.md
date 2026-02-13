@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 17: Screen modes + Layout activation + CSS defaults port + Widget features + Review fixes**
+  - **P5-05/P5-12 complete:** Mode system — `push_mode()`/`pop_mode()`/`switch_mode()`/`remove_mode()` with mode-tagged `ScreenEntry` for safe pop semantics. `SystemModalScreen` trait with `inherit_css()` default. `CommandPaletteScreen` implements both `Screen` + `SystemModalScreen`. 10 integration tests (`tests/modes_system.rs`).
+  - **P2-18b/P2-19 complete:** Layout activation — `collect_render_nodes` with layer ordering + display:none filtering. `InvalidationFlags` bitfield (content/style/layout), `StyleChangeKind` + `classify_style_change` checking 27 layout-affecting properties including borders. `request_style_invalidation()`/`request_layout_invalidation()` on EventCtx. 15 tests.
+  - **P2-20 complete:** CSS defaults port — 16 property categories ported across 9 files (layout, overflow, text-align, content-align, constrain, layer, margin, padding, max/min width/height, width, height, dock, align). 43 tests.
+  - **WP-18/WP-19 complete:** Button enhancements — `action` parameter (`with_action()` builder) for string action dispatch; `ButtonLabel::Markup` with `with_markup_label()` for rich-rs rendered labels.
+  - **WP-20 complete:** Input suggester system — `Suggester` trait, `SuggestFromList` implementation, ghost text rendering with `input--suggestion` component class, Tab/Right-arrow acceptance, validation guard, stale suggestion cleanup. 11 tests.
+  - **WP-22 complete:** Footer signal subscription — `BindingsChanged` signal, `FooterKey` widgets with click-to-invoke, `execute_action()` dispatch.
+  - **P5-14 complete:** Header title inheritance — reads title/sub_title from `Screen::title()`/`Screen::sub_title()` falling back to `App` title.
+  - **Review fixes:** Ghost text panic guard (char boundary check), accept_suggestion validation, border misclassification in `classify_style_change` (borders affect layout, not just visual).
+  - Build: 0 errors. Tests: 1430 passed (+307 new), 0 failed. 1 pre-existing integration test failure (`background_is_not_inherited_by_children`).
+
 - **Parity Sprint 16: Screen system + Worker wiring + BINDINGS migration + Overlay constraint**
   - **P5-01/02/03 complete:** Screen system foundation — `Screen` trait with lifecycle hooks (mount/suspend/resume/unmount), `ScreenStack` with push/pop, `ScreenResult` (Dismissed/Value). ScreenEntry builds WidgetTree from compose() and parses per-screen CSS. Wired into App struct with `push_screen()`/`pop_screen()`. 22 tests.
   - **P5-09 complete:** Worker runtime wiring — `WorkerRegistry` integrated into event loop. `EventCtx::take_worker_requests()` consumed after dispatch, workers registered/set_running/completed. `WorkerStateChanged` message delivered to owning widget. Exclusive mode cancels previous. Cleanup on each tick.

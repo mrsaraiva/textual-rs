@@ -33,6 +33,7 @@ Header > .header--clock {
 }
 
 Footer {
+    layout: horizontal;
     dock: bottom;
     bg: $footer-background;
     fg: $footer-foreground;

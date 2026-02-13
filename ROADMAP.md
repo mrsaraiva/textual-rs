@@ -144,6 +144,17 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 
 Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Done.**
 
+### Known CSS Engine Gaps
+
+Properties/features where the Rust CSS engine diverges from Python Textual due to
+fundamentals-level limitations. These are not bugs in specific widgets or defaults —
+they require engine-level work.
+
+| Gap | Description | Python Textual Behavior | Tracking |
+|-----|-------------|------------------------|----------|
+| Split overflow axes | Only `overflow` (both axes). Parser accepts `overflow-x`/`overflow-y` but maps to single field. | `overflow-x: hidden; overflow-y: auto` on OptionList, etc. | P2-22 |
+| `pointer` CSS → runtime wiring | `Pointer` enum + parser exist (P2-02, P2-06), but `pointer_shape_for_hover_tree` uses hardcoded type-name checks instead of reading the CSS property. | `pointer: text` on Input, `pointer: not-allowed` on disabled, etc. | P2-23 |
+
 ---
 
 ## Phase 6: Async + animations + timers

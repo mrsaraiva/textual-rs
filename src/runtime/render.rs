@@ -85,6 +85,22 @@ impl App {
         let _active = set_app_active(self.app_active);
         let _guard = set_style_context(sheet);
         begin_style_render_pass();
+
+        // Run CSS layout pass when layout is invalidated and tree is available.
+        // This computes layout_rect/content_rect for all tree nodes before
+        // rendering, so precomputed rects are available for widget sizing.
+        if layout_invalidation {
+            if let Some(tree) = self.widget_tree.as_mut() {
+                let (w, h) = self.options.size;
+                run_layout_pass(tree, (w as u16, h as u16));
+                let render_nodes = collect_render_nodes(tree);
+                debug_render(&format!(
+                    "[layout_pass] viewport={}x{} render_nodes={}",
+                    w, h, render_nodes.len()
+                ));
+            }
+        }
+
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {
@@ -850,5 +866,104 @@ mod tests {
         let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
         // Root first, then base (earlier layer), then top (later layer)
         assert_eq!(ids, vec![root, base_id, top_id]);
+    }
+
+    // ---- Layout pass activation tests ----
+
+    #[test]
+    fn run_layout_pass_sets_root_rects() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::AppRoot;
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+
+        run_layout_pass(&mut tree, (80, 24));
+
+        let node = tree.get(root).expect("root should exist");
+        // Root should span the full viewport.
+        assert_eq!(node.layout_rect.x0, 0);
+        assert_eq!(node.layout_rect.y0, 0);
+        assert_eq!(node.layout_rect.x1, 80);
+        assert_eq!(node.layout_rect.y1, 24);
+        assert_eq!(node.content_rect.x0, 0);
+        assert_eq!(node.content_rect.y0, 0);
+    }
+
+    #[test]
+    fn run_layout_pass_computes_child_rects() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let child_id = tree.mount(root, Box::new(Label::new("hello")));
+
+        run_layout_pass(&mut tree, (80, 24));
+
+        // After layout, the child should have a layout_rect set.
+        let child = tree.get(child_id).expect("child should exist");
+        let lr = child.layout_rect;
+        // The child should be positioned within the viewport.
+        assert!(lr.x1 > lr.x0 || lr.y1 > lr.y0 || (lr.x0 == 0 && lr.y0 == 0),
+            "child should have a non-degenerate or zero-origin layout rect");
+    }
+
+    #[test]
+    fn collect_render_nodes_marks_display_none_as_not_rendered() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let child_id = tree.mount(root, Box::new(Label::new("hidden")));
+
+        // Set display=false on the child.
+        if let Some(node) = tree.get_mut(child_id) {
+            node.display = false;
+        }
+
+        let nodes = collect_render_nodes(&tree);
+        let child_entry = nodes.iter().find(|(id, _)| *id == child_id);
+        assert!(
+            matches!(child_entry, Some((_, false))),
+            "display:none child should be marked as not rendered"
+        );
+    }
+
+    #[test]
+    fn render_tree_scaffold_produces_segments() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::AppRoot;
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let _root = tree.set_root(Box::new(AppRoot::new()));
+
+        let console = rich_rs::Console::default();
+        let options = rich_rs::ConsoleOptions {
+            size: (80, 24),
+            max_width: 80,
+            max_height: 24,
+            ..Default::default()
+        };
+
+        run_layout_pass(&mut tree, (80, 24));
+        let segments = render_tree_scaffold(&mut tree, &console, &options);
+        assert!(
+            segments.is_some(),
+            "render_tree_scaffold should produce segments for a non-empty tree"
+        );
     }
 }

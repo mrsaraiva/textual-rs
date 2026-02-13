@@ -16,6 +16,10 @@ use super::{Widget, WidgetStyles};
 pub struct Header {
     title: String,
     subtitle: Option<String>,
+    /// The default (app-level) title, used as fallback when no screen title is active.
+    default_title: String,
+    /// The default (app-level) subtitle, used as fallback when no screen subtitle is active.
+    default_subtitle: Option<String>,
     tall: bool,
     hovered: bool,
     icon: String,
@@ -35,6 +39,8 @@ impl Header {
         Self {
             title: "textual-rs".to_string(),
             subtitle: None,
+            default_title: "textual-rs".to_string(),
+            default_subtitle: None,
             tall: false,
             hovered: false,
             icon: "⭘".to_string(),
@@ -51,18 +57,41 @@ impl Header {
     }
 
     pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
+        let t = title.into();
+        self.title = t.clone();
+        self.default_title = t;
         self
     }
 
     pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
-        self.subtitle = Some(subtitle.into());
+        let s = subtitle.into();
+        self.subtitle = Some(s.clone());
+        self.default_subtitle = Some(s);
         self
     }
 
     pub fn clear_subtitle(mut self) -> Self {
         self.subtitle = None;
+        self.default_subtitle = None;
         self
+    }
+
+    /// Update the displayed title at runtime (e.g. from a screen title).
+    ///
+    /// Pass `None` to revert to the default (app-level) title.
+    pub fn set_title(&mut self, title: Option<&str>) {
+        self.title = title
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.default_title.clone());
+    }
+
+    /// Update the displayed subtitle at runtime (e.g. from a screen sub-title).
+    ///
+    /// Pass `None` to revert to the default (app-level) subtitle.
+    pub fn set_subtitle(&mut self, subtitle: Option<&str>) {
+        self.subtitle = subtitle
+            .map(|s| Some(s.to_string()))
+            .unwrap_or_else(|| self.default_subtitle.clone());
     }
 
     pub fn tall(mut self, tall: bool) -> Self {
@@ -206,6 +235,18 @@ impl Widget for Header {
         self.hovered = false;
         self.icon_hover = false;
         self.pressed_icon = None;
+    }
+
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ScreenTitleChanged {
+            ref title,
+            ref sub_title,
+        } = message.message
+        {
+            self.set_title(title.as_deref());
+            self.set_subtitle(sub_title.as_deref());
+            ctx.request_repaint();
+        }
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -471,5 +512,100 @@ mod tests {
         );
         assert!(up_ctx.handled());
         assert!(up_ctx.take_messages().is_empty());
+    }
+
+    // -- P5-14: Screen title inheritance ------------------------------------
+
+    #[test]
+    fn set_title_overrides_display() {
+        let mut header = Header::new().title("My App");
+        assert_eq!(header.title, "My App");
+        assert_eq!(header.default_title, "My App");
+
+        header.set_title(Some("Settings"));
+        assert_eq!(header.title, "Settings");
+        assert_eq!(header.default_title, "My App"); // default unchanged
+    }
+
+    #[test]
+    fn set_title_none_reverts_to_default() {
+        let mut header = Header::new().title("My App");
+        header.set_title(Some("Settings"));
+        assert_eq!(header.title, "Settings");
+
+        header.set_title(None);
+        assert_eq!(header.title, "My App");
+    }
+
+    #[test]
+    fn set_subtitle_overrides_display() {
+        let mut header = Header::new().subtitle("v1");
+        assert_eq!(header.subtitle, Some("v1".to_string()));
+
+        header.set_subtitle(Some("v2"));
+        assert_eq!(header.subtitle, Some("v2".to_string()));
+        assert_eq!(header.default_subtitle, Some("v1".to_string()));
+    }
+
+    #[test]
+    fn set_subtitle_none_reverts_to_default() {
+        let mut header = Header::new().subtitle("v1");
+        header.set_subtitle(Some("v2"));
+        header.set_subtitle(None);
+        assert_eq!(header.subtitle, Some("v1".to_string()));
+    }
+
+    #[test]
+    fn on_message_screen_title_changed_updates_title() {
+        use crate::message::MessageEvent;
+        use crate::node_id::node_id_from_ffi;
+
+        let mut header = Header::new().title("App").subtitle("Sub");
+        let msg = MessageEvent {
+            sender: node_id_from_ffi(0),
+            message: Message::ScreenTitleChanged {
+                title: Some("Screen Title".to_string()),
+                sub_title: Some("Screen Sub".to_string()),
+            },
+        };
+        let mut ctx = EventCtx::default();
+        header.on_message(&msg, &mut ctx);
+
+        assert_eq!(header.title, "Screen Title");
+        assert_eq!(header.subtitle, Some("Screen Sub".to_string()));
+        assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn on_message_screen_title_none_reverts() {
+        use crate::message::MessageEvent;
+        use crate::node_id::node_id_from_ffi;
+
+        let mut header = Header::new().title("App").subtitle("Sub");
+
+        // First, override with screen title.
+        let msg = MessageEvent {
+            sender: node_id_from_ffi(0),
+            message: Message::ScreenTitleChanged {
+                title: Some("Screen".to_string()),
+                sub_title: None,
+            },
+        };
+        let mut ctx = EventCtx::default();
+        header.on_message(&msg, &mut ctx);
+        assert_eq!(header.title, "Screen");
+        assert_eq!(header.subtitle, Some("Sub".to_string())); // reverted to default
+
+        // Then, revert screen title.
+        let msg2 = MessageEvent {
+            sender: node_id_from_ffi(0),
+            message: Message::ScreenTitleChanged {
+                title: None,
+                sub_title: None,
+            },
+        };
+        let mut ctx2 = EventCtx::default();
+        header.on_message(&msg2, &mut ctx2);
+        assert_eq!(header.title, "App"); // back to default
     }
 }

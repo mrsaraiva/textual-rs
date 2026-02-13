@@ -53,12 +53,16 @@ pub use aliases::{
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::Collapsible;
-pub use command_palette::{CommandPalette, FuzzyMatcher, PaletteCommand};
+pub use command_palette::{
+    CommandPalette, CommandPaletteScreen, FuzzyMatcher, PaletteCommand, SystemModalScreen,
+};
 pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
 pub use content_switcher::ContentSwitcher;
-pub use core::{BindingDecl, LayoutConstraints, Widget, WidgetStyles};
+pub use core::{
+    BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetStyles, classify_style_change,
+};
 pub use data_table::{CursorType, DataTable};
 pub use digits::{Digits, DigitsAlign};
 pub use directory_tree::DirectoryTree;
@@ -67,7 +71,7 @@ pub use header::Header;
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::border_spacing_from_style;
-pub use input::{Input, InputType};
+pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
 pub use link::Link;
