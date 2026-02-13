@@ -196,7 +196,8 @@ impl DirectoryTree {
                 .iter()
                 .position(|entry| entry.path == path)
             {
-                tree.set_selected(index);
+                // Direct field assignment via move_cursor (non-reactive path).
+                tree.move_cursor(Some(index));
             }
         }
 

@@ -6,6 +6,7 @@ use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
 };
+use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Unicode bar characters for sparkline rendering (8 levels, bottom to top).
 const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -111,14 +112,48 @@ impl Sparkline {
         self
     }
 
-    /// Replace the data.
-    pub fn set_data(&mut self, data: Vec<f64>) {
-        self.data = data;
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for `data`.
+    pub fn get_data(&self) -> &[f64] {
+        &self.data
     }
 
-    /// Set the summary function (mutable reference variant).
-    pub fn set_summary_function(&mut self, f: SummaryFunction) {
-        self.summary_function = f;
+    /// Reactive getter for `summary_function`.
+    pub fn get_summary_function(&self) -> SummaryFunction {
+        self.summary_function
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `data`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_data(&mut self, data: Vec<f64>, ctx: &mut ReactiveCtx) {
+        if self.data != data {
+            let old = std::mem::replace(&mut self.data, data);
+            let new = self.data.clone();
+            ctx.record_change(
+                "data",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    /// Reactive setter for `summary_function`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_summary_function(&mut self, f: SummaryFunction, ctx: &mut ReactiveCtx) {
+        if (self.summary_function as usize) != (f as usize) {
+            let old = self.summary_function;
+            self.summary_function = f;
+            ctx.record_change(
+                "summary_function",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(f),
+            );
+        }
     }
 
     // ── Rendering helpers ───────────────────────────────────────────
@@ -311,6 +346,8 @@ impl Renderable for Sparkline {
     }
 }
 
+impl ReactiveWidget for Sparkline {}
+
 // ── Color helper (private) ──────────────────────────────────────────
 
 /// Linear RGB blend between two colors. `t` in 0.0..=1.0.
@@ -327,6 +364,14 @@ fn blend_rgb(a: Color, b: Color, t: f64) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn sparkline_not_focusable() {
@@ -423,15 +468,17 @@ mod tests {
     #[test]
     fn set_data_replaces_data() {
         let mut s = Sparkline::new(vec![1.0, 2.0]);
-        s.set_data(vec![3.0, 4.0, 5.0]);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        s.set_data(vec![3.0, 4.0, 5.0], &mut ctx);
         assert_eq!(s.data, vec![3.0, 4.0, 5.0]);
     }
 
     #[test]
     fn set_summary_function_changes_fn() {
         let mut s = Sparkline::new(vec![1.0, 5.0, 3.0]);
+        let mut ctx = ReactiveCtx::new(make_node_id());
         assert_eq!((s.summary_function)(&[1.0, 5.0, 3.0]), 5.0); // default: max
-        s.set_summary_function(summary_min);
+        s.set_summary_function(summary_min, &mut ctx);
         assert_eq!((s.summary_function)(&[1.0, 5.0, 3.0]), 1.0);
     }
 

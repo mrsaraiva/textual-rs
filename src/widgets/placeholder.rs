@@ -12,6 +12,7 @@ use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// The variant determines what text a placeholder displays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,8 +109,48 @@ impl Placeholder {
         self
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn variant(&self) -> PlaceholderVariant {
         self.variant
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `variant`. Records the change and triggers
+    /// watcher dispatch via [`ReactiveWidget::reactive_dispatch`].
+    pub fn set_variant(&mut self, value: PlaceholderVariant, ctx: &mut ReactiveCtx) {
+        if self.variant != value {
+            let old = self.variant;
+            self.variant = value;
+            ctx.record_change(
+                "variant",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `disabled`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_disabled(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.disabled != value {
+            let old = self.disabled;
+            self.disabled = value;
+            ctx.record_change(
+                "disabled",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_variant(&mut self, _old: &PlaceholderVariant, _new: &PlaceholderVariant, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes();
     }
 
     pub fn cycle_variant(&mut self) {
@@ -287,6 +328,24 @@ impl Widget for Placeholder {
 impl Renderable for Placeholder {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+impl ReactiveWidget for Placeholder {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "variant" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<PlaceholderVariant>(),
+                        change.new_value.downcast_ref::<PlaceholderVariant>(),
+                    ) {
+                        self.watch_variant(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

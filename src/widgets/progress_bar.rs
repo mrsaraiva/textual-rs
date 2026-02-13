@@ -9,6 +9,7 @@ use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 // ── Color interpolation helper ─────────────────────────────────────
 
@@ -275,23 +276,116 @@ impl ProgressBar {
         self.record_eta_sample();
     }
 
-    /// Set the total number of steps.
-    pub fn set_total(&mut self, total: Option<f64>) {
+    // ── Reactive setters ─────────────────────────────────────────────
+
+    /// Reactive setter for `total`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers repaint.
+    pub fn set_total(&mut self, total: Option<f64>, ctx: &mut ReactiveCtx) {
         let new_total = total.map(|t| t.max(0.0));
-        // Reset ETA when total changes (matching Python behavior).
-        if new_total != self.total {
-            self.eta.reset();
+        if self.total != new_total {
+            let old = self.total;
+            self.total = new_total;
+            ctx.record_change(
+                "total",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.total),
+            );
         }
-        self.total = new_total;
     }
 
-    /// Set the current progress.
-    pub fn set_progress(&mut self, progress: f64) {
-        self.progress = progress;
+    /// Reactive setter for `progress`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers repaint.
+    pub fn set_progress(&mut self, progress: f64, ctx: &mut ReactiveCtx) {
+        if self.progress != progress {
+            let old = self.progress;
+            self.progress = progress;
+            ctx.record_change(
+                "progress",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.progress),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_bar`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers layout invalidation.
+    pub fn set_show_bar(&mut self, show: bool, ctx: &mut ReactiveCtx) {
+        if self.show_bar != show {
+            let old = self.show_bar;
+            self.show_bar = show;
+            ctx.record_change(
+                "show_bar",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(show),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_percentage`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers layout invalidation.
+    pub fn set_show_percentage(&mut self, show: bool, ctx: &mut ReactiveCtx) {
+        if self.show_percentage != show {
+            let old = self.show_percentage;
+            self.show_percentage = show;
+            ctx.record_change(
+                "show_percentage",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(show),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_eta`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers layout invalidation.
+    pub fn set_show_eta(&mut self, show: bool, ctx: &mut ReactiveCtx) {
+        if self.show_eta != show {
+            let old = self.show_eta;
+            self.show_eta = show;
+            ctx.record_change(
+                "show_eta",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(show),
+            );
+        }
+    }
+
+    // ── Reactive getters ─────────────────────────────────────────────
+
+    /// Whether the bar portion is shown.
+    pub fn show_bar(&self) -> bool {
+        self.show_bar
+    }
+
+    /// Whether the percentage label is shown.
+    pub fn show_percentage(&self) -> bool {
+        self.show_percentage
+    }
+
+    /// Whether the ETA countdown is shown.
+    pub fn show_eta(&self) -> bool {
+        self.show_eta
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────
+
+    fn watch_total(&mut self, _old: &Option<f64>, _new: &Option<f64>, _ctx: &mut ReactiveCtx) {
+        // Reset ETA when total changes (matching Python behavior).
+        self.eta.reset();
+    }
+
+    fn watch_progress(&mut self, _old: &f64, _new: &f64, _ctx: &mut ReactiveCtx) {
         self.record_eta_sample();
     }
 
     /// Batch update: optionally set total, progress, and/or advance.
+    ///
+    /// This is a convenience method that uses direct field assignment
+    /// (bypassing the reactive system) for batch mutations.
     pub fn update(
         &mut self,
         total: Option<Option<f64>>,
@@ -299,7 +393,11 @@ impl ProgressBar {
         advance: Option<f64>,
     ) {
         if let Some(t) = total {
-            self.set_total(t);
+            let new_total = t.map(|v| v.max(0.0));
+            if new_total != self.total {
+                self.eta.reset();
+            }
+            self.total = new_total;
         }
         if let Some(p) = progress {
             self.progress = p;
@@ -309,36 +407,6 @@ impl ProgressBar {
             self.progress += a;
             self.record_eta_sample();
         }
-    }
-
-    /// Whether the bar portion is shown.
-    pub fn show_bar(&self) -> bool {
-        self.show_bar
-    }
-
-    /// Set whether to display the bar portion.
-    pub fn set_show_bar(&mut self, show: bool) {
-        self.show_bar = show;
-    }
-
-    /// Whether the percentage label is shown.
-    pub fn show_percentage(&self) -> bool {
-        self.show_percentage
-    }
-
-    /// Set whether to display the percentage label.
-    pub fn set_show_percentage(&mut self, show: bool) {
-        self.show_percentage = show;
-    }
-
-    /// Whether the ETA countdown is shown.
-    pub fn show_eta(&self) -> bool {
-        self.show_eta
-    }
-
-    /// Set whether to display the ETA countdown.
-    pub fn set_show_eta(&mut self, show: bool) {
-        self.show_eta = show;
     }
 
     /// Current animation level.
@@ -633,9 +701,43 @@ impl Renderable for ProgressBar {
     }
 }
 
+impl ReactiveWidget for ProgressBar {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "total" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<Option<f64>>(),
+                        change.new_value.downcast_ref::<Option<f64>>(),
+                    ) {
+                        self.watch_total(old, new, ctx);
+                    }
+                }
+                "progress" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<f64>(),
+                        change.new_value.downcast_ref::<f64>(),
+                    ) {
+                        self.watch_progress(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn progress_bar_percentage_none_when_indeterminate() {
@@ -733,9 +835,10 @@ mod tests {
     #[test]
     fn show_toggles_setters() {
         let mut bar = ProgressBar::new(Some(100.0));
-        bar.set_show_bar(false);
-        bar.set_show_percentage(false);
-        bar.set_show_eta(false);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        bar.set_show_bar(false, &mut ctx);
+        bar.set_show_percentage(false, &mut ctx);
+        bar.set_show_eta(false, &mut ctx);
         assert!(!bar.show_bar());
         assert!(!bar.show_percentage());
         assert!(!bar.show_eta());
@@ -844,18 +947,19 @@ mod tests {
     #[test]
     fn content_width_varies_with_toggles() {
         let mut bar = ProgressBar::new(Some(100.0));
+        let mut ctx = ReactiveCtx::new(make_node_id());
         // All on: bar(32) + percentage(5) + eta(9) = 46
         assert_eq!(bar.content_width(), Some(46));
 
-        bar.set_show_percentage(false);
+        bar.set_show_percentage(false, &mut ctx);
         // bar(32) + eta(9) = 41
         assert_eq!(bar.content_width(), Some(41));
 
-        bar.set_show_eta(false);
+        bar.set_show_eta(false, &mut ctx);
         // bar only = 32
         assert_eq!(bar.content_width(), Some(32));
 
-        bar.set_show_bar(false);
+        bar.set_show_bar(false, &mut ctx);
         // Nothing visible => min 1
         assert_eq!(bar.content_width(), Some(1));
     }
@@ -863,9 +967,10 @@ mod tests {
     #[test]
     fn set_total_resets_eta() {
         let mut bar = ProgressBar::new(Some(100.0));
+        let mut ctx = ReactiveCtx::new(make_node_id());
         bar.advance(50.0);
         // Change total — ETA should reset.
-        bar.set_total(Some(200.0));
+        bar.set_total(Some(200.0), &mut ctx);
         assert_eq!(bar.total(), Some(200.0));
         // After reset, no speed data => no ETA.
         assert!(bar.eta_seconds().is_none());
@@ -883,9 +988,10 @@ mod tests {
     fn tiny_width_suffix_only_no_underfill() {
         // When bar_width=0 due to narrow total_width, suffix should still fill correctly.
         let mut bar = ProgressBar::new(Some(100.0));
-        bar.set_show_bar(true);
-        bar.set_show_percentage(true);
-        bar.set_show_eta(false);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        bar.set_show_bar(true, &mut ctx);
+        bar.set_show_percentage(true, &mut ctx);
+        bar.set_show_eta(false, &mut ctx);
 
         let console = Console::new();
         let mut opts = console.options().clone();

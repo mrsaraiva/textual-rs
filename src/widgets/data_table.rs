@@ -8,6 +8,7 @@ use crate::style::{Color, parse_color_like};
 use crate::node_id::NodeId;
 
 use crate::action::ParsedAction;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
     BindingDecl, ScrollView, Widget, WidgetStyles,
@@ -233,6 +234,8 @@ impl DataTable {
         self.cell_key_at(self.selected, self.cursor_column)
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn selected(&self) -> usize {
         self.selected
     }
@@ -245,41 +248,6 @@ impl DataTable {
         (self.selected, self.cursor_column)
     }
 
-    pub fn set_selected(&mut self, index: usize) {
-        if self.rows.is_empty() {
-            self.selected = 0;
-            self.offset = 0;
-            return;
-        }
-        self.selected = index.min(self.rows.len() - 1);
-        self.ensure_visible(self.visible_rows());
-    }
-
-    pub fn set_cursor(&mut self, row: usize, column: usize) {
-        self.set_selected(row);
-        if self.headers.is_empty() {
-            self.cursor_column = 0;
-        } else {
-            self.cursor_column = column.min(self.headers.len() - 1);
-        }
-        self.ensure_cursor_column_visible(self.content_width as usize);
-    }
-
-    pub fn set_cursor_type(&mut self, ct: CursorType) {
-        self.cursor_type = ct;
-    }
-
-    pub fn set_fixed_rows(&mut self, count: usize) {
-        self.fixed_rows = count;
-        self.ensure_visible(self.visible_rows());
-    }
-
-    pub fn set_fixed_columns(&mut self, count: usize) {
-        self.fixed_columns = count;
-        self.clamp_horizontal_offset();
-        self.ensure_cursor_column_visible(self.content_width as usize);
-    }
-
     pub fn fixed_rows(&self) -> usize {
         self.fixed_rows
     }
@@ -288,35 +256,172 @@ impl DataTable {
         self.fixed_columns
     }
 
-    pub fn cursor_type(mut self, ct: CursorType) -> Self {
-        self.cursor_type = ct;
-        self
-    }
-
-    // --- Config setters (QW-12) ---
-
     pub fn show_header(&self) -> bool {
         self.show_header
-    }
-
-    pub fn set_show_header(&mut self, show: bool) {
-        self.show_header = show;
     }
 
     pub fn show_row_labels(&self) -> bool {
         self.show_row_labels
     }
 
-    pub fn set_show_row_labels(&mut self, show: bool) {
-        self.show_row_labels = show;
-    }
-
     pub fn zebra_stripes(&self) -> bool {
         self.zebra_stripes
     }
 
-    pub fn set_zebra_stripes(&mut self, enabled: bool) {
-        self.zebra_stripes = enabled;
+    // Note: getter for `cursor_type` is not generated because
+    // it conflicts with the existing builder method of the same name.
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `selected`.
+    pub fn set_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) {
+        if self.rows.is_empty() {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        let new_selected = index.min(self.rows.len() - 1);
+        if self.selected != new_selected {
+            let old = self.selected;
+            self.selected = new_selected;
+            self.ensure_visible(self.visible_rows());
+            ctx.record_change(
+                "selected",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.selected),
+            );
+        }
+    }
+
+    /// Reactive setter for cursor position (row + column).
+    pub fn set_cursor(&mut self, row: usize, column: usize, ctx: &mut ReactiveCtx) {
+        self.set_selected(row, ctx);
+        if self.headers.is_empty() {
+            self.cursor_column = 0;
+        } else {
+            let new_col = column.min(self.headers.len() - 1);
+            if self.cursor_column != new_col {
+                let old = self.cursor_column;
+                self.cursor_column = new_col;
+                ctx.record_change(
+                    "cursor_column",
+                    ReactiveFlags::reactive(),
+                    Box::new(old),
+                    Box::new(self.cursor_column),
+                );
+            }
+        }
+        self.ensure_cursor_column_visible(self.content_width as usize);
+    }
+
+    /// Reactive setter for `cursor_type`.
+    pub fn set_cursor_type(&mut self, ct: CursorType, ctx: &mut ReactiveCtx) {
+        if self.cursor_type != ct {
+            let old = self.cursor_type;
+            self.cursor_type = ct;
+            ctx.record_change(
+                "cursor_type",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(ct),
+            );
+        }
+    }
+
+    /// Reactive setter for `fixed_rows`.
+    pub fn set_fixed_rows(&mut self, count: usize, ctx: &mut ReactiveCtx) {
+        if self.fixed_rows != count {
+            let old = self.fixed_rows;
+            self.fixed_rows = count;
+            self.ensure_visible(self.visible_rows());
+            ctx.record_change(
+                "fixed_rows",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(count),
+            );
+        }
+    }
+
+    /// Reactive setter for `fixed_columns`.
+    pub fn set_fixed_columns(&mut self, count: usize, ctx: &mut ReactiveCtx) {
+        if self.fixed_columns != count {
+            let old = self.fixed_columns;
+            self.fixed_columns = count;
+            self.clamp_horizontal_offset();
+            self.ensure_cursor_column_visible(self.content_width as usize);
+            ctx.record_change(
+                "fixed_columns",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(count),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_header`.
+    pub fn set_show_header(&mut self, show: bool, ctx: &mut ReactiveCtx) {
+        if self.show_header != show {
+            let old = self.show_header;
+            self.show_header = show;
+            ctx.record_change(
+                "show_header",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(show),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_row_labels`.
+    pub fn set_show_row_labels(&mut self, show: bool, ctx: &mut ReactiveCtx) {
+        if self.show_row_labels != show {
+            let old = self.show_row_labels;
+            self.show_row_labels = show;
+            ctx.record_change(
+                "show_row_labels",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(show),
+            );
+        }
+    }
+
+    /// Reactive setter for `zebra_stripes`.
+    pub fn set_zebra_stripes(&mut self, enabled: bool, ctx: &mut ReactiveCtx) {
+        if self.zebra_stripes != enabled {
+            let old = self.zebra_stripes;
+            self.zebra_stripes = enabled;
+            ctx.record_change(
+                "zebra_stripes",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(enabled),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_cursor_type(&mut self, _old: &CursorType, _new: &CursorType, _ctx: &mut ReactiveCtx) {
+        // Visual change only — repaint is handled by ReactiveFlags.
+    }
+
+    fn watch_show_header(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Visible row count changes — recompute scroll offsets.
+        self.ensure_visible(self.visible_rows());
+    }
+
+    fn watch_zebra_stripes(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Visual change only — repaint is handled by ReactiveFlags.
+    }
+
+    // ── Builder methods ─────────────────────────────────────────────────
+
+    pub fn cursor_type(mut self, ct: CursorType) -> Self {
+        self.cursor_type = ct;
+        self
     }
 
     // --- API methods (QW-10) ---
@@ -845,6 +950,40 @@ impl Default for DataTable {
         };
         out.recompute_column_widths();
         out
+    }
+}
+
+impl ReactiveWidget for DataTable {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "cursor_type" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<CursorType>(),
+                        change.new_value.downcast_ref::<CursorType>(),
+                    ) {
+                        self.watch_cursor_type(old, new, ctx);
+                    }
+                }
+                "show_header" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_show_header(old, new, ctx);
+                    }
+                }
+                "zebra_stripes" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_zebra_stripes(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -1717,6 +1856,7 @@ mod tests {
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1854,9 +1994,10 @@ mod tests {
             vec!["A".into()],
             (0..5).map(|n| vec![format!("row{n}")]).collect(),
         );
-        table.set_fixed_rows(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_rows(1, &mut rctx);
         table.content_height = 3; // header + 2 visible rows
-        table.set_selected(4);
+        table.set_selected(4, &mut rctx);
 
         // y=1 is fixed row 0, y=2 is the first scrolled row.
         assert_eq!(table.row_index_from_y(1, table.visible_rows()), Some(0));
@@ -1875,10 +2016,11 @@ mod tests {
             vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
             vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
         );
-        table.set_fixed_columns(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_columns(1, &mut rctx);
         table.set_focus(true);
         table.on_layout(12, 3);
-        table.set_cursor(0, 3);
+        table.set_cursor(0, 3, &mut rctx);
 
         let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &table, None);
         let header = &buf.as_plain_lines()[0];
@@ -1893,9 +2035,10 @@ mod tests {
             vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
             vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
         );
-        table.set_fixed_columns(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_columns(1, &mut rctx);
         table.on_layout(12, 3);
-        table.set_cursor(0, 3);
+        table.set_cursor(0, 3, &mut rctx);
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -1923,9 +2066,10 @@ mod tests {
             vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
             vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
         );
-        table.set_fixed_columns(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_columns(1, &mut rctx);
         table.on_layout(12, 3);
-        table.set_cursor(0, 3);
+        table.set_cursor(0, 3, &mut rctx);
         assert!(table.horizontal_offset > 0);
 
         let mut ctx = EventCtx::default();
@@ -1950,9 +2094,10 @@ mod tests {
             vec!["WIDE_FIXED".into(), "C1".into(), "C2".into(), "C3".into()],
             vec![vec!["row".into(), "1".into(), "2".into(), "3".into()]],
         );
-        table.set_fixed_columns(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_columns(1, &mut rctx);
         table.on_layout(4, 3);
-        table.set_cursor(0, 3);
+        table.set_cursor(0, 3, &mut rctx);
 
         assert_eq!(table.horizontal_offset, 0);
     }
@@ -1967,7 +2112,8 @@ mod tests {
         );
         table.set_focus(true);
         table.content_height = 4;
-        table.set_cursor(3, 2);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_cursor(3, 2, &mut rctx);
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -2013,10 +2159,11 @@ mod tests {
             vec!["C0".into(), "C1".into(), "C2".into(), "C3".into()],
             vec![vec!["r0".into(), "r1".into(), "r2".into(), "r3".into()]],
         );
-        table.set_fixed_columns(1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_fixed_columns(1, &mut rctx);
         table.set_focus(true);
         table.on_layout(12, 3);
-        table.set_cursor(0, 3);
+        table.set_cursor(0, 3, &mut rctx);
         let offset_at_end = table.horizontal_offset;
         assert!(offset_at_end > 0);
 
@@ -2101,7 +2248,8 @@ mod tests {
             ],
         );
         table.set_focus(true);
-        table.set_cursor(1, 1);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_cursor(1, 1, &mut rctx);
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -2186,7 +2334,8 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.set_focus(true);
-        table.set_cursor_type(CursorType::Row);
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_cursor_type(CursorType::Row, &mut rctx);
         table.on_layout(12, 4);
         assert_eq!(table.horizontal_offset, 0);
 

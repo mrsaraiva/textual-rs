@@ -15,6 +15,7 @@ use crate::{Error, Result};
 use crate::node_id::NodeId;
 
 use crate::action::ParsedAction;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
     BindingDecl, Widget, WidgetStyles,
@@ -289,9 +290,19 @@ impl TextArea {
         self.read_only
     }
 
-    pub fn set_read_only(&mut self, read_only: bool) {
-        self.read_only = read_only;
-        self.rebuild_classes();
+    /// Reactive setter for `read_only`. Records the change in the provided
+    /// [`ReactiveCtx`] if the value actually changed.
+    pub fn set_read_only(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.read_only != value {
+            let old = self.read_only;
+            self.read_only = value;
+            ctx.record_change(
+                "read_only",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     pub fn with_show_line_numbers(mut self, show: bool) -> Self {
@@ -303,8 +314,18 @@ impl TextArea {
         self.show_line_numbers
     }
 
-    pub fn set_show_line_numbers(&mut self, show: bool) {
-        self.show_line_numbers = show;
+    /// Reactive setter for `show_line_numbers`.
+    pub fn set_show_line_numbers(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.show_line_numbers != value {
+            let old = self.show_line_numbers;
+            self.show_line_numbers = value;
+            ctx.record_change(
+                "show_line_numbers",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     pub fn with_indent_width(mut self, width: usize) -> Self {
@@ -316,8 +337,18 @@ impl TextArea {
         self.indent_width
     }
 
-    pub fn set_indent_width(&mut self, width: usize) {
-        self.indent_width = width;
+    /// Reactive setter for `indent_width`.
+    pub fn set_indent_width(&mut self, value: usize, ctx: &mut ReactiveCtx) {
+        if self.indent_width != value {
+            let old = self.indent_width;
+            self.indent_width = value;
+            ctx.record_change(
+                "indent_width",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     pub fn with_soft_wrap(mut self, wrap: bool) -> Self {
@@ -329,8 +360,18 @@ impl TextArea {
         self.soft_wrap
     }
 
-    pub fn set_soft_wrap(&mut self, wrap: bool) {
-        self.soft_wrap = wrap;
+    /// Reactive setter for `soft_wrap`. Triggers layout invalidation.
+    pub fn set_soft_wrap(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.soft_wrap != value {
+            let old = self.soft_wrap;
+            self.soft_wrap = value;
+            ctx.record_change(
+                "soft_wrap",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     pub fn with_placeholder(mut self, text: impl Into<String>) -> Self {
@@ -342,12 +383,27 @@ impl TextArea {
         &self.placeholder
     }
 
-    pub fn set_placeholder(&mut self, text: impl Into<String>) {
-        self.placeholder = text.into();
+    /// Reactive setter for `placeholder`.
+    pub fn set_placeholder(&mut self, value: impl Into<String>, ctx: &mut ReactiveCtx) {
+        let value = value.into();
+        if self.placeholder != value {
+            let old = self.placeholder.clone();
+            self.placeholder = value;
+            let new = self.placeholder.clone();
+            ctx.record_change(
+                "placeholder",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
     }
 
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
-        self.set_language(language);
+        self.language = Some(language.into());
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = u64::MAX;
+        }
         self
     }
 
@@ -355,10 +411,19 @@ impl TextArea {
         self.language.as_deref()
     }
 
-    pub fn set_language(&mut self, language: impl Into<String>) {
-        self.language = Some(language.into());
-        if let Ok(mut cache) = self.syntax_cache.lock() {
-            cache.revision = u64::MAX;
+    /// Reactive setter for `language`. Triggers re-highlighting via watcher.
+    pub fn set_language(&mut self, value: impl Into<String>, ctx: &mut ReactiveCtx) {
+        let value = Some(value.into());
+        if self.language != value {
+            let old = self.language.clone();
+            self.language = value;
+            let new = self.language.clone();
+            ctx.record_change(
+                "language",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
         }
     }
 
@@ -366,18 +431,22 @@ impl TextArea {
         self.cursor_blink_enabled
     }
 
-    pub fn set_cursor_blink(&mut self, enabled: bool) {
-        self.cursor_blink_enabled = enabled;
-        if self.focused && self.app_active {
-            self.reset_blink();
-        } else {
-            self.cursor_visible = false;
-            self.cursor_blink_next_at = None;
+    /// Reactive setter for `cursor_blink_enabled`.
+    pub fn set_cursor_blink(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.cursor_blink_enabled != value {
+            let old = self.cursor_blink_enabled;
+            self.cursor_blink_enabled = value;
+            ctx.record_change(
+                "cursor_blink_enabled",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
         }
     }
 
     pub fn with_cursor_blink(mut self, enabled: bool) -> Self {
-        self.set_cursor_blink(enabled);
+        self.cursor_blink_enabled = enabled;
         self
     }
 
@@ -411,15 +480,27 @@ impl TextArea {
         self.theme.as_deref()
     }
 
-    pub fn set_theme(&mut self, name: impl Into<String>) {
-        self.theme = Some(name.into());
-        if let Ok(mut cache) = self.syntax_cache.lock() {
-            cache.revision = u64::MAX;
+    /// Reactive setter for `theme`. Triggers theme reload via watcher.
+    pub fn set_theme(&mut self, value: impl Into<String>, ctx: &mut ReactiveCtx) {
+        let value = Some(value.into());
+        if self.theme != value {
+            let old = self.theme.clone();
+            self.theme = value;
+            let new = self.theme.clone();
+            ctx.record_change(
+                "theme",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
         }
     }
 
     pub fn with_theme(mut self, name: impl Into<String>) -> Self {
-        self.set_theme(name);
+        self.theme = Some(name.into());
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = u64::MAX;
+        }
         self
     }
 
@@ -1107,6 +1188,97 @@ impl TextArea {
             }
         }
         true
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_read_only(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes();
+    }
+
+    fn watch_soft_wrap(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Layout invalidation is handled by ReactiveFlags::reactive_layout().
+    }
+
+    fn watch_language(
+        &mut self,
+        _old: &Option<String>,
+        _new: &Option<String>,
+        _ctx: &mut ReactiveCtx,
+    ) {
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = u64::MAX;
+        }
+    }
+
+    fn watch_cursor_blink(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        if self.focused && self.app_active {
+            self.reset_blink();
+        } else {
+            self.cursor_visible = false;
+            self.cursor_blink_next_at = None;
+        }
+    }
+
+    fn watch_theme(
+        &mut self,
+        _old: &Option<String>,
+        _new: &Option<String>,
+        _ctx: &mut ReactiveCtx,
+    ) {
+        if let Ok(mut cache) = self.syntax_cache.lock() {
+            cache.revision = u64::MAX;
+        }
+    }
+}
+
+impl ReactiveWidget for TextArea {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "read_only" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_read_only(old, new, ctx);
+                    }
+                }
+                "soft_wrap" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_soft_wrap(old, new, ctx);
+                    }
+                }
+                "language" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<Option<String>>(),
+                        change.new_value.downcast_ref::<Option<String>>(),
+                    ) {
+                        self.watch_language(old, new, ctx);
+                    }
+                }
+                "cursor_blink_enabled" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_cursor_blink(old, new, ctx);
+                    }
+                }
+                "theme" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<Option<String>>(),
+                        change.new_value.downcast_ref::<Option<String>>(),
+                    ) {
+                        self.watch_theme(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

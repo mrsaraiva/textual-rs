@@ -7,6 +7,7 @@ use crate::message::*;
 use crate::node_id::NodeId;
 
 use crate::action::ParsedAction;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
     BindingDecl, ScrollView, Widget, WidgetStyles,
@@ -118,48 +119,97 @@ impl Tree {
         }
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn selected(&self) -> usize {
         self.selected
     }
 
-    pub fn set_selected(&mut self, index: usize) {
-        let total = self.visible_count();
-        if total == 0 {
-            self.selected = 0;
-            self.offset = 0;
-            return;
-        }
-        self.selected = index.min(total - 1);
-        self.ensure_visible();
-    }
-
-    // ── Config getters/setters (QW-20) ───────────────────────────────────
-
     pub fn showing_root(&self) -> bool {
         self.show_root
-    }
-
-    pub fn set_show_root(&mut self, value: bool) {
-        if self.show_root != value {
-            self.show_root = value;
-            self.clamp_offsets();
-        }
     }
 
     pub fn showing_guides(&self) -> bool {
         self.show_guides
     }
 
-    pub fn set_show_guides(&mut self, value: bool) {
-        self.show_guides = value;
-    }
-
     pub fn guide_depth(&self) -> usize {
         self.guide_depth
     }
 
-    pub fn set_guide_depth(&mut self, value: usize) {
-        self.guide_depth = value.clamp(2, 10);
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `selected`.
+    pub fn set_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) {
+        let total = self.visible_count();
+        if total == 0 {
+            self.selected = 0;
+            self.offset = 0;
+            return;
+        }
+        let new_selected = index.min(total - 1);
+        if self.selected != new_selected {
+            let old = self.selected;
+            self.selected = new_selected;
+            self.ensure_visible();
+            ctx.record_change(
+                "selected",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.selected),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_root`.
+    pub fn set_show_root(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.show_root != value {
+            let old = self.show_root;
+            self.show_root = value;
+            self.clamp_offsets();
+            ctx.record_change(
+                "show_root",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_guides`.
+    pub fn set_show_guides(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.show_guides != value {
+            let old = self.show_guides;
+            self.show_guides = value;
+            ctx.record_change(
+                "show_guides",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `guide_depth`.
+    pub fn set_guide_depth(&mut self, value: usize, ctx: &mut ReactiveCtx) {
+        let clamped = value.clamp(2, 10);
+        if self.guide_depth != clamped {
+            let old = self.guide_depth;
+            self.guide_depth = clamped;
+            ctx.record_change(
+                "guide_depth",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(clamped),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_show_root(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Offset clamping is done in the setter; layout flag triggers re-layout.
+        self.clamp_offsets();
     }
 
     // ── API methods (QW-19) ──────────────────────────────────────────────
@@ -181,7 +231,15 @@ impl Tree {
                 self.offset = 0;
             }
             Some(index) => {
-                self.set_selected(index);
+                // Direct field assignment (not using reactive setter).
+                let total = self.visible_count();
+                if total == 0 {
+                    self.selected = 0;
+                    self.offset = 0;
+                } else {
+                    self.selected = index.min(total - 1);
+                    self.ensure_visible();
+                }
             }
         }
     }
@@ -763,6 +821,24 @@ impl Tree {
         let guide = Self::guide_prefix(node, show_guides, guide_depth);
         let prefix = format!("  {}{}", guide, Self::twisty(node));
         rich_rs::cell_len(&prefix).saturating_sub(1)
+    }
+}
+
+impl ReactiveWidget for Tree {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "show_root" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_show_root(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

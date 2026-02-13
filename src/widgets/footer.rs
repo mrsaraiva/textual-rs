@@ -6,6 +6,7 @@ use crate::message::*;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FooterBinding {
@@ -77,6 +78,36 @@ impl Footer {
     pub fn compact(mut self, compact: bool) -> Self {
         self.compact = compact;
         self
+    }
+
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for `compact`.
+    pub fn is_compact(&self) -> bool {
+        self.compact
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `compact`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers layout invalidation.
+    pub fn set_compact(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.compact != value {
+            let old = self.compact;
+            self.compact = value;
+            ctx.record_change(
+                "compact",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_compact(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Layout invalidation is handled by ReactiveFlags::reactive_layout().
     }
 
     fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
@@ -459,6 +490,24 @@ impl Widget for Footer {
 impl Renderable for Footer {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+impl ReactiveWidget for Footer {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "compact" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_compact(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

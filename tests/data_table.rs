@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::prelude::*;
+use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
 
 #[test]
@@ -18,7 +19,8 @@ fn data_table_renders_header_and_rows() {
         ],
     );
     table.set_focus(true);
-    table.set_selected(1);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    table.set_selected(1, &mut rctx);
 
     let buf = FrameBuffer::from_renderable(&console, &options, &table, None);
     insta::assert_snapshot!(buf.debug_dump());
@@ -37,13 +39,14 @@ fn data_table_keeps_selected_row_visible_after_large_jumps() {
         .collect::<Vec<_>>();
     let mut table = DataTable::new(vec!["Name".into(), "Value".into()], rows);
     table.set_focus(true);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
 
-    table.set_selected(19);
+    table.set_selected(19, &mut rctx);
     let tail = FrameBuffer::from_renderable(&console, &options, &table, None);
     let tail_lines = tail.as_plain_lines();
     assert!(tail_lines.iter().any(|line| line.contains("Row 19")));
 
-    table.set_selected(0);
+    table.set_selected(0, &mut rctx);
     let head = FrameBuffer::from_renderable(&console, &options, &table, None);
     let head_lines = head.as_plain_lines();
     assert!(head_lines.iter().any(|line| line.contains("Row 0")));
@@ -61,9 +64,10 @@ fn data_table_fixed_rows_remain_visible_with_scrolled_selection() {
         .map(|idx| vec![format!("Row {idx}"), idx.to_string()])
         .collect::<Vec<_>>();
     let mut table = DataTable::new(vec!["Name".into(), "Value".into()], rows);
-    table.set_fixed_rows(1);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    table.set_fixed_rows(1, &mut rctx);
     table.set_focus(true);
-    table.set_selected(7);
+    table.set_selected(7, &mut rctx);
 
     let buf = FrameBuffer::from_renderable(&console, &options, &table, None);
     let lines = buf.as_plain_lines();
@@ -98,7 +102,8 @@ fn data_table_row_cursor_actions_can_scroll_horizontal_viewport() {
         vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
     );
     table.set_focus(true);
-    table.set_cursor_type(CursorType::Row);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    table.set_cursor_type(CursorType::Row, &mut rctx);
     table.on_layout(12, 4);
 
     let mut ctx = EventCtx::default();

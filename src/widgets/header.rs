@@ -11,6 +11,7 @@ use crate::node_id::NodeId;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
+use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 #[derive(Debug, Clone)]
 pub struct Header {
@@ -76,22 +77,98 @@ impl Header {
         self
     }
 
-    /// Update the displayed title at runtime (e.g. from a screen title).
-    ///
-    /// Pass `None` to revert to the default (app-level) title.
-    pub fn set_title(&mut self, title: Option<&str>) {
-        self.title = title
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| self.default_title.clone());
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for `title`.
+    pub fn get_title(&self) -> &str {
+        &self.title
     }
 
-    /// Update the displayed subtitle at runtime (e.g. from a screen sub-title).
+    /// Reactive getter for `subtitle`.
+    pub fn get_subtitle(&self) -> Option<&str> {
+        self.subtitle.as_deref()
+    }
+
+    /// Reactive getter for `show_clock`.
+    pub fn get_show_clock(&self) -> bool {
+        self.show_clock
+    }
+
+    /// Reactive getter for `tall`.
+    pub fn get_tall(&self) -> bool {
+        self.tall
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `title`. Updates the displayed title at runtime.
+    ///
+    /// Pass `None` to revert to the default (app-level) title.
+    pub fn set_title(&mut self, title: Option<&str>, ctx: &mut ReactiveCtx) {
+        let new_title = title
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.default_title.clone());
+        if self.title != new_title {
+            let old = self.title.clone();
+            self.title = new_title;
+            let new = self.title.clone();
+            ctx.record_change(
+                "title",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    /// Reactive setter for `subtitle`. Updates the displayed subtitle at runtime.
     ///
     /// Pass `None` to revert to the default (app-level) subtitle.
-    pub fn set_subtitle(&mut self, subtitle: Option<&str>) {
-        self.subtitle = subtitle
+    pub fn set_subtitle(&mut self, subtitle: Option<&str>, ctx: &mut ReactiveCtx) {
+        let new_subtitle = subtitle
             .map(|s| Some(s.to_string()))
             .unwrap_or_else(|| self.default_subtitle.clone());
+        if self.subtitle != new_subtitle {
+            let old = self.subtitle.clone();
+            self.subtitle = new_subtitle;
+            let new = self.subtitle.clone();
+            ctx.record_change(
+                "subtitle",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    /// Reactive setter for `show_clock`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_show_clock(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.show_clock != value {
+            let old = self.show_clock;
+            self.show_clock = value;
+            ctx.record_change(
+                "show_clock",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `tall`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_tall(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.tall != value {
+            let old = self.tall;
+            self.tall = value;
+            ctx.record_change(
+                "tall",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     pub fn tall(mut self, tall: bool) -> Self {
@@ -243,8 +320,15 @@ impl Widget for Header {
             ref sub_title,
         }) = message.message
         {
-            self.set_title(title.as_deref());
-            self.set_subtitle(sub_title.as_deref());
+            // Direct field assignment (internal call site — not reactive setter).
+            self.title = title
+                .as_deref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.default_title.clone());
+            self.subtitle = sub_title
+                .as_deref()
+                .map(|s| Some(s.to_string()))
+                .unwrap_or_else(|| self.default_subtitle.clone());
             ctx.request_repaint();
         }
     }
@@ -376,11 +460,20 @@ impl Renderable for Header {
     }
 }
 
+impl ReactiveWidget for Header {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::event::{MouseDownEvent, MouseUpEvent};
     use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn header_body_click_toggles_tall_and_emits_message() {
@@ -519,10 +612,11 @@ mod tests {
     #[test]
     fn set_title_overrides_display() {
         let mut header = Header::new().title("My App");
+        let mut ctx = ReactiveCtx::new(make_node_id());
         assert_eq!(header.title, "My App");
         assert_eq!(header.default_title, "My App");
 
-        header.set_title(Some("Settings"));
+        header.set_title(Some("Settings"), &mut ctx);
         assert_eq!(header.title, "Settings");
         assert_eq!(header.default_title, "My App"); // default unchanged
     }
@@ -530,19 +624,21 @@ mod tests {
     #[test]
     fn set_title_none_reverts_to_default() {
         let mut header = Header::new().title("My App");
-        header.set_title(Some("Settings"));
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        header.set_title(Some("Settings"), &mut ctx);
         assert_eq!(header.title, "Settings");
 
-        header.set_title(None);
+        header.set_title(None, &mut ctx);
         assert_eq!(header.title, "My App");
     }
 
     #[test]
     fn set_subtitle_overrides_display() {
         let mut header = Header::new().subtitle("v1");
+        let mut ctx = ReactiveCtx::new(make_node_id());
         assert_eq!(header.subtitle, Some("v1".to_string()));
 
-        header.set_subtitle(Some("v2"));
+        header.set_subtitle(Some("v2"), &mut ctx);
         assert_eq!(header.subtitle, Some("v2".to_string()));
         assert_eq!(header.default_subtitle, Some("v1".to_string()));
     }
@@ -550,8 +646,9 @@ mod tests {
     #[test]
     fn set_subtitle_none_reverts_to_default() {
         let mut header = Header::new().subtitle("v1");
-        header.set_subtitle(Some("v2"));
-        header.set_subtitle(None);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        header.set_subtitle(Some("v2"), &mut ctx);
+        header.set_subtitle(None, &mut ctx);
         assert_eq!(header.subtitle, Some("v1".to_string()));
     }
 

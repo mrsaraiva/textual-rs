@@ -19,7 +19,7 @@ impl TextAreaCustomLanguageApp {
     fn new() -> Result<Self> {
         let mut text_area = TextArea::code_editor(JAVA_CODE).with_cursor_blink(false);
         text_area.register_language("java", tree_sitter_java::LANGUAGE.into(), JAVA_HIGHLIGHTS)?;
-        text_area.set_language("java");
+        let text_area = text_area.with_language("java");
         Ok(Self {
             text_area: Some(text_area),
         })

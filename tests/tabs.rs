@@ -2,6 +2,7 @@ use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
+use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
 use textual::style::parse_color_like;
 
@@ -134,8 +135,9 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
         .with_tab("Two", Label::new("second"))
         .with_tab("Three", Label::new("third"))
         .with_tab("Four", Label::new("fourth"));
-    assert!(tabs.disable_tab("Two"));
-    assert!(tabs.hide_tab("Three"));
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    assert!(tabs.disable_tab("Two", &mut rctx));
+    assert!(tabs.hide_tab("Three", &mut rctx));
     tabs.set_focus(true);
 
     let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
@@ -158,7 +160,8 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
     let mut tabs = Tabs::new()
         .with_tab("One", Label::new("first"))
         .with_tab("Two", Label::new("second"));
-    assert!(tabs.disable_tab("Two"));
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    assert!(tabs.disable_tab("Two", &mut rctx));
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
@@ -182,11 +185,12 @@ fn tabs_hiding_active_tab_promotes_next_available() {
         .with_tab("One", Label::new("first"))
         .with_tab("Two", Label::new("second"))
         .with_tab("Three", Label::new("third"));
-    tabs.set_active("Two");
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    tabs.set_active("Two", &mut rctx);
     assert_eq!(tabs.active(), Some("Two"));
 
-    assert!(tabs.hide_tab("Two"));
+    assert!(tabs.hide_tab("Two", &mut rctx));
     assert_eq!(tabs.active(), Some("Three"));
-    assert!(tabs.hide_tab("Three"));
+    assert!(tabs.hide_tab("Three", &mut rctx));
     assert_eq!(tabs.active(), Some("One"));
 }

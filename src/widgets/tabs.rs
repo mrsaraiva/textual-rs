@@ -10,6 +10,7 @@ use crate::message::*;
 use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use crate::action::ParsedAction;
 
@@ -145,6 +146,8 @@ impl Tabs {
         }
     }
 
+    // ── Reactive getters ──────────────────────────────────────────────
+
     /// The string ID of the currently active tab, or `None` if no tab is active.
     pub fn active(&self) -> Option<&str> {
         self.active.as_deref()
@@ -154,43 +157,6 @@ impl Tabs {
     pub fn active_index(&self) -> Option<usize> {
         let id = self.active.as_ref()?;
         self.index_for_id(id)
-    }
-
-    /// Activate a tab by its string ID.
-    pub fn set_active(&mut self, id: &str) {
-        if let Some(index) = self.index_for_id(id) {
-            let _ = self.activate(index, None);
-        }
-    }
-
-    pub fn set_tab_disabled(&mut self, id: &str, disabled: bool) -> bool {
-        let Some(index) = self.index_for_id(id) else {
-            return false;
-        };
-        self.set_tab_disabled_index(index, disabled)
-    }
-
-    pub fn disable_tab(&mut self, id: &str) -> bool {
-        self.set_tab_disabled(id, true)
-    }
-
-    pub fn enable_tab(&mut self, id: &str) -> bool {
-        self.set_tab_disabled(id, false)
-    }
-
-    pub fn set_tab_hidden(&mut self, id: &str, hidden: bool) -> bool {
-        let Some(index) = self.index_for_id(id) else {
-            return false;
-        };
-        self.set_tab_hidden_index(index, hidden)
-    }
-
-    pub fn hide_tab(&mut self, id: &str) -> bool {
-        self.set_tab_hidden(id, true)
-    }
-
-    pub fn show_tab(&mut self, id: &str) -> bool {
-        self.set_tab_hidden(id, false)
     }
 
     pub fn is_tab_disabled(&self, id: &str) -> bool {
@@ -208,6 +174,59 @@ impl Tabs {
             .map(|tab| tab.hidden)
             .unwrap_or(false)
     }
+
+    // ── Reactive setters ──────────────────────────────────────────────
+
+    /// Activate a tab by its string ID.
+    pub fn set_active(&mut self, id: &str, ctx: &mut ReactiveCtx) {
+        if self.active.as_deref() == Some(id) {
+            return;
+        }
+        let old = self.active.clone();
+        if let Some(index) = self.index_for_id(id) {
+            // activate() sets self.active and handles focus/underline side effects.
+            let _ = self.activate(index, None);
+            ctx.record_change(
+                "active",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.active.clone()),
+            );
+        }
+    }
+
+    pub fn set_tab_disabled(&mut self, id: &str, disabled: bool, ctx: &mut ReactiveCtx) -> bool {
+        let Some(index) = self.index_for_id(id) else {
+            return false;
+        };
+        self.set_tab_disabled_index(index, disabled, ctx)
+    }
+
+    pub fn disable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_disabled(id, true, ctx)
+    }
+
+    pub fn enable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_disabled(id, false, ctx)
+    }
+
+    pub fn set_tab_hidden(&mut self, id: &str, hidden: bool, ctx: &mut ReactiveCtx) -> bool {
+        let Some(index) = self.index_for_id(id) else {
+            return false;
+        };
+        self.set_tab_hidden_index(index, hidden, ctx)
+    }
+
+    pub fn hide_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_hidden(id, true, ctx)
+    }
+
+    pub fn show_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_hidden(id, false, ctx)
+    }
+
+    // ── Watchers ──────────────────────────────────────────────────────
+    // `active` is watched: side effects are handled directly in set_active via activate().
 
     /// Remove a tab by its string ID. Returns `true` if found and removed.
     pub fn remove_tab(&mut self, id: &str) -> bool {
@@ -270,7 +289,12 @@ impl Tabs {
         self.tabs.iter().position(|tab| tab.tab_id == id)
     }
 
-    fn set_tab_disabled_index(&mut self, index: usize, disabled: bool) -> bool {
+    fn set_tab_disabled_index(
+        &mut self,
+        index: usize,
+        disabled: bool,
+        ctx: &mut ReactiveCtx,
+    ) -> bool {
         let Some(tab) = self.tabs.get_mut(index) else {
             return false;
         };
@@ -278,7 +302,14 @@ impl Tabs {
             return true;
         }
         let tab_id = tab.tab_id.clone();
+        let old = tab.disabled;
         tab.disabled = disabled;
+        ctx.record_change(
+            "tab_disabled",
+            ReactiveFlags::reactive(),
+            Box::new(old),
+            Box::new(disabled),
+        );
         if disabled {
             self.pending_messages
                 .push(Message::TabDisabled(TabDisabled { id: tab_id }));
@@ -293,7 +324,12 @@ impl Tabs {
         true
     }
 
-    fn set_tab_hidden_index(&mut self, index: usize, hidden: bool) -> bool {
+    fn set_tab_hidden_index(
+        &mut self,
+        index: usize,
+        hidden: bool,
+        ctx: &mut ReactiveCtx,
+    ) -> bool {
         if index >= self.tabs.len() {
             return false;
         }
@@ -309,6 +345,12 @@ impl Tabs {
             None
         };
         self.tabs[index].hidden = hidden;
+        ctx.record_change(
+            "tab_hidden",
+            ReactiveFlags::reactive_layout(),
+            Box::new(was_hidden),
+            Box::new(hidden),
+        );
         if hidden {
             self.pending_messages
                 .push(Message::TabHidden(TabHidden { id: tab_id }));
@@ -1046,6 +1088,19 @@ impl Renderable for Tabs {
     }
 }
 
+impl ReactiveWidget for Tabs {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "active" => {
+                    // Side effects handled directly in set_active via activate().
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1211,8 +1266,9 @@ mod tests {
             .with_tab("One", Label::new("first"))
             .with_tab("Two", Label::new("second"))
             .with_tab("Three", Label::new("third"));
-        assert!(tabs.disable_tab("Two"));
-        assert!(tabs.hide_tab("Three"));
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        assert!(tabs.disable_tab("Two", &mut rctx));
+        assert!(tabs.hide_tab("Three", &mut rctx));
 
         assert!(tabs.binding_hints().is_empty());
     }
@@ -1255,7 +1311,8 @@ mod tests {
         let mut tabs = Tabs::new()
             .with_tab("One", Label::new("first"))
             .with_tab("Two", Label::new("second"));
-        tabs.set_active("Two");
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        tabs.set_active("Two", &mut rctx);
         assert_eq!(tabs.active(), Some("Two"));
         assert_eq!(tabs.active_index(), Some(1));
     }

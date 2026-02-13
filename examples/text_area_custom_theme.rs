@@ -34,7 +34,7 @@ impl TextualApp for TextAreaCustomThemeApp {
         );
 
         text_area.register_theme(theme);
-        text_area.set_theme("my_cool_theme");
+        let text_area = text_area.with_theme("my_cool_theme");
         AppRoot::new().with_child(text_area)
     }
 }

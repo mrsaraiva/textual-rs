@@ -13,6 +13,7 @@ use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_
 use crate::node_id::NodeId;
 
 use super::{ScrollView, Widget, WidgetStyles};
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Simple LRU cache for rendered line segments.
 #[derive(Debug)]
@@ -204,6 +205,125 @@ impl RichLog {
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.scroll_step = step.max(1);
         self
+    }
+
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for `wrap`.
+    pub fn get_wrap(&self) -> bool {
+        self.wrap
+    }
+
+    /// Reactive getter for `highlight`.
+    pub fn get_highlight(&self) -> bool {
+        self.highlight
+    }
+
+    /// Reactive getter for `markup`.
+    pub fn get_markup(&self) -> bool {
+        self.markup
+    }
+
+    /// Reactive getter for `max_lines`.
+    pub fn get_max_lines(&self) -> Option<usize> {
+        self.max_lines
+    }
+
+    /// Reactive getter for `auto_scroll`.
+    pub fn get_auto_scroll(&self) -> bool {
+        self.auto_scroll
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `wrap`. Records the change and triggers
+    /// watcher dispatch to clear cache.
+    pub fn set_wrap(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.wrap != value {
+            let old = self.wrap;
+            self.wrap = value;
+            ctx.record_change(
+                "wrap",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `highlight`. Records the change and triggers
+    /// watcher dispatch to clear cache.
+    pub fn set_highlight(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.highlight != value {
+            let old = self.highlight;
+            self.highlight = value;
+            ctx.record_change(
+                "highlight",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `markup`. Records the change and triggers
+    /// watcher dispatch to clear cache.
+    pub fn set_markup(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.markup != value {
+            let old = self.markup;
+            self.markup = value;
+            ctx.record_change(
+                "markup",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `max_lines`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_max_lines(&mut self, value: Option<usize>, ctx: &mut ReactiveCtx) {
+        let value = value.map(|v| v.max(1));
+        if self.max_lines != value {
+            let old = self.max_lines;
+            self.max_lines = value;
+            ctx.record_change(
+                "max_lines",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `auto_scroll`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_auto_scroll(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.auto_scroll != value {
+            let old = self.auto_scroll;
+            self.auto_scroll = value;
+            ctx.record_change(
+                "auto_scroll",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_wrap(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.cache.lock().unwrap().clear();
+    }
+
+    fn watch_highlight(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.cache.lock().unwrap().clear();
+    }
+
+    fn watch_markup(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.cache.lock().unwrap().clear();
     }
 
     pub fn write(&mut self, content: impl Into<String>) -> &mut Self {
@@ -772,6 +892,40 @@ impl Widget for RichLog {
 impl Renderable for RichLog {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+impl ReactiveWidget for RichLog {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "wrap" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_wrap(old, new, ctx);
+                    }
+                }
+                "highlight" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_highlight(old, new, ctx);
+                    }
+                }
+                "markup" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_markup(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 

@@ -14,6 +14,7 @@ use super::{
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
 };
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 pub struct Collapsible {
     title: String,
@@ -70,12 +71,33 @@ impl Collapsible {
         self.children.push(Box::new(child));
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn is_collapsed(&self) -> bool {
         self.collapsed
     }
 
-    pub fn set_collapsed(&mut self, collapsed: bool) {
-        self.collapsed = collapsed;
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `collapsed`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers layout invalidation.
+    pub fn set_collapsed(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.collapsed != value {
+            let old = self.collapsed;
+            self.collapsed = value;
+            ctx.record_change(
+                "collapsed",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_collapsed(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Layout invalidation is handled by ReactiveFlags::reactive_layout().
     }
 
     pub fn toggle(&mut self) {
@@ -377,5 +399,23 @@ impl Widget for Collapsible {
 impl Renderable for Collapsible {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+impl ReactiveWidget for Collapsible {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "collapsed" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_collapsed(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }

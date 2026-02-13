@@ -13,6 +13,7 @@ use super::option_list::{OptionItem, OptionList};
 use crate::action::ParsedAction;
 
 use super::{BindingDecl, Widget, WidgetStyles};
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
 const SEARCH_RESET_TICKS: u64 = 30;
@@ -100,15 +101,34 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             .and_then(|i| self.options.get(i).map(|(_, v)| v))
     }
 
-    /// Programmatically set the value. If the value is not found, selection is cleared.
-    pub fn set_value(&mut self, value: &T) {
+    /// Reactive setter for the selected value. If the value is not found,
+    /// selection is cleared. Records the change in the provided [`ReactiveCtx`].
+    pub fn set_value(&mut self, value: &T, ctx: &mut ReactiveCtx) {
         let selected = self.options.iter().position(|(_, v)| v == value);
-        self.cursor.set_selected(selected);
-        self.cursor.set_highlighted(selected);
-        if let Some(index) = selected {
-            self.list.set_highlighted(index);
+        let old = self.cursor.selected();
+        if old != selected {
+            self.cursor.set_selected(selected);
+            self.cursor.set_highlighted(selected);
+            if let Some(index) = selected {
+                self.list.set_highlighted(index);
+            } else {
+                self.list.clear_highlighted();
+            }
+            ctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(selected),
+            );
         } else {
-            self.list.clear_highlighted();
+            // Even if index matches, still sync UI state.
+            self.cursor.set_selected(selected);
+            self.cursor.set_highlighted(selected);
+            if let Some(index) = selected {
+                self.list.set_highlighted(index);
+            } else {
+                self.list.clear_highlighted();
+            }
         }
     }
 
@@ -133,16 +153,42 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.allow_blank
     }
 
-    /// Set whether blank (no selection) is allowed.
+    /// Reactive setter for `allow_blank`. Records the change in the provided
+    /// [`ReactiveCtx`].
     ///
     /// When switching from `allow_blank=true` to `false` and no option is
     /// currently selected, the first option is auto-selected.
-    pub fn set_allow_blank(&mut self, allow: bool) {
-        self.allow_blank = allow;
-        if !allow && self.cursor.selected().is_none() && !self.options.is_empty() {
-            self.cursor.set_selected(Some(0));
-            self.cursor.set_highlighted(Some(0));
-            self.list.set_highlighted(0);
+    pub fn set_allow_blank(&mut self, allow: bool, ctx: &mut ReactiveCtx) {
+        if self.allow_blank != allow {
+            let old = self.allow_blank;
+            self.allow_blank = allow;
+            // Auto-select first option when switching to false (also done via watcher).
+            if !allow && self.cursor.selected().is_none() && !self.options.is_empty() {
+                self.cursor.set_selected(Some(0));
+                self.cursor.set_highlighted(Some(0));
+                self.list.set_highlighted(0);
+            }
+            ctx.record_change(
+                "allow_blank",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(allow),
+            );
+        }
+    }
+
+    /// Reactive setter for `disabled`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_disabled(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.disabled != value {
+            let old = self.disabled;
+            self.disabled = value;
+            ctx.record_change(
+                "disabled",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
         }
     }
 
@@ -179,19 +225,39 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self
     }
 
-    /// Replace all options. Clears the current selection.
+    /// Reactive setter for `options`. Clears the current selection.
+    /// Records the change in the provided [`ReactiveCtx`].
     ///
     /// When `allow_blank` is `false` and new options are non-empty,
     /// the first option is auto-selected.
-    pub fn set_options(&mut self, options: Vec<(String, T)>) {
+    pub fn set_options(&mut self, options: Vec<(String, T)>, ctx: &mut ReactiveCtx) {
         let list_items: Vec<OptionItem> = options
             .iter()
             .map(|(label, _)| OptionItem::new(label.as_str()))
             .collect();
+        let old_len = self.options.len();
         self.cursor.clear();
         self.list.set_items(list_items);
         self.options = options;
+        let new_len = self.options.len();
         if !self.allow_blank && !self.options.is_empty() {
+            self.cursor.set_selected(Some(0));
+            self.cursor.set_highlighted(Some(0));
+            self.list.set_highlighted(0);
+        }
+        ctx.record_change(
+            "options",
+            ReactiveFlags::reactive_layout(),
+            Box::new(old_len),
+            Box::new(new_len),
+        );
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────
+
+    fn watch_allow_blank(&mut self, _old: &bool, new: &bool, _ctx: &mut ReactiveCtx) {
+        // When switching to allow_blank=false, auto-select first option if nothing selected.
+        if !new && self.cursor.selected().is_none() && !self.options.is_empty() {
             self.cursor.set_selected(Some(0));
             self.cursor.set_highlighted(Some(0));
             self.list.set_highlighted(0);
@@ -683,6 +749,24 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
     }
 }
 
+impl<T: Clone + PartialEq + Send + Sync + 'static> ReactiveWidget for Select<T> {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "allow_blank" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_allow_blank(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -690,6 +774,14 @@ mod tests {
     use crate::keys::KeyEventData;
     use crate::message::Message;
     use crate::node_id::node_id_from_ffi;
+    use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     /// Derive a test-only NodeId from a widget's pointer address.
     fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
@@ -852,14 +944,16 @@ mod tests {
     #[test]
     fn select_set_value_programmatic() {
         let mut sel = make_select();
-        sel.set_value(&3);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&3, &mut ctx);
         assert_eq!(sel.value(), Some(&3));
     }
 
     #[test]
     fn select_clear_resets_when_allow_blank() {
         let mut sel = make_select_blank();
-        sel.set_value(&2);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut ctx);
         sel.clear();
         assert!(sel.value().is_none());
     }
@@ -867,7 +961,8 @@ mod tests {
     #[test]
     fn select_clear_then_reopen_highlights_first_selectable() {
         let mut sel = make_select_blank();
-        sel.set_value(&3);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&3, &mut ctx);
         sel.clear();
         sel.set_focus(true);
         sel.on_layout(30, 20);
@@ -1062,7 +1157,8 @@ mod tests {
     #[test]
     fn allow_blank_true_escape_clears_selection() {
         let mut sel = make_select_blank();
-        sel.set_value(&2); // Beta
+        let mut rctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut rctx); // Beta
         assert_eq!(sel.value(), Some(&2));
         sel.set_focus(true);
         sel.on_layout(30, 20);
@@ -1084,7 +1180,8 @@ mod tests {
     #[test]
     fn allow_blank_false_escape_keeps_selection() {
         let mut sel = make_select();
-        sel.set_value(&2); // Beta
+        let mut rctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut rctx); // Beta
         sel.set_focus(true);
         sel.on_layout(30, 20);
 
@@ -1124,8 +1221,9 @@ mod tests {
     #[test]
     fn set_allow_blank_auto_selects_when_switching_to_false() {
         let mut sel = make_select_blank();
+        let mut ctx = ReactiveCtx::new(make_node_id());
         assert!(sel.value().is_none());
-        sel.set_allow_blank(false);
+        sel.set_allow_blank(false, &mut ctx);
         assert!(!sel.allow_blank());
         assert_eq!(sel.value(), Some(&1)); // Alpha auto-selected
     }
@@ -1133,20 +1231,22 @@ mod tests {
     #[test]
     fn set_options_auto_selects_when_not_allow_blank() {
         let mut sel = make_select();
+        let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_options(vec![
             ("Delta".to_string(), 10),
             ("Echo".to_string(), 20),
-        ]);
+        ], &mut ctx);
         assert_eq!(sel.value(), Some(&10)); // Delta auto-selected
     }
 
     #[test]
     fn set_options_does_not_auto_select_when_allow_blank() {
         let mut sel = make_select_blank();
+        let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_options(vec![
             ("Delta".to_string(), 10),
             ("Echo".to_string(), 20),
-        ]);
+        ], &mut ctx);
         assert!(sel.value().is_none());
     }
 

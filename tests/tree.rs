@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
+use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
 
 #[test]
@@ -24,7 +25,8 @@ fn tree_renders_expanded_and_collapsed_nodes() {
     ]);
     let mut tree = tree;
     tree.set_focus(true);
-    tree.set_selected(1);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    tree.set_selected(1, &mut rctx);
 
     let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
     insta::assert_snapshot!(buf.debug_dump());
@@ -131,7 +133,8 @@ fn tree_navigation_skips_disabled_nodes() {
     ]);
     tree.set_focus(true);
     tree.on_layout(24, 5);
-    tree.set_selected(0);
+    let mut rctx = ReactiveCtx::new(NodeId::default());
+    tree.set_selected(0, &mut rctx);
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();

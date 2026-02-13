@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Parity Sprint 21: Close Pillar 3 — full reactive widget migration**
+  - **P3-14 complete:** TextArea migrated to reactive — 8 reactive fields (`read_only`, `show_line_numbers`, `indent_width`, `soft_wrap`, `placeholder`, `language`, `cursor_blink_enabled`, `theme`) with 5 watchers (read_only → class rebuild, soft_wrap → layout, language/theme → syntax cache invalidation, cursor_blink → blink state reset). Manual `ReactiveWidget` impl.
+  - **P3-15 complete:** DataTable migrated to reactive — 8 reactive setters (`selected`, `cursor`, `cursor_type`, `fixed_rows`, `fixed_columns`, `show_header`, `show_row_labels`, `zebra_stripes`) with 3 watchers (cursor_type, show_header, zebra_stripes).
+  - **P3-16 complete:** Tree migrated to reactive — 4 reactive setters (`selected`, `show_root`, `show_guides`, `guide_depth`) with 1 watcher (show_root → offset clamp).
+  - **P3-17 complete:** Tabs migrated to reactive — 3 reactive setters (`active`, `tab_disabled`, `tab_hidden`). Convenience wrappers updated.
+  - **P3-18 complete:** 10 remaining widgets migrated — Footer (1 field), Header (4), Collapsible (1 + watcher), RichLog (5 + 3 cache-clearing watchers), Rule (2 + orientation watcher), Placeholder (2 + variant watcher), Sparkline (2), ProgressBar (5 + 2 watchers), Select\<T\> (4 + allow_blank watcher), RadioSet (1).
+  - **Pillar 3 now fully closed.** All 17 widgets have reactive getters/setters/watchers/dispatch.
+  - Example fixes: `text_area_custom_language.rs` and `text_area_custom_theme.rs` updated to use builder methods instead of reactive setters for pre-tree construction.
+  - Build: 0 errors. Tests: 1510 passed (0 new failures), 1 pre-existing (`background_is_not_inherited_by_children`). 20 files changed, +1465/-268 lines.
+
 - **Parity Sprint 20: Reactive infra + widget migrations + #[on()] macro**
   - **P3-06 complete:** `#[computed(depends_on = "field1, field2")]` attribute — generates cached getter that recomputes when dependency fields change. Computed fields record their own changes in ReactiveCtx during dispatch, enabling cascading.
   - **P3-07 verified done:** `#[var]` already fully implemented in Sprint 19. Confirmed by integration tests.

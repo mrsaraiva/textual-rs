@@ -4,6 +4,7 @@ use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Orientation of a rule separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +95,8 @@ impl Rule {
         self
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn orientation(&self) -> RuleOrientation {
         self.orientation
     }
@@ -103,32 +106,57 @@ impl Rule {
         self.line_style
     }
 
-    /// Dynamically change the orientation (reactive setter).
-    ///
-    /// Updates the CSS class to match, mirroring Python Textual's reactive `orientation` attribute.
-    pub fn set_orientation(&mut self, orientation: RuleOrientation) {
-        if self.orientation == orientation {
-            return;
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `orientation`. Records the change in the provided
+    /// [`ReactiveCtx`] and triggers watcher dispatch for class updates.
+    pub fn set_orientation(&mut self, orientation: RuleOrientation, ctx: &mut ReactiveCtx) {
+        if self.orientation != orientation {
+            let old = self.orientation;
+            self.orientation = orientation;
+            // Update CSS classes immediately (also done via watcher in runtime).
+            self.update_orientation_classes(&old, &orientation);
+            ctx.record_change(
+                "orientation",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(orientation),
+            );
         }
-        // Remove old orientation class, add new one
-        let old_class = match self.orientation {
+    }
+
+    /// Reactive setter for `line_style`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_line_style(&mut self, style: LineStyle, ctx: &mut ReactiveCtx) {
+        if self.line_style != style {
+            let old = self.line_style;
+            self.line_style = style;
+            ctx.record_change(
+                "line_style",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(style),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn update_orientation_classes(&mut self, old: &RuleOrientation, new: &RuleOrientation) {
+        let old_class = match old {
             RuleOrientation::Horizontal => "rule--horizontal",
             RuleOrientation::Vertical => "rule--vertical",
         };
-        let new_class = match orientation {
+        let new_class = match new {
             RuleOrientation::Horizontal => "rule--horizontal",
             RuleOrientation::Vertical => "rule--vertical",
         };
         self.classes.retain(|c| c != old_class);
         self.classes.push(new_class.to_string());
-        self.orientation = orientation;
     }
 
-    /// Dynamically change the line style (reactive setter).
-    ///
-    /// Mirrors Python Textual's reactive `line_style` attribute.
-    pub fn set_line_style(&mut self, style: LineStyle) {
-        self.line_style = style;
+    fn watch_orientation(&mut self, old: &RuleOrientation, new: &RuleOrientation, _ctx: &mut ReactiveCtx) {
+        self.update_orientation_classes(old, new);
     }
 }
 
@@ -215,9 +243,35 @@ impl Renderable for Rule {
     }
 }
 
+impl ReactiveWidget for Rule {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "orientation" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<RuleOrientation>(),
+                        change.new_value.downcast_ref::<RuleOrientation>(),
+                    ) {
+                        self.watch_orientation(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_id::NodeId;
+    use crate::reactive::ReactiveCtx;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn horizontal_default_orientation() {
@@ -246,17 +300,19 @@ mod tests {
     #[test]
     fn set_line_style_changes() {
         let mut r = Rule::horizontal();
-        r.set_line_style(LineStyle::Heavy);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        r.set_line_style(LineStyle::Heavy, &mut ctx);
         assert_eq!(r.get_line_style(), LineStyle::Heavy);
     }
 
     #[test]
     fn set_orientation_updates_classes() {
         let mut r = Rule::horizontal();
+        let mut ctx = ReactiveCtx::new(make_node_id());
         assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
         assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));
 
-        r.set_orientation(RuleOrientation::Vertical);
+        r.set_orientation(RuleOrientation::Vertical, &mut ctx);
         assert_eq!(r.orientation(), RuleOrientation::Vertical);
         assert!(r.style_classes().iter().any(|c| c == "rule--vertical"));
         assert!(!r.style_classes().iter().any(|c| c == "rule--horizontal"));
@@ -265,8 +321,9 @@ mod tests {
     #[test]
     fn set_orientation_noop_same() {
         let mut r = Rule::horizontal();
+        let mut ctx = ReactiveCtx::new(make_node_id());
         let classes_before: Vec<String> = r.style_classes().to_vec();
-        r.set_orientation(RuleOrientation::Horizontal);
+        r.set_orientation(RuleOrientation::Horizontal, &mut ctx);
         assert_eq!(r.style_classes(), &classes_before[..]);
     }
 
@@ -376,8 +433,9 @@ mod tests {
     #[test]
     fn round_trip_orientation_switch() {
         let mut r = Rule::horizontal();
-        r.set_orientation(RuleOrientation::Vertical);
-        r.set_orientation(RuleOrientation::Horizontal);
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        r.set_orientation(RuleOrientation::Vertical, &mut ctx);
+        r.set_orientation(RuleOrientation::Horizontal, &mut ctx);
         assert_eq!(r.orientation(), RuleOrientation::Horizontal);
         assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
         assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));

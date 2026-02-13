@@ -12,6 +12,7 @@ use super::{
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
 };
+use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// A container widget that groups `RadioButton` children for mutual exclusion.
 ///
@@ -65,6 +66,23 @@ impl RadioSet {
             self.focused = false;
         }
         self
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `disabled`. Records the change in the provided
+    /// [`ReactiveCtx`].
+    pub fn set_disabled(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.disabled != value {
+            let old = self.disabled;
+            self.disabled = value;
+            ctx.record_change(
+                "disabled",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
 
     /// Builder: add a RadioButton to the set.
@@ -451,6 +469,8 @@ impl Renderable for RadioSet {
         Widget::render(self, console, options)
     }
 }
+
+impl ReactiveWidget for RadioSet {}
 
 #[cfg(test)]
 mod tests {
