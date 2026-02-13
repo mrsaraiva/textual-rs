@@ -1,14 +1,14 @@
+use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-
 use crate::node_id::NodeId;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
     Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
-    option_list::toggle_option::BinaryToggleState,
 };
 
 /// The visual width of the switch slider track (in cells).
@@ -23,7 +23,11 @@ const ANIMATION_TICKS: u64 = 18;
 /// Toggled via click, Enter, or Space.
 #[derive(Debug, Clone)]
 pub struct Switch {
-    state: BinaryToggleState,
+    value: bool,
+    focused: bool,
+    hovered: bool,
+    pressed: bool,
+    disabled: bool,
     /// Animated slider position: 0.0 = off (left), 1.0 = on (right).
     slider_pos: f32,
     /// Animation target (0.0 or 1.0).
@@ -41,7 +45,11 @@ impl Switch {
     pub fn new(value: bool) -> Self {
         let pos = if value { 1.0 } else { 0.0 };
         Self {
-            state: BinaryToggleState::new(value),
+            value,
+            focused: false,
+            hovered: false,
+            pressed: false,
+            disabled: false,
             slider_pos: pos,
             slider_target: pos,
             anim_start_tick: None,
@@ -53,38 +61,76 @@ impl Switch {
         .rebuild_classes()
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn value(&self) -> bool {
-        self.state.value()
+        self.value
     }
 
-    pub fn set_value(&mut self, value: bool) {
-        if self.state.value() != value {
-            self.state.set_value(value);
-            self.slider_target = if value { 1.0 } else { 0.0 };
-            // Snap immediately when set programmatically.
-            self.slider_pos = self.slider_target;
-            self.anim_start_tick = None;
-            self.rebuild_classes_in_place();
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `value`. Records the change in the provided
+    /// [`ReactiveCtx`]. The watcher handles slider snap and class rebuild.
+    pub fn set_value(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.value != value {
+            let old = self.value;
+            self.value = value;
+            ctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
         }
     }
 
+    /// Reactive setter for `slider_pos` (var — no repaint, no layout).
+    pub fn set_slider_pos(&mut self, value: f32, ctx: &mut ReactiveCtx) {
+        #[allow(clippy::float_cmp)]
+        if self.slider_pos != value {
+            let old = self.slider_pos;
+            self.slider_pos = value;
+            ctx.record_change(
+                "slider_pos",
+                ReactiveFlags::var(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_value(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        // Snap slider immediately (programmatic change, no animation).
+        self.slider_target = if self.value { 1.0 } else { 0.0 };
+        self.slider_pos = self.slider_target;
+        self.anim_start_tick = None;
+        self.rebuild_classes_in_place();
+    }
+
+    // ── Builder methods ──────────────────────────────────────────────────
+
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.state.set_disabled(disabled);
+        self.disabled = disabled;
         self.rebuild_classes()
     }
+
+    // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
             Message::SwitchChanged(SwitchChanged {
-                value: self.state.value(),
+                value: self.value,
             }),
         );
     }
 
+    /// Called after an interactive toggle (from event handler).
+    /// Starts the slider animation and rebuilds CSS classes.
     fn on_toggled(&mut self) {
-        self.slider_target = if self.state.value() { 1.0 } else { 0.0 };
+        self.slider_target = if self.value { 1.0 } else { 0.0 };
         // Mark animation start; actual tick will be recorded in on_tick.
-        self.anim_start_tick = None;
         self.anim_start_pos = self.slider_pos;
         // Use a sentinel to indicate "start next tick".
         self.anim_start_tick = Some(u64::MAX);
@@ -98,12 +144,12 @@ impl Switch {
 
     fn rebuild_classes_in_place(&mut self) {
         let mut classes = vec!["switch".to_string()];
-        if self.state.value() {
+        if self.value {
             classes.push("-on".to_string());
         } else {
             classes.push("-off".to_string());
         }
-        if self.state.disabled() {
+        if self.disabled {
             classes.push("disabled".to_string());
         }
         let mut focused_classes = classes.clone();
@@ -117,33 +163,51 @@ impl Switch {
     }
 }
 
+impl ReactiveWidget for Switch {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "value" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_value(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 impl Widget for Switch {
     fn focusable(&self) -> bool {
-        self.state.focusable()
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.state.set_focused(focused);
+        self.focused = focused;
     }
 
     fn has_focus(&self) -> bool {
-        self.state.focused()
+        self.focused
     }
 
     fn is_disabled(&self) -> bool {
-        self.state.disabled()
+        self.disabled
     }
 
     fn is_hovered(&self) -> bool {
-        self.state.hovered()
+        self.hovered
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.state.set_hovered(hovered);
+        self.hovered = hovered;
     }
 
     fn is_active(&self) -> bool {
-        self.state.is_active()
+        self.pressed && self.hovered
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -151,16 +215,52 @@ impl Widget for Switch {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, NodeId::default());
-        if outcome.toggled {
-            self.on_toggled();
-            self.emit_changed(ctx);
+        if self.disabled {
+            return;
         }
-        if outcome.repaint {
-            ctx.request_repaint();
-        }
-        if outcome.handled {
-            ctx.set_handled();
+        match event {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+                self.pressed = true;
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) => {
+                if self.pressed {
+                    self.pressed = false;
+                    ctx.request_repaint();
+                    if mouse.target == Some(NodeId::default()) {
+                        self.value = !self.value;
+                        self.on_toggled();
+                        self.emit_changed(ctx);
+                        ctx.set_handled();
+                    }
+                }
+            }
+            Event::AppFocus(false) => {
+                if self.pressed {
+                    self.pressed = false;
+                    ctx.request_repaint();
+                }
+            }
+            Event::Action(Action::Toggle) if self.focused => {
+                self.value = !self.value;
+                self.on_toggled();
+                self.emit_changed(ctx);
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::Key(key) if self.focused => match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.value = !self.value;
+                    self.on_toggled();
+                    self.emit_changed(ctx);
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                }
+                _ => {}
+            },
+            _ => {}
         }
     }
 
@@ -253,7 +353,7 @@ impl Widget for Switch {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.state.focused() {
+        if self.focused {
             &self.focused_classes
         } else if self.classes.is_empty() {
             empty_classes()
@@ -288,6 +388,12 @@ mod tests {
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn switch_space_toggles_and_emits_message() {
@@ -352,10 +458,37 @@ mod tests {
     }
 
     #[test]
-    fn switch_set_value_snaps_position() {
+    fn switch_reactive_set_value_snaps_position() {
         let mut widget = Switch::new(false);
-        widget.set_value(true);
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        widget.set_value(true, &mut ctx);
+        assert!(ctx.has_changes());
+        assert_eq!(ctx.changes()[0].field_name, "value");
+        // Dispatch triggers watch_value → snap slider
+        let changes = ctx.take_changes();
+        widget.reactive_dispatch(&changes, &mut ctx);
         assert!((widget.slider_pos - 1.0).abs() < f32::EPSILON);
         assert!(!widget.is_animating());
+    }
+
+    #[test]
+    fn switch_reactive_set_value_noop_when_same() {
+        let mut widget = Switch::new(true);
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        widget.set_value(true, &mut ctx);
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn switch_reactive_set_slider_pos_is_var() {
+        let mut widget = Switch::new(false);
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        widget.set_slider_pos(0.5, &mut ctx);
+        assert!(ctx.has_changes());
+        // var fields should not request repaint
+        assert!(!ctx.needs_repaint());
     }
 }

@@ -1417,6 +1417,18 @@ impl App {
                 }
             }
 
+            // ── Reactive phase ────────────────────────────────────────
+            // Run the reactive phase for widgets that accumulated changes
+            // during event dispatch. This drains ReactiveCtx changes, calls
+            // watchers/computed recomputation, and detects cycles.
+            //
+            // Currently a no-op until widgets are migrated to carry
+            // ReactiveCtx (P3-10..P3-13). The infrastructure is ready:
+            // when a widget implements ReactiveWidget and has a ReactiveCtx,
+            // the runtime will call `run_reactive_phase()` here and feed
+            // its result into `pending_invalidation`.
+            self.run_event_loop_reactive_phase(root, &mut pending_invalidation);
+
             // Detect focus transitions and dispatch Focus/Blur events.
             let current_focus: Option<NodeId> = self
                 .widget_tree
@@ -1750,6 +1762,34 @@ impl App {
             .invalidation
             .merge(crate::event::InvalidationFlags::content());
         aggregate
+    }
+
+    // ===================================================================
+    // Reactive phase
+    // ===================================================================
+
+    /// Run the reactive phase for all widgets that accumulated changes
+    /// during event dispatch.
+    ///
+    /// Iterates over tree nodes that have a `ReactiveCtx` with pending changes,
+    /// calls `run_reactive_phase()` for each, and feeds repaint/layout results
+    /// into `pending_invalidation`.
+    ///
+    /// Currently a no-op: widgets do not yet carry `ReactiveCtx` (that arrives
+    /// in P3-10..P3-13 widget migration). This method is the integration point
+    /// that the runtime calls every tick; once widgets are migrated, it will
+    /// collect their contexts and drive the reactive loop.
+    fn run_event_loop_reactive_phase(
+        &mut self,
+        _root: &mut dyn Widget,
+        _pending: &mut PendingInvalidation,
+    ) {
+        // TODO(P3-10): Iterate over widgets in the tree, collect their
+        // ReactiveCtx, call `crate::reactive::run_reactive_phase()` for
+        // each, and merge the ReactivePhaseResult into `_pending`:
+        //
+        //   if result.needs_repaint { _pending.request_full_content(); }
+        //   if result.needs_layout { _pending.request_flags(InvalidationFlags::layout()); }
     }
 
     // ===================================================================

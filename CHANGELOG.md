@@ -8,6 +8,19 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Parity Sprint 20: Reactive infra + widget migrations + #[on()] macro**
+  - **P3-06 complete:** `#[computed(depends_on = "field1, field2")]` attribute — generates cached getter that recomputes when dependency fields change. Computed fields record their own changes in ReactiveCtx during dispatch, enabling cascading.
+  - **P3-07 verified done:** `#[var]` already fully implemented in Sprint 19. Confirmed by integration tests.
+  - **P3-08 complete:** `#[reactive(init = false)]` flag — watcher skipped on mount. `reactive_no_init()` and `reactive_layout_no_init()` flag constructors.
+  - **P3-09 complete:** Runtime reactive phase wiring — `run_reactive_phase()` with cycle detection (MAX_REACTIVE_ITERATIONS=100), `ReactivePhaseResult`, `ReactiveFieldDescriptor` for introspection, `run_event_loop_reactive_phase()` integration point in event loop (stub until per-widget ReactiveCtx is available).
+  - **P3-10 complete:** Button migrated to reactive — `label`, `variant`, `disabled`, `flat` as reactive fields with watchers for class rebuilding. Manual `ReactiveWidget` impl (derive macro can't resolve `textual::` paths within the crate). 35 tests.
+  - **P3-11 complete:** Input migrated to reactive — `value()`/`set_value()` as Python-aligned reactive pair alongside internal `text()`/`set_text()`. `placeholder` as reactive field. 72 tests.
+  - **P3-12 complete:** Switch migrated to reactive — `BinaryToggleState` replaced with direct fields (`value`, `disabled`, `focused`, `hovered`). `slider_pos` as `#[var]`. Watcher handles class rebuild + animation + message emission. 11 tests.
+  - **P3-13 complete:** Checkbox migrated to reactive — `BinaryToggleState` replaced with direct fields. `checked` as reactive watch field with message emission watcher. 6 tests.
+  - **P4-09 complete:** `#[on(MessageType)]` and `#[on(MessageType, selector = "...")]` attribute macro — generates `__on_dispatch_*` companion methods with uniform signature `(&mut self, msg: &Message, sender: NodeId, ctx: &mut EventCtx) -> bool`. Selector stored as `const __ON_SELECTOR_*` for runtime matching. Duplicate selector detection at compile time. 8 integration tests.
+  - **Proc macro path fix:** Added `extern crate self as textual;` to `src/lib.rs` so `#[derive(Reactive)]`-generated `textual::reactive::*` paths resolve within the crate itself (same pattern as serde/tokio). Future widget migrations (P3-14+) can use the derive macro directly instead of manual impls.
+  - Build: 0 errors. Tests: 1510 passed (+42 new), 0 failed. 1 pre-existing integration test failure (`background_is_not_inherited_by_children`).
+
 - **Parity Sprint 19: Reactive foundations + CSS overflow/pointer + CommandPalette Provider**
   - **P3-01..P3-05 complete:** Reactive field system foundation.
     - `src/reactive.rs`: `ReactiveFlags` (repaint/layout/init control), `ReactiveChange` (field_name + flags + type-erased old/new values), `ReactiveCtx` (node_id + change accumulator + repaint/layout request tracking), `ReactiveWidget` trait with default no-op `reactive_dispatch()`. 12 unit tests.

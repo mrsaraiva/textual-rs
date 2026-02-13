@@ -6,6 +6,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::event::{Event, EventCtx};
 use crate::message::*;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
@@ -532,6 +533,83 @@ impl Input {
         } else {
             self.set_class("-valid", false);
             self.set_class("-invalid", true);
+        }
+    }
+
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for the input value (Python-aligned name for `text`).
+    pub fn value(&self) -> &str {
+        &self.text
+    }
+
+    /// Reactive getter for the placeholder text.
+    pub fn placeholder(&self) -> Option<&str> {
+        self.placeholder.as_deref()
+    }
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for the input value. Records the change in the
+    /// provided [`ReactiveCtx`] if the value actually changed.
+    /// The watcher handles cursor clamping, revalidation, and suggestion clearing.
+    pub fn set_value(&mut self, value: String, ctx: &mut ReactiveCtx) {
+        if self.text != value {
+            let old = self.text.clone();
+            self.text = value;
+            let new = self.text.clone();
+            ctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    /// Reactive setter for the placeholder. Records the change in the
+    /// provided [`ReactiveCtx`] if the value actually changed.
+    pub fn set_placeholder(&mut self, value: Option<String>, ctx: &mut ReactiveCtx) {
+        if self.placeholder != value {
+            let old = self.placeholder.clone();
+            self.placeholder = value;
+            let new = self.placeholder.clone();
+            ctx.record_change(
+                "placeholder",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_value(&mut self, _old: &String, _new: &String, _ctx: &mut ReactiveCtx) {
+        if self.cursor > self.text.len() {
+            self.cursor = self.text.len();
+        }
+        self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
+        self.selection = Selection::cursor(self.cursor);
+        self.suggestion.clear();
+        self.revalidate();
+    }
+}
+
+impl ReactiveWidget for Input {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "value" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<String>(),
+                        change.new_value.downcast_ref::<String>(),
+                    ) {
+                        self.watch_value(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -1685,5 +1763,78 @@ mod tests {
             messages[0].message,
             Message::InputChanged(InputChanged { ref value, .. }) if value == "Portugal"
         ));
+    }
+
+    // ── Reactive field tests ────────────────────────────────────────────
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    #[test]
+    fn reactive_value_getter() {
+        let mut input = Input::new();
+        input.set_text("hello");
+        assert_eq!(input.value(), "hello");
+    }
+
+    #[test]
+    fn reactive_set_value_records_change() {
+        let mut input = Input::new();
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        input.set_value("hello".to_string(), &mut ctx);
+        assert_eq!(input.value(), "hello");
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_repaint());
+        assert_eq!(ctx.changes()[0].field_name, "value");
+    }
+
+    #[test]
+    fn reactive_set_value_noop_when_same() {
+        let mut input = Input::new();
+        input.set_text("same");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        input.set_value("same".to_string(), &mut ctx);
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn reactive_dispatch_clamps_cursor() {
+        let mut input = Input::new();
+        input.set_text("hello world");
+        input.cursor = 11; // at end
+        input.selection = Selection::cursor(11);
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        input.set_value("hi".to_string(), &mut ctx);
+        let changes = ctx.take_changes();
+        input.reactive_dispatch(&changes, &mut ctx);
+        // Cursor should be clamped to the new text length
+        assert!(input.cursor <= input.text.len());
+        assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn reactive_set_placeholder_records_change() {
+        let mut input = Input::new();
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        input.set_placeholder(Some("Enter name".to_string()), &mut ctx);
+        assert_eq!(input.placeholder(), Some("Enter name"));
+        assert!(ctx.has_changes());
+        assert_eq!(ctx.changes()[0].field_name, "placeholder");
+    }
+
+    #[test]
+    fn reactive_set_placeholder_noop_when_same() {
+        let mut input = Input::new().with_placeholder("Enter name");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        input.set_placeholder(Some("Enter name".to_string()), &mut ctx);
+        assert!(!ctx.has_changes());
     }
 }

@@ -1,22 +1,26 @@
+use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-
 use crate::node_id::NodeId;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use crate::action::ParsedAction;
 
 use super::{
     BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
-    option_list::toggle_option::BinaryToggleState,
 };
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
     label: String,
-    state: BinaryToggleState,
+    checked: bool,
+    focused: bool,
+    hovered: bool,
+    pressed: bool,
+    disabled: bool,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -26,62 +30,124 @@ impl Checkbox {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            state: BinaryToggleState::new(false),
+            checked: false,
+            focused: false,
+            hovered: false,
+            pressed: false,
+            disabled: false,
             classes: vec!["checkbox".to_string()],
             focused_classes: vec!["checkbox".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
     pub fn checked(&self) -> bool {
-        self.state.value()
+        self.checked
     }
 
-    pub fn set_checked(&mut self, checked: bool) {
-        self.state.set_value(checked);
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `checked`. Records the change in the provided
+    /// [`ReactiveCtx`] if the value actually changed.
+    pub fn set_checked(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.checked != value {
+            let old = self.checked;
+            self.checked = value;
+            ctx.record_change(
+                "checked",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
     }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_checked(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes_in_place();
+    }
+
+    // ── Builder methods ──────────────────────────────────────────────────
 
     pub fn disabled(mut self, disabled: bool) -> Self {
-        self.state.set_disabled(disabled);
+        self.disabled = disabled;
+        self.rebuild_classes_in_place();
         self
     }
+
+    // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
         ctx.post_message(
             Message::CheckboxChanged(CheckboxChanged {
-                checked: self.state.value(),
+                checked: self.checked,
             }),
         );
+    }
+
+    fn rebuild_classes_in_place(&mut self) {
+        let mut classes = vec!["checkbox".to_string()];
+        if self.checked {
+            classes.push("-on".to_string());
+        }
+        if self.disabled {
+            classes.push("disabled".to_string());
+        }
+        let mut focused_classes = classes.clone();
+        focused_classes.push("focused".to_string());
+        self.classes = classes;
+        self.focused_classes = focused_classes;
+    }
+}
+
+impl ReactiveWidget for Checkbox {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "checked" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_checked(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 
 impl Widget for Checkbox {
     fn focusable(&self) -> bool {
-        self.state.focusable()
+        !self.disabled
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.state.set_focused(focused);
+        self.focused = focused;
     }
 
     fn has_focus(&self) -> bool {
-        self.state.focused()
+        self.focused
     }
 
     fn is_disabled(&self) -> bool {
-        self.state.disabled()
+        self.disabled
     }
 
     fn is_hovered(&self) -> bool {
-        self.state.hovered()
+        self.hovered
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.state.set_hovered(hovered);
+        self.hovered = hovered;
     }
 
     fn is_active(&self) -> bool {
-        self.state.is_active()
+        self.pressed && self.hovered
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -99,10 +165,11 @@ impl Widget for Checkbox {
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
         match action.name.as_str() {
             "toggle" => {
-                if self.state.disabled() {
+                if self.disabled {
                     return false;
                 }
-                self.state.toggle();
+                self.checked = !self.checked;
+                self.rebuild_classes_in_place();
                 self.emit_changed(ctx);
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -113,21 +180,58 @@ impl Widget for Checkbox {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let outcome = self.state.handle_event(event, NodeId::default());
-        if outcome.toggled {
-            self.emit_changed(ctx);
+        if self.disabled {
+            return;
         }
-        if outcome.repaint {
-            ctx.request_repaint();
-        }
-        if outcome.handled {
-            ctx.set_handled();
+        match event {
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+                self.pressed = true;
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) => {
+                if self.pressed {
+                    self.pressed = false;
+                    ctx.request_repaint();
+                    if mouse.target == Some(NodeId::default()) {
+                        self.checked = !self.checked;
+                        self.rebuild_classes_in_place();
+                        self.emit_changed(ctx);
+                        ctx.set_handled();
+                    }
+                }
+            }
+            Event::AppFocus(false) => {
+                if self.pressed {
+                    self.pressed = false;
+                    ctx.request_repaint();
+                }
+            }
+            Event::Action(Action::Toggle) if self.focused => {
+                self.checked = !self.checked;
+                self.rebuild_classes_in_place();
+                self.emit_changed(ctx);
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::Key(key) if self.focused => match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.checked = !self.checked;
+                    self.rebuild_classes_in_place();
+                    self.emit_changed(ctx);
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                }
+                _ => {}
+            },
+            _ => {}
         }
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let state = if self.state.value() { "☑" } else { "☐" };
+        let state = if self.checked { "☑" } else { "☐" };
         let line = rich_rs::set_cell_size(&format!("{state} {}", self.label), width);
         let mut out = Segments::new();
         out.push(Segment::new(line));
@@ -139,7 +243,7 @@ impl Widget for Checkbox {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.state.focused() {
+        if self.focused {
             &self.focused_classes
         } else if self.classes.is_empty() {
             empty_classes()
@@ -168,6 +272,12 @@ mod tests {
     use super::*;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn checkbox_emits_message_on_toggle() {
@@ -212,5 +322,40 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.message, Message::CheckboxChanged(CheckboxChanged { checked: true })))
         );
+    }
+
+    // ── Reactive field tests ────────────────────────────────────────────
+
+    #[test]
+    fn reactive_set_checked_records_change() {
+        let mut checkbox = Checkbox::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        checkbox.set_checked(true, &mut ctx);
+        assert!(checkbox.checked());
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_repaint());
+        assert_eq!(ctx.changes()[0].field_name, "checked");
+    }
+
+    #[test]
+    fn reactive_set_checked_noop_when_same() {
+        let mut checkbox = Checkbox::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        checkbox.set_checked(false, &mut ctx);
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn reactive_dispatch_calls_watch_checked() {
+        let mut checkbox = Checkbox::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        checkbox.set_checked(true, &mut ctx);
+        let changes = ctx.take_changes();
+        checkbox.reactive_dispatch(&changes, &mut ctx);
+        // watch_checked rebuilds classes — verify -on class
+        assert!(checkbox.classes.contains(&"-on".to_string()));
     }
 }

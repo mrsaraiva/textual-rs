@@ -5,6 +5,7 @@ use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 use crate::node_id::NodeId;
+use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use crate::action::ParsedAction;
 
@@ -154,6 +155,96 @@ impl Button {
         self.content.as_ref()
     }
 
+    // ── Reactive getters ─────────────────────────────────────────────────
+
+    /// Reactive getter for `label`.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    // Note: getters for `variant`, `disabled`, `flat` are not generated because
+    // they conflict with the existing builder methods of the same name.
+    // Use `is_disabled()` (Widget trait) or direct field access within the crate.
+
+    // ── Reactive setters ─────────────────────────────────────────────────
+
+    /// Reactive setter for `label`. Records the change in the provided
+    /// [`ReactiveCtx`] if the value actually changed.
+    pub fn set_label(&mut self, value: String, ctx: &mut ReactiveCtx) {
+        if self.label != value {
+            let old = self.label.clone();
+            self.label = value;
+            let new = self.label.clone();
+            ctx.record_change(
+                "label",
+                ReactiveFlags::reactive_layout(),
+                Box::new(old),
+                Box::new(new),
+            );
+        }
+    }
+
+    /// Reactive setter for `variant`. Records the change and triggers
+    /// watcher dispatch via [`ReactiveWidget::reactive_dispatch`].
+    pub fn set_variant(&mut self, value: ButtonVariant, ctx: &mut ReactiveCtx) {
+        if self.variant != value {
+            let old = self.variant;
+            self.variant = value;
+            ctx.record_change(
+                "variant",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `disabled`. Records the change and triggers
+    /// watcher dispatch via [`ReactiveWidget::reactive_dispatch`].
+    pub fn set_disabled(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.disabled != value {
+            let old = self.disabled;
+            self.disabled = value;
+            ctx.record_change(
+                "disabled",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    /// Reactive setter for `flat`. Records the change and triggers
+    /// watcher dispatch via [`ReactiveWidget::reactive_dispatch`].
+    pub fn set_flat(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.flat != value {
+            let old = self.flat;
+            self.flat = value;
+            ctx.record_change(
+                "flat",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    // ── Watchers ─────────────────────────────────────────────────────────
+
+    fn watch_variant(&mut self, _old: &ButtonVariant, _new: &ButtonVariant, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes_in_place();
+    }
+
+    fn watch_disabled(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes_in_place();
+    }
+
+    fn watch_flat(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes_in_place();
+    }
+
+    // ── Internal helpers ─────────────────────────────────────────────────
+
     /// The plain-text width of the button label (content or plain label).
     fn label_cell_len(&self) -> usize {
         if let Some(ref content) = self.content {
@@ -212,6 +303,11 @@ impl Button {
     }
 
     fn rebuild_classes(mut self) -> Self {
+        self.rebuild_classes_in_place();
+        self
+    }
+
+    fn rebuild_classes_in_place(&mut self) {
         // Mirror Textual's class naming conventions where practical, but keep our legacy
         // class names around so existing demos keep working.
         let mut classes = vec!["button".to_string()];
@@ -247,7 +343,40 @@ impl Button {
         focused_classes.push("focused".to_string());
         self.classes = classes;
         self.focused_classes = focused_classes;
-        self
+    }
+}
+
+impl ReactiveWidget for Button {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+        for change in changes {
+            match change.field_name {
+                "variant" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<ButtonVariant>(),
+                        change.new_value.downcast_ref::<ButtonVariant>(),
+                    ) {
+                        self.watch_variant(old, new, ctx);
+                    }
+                }
+                "disabled" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_disabled(old, new, ctx);
+                    }
+                }
+                "flat" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_flat(old, new, ctx);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -475,6 +604,12 @@ mod tests {
     use super::*;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
 
     #[test]
     fn enter_posts_button_pressed_message() {
@@ -672,5 +807,74 @@ mod tests {
         let button = Button::new("fallback").with_content(text);
         assert!(button.content().is_some());
         assert_eq!(button.content().unwrap().plain_text(), "Save");
+    }
+
+    // ── Reactive field tests ────────────────────────────────────────────
+
+    #[test]
+    fn reactive_label_getter() {
+        let button = Button::new("Hello");
+        assert_eq!(button.label(), "Hello");
+    }
+
+    #[test]
+    fn reactive_set_label_records_change() {
+        let mut button = Button::new("Old");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_label("New".to_string(), &mut ctx);
+        assert_eq!(button.label(), "New");
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_repaint());
+        assert!(ctx.needs_layout());
+        assert_eq!(ctx.changes()[0].field_name, "label");
+    }
+
+    #[test]
+    fn reactive_set_label_noop_when_same() {
+        let mut button = Button::new("Same");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_label("Same".to_string(), &mut ctx);
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn reactive_set_variant_records_change_and_dispatches() {
+        let mut button = Button::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_variant(ButtonVariant::Primary, &mut ctx);
+        assert!(ctx.has_changes());
+        let changes = ctx.take_changes();
+        assert_eq!(changes[0].field_name, "variant");
+        // Dispatch triggers watch_variant → rebuild_classes_in_place
+        button.reactive_dispatch(&changes, &mut ctx);
+        assert!(button.classes.contains(&"primary".to_string()));
+    }
+
+    #[test]
+    fn reactive_set_disabled_records_change_and_dispatches() {
+        let mut button = Button::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_disabled(true, &mut ctx);
+        assert!(ctx.has_changes());
+        let changes = ctx.take_changes();
+        button.reactive_dispatch(&changes, &mut ctx);
+        assert!(button.classes.contains(&"disabled".to_string()));
+    }
+
+    #[test]
+    fn reactive_set_flat_records_change_and_dispatches() {
+        let mut button = Button::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_flat(true, &mut ctx);
+        assert!(ctx.has_changes());
+        let changes = ctx.take_changes();
+        button.reactive_dispatch(&changes, &mut ctx);
+        assert!(button.classes.contains(&"flat".to_string()));
+        assert!(button.classes.contains(&"-style-flat".to_string()));
     }
 }
