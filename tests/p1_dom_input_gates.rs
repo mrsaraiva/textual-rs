@@ -1,6 +1,8 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Segments};
 use std::sync::{Arc, Mutex};
 use textual::event::{Action, Event, EventCtx, MouseDownEvent, MouseUpEvent};
+use textual::keys::KeyEventData;
 use textual::node_id::NodeId;
 use textual::prelude::*;
 
@@ -127,6 +129,57 @@ impl Widget for FocusProbe {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(format!("{}:{focused}", self.id));
+        }
+    }
+}
+
+struct DataTableNavProbe {
+    inner: DataTable,
+    sink: Arc<Mutex<Vec<String>>>,
+}
+
+impl DataTableNavProbe {
+    fn new(sink: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            inner: DataTable::new(
+                vec!["Name".into(), "Value".into()],
+                vec![
+                    vec!["Alpha".into(), "1".into()],
+                    vec!["Beta".into(), "2".into()],
+                    vec!["Gamma".into(), "3".into()],
+                ],
+            ),
+            sink,
+        }
+    }
+}
+
+impl Widget for DataTableNavProbe {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.inner.render(console, options)
+    }
+
+    fn focusable(&self) -> bool {
+        self.inner.focusable()
+    }
+
+    fn has_focus(&self) -> bool {
+        self.inner.has_focus()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.inner.set_focus(focused);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let before = self.inner.selected();
+        self.inner.on_event(event, ctx);
+        let after = self.inner.selected();
+        if before != after {
+            self.sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("row:{before}->{after}"));
         }
     }
 }
@@ -387,5 +440,57 @@ fn p1_gate_repeated_clicks_emit_repeated_events() {
         descriptions,
         vec!["only".to_string(), "only".to_string()],
         "P1 gate: repeated clicks must emit repeated events"
+    );
+}
+
+#[test]
+fn p1_gate_container_focus_routes_arrow_keys_to_datatable() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Container::new()
+        .with_child(FocusProbe::new("first", Arc::new(Mutex::new(Vec::new()))))
+        .with_child(DataTableNavProbe::new(sink.clone()));
+    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
+    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
+
+    let mut key_ctx = EventCtx::default();
+    root.on_event(
+        &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        ))),
+        &mut key_ctx,
+    );
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"row:0->1".to_string()),
+        "P1 gate: focused DataTable in container should react to Down key; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_row_focus_routes_arrow_keys_to_datatable() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Row::new()
+        .with_child(FocusProbe::new("left", Arc::new(Mutex::new(Vec::new()))))
+        .with_child(DataTableNavProbe::new(sink.clone()));
+    root.on_layout(20, 5);
+
+    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
+    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
+
+    let mut key_ctx = EventCtx::default();
+    root.on_event(
+        &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        ))),
+        &mut key_ctx,
+    );
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"row:0->1".to_string()),
+        "P1 gate: focused DataTable in row should react to Down key; events={events:?}"
     );
 }
