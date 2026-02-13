@@ -202,7 +202,10 @@ impl OptionList {
         content_options.size = (content_width, 1);
         content_options.max_width = content_width;
 
-        let rendered: Vec<Segment> = content.render(console, &content_options).into_iter().collect();
+        let rendered: Vec<Segment> = content
+            .render(console, &content_options)
+            .into_iter()
+            .collect();
 
         // Build segments: 2-char indent + first line of content with merged styles.
         // Stop at the first newline/control segment to enforce single-row semantics.
@@ -759,11 +762,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.confirm_selection(&mut ctx);
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 0 })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::OptionSelected(OptionSelected { index: 0 })
+        )));
     }
 
     #[test]
@@ -787,12 +789,18 @@ mod tests {
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        let highlighted_pos = messages
-            .iter()
-            .position(|m| matches!(m.message, Message::OptionHighlighted(OptionHighlighted { index: 1 })));
-        let selected_pos = messages
-            .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
+        let highlighted_pos = messages.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::OptionHighlighted(OptionHighlighted { index: 1 })
+            )
+        });
+        let selected_pos = messages.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::OptionSelected(OptionSelected { index: 1 })
+            )
+        });
         assert!(
             highlighted_pos.is_some() && selected_pos.is_some() && highlighted_pos < selected_pos
         );
@@ -932,10 +940,7 @@ mod tests {
     #[test]
     fn option_list_content_width_uses_rich_content() {
         let content = rich_rs::Text::plain("Long rich content");
-        let items = vec![
-            OptionItem::new("Short"),
-            OptionItem::rich("Label", content),
-        ];
+        let items = vec![OptionItem::new("Short"), OptionItem::rich("Label", content)];
         let list = OptionList::with_items(items);
         let cw = list.content_width().unwrap();
         // "Long rich content" = 17 chars + 2 indent = 19
@@ -954,7 +959,9 @@ mod tests {
             max_height: 1,
             ..Default::default()
         };
-        let segments: Vec<_> = Widget::render(&list, &console, &options).into_iter().collect();
+        let segments: Vec<_> = Widget::render(&list, &console, &options)
+            .into_iter()
+            .collect();
         let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
         assert!(text.contains("Hello"));
     }
@@ -972,7 +979,9 @@ mod tests {
 
     #[test]
     fn visible_range_respects_offset() {
-        let items: Vec<_> = (0..20).map(|i| OptionItem::new(format!("Item {i}"))).collect();
+        let items: Vec<_> = (0..20)
+            .map(|i| OptionItem::new(format!("Item {i}")))
+            .collect();
         let mut list = OptionList::with_items(items);
         list.on_layout(40, 5);
         list.set_highlighted(10);

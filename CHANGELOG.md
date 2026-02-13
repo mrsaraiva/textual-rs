@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Parity Sprint 23 (FINAL): Composition rewrites + MessageEvent control**
+  - **WP-01 complete:** ListView mutation APIs — `append()`, `clear()`, `remove()`, `insert()`, `pop()` with selected/offset/disabled consistency. compose() + take_composed_children() wiring. 15 new tests.
+  - **WP-02 complete:** RadioSet compose() wiring — `take_composed_children()` drains buttons, `children()` / `children_mut()` accessors. 4 new tests.
+  - **WP-03 complete:** Select compose() wiring — compose() override + take_composed_children() stub. 3 new tests.
+  - **WP-04 complete:** ProgressBar compose() wiring — compose() override + take_composed_children() stub. 3 new tests.
+  - **WP-05 complete:** Checkbox compose() wiring — compose() override + take_composed_children() stub. 2 new tests.
+  - **WP-06 complete:** Collapsible CollapsibleTitle extraction — `CollapsibleTitle` widget extracted as child struct (style_type "CollapsibleTitle", CSS class "collapsible--title"), title rendering delegated. compose() + take_composed_children(). 12 new tests.
+  - **WP-16 complete:** MessageEvent control field — `control: Option<NodeId>` added to `MessageEvent` so `on_message()` handlers can identify the originating widget directly. Set to `Some(sender)` in `post_message()`. All constructors updated across 10+ files. 3 new tests.
+  - **All parity action plan items now closed.** 6 widget composition rewrites + message control field complete the remaining 7 items.
+  - Build: 0 errors, 29 warnings (pre-existing). Tests: 1577 passed (+50 new), 1 pre-existing failure (`background_is_not_inherited_by_children`). 78 files changed, +2514/-1231 lines.
+
 - **Parity Sprint 22: P1-15 composition migration + widget polish**
   - **P1-15 complete:** Composition migration — all 5 containers with `Vec<Box<dyn Widget>>` (Container, AppRoot, ContentSwitcher, Row, Collapsible) now implement `compose()`, `children()`, `children_mut()`, and `take_composed_children()`. Pragmatic incremental approach: compose() returns empty due to `&self` ownership constraint; `take_composed_children()` (pub(crate)) is the bridge for future runtime tree mount. Rendering unchanged.
   - **WP-21 complete:** OptionList rich Visual support — `content: Option<Text>` field on `OptionItem::Option`, `rich()` / `rich_with_id()` builders, `render_rich_line()` with style merging. 9 new tests.

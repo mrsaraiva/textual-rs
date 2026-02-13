@@ -525,12 +525,12 @@ impl CommandPalette {
         }
         let selected = self.list.selected().min(self.provider_results.len() - 1);
         let result = &self.provider_results[selected];
-        ctx.post_message(
-            Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected {
+        ctx.post_message(Message::CommandPaletteCommandSelected(
+            CommandPaletteCommandSelected {
                 id: result.id.clone(),
                 title: result.title.clone(),
-            }),
-        );
+            },
+        ));
         match result.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
@@ -907,7 +907,11 @@ impl Widget for CommandPalette {
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
             BindingDecl::new("escape", "dismiss", "Dismiss command palette"),
-            BindingDecl::new("enter", "command_list.select_cursor", "Execute selected command"),
+            BindingDecl::new(
+                "enter",
+                "command_list.select_cursor",
+                "Execute selected command",
+            ),
         ]
     }
 
@@ -1113,7 +1117,9 @@ impl Widget for CommandPalette {
         self.query.on_message(message, ctx);
         self.list.on_message(message, ctx);
         self.key_panel.on_message(message, ctx);
-        if let Message::CommandPaletteSetCommands(CommandPaletteSetCommands { commands }) = &message.message {
+        if let Message::CommandPaletteSetCommands(CommandPaletteSetCommands { commands }) =
+            &message.message
+        {
             let next = commands
                 .iter()
                 .map(|command| PaletteCommand {
@@ -1270,9 +1276,7 @@ mod tests {
 
     impl FocusProbe {
         fn new(focused: Arc<AtomicBool>) -> Self {
-            Self {
-                focused,
-            }
+            Self { focused }
         }
     }
 
@@ -1300,9 +1304,7 @@ mod tests {
 
     impl EventProbe {
         fn new(mouse_downs: Arc<AtomicUsize>) -> Self {
-            Self {
-                mouse_downs,
-            }
+            Self { mouse_downs }
         }
     }
 
@@ -1350,10 +1352,9 @@ mod tests {
 
         let messages = execute_ctx.take_messages();
         assert!(
-            messages.iter().any(|event| matches!(
-                event.message,
-                Message::CommandPaletteCommandSelected(..)
-            ))
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected(..)))
         );
         assert!(!palette.is_open());
     }
@@ -1451,6 +1452,7 @@ mod tests {
                         help: "Ship current build".to_string(),
                     }],
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -1603,6 +1605,7 @@ mod tests {
                     overlay: NodeId::default(),
                     visible: true,
                 }),
+                control: None,
             },
             &mut transition_ctx,
         );
@@ -1654,9 +1657,9 @@ mod tests {
         let mut execute_ctx = EventCtx::default();
         palette.on_event(&Event::Key(enter), &mut execute_ctx);
         let messages = execute_ctx.take_messages();
-        let selected_idx = messages.iter().position(|event| {
-            matches!(event.message, Message::CommandPaletteCommandSelected(..))
-        });
+        let selected_idx = messages
+            .iter()
+            .position(|event| matches!(event.message, Message::CommandPaletteCommandSelected(..)));
         let close_idx = messages
             .iter()
             .position(|event| matches!(event.message, Message::CommandPaletteClosed(_)));
@@ -1833,12 +1836,19 @@ mod tests {
             startup_count: Arc<AtomicUsize>,
             shutdown_count: Arc<AtomicUsize>,
         ) -> Self {
-            Self { name, commands, startup_count, shutdown_count }
+            Self {
+                name,
+                commands,
+                startup_count,
+                shutdown_count,
+            }
         }
     }
 
     impl Provider for TestProvider {
-        fn name(&self) -> &str { self.name }
+        fn name(&self) -> &str {
+            self.name
+        }
 
         fn startup(&mut self) {
             self.startup_count.fetch_add(1, Ordering::Relaxed);
@@ -1909,12 +1919,14 @@ mod tests {
             .with_provider(TestProvider::new(
                 "p1",
                 vec![("zz", "Zzz sleep", "low score")],
-                s1.clone(), d1.clone(),
+                s1.clone(),
+                d1.clone(),
             ))
             .with_provider(TestProvider::new(
                 "p2",
                 vec![("aa", "Alpha action", "high score")],
-                s2.clone(), d2.clone(),
+                s2.clone(),
+                d2.clone(),
             ));
 
         let mut ctx = EventCtx::default();
@@ -1938,12 +1950,12 @@ mod tests {
         let startup = Arc::new(AtomicUsize::new(0));
         let shutdown = Arc::new(AtomicUsize::new(0));
 
-        let mut palette = CommandPalette::new(Label::new("body"))
-            .with_provider(TestProvider::new(
-                "tracker",
-                vec![("cmd", "Command", "Help")],
-                startup.clone(), shutdown.clone(),
-            ));
+        let mut palette = CommandPalette::new(Label::new("body")).with_provider(TestProvider::new(
+            "tracker",
+            vec![("cmd", "Command", "Help")],
+            startup.clone(),
+            shutdown.clone(),
+        ));
 
         let mut ctx = EventCtx::default();
         palette.set_open(true, &mut ctx);
@@ -1965,19 +1977,23 @@ mod tests {
         let startup = Arc::new(AtomicUsize::new(0));
         let shutdown = Arc::new(AtomicUsize::new(0));
 
-        let mut palette = CommandPalette::new(Label::new("body"))
-            .with_provider(TestProvider::new(
-                "custom",
-                vec![("deploy", "Deploy", "Ship it")],
-                startup.clone(), shutdown.clone(),
-            ));
+        let mut palette = CommandPalette::new(Label::new("body")).with_provider(TestProvider::new(
+            "custom",
+            vec![("deploy", "Deploy", "Ship it")],
+            startup.clone(),
+            shutdown.clone(),
+        ));
 
         let mut ctx = EventCtx::default();
         palette.set_open(true, &mut ctx);
 
         // 5 built-in + 1 provider = 6 results on empty query.
         assert_eq!(palette.provider_results.len(), 6);
-        let ids: Vec<&str> = palette.provider_results.iter().map(|r| r.id.as_str()).collect();
+        let ids: Vec<&str> = palette
+            .provider_results
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect();
         assert!(ids.contains(&"deploy"));
         assert!(ids.contains(&"quit"));
     }
@@ -1987,12 +2003,12 @@ mod tests {
         let startup = Arc::new(AtomicUsize::new(0));
         let shutdown = Arc::new(AtomicUsize::new(0));
 
-        let mut palette = CommandPalette::new(Label::new("body"))
-            .with_provider(TestProvider::new(
-                "tracker",
-                vec![("cmd", "Command", "Help")],
-                startup.clone(), shutdown.clone(),
-            ));
+        let mut palette = CommandPalette::new(Label::new("body")).with_provider(TestProvider::new(
+            "tracker",
+            vec![("cmd", "Command", "Help")],
+            startup.clone(),
+            shutdown.clone(),
+        ));
 
         let mut ctx = EventCtx::default();
         palette.set_open(true, &mut ctx);

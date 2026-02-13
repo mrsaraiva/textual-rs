@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as RichStyle};
@@ -324,12 +324,10 @@ impl Log {
     }
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            Message::RichLogScrolled(RichLogScrolled {
-                offset: self.offset_y,
-                max_offset: self.max_offset(),
-            }),
-        );
+        ctx.post_message(Message::RichLogScrolled(RichLogScrolled {
+            offset: self.offset_y,
+            max_offset: self.max_offset(),
+        }));
     }
 
     fn processed_width(line: &str) -> usize {
@@ -446,7 +444,9 @@ impl Log {
                 if cell_x >= x {
                     break;
                 }
-                cell_x += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+                cell_x += unicode_width::UnicodeWidthChar::width(ch)
+                    .unwrap_or(0)
+                    .max(1);
                 char_col += 1;
             }
             char_col
@@ -714,10 +714,7 @@ impl Widget for Log {
                 if ctrl && key.code == KeyCode::Char('c') {
                     if let Some(text) = self.selected_text() {
                         ctx.post_message(Message::TextEditClipboardCopyRequested(
-                            TextEditClipboardCopyRequested {
-                                text,
-                                cut: false,
-                            },
+                            TextEditClipboardCopyRequested { text, cut: false },
                         ));
                         self.clear_selection();
                         ctx.request_repaint();
@@ -1010,12 +1007,18 @@ mod tests {
         log.write_line("gamma");
         let after = log.cache.lock().unwrap().entries.len();
         // New line was added at index 2, so entries for 0 and 1 should remain
-        assert!(after <= before, "cache entries for existing lines preserved");
+        assert!(
+            after <= before,
+            "cache entries for existing lines preserved"
+        );
 
         // But rendering includes the new line
         let _ = log.render(&console, &options);
         let final_count = log.cache.lock().unwrap().entries.len();
-        assert!(final_count >= 3, "cache should have all 3 lines after render");
+        assert!(
+            final_count >= 3,
+            "cache should have all 3 lines after render"
+        );
     }
 
     #[test]

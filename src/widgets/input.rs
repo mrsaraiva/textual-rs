@@ -69,7 +69,10 @@ impl SuggestFromList {
     ///   (first match wins).
     /// * `case_sensitive` – when `false` (the default), incoming values are
     ///   case-folded before comparison.
-    pub fn new(suggestions: impl IntoIterator<Item = impl Into<String>>, case_sensitive: bool) -> Self {
+    pub fn new(
+        suggestions: impl IntoIterator<Item = impl Into<String>>,
+        case_sensitive: bool,
+    ) -> Self {
         let suggestions: Vec<String> = suggestions.into_iter().map(Into::into).collect();
         let folded = if case_sensitive {
             suggestions.clone()
@@ -428,7 +431,11 @@ impl Input {
         // Build proposed value and check restrict
         let mut proposed = self.text.clone();
         proposed.insert_str(self.cursor, &inserted);
-        if self.restrict.as_ref().is_some_and(|re| !re.is_match(&proposed)) {
+        if self
+            .restrict
+            .as_ref()
+            .is_some_and(|re| !re.is_match(&proposed))
+        {
             return false;
         }
         self.text.insert_str(self.cursor, &inserted);
@@ -656,9 +663,7 @@ impl Widget for Input {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
-        vec![
-            BindingDecl::new("enter", "submit", "Submit"),
-        ]
+        vec![BindingDecl::new("enter", "submit", "Submit")]
     }
 
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
@@ -754,8 +759,7 @@ impl Widget for Input {
                                 self.delete_selection_if_any();
                                 self.text.insert(self.cursor, ch);
                                 self.cursor += ch.len_utf8();
-                                self.cursor =
-                                    clamp_grapheme_boundary(&self.text, self.cursor);
+                                self.cursor = clamp_grapheme_boundary(&self.text, self.cursor);
                                 self.selection = Selection::cursor(self.cursor);
                                 changed = true;
                                 value_changed = true;
@@ -769,18 +773,16 @@ impl Widget for Input {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: false,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: false },
+                            ));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: true,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: true },
+                            ));
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
@@ -789,9 +791,11 @@ impl Widget for Input {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
-                            target: NodeId::default(),
-                        }));
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(
+                            TextEditClipboardPasteRequested {
+                                target: NodeId::default(),
+                            },
+                        ));
                     }
                     EditCommand::Backspace { unit } => {
                         if self.delete_selection_if_any() {
@@ -865,19 +869,16 @@ impl Widget for Input {
                                 value_changed = true;
                             }
                         } else {
-                            let next =
-                                if self.selection.start != self.selection.end && !select {
-                                    self.selection.start.max(self.selection.end)
-                                } else {
-                                    match unit {
-                                        MoveUnit::Grapheme => {
-                                            next_grapheme_boundary(&self.text, self.cursor)
-                                        }
-                                        MoveUnit::Word => {
-                                            next_word_boundary(&self.text, self.cursor)
-                                        }
+                            let next = if self.selection.start != self.selection.end && !select {
+                                self.selection.start.max(self.selection.end)
+                            } else {
+                                match unit {
+                                    MoveUnit::Grapheme => {
+                                        next_grapheme_boundary(&self.text, self.cursor)
                                     }
-                                };
+                                    MoveUnit::Word => next_word_boundary(&self.text, self.cursor),
+                                }
+                            };
                             changed = self.move_cursor_to(next, select);
                         }
                     }
@@ -933,7 +934,9 @@ impl Widget for Input {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
+            &message.message
+        {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -1093,7 +1096,11 @@ impl Widget for Input {
                     }
                 }
                 // Remaining ghost text in suggestion style
-                let rest_start = ghost.grapheme_indices(true).nth(1).map(|(i, _)| i).unwrap_or(ghost.len());
+                let rest_start = ghost
+                    .grapheme_indices(true)
+                    .nth(1)
+                    .map(|(i, _)| i)
+                    .unwrap_or(ghost.len());
                 let rest = &ghost[rest_start..];
                 if !rest.is_empty() && cells_used < width {
                     let mut ghost_text = String::new();
@@ -1430,6 +1437,7 @@ mod tests {
                     target: NodeId::default(),
                     text: "XYZ".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -1453,6 +1461,7 @@ mod tests {
                     target: NodeId::default(),
                     text: "XYZ\r\n123".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -1494,10 +1503,7 @@ mod tests {
 
     #[test]
     fn suggest_from_list_case_insensitive_prefix() {
-        let suggester = SuggestFromList::new(
-            vec!["Portugal", "Poland", "Spain"],
-            false,
-        );
+        let suggester = SuggestFromList::new(vec!["Portugal", "Poland", "Spain"], false);
         assert_eq!(suggester.suggest("por"), Some("Portugal".to_string()));
         assert_eq!(suggester.suggest("POR"), Some("Portugal".to_string()));
         assert_eq!(suggester.suggest("pol"), Some("Poland".to_string()));
@@ -1508,28 +1514,22 @@ mod tests {
 
     #[test]
     fn suggest_from_list_case_sensitive() {
-        let suggester = SuggestFromList::new(
-            vec!["Portugal", "Poland"],
-            true,
-        );
+        let suggester = SuggestFromList::new(vec!["Portugal", "Poland"], true);
         assert_eq!(suggester.suggest("Por"), Some("Portugal".to_string()));
         assert_eq!(suggester.suggest("por"), None); // case-sensitive: no match
     }
 
     #[test]
     fn suggest_from_list_returns_first_match() {
-        let suggester = SuggestFromList::new(
-            vec!["Apple", "Application", "Banana"],
-            false,
-        );
+        let suggester = SuggestFromList::new(vec!["Apple", "Application", "Banana"], false);
         // First match wins (ordered by priority).
         assert_eq!(suggester.suggest("app"), Some("Apple".to_string()));
     }
 
     #[test]
     fn typing_updates_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal", "Spain"], false));
+        let mut input =
+            Input::new().with_suggester(SuggestFromList::new(vec!["Portugal", "Spain"], false));
         input.set_focus(true);
 
         // Type 'p' => should suggest "Portugal"
@@ -1547,8 +1547,7 @@ mod tests {
 
     #[test]
     fn typing_clears_stale_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_focus(true);
 
         // Type 'p' => "Portugal"
@@ -1577,8 +1576,7 @@ mod tests {
 
     #[test]
     fn tab_accepts_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_focus(true);
 
         // Type 'p'
@@ -1629,8 +1627,7 @@ mod tests {
 
     #[test]
     fn right_arrow_at_end_accepts_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Spain"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Spain"], false));
         input.set_focus(true);
 
         // Type 's'
@@ -1660,8 +1657,7 @@ mod tests {
 
     #[test]
     fn right_arrow_not_at_end_does_not_accept_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_focus(true);
         input.set_text("po");
         input.cursor = 0; // cursor NOT at end
@@ -1683,8 +1679,7 @@ mod tests {
 
     #[test]
     fn set_text_clears_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.suggestion = "Portugal".to_string();
         input.set_text("new value");
         assert!(input.suggestion.is_empty());
@@ -1692,8 +1687,7 @@ mod tests {
 
     #[test]
     fn clear_clears_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_text("po");
         input.suggestion = "Portugal".to_string();
         input.clear();
@@ -1702,8 +1696,7 @@ mod tests {
 
     #[test]
     fn focus_change_clears_suggestion() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_focus(true);
         input.suggestion = "Portugal".to_string();
         input.set_focus(false);
@@ -1733,8 +1726,7 @@ mod tests {
 
     #[test]
     fn tab_accept_emits_input_changed() {
-        let mut input = Input::new()
-            .with_suggester(SuggestFromList::new(vec!["Portugal"], false));
+        let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
         input.set_focus(true);
 
         // Type 'p'

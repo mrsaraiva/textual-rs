@@ -1247,7 +1247,13 @@ impl Style {
             fg,
             fg_auto,
             bg: cascade_field!(self, other, imp, bg, StyleProperty::Bg),
-            text_opacity: cascade_field!(self, other, imp, text_opacity, StyleProperty::TextOpacity),
+            text_opacity: cascade_field!(
+                self,
+                other,
+                imp,
+                text_opacity,
+                StyleProperty::TextOpacity
+            ),
             opacity: cascade_field!(self, other, imp, opacity, StyleProperty::Opacity),
             bold: cascade_field!(self, other, imp, bold, StyleProperty::Bold),
             dim: cascade_field!(self, other, imp, dim, StyleProperty::Dim),
@@ -1255,12 +1261,42 @@ impl Style {
             underline: cascade_field!(self, other, imp, underline, StyleProperty::Underline),
             reverse: cascade_field!(self, other, imp, reverse, StyleProperty::Reverse),
             border: cascade_field!(self, other, imp, border, StyleProperty::Border),
-            border_top: cascade_border_field!(self, other, imp, border_top, StyleProperty::BorderTop),
-            border_right: cascade_border_field!(self, other, imp, border_right, StyleProperty::BorderRight),
-            border_bottom: cascade_border_field!(self, other, imp, border_bottom, StyleProperty::BorderBottom),
-            border_left: cascade_border_field!(self, other, imp, border_left, StyleProperty::BorderLeft),
+            border_top: cascade_border_field!(
+                self,
+                other,
+                imp,
+                border_top,
+                StyleProperty::BorderTop
+            ),
+            border_right: cascade_border_field!(
+                self,
+                other,
+                imp,
+                border_right,
+                StyleProperty::BorderRight
+            ),
+            border_bottom: cascade_border_field!(
+                self,
+                other,
+                imp,
+                border_bottom,
+                StyleProperty::BorderBottom
+            ),
+            border_left: cascade_border_field!(
+                self,
+                other,
+                imp,
+                border_left,
+                StyleProperty::BorderLeft
+            ),
             tint: cascade_field!(self, other, imp, tint, StyleProperty::Tint),
-            background_tint: cascade_field!(self, other, imp, background_tint, StyleProperty::BackgroundTint),
+            background_tint: cascade_field!(
+                self,
+                other,
+                imp,
+                background_tint,
+                StyleProperty::BackgroundTint
+            ),
             margin: cascade_field!(self, other, imp, margin, StyleProperty::Margin),
             padding: cascade_field!(self, other, imp, padding, StyleProperty::Padding),
             width: cascade_field!(self, other, imp, width, StyleProperty::Width),
@@ -1277,22 +1313,76 @@ impl Style {
             overflow_y: cascade_field!(self, other, imp, overflow_y, StyleProperty::OverflowY),
             dock: cascade_field!(self, other, imp, dock, StyleProperty::Dock),
             text_align: cascade_field!(self, other, imp, text_align, StyleProperty::TextAlign),
-            content_align: cascade_field!(self, other, imp, content_align, StyleProperty::ContentAlign),
+            content_align: cascade_field!(
+                self,
+                other,
+                imp,
+                content_align,
+                StyleProperty::ContentAlign
+            ),
             align: cascade_field!(self, other, imp, align, StyleProperty::Align),
             offset: cascade_field!(self, other, imp, offset, StyleProperty::Offset),
             pointer: cascade_field!(self, other, imp, pointer, StyleProperty::Pointer),
             constrain: cascade_field!(self, other, imp, constrain, StyleProperty::Constrain),
-            grid_size_columns: cascade_field!(self, other, imp, grid_size_columns, StyleProperty::GridSizeColumns),
-            grid_size_rows: cascade_field!(self, other, imp, grid_size_rows, StyleProperty::GridSizeRows),
-            grid_columns: cascade_field!(self, other, imp, grid_columns, StyleProperty::GridColumns),
+            grid_size_columns: cascade_field!(
+                self,
+                other,
+                imp,
+                grid_size_columns,
+                StyleProperty::GridSizeColumns
+            ),
+            grid_size_rows: cascade_field!(
+                self,
+                other,
+                imp,
+                grid_size_rows,
+                StyleProperty::GridSizeRows
+            ),
+            grid_columns: cascade_field!(
+                self,
+                other,
+                imp,
+                grid_columns,
+                StyleProperty::GridColumns
+            ),
             grid_rows: cascade_field!(self, other, imp, grid_rows, StyleProperty::GridRows),
-            grid_gutter_horizontal: cascade_field!(self, other, imp, grid_gutter_horizontal, StyleProperty::GridGutterHorizontal),
-            grid_gutter_vertical: cascade_field!(self, other, imp, grid_gutter_vertical, StyleProperty::GridGutterVertical),
+            grid_gutter_horizontal: cascade_field!(
+                self,
+                other,
+                imp,
+                grid_gutter_horizontal,
+                StyleProperty::GridGutterHorizontal
+            ),
+            grid_gutter_vertical: cascade_field!(
+                self,
+                other,
+                imp,
+                grid_gutter_vertical,
+                StyleProperty::GridGutterVertical
+            ),
             layer: cascade_field!(self, other, imp, layer, StyleProperty::Layer),
             layers: cascade_field!(self, other, imp, layers, StyleProperty::Layers),
-            transition_duration: cascade_field!(self, other, imp, transition_duration, StyleProperty::TransitionDuration),
-            transition_delay: cascade_field!(self, other, imp, transition_delay, StyleProperty::TransitionDelay),
-            transition_timing: cascade_field!(self, other, imp, transition_timing, StyleProperty::TransitionTiming),
+            transition_duration: cascade_field!(
+                self,
+                other,
+                imp,
+                transition_duration,
+                StyleProperty::TransitionDuration
+            ),
+            transition_delay: cascade_field!(
+                self,
+                other,
+                imp,
+                transition_delay,
+                StyleProperty::TransitionDelay
+            ),
+            transition_timing: cascade_field!(
+                self,
+                other,
+                imp,
+                transition_timing,
+                StyleProperty::TransitionTiming
+            ),
             importance: imp,
         }
     }
@@ -1503,7 +1593,6 @@ impl Style {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub base: Style,
@@ -1593,7 +1682,10 @@ mod tests {
 
     #[test]
     fn resolve_scalar_view_height() {
-        assert_eq!(resolve_scalar(&Scalar::ViewHeight(25.0), 0, 200, 0.0, 0), 50);
+        assert_eq!(
+            resolve_scalar(&Scalar::ViewHeight(25.0), 0, 200, 0.0, 0),
+            50
+        );
     }
 
     // ---- Spacing tests ----
@@ -1821,10 +1913,7 @@ mod tests {
         };
         let overlay = Style::new();
         let combined = base.combine(&overlay);
-        assert_eq!(
-            combined.layers.as_ref().map(|v| v.len()),
-            Some(2)
-        );
+        assert_eq!(combined.layers.as_ref().map(|v| v.len()), Some(2));
     }
 
     #[test]
@@ -1922,7 +2011,12 @@ mod tests {
                 if i == j {
                     assert!(b.get(other), "{:?} should be set", other);
                 } else {
-                    assert!(!b.get(other), "{:?} should NOT be set when {:?} is", other, prop);
+                    assert!(
+                        !b.get(other),
+                        "{:?} should NOT be set when {:?} is",
+                        other,
+                        prop
+                    );
                 }
             }
         }
@@ -1985,7 +2079,11 @@ mod tests {
         let rule_b = Style::new().fg(Color::rgb(0, 0, 255));
         // A is "self" (accumulated), B is "other" (higher specificity).
         let result = rule_a.combine(&rule_b);
-        assert_eq!(result.fg, Some(Color::rgb(255, 0, 0)), "important fg should survive");
+        assert_eq!(
+            result.fg,
+            Some(Color::rgb(255, 0, 0)),
+            "important fg should survive"
+        );
     }
 
     #[test]
@@ -2001,13 +2099,25 @@ mod tests {
     fn combine_importance_per_property_independent() {
         // Self has bg important, fg normal. Other has bg normal, fg important.
         // Result: bg from self (important), fg from other (important).
-        let mut base = Style::new().bg(Color::rgb(255, 0, 0)).fg(Color::rgb(100, 100, 100));
+        let mut base = Style::new()
+            .bg(Color::rgb(255, 0, 0))
+            .fg(Color::rgb(100, 100, 100));
         base.importance.set(StyleProperty::Bg);
-        let mut overlay = Style::new().bg(Color::rgb(0, 255, 0)).fg(Color::rgb(200, 200, 200));
+        let mut overlay = Style::new()
+            .bg(Color::rgb(0, 255, 0))
+            .fg(Color::rgb(200, 200, 200));
         overlay.importance.set(StyleProperty::Fg);
         let combined = base.combine(&overlay);
-        assert_eq!(combined.bg, Some(Color::rgb(255, 0, 0)), "bg: self is important");
-        assert_eq!(combined.fg, Some(Color::rgb(200, 200, 200)), "fg: other is important");
+        assert_eq!(
+            combined.bg,
+            Some(Color::rgb(255, 0, 0)),
+            "bg: self is important"
+        );
+        assert_eq!(
+            combined.fg,
+            Some(Color::rgb(200, 200, 200)),
+            "fg: other is important"
+        );
         assert!(combined.importance.get(StyleProperty::Bg));
         assert!(combined.importance.get(StyleProperty::Fg));
     }
@@ -2041,7 +2151,10 @@ mod tests {
         child.importance.set(StyleProperty::Bg);
         let parent = Style::new().fg(Color::rgb(0, 255, 0));
         let inherited = child.inherit_from(&parent);
-        assert!(inherited.importance.is_empty(), "importance should be cleared after inheritance");
+        assert!(
+            inherited.importance.is_empty(),
+            "importance should be cleared after inheritance"
+        );
     }
 
     // ---- Constrain enum tests ----

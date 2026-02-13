@@ -89,11 +89,9 @@ impl RadioButton {
     }
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            Message::RadioButtonChanged(RadioButtonChanged {
-                value: self.state.value(),
-            }),
-        );
+        ctx.post_message(Message::RadioButtonChanged(RadioButtonChanged {
+            value: self.state.value(),
+        }));
     }
 
     fn on_toggled(&mut self) {
@@ -267,11 +265,10 @@ mod tests {
         button.on_event(&Event::Key(key), &mut ctx);
         assert!(button.value());
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::RadioButtonChanged(RadioButtonChanged { value: true })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::RadioButtonChanged(RadioButtonChanged { value: true })
+        )));
     }
 
     #[test]

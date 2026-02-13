@@ -591,9 +591,7 @@ impl MaskedInput {
             found
         };
         if !has_editable {
-            return Err(
-                "Template must contain at least one non-separator character".to_string(),
-            );
+            return Err("Template must contain at least one non-separator character".to_string());
         }
 
         let mut template = Template::parse(template_str);
@@ -913,18 +911,16 @@ impl Widget for MaskedInput {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: false,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: false },
+                            ));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.copy_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: true,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: true },
+                            ));
                             self.clear();
                             changed = true;
                             value_changed = true;
@@ -932,9 +928,11 @@ impl Widget for MaskedInput {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
-                            target: NodeId::default(),
-                        }));
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(
+                            TextEditClipboardPasteRequested {
+                                target: NodeId::default(),
+                            },
+                        ));
                     }
                     EditCommand::Backspace { unit } => {
                         match unit {
@@ -1000,7 +998,9 @@ impl Widget for MaskedInput {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
+            &message.message
+        {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -1418,6 +1418,7 @@ mod tests {
                     target: NodeId::default(),
                     text: "9876".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -1438,6 +1439,7 @@ mod tests {
                     target: NodeId::default(),
                     text: "9876\n1234".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );

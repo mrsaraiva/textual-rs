@@ -358,7 +358,11 @@ impl TabbedContent {
                 let pane = &self.panes[next];
                 let id = pane.pane_id.clone().unwrap_or_default();
                 let title = pane.title.clone();
-                ctx.post_message(Message::TabActivated(TabActivated { id, index: next, title }));
+                ctx.post_message(Message::TabActivated(TabActivated {
+                    id,
+                    index: next,
+                    title,
+                }));
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;

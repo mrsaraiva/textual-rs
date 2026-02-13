@@ -249,11 +249,9 @@ impl Footer {
             return;
         }
         self.bindings = next;
-        ctx.post_message(
-            Message::FooterBindingsUpdated(FooterBindingsUpdated {
-                count: self.bindings.len(),
-            }),
-        );
+        ctx.post_message(Message::FooterBindingsUpdated(FooterBindingsUpdated {
+            count: self.bindings.len(),
+        }));
         ctx.request_repaint();
     }
 
@@ -448,10 +446,7 @@ impl Widget for Footer {
             Event::MouseDown(mouse) => {
                 if let Some(flat_index) = self.binding_index_at_x(mouse.x) {
                     if let Some(binding) = self.binding_at_flat_index(flat_index) {
-                        let action_key = binding
-                            .action_key
-                            .as_deref()
-                            .unwrap_or(&binding.key);
+                        let action_key = binding.action_key.as_deref().unwrap_or(&binding.key);
                         debug_message(&format!(
                             "[footer] click binding key=\"{}\" action_key=\"{}\" desc=\"{}\"",
                             binding.key, action_key, binding.description
@@ -528,11 +523,10 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
+        )));
     }
 
     #[test]
@@ -646,9 +640,7 @@ mod tests {
     fn bindings_from_hints_stores_action_key() {
         let mut footer = Footer::new();
         let mut ctx = EventCtx::default();
-        let hints = vec![
-            BindingHint::new("ctrl+s", "Save").with_key_display("^s"),
-        ];
+        let hints = vec![BindingHint::new("ctrl+s", "Save").with_key_display("^s")];
         footer.on_event(&Event::BindingsChanged(hints), &mut ctx);
 
         // The displayed key should be the key_display ("^s"), not the raw key.
@@ -732,8 +724,7 @@ mod tests {
     #[test]
     fn footer_binding_with_action_key_builder() {
         use super::FooterBinding;
-        let binding = FooterBinding::new("^s", "Save")
-            .with_action_key("ctrl+s");
+        let binding = FooterBinding::new("^s", "Save").with_action_key("ctrl+s");
         assert_eq!(binding.action_key.as_deref(), Some("ctrl+s"));
     }
 

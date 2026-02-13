@@ -223,7 +223,8 @@ impl WidgetTree {
         node.mounted = true;
         let id = self.arena.insert(node);
         self.root = Some(id);
-        self.pending_lifecycle.push(LifecycleEvent::Mount { node: id });
+        self.pending_lifecycle
+            .push(LifecycleEvent::Mount { node: id });
         id
     }
 
@@ -241,16 +242,13 @@ impl WidgetTree {
         if let Some(parent_node) = self.arena.get_mut(parent) {
             parent_node.children.push(id);
         }
-        self.pending_lifecycle.push(LifecycleEvent::Mount { node: id });
+        self.pending_lifecycle
+            .push(LifecycleEvent::Mount { node: id });
         id
     }
 
     /// Mount several children under `parent` in order.
-    pub fn mount_all(
-        &mut self,
-        parent: NodeId,
-        widgets: Vec<Box<dyn Widget>>,
-    ) {
+    pub fn mount_all(&mut self, parent: NodeId, widgets: Vec<Box<dyn Widget>>) {
         for w in widgets {
             self.mount(parent, w);
         }
@@ -685,9 +683,7 @@ mod tests {
 
     impl TestWidget {
         fn new(label: &'static str) -> Self {
-            Self {
-                label,
-            }
+            Self { label }
         }
 
         fn boxed(label: &'static str) -> Box<dyn Widget> {
@@ -1177,7 +1173,11 @@ mod tests {
         );
         let events = tree.drain_lifecycle();
         assert_eq!(events.len(), 3);
-        assert!(events.iter().all(|e| matches!(e, LifecycleEvent::Mount { .. })));
+        assert!(
+            events
+                .iter()
+                .all(|e| matches!(e, LifecycleEvent::Mount { .. }))
+        );
     }
 
     #[test]

@@ -52,7 +52,7 @@ pub use aliases::{
 };
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
-pub use collapsible::Collapsible;
+pub use collapsible::{Collapsible, CollapsibleTitle};
 pub use command_palette::{
     CommandPalette, CommandPaletteScreen, FuzzyMatcher, PaletteCommand, SystemModalScreen,
 };

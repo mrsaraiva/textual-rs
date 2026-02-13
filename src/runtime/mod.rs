@@ -1,8 +1,8 @@
+mod devtools;
 mod event_loop;
 mod helpers;
 mod render;
 mod routing;
-mod devtools;
 mod tasks;
 mod timers;
 mod types;
@@ -15,11 +15,11 @@ use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDrive
 use crate::event::{ActionMap, BindingHint, KeyBind};
 use crate::message::MessageEvent;
 use crate::node_id::NodeId;
+use crate::node_id::node_id_from_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
 use crate::style::Theme;
 use crate::widget_tree::WidgetTree;
-use crate::node_id::node_id_from_ffi;
 use crate::widgets::{ToastSeverity, Widget};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -37,7 +37,6 @@ use types::{
 };
 
 use helpers::{apply_size, default_action_map};
-
 
 pub struct App {
     driver: TerminalDriver,
@@ -230,9 +229,13 @@ impl App {
     }
 
     pub(super) fn clipboard_message_event(target: NodeId, text: String) -> MessageEvent {
+        let sender = Self::clipboard_message_sender();
         MessageEvent {
-            sender: Self::clipboard_message_sender(),
-            message: crate::message::Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste { target, text }),
+            sender,
+            message: crate::message::Message::TextEditClipboardPaste(
+                crate::message::TextEditClipboardPaste { target, text },
+            ),
+            control: Some(sender),
         }
     }
 
@@ -705,9 +708,7 @@ impl App {
         // Forward updated coordinates so widgets can track intra-widget mouse position.
         let mut moved_changed = false;
         if let Some(id) = self.hovered {
-            let (lx, ly) = self
-                .hit_test
-                .content_local_coords(id, x as u16, y as u16);
+            let (lx, ly) = self.hit_test.content_local_coords(id, x as u16, y as u16);
             moved_changed = self.call_on_mouse_move_auto(root, id, lx, ly);
         }
 

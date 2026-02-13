@@ -554,15 +554,19 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::TextAreaChanged(TextAreaChanged { value: self.text() }));
+        ctx.post_message(Message::TextAreaChanged(TextAreaChanged {
+            value: self.text(),
+        }));
     }
 
     fn post_selection_changed(&self, ctx: &mut EventCtx) {
         let (a, b) = normalized_selection(self.selection);
-        ctx.post_message(Message::TextAreaSelectionChanged(TextAreaSelectionChanged {
-            start: (a.row, a.col),
-            end: (b.row, b.col),
-        }));
+        ctx.post_message(Message::TextAreaSelectionChanged(
+            TextAreaSelectionChanged {
+                start: (a.row, a.col),
+                end: (b.row, b.col),
+            },
+        ));
     }
 
     fn save_undo_checkpoint(&mut self) {
@@ -1603,27 +1607,24 @@ impl Widget for TextArea {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: false,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: false },
+                            ));
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: true,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: true },
+                            ));
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
                             }
                         } else if let Some(text) = self.cut_current_line() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested {
-                                text,
-                                cut: true,
-                            }));
+                            ctx.post_message(Message::TextEditClipboardCopyRequested(
+                                TextEditClipboardCopyRequested { text, cut: true },
+                            ));
                             changed = true;
                             value_changed = true;
                             next_preferred = Some(self.cursor_cell_x());
@@ -1631,9 +1632,11 @@ impl Widget for TextArea {
                     }
                     EditCommand::Paste => {
                         // TODO(P1-14 integration): wire tree-based NodeId comparison
-                        ctx.post_message(Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested {
-                            target: NodeId::default(),
-                        }));
+                        ctx.post_message(Message::TextEditClipboardPasteRequested(
+                            TextEditClipboardPasteRequested {
+                                target: NodeId::default(),
+                            },
+                        ));
                     }
                     EditCommand::Submit => {}
                 }
@@ -1657,7 +1660,9 @@ impl Widget for TextArea {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) = &message.message {
+        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
+            &message.message
+        {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if *target != NodeId::default() {
                 return;
@@ -2086,6 +2091,7 @@ mod tests {
                     target: NodeId::default(),
                     text: "X\nY".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );

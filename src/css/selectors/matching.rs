@@ -191,7 +191,10 @@ mod tests {
                 sibling_count: Some(6),
                 ..Default::default()
             });
-            assert!(!selector.matches(&meta), "should not match child_index={idx}");
+            assert!(
+                !selector.matches(&meta),
+                "should not match child_index={idx}"
+            );
         }
     }
 
@@ -224,7 +227,10 @@ mod tests {
                 sibling_count: Some(5),
                 ..Default::default()
             });
-            assert!(!selector.matches(&meta), "should not match child_index={idx}");
+            assert!(
+                !selector.matches(&meta),
+                "should not match child_index={idx}"
+            );
         }
     }
 

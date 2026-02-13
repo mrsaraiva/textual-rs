@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::style::{
-    Align, BorderEdge, BorderType, Constrain, ContentAlign, Display, Dock, HorizontalAlign,
-    Layout, Margin, Offset, Overflow, Pointer, Scalar, Style, StyleProperty, TextAlign, Tint,
+    Align, BorderEdge, BorderType, Constrain, ContentAlign, Display, Dock, HorizontalAlign, Layout,
+    Margin, Offset, Overflow, Pointer, Scalar, Style, StyleProperty, TextAlign, Tint,
     TransitionTiming, VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
@@ -225,7 +225,11 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
         "layout" => &[StyleProperty::Layout],
         "display" => &[StyleProperty::Display],
         "visibility" => &[StyleProperty::Visibility],
-        "overflow" => &[StyleProperty::Overflow, StyleProperty::OverflowX, StyleProperty::OverflowY],
+        "overflow" => &[
+            StyleProperty::Overflow,
+            StyleProperty::OverflowX,
+            StyleProperty::OverflowY,
+        ],
         "overflow-x" => &[StyleProperty::OverflowX],
         "overflow-y" => &[StyleProperty::OverflowY],
         "dock" => &[StyleProperty::Dock],
@@ -557,8 +561,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     .map(|token| parse_scalar(token))
                     .collect();
                 if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
-                    style.grid_columns =
-                        Some(parsed.into_iter().map(|s| s.unwrap()).collect());
+                    style.grid_columns = Some(parsed.into_iter().map(|s| s.unwrap()).collect());
                 }
             }
             "grid-rows" => {
@@ -567,8 +570,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     .map(|token| parse_scalar(token))
                     .collect();
                 if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
-                    style.grid_rows =
-                        Some(parsed.into_iter().map(|s| s.unwrap()).collect());
+                    style.grid_rows = Some(parsed.into_iter().map(|s| s.unwrap()).collect());
                 }
             }
             "grid-gutter-horizontal" => {
@@ -591,9 +593,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                         }
                     }
                     2 => {
-                        if let (Ok(h), Ok(v)) =
-                            (parts[0].parse::<u16>(), parts[1].parse::<u16>())
-                        {
+                        if let (Ok(h), Ok(v)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
                             style.grid_gutter_horizontal = Some(h);
                             style.grid_gutter_vertical = Some(v);
                         }
@@ -686,19 +686,13 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "offset-x" => {
                 if let Ok(x) = value.trim().parse::<i16>() {
                     let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
-                    style.offset = Some(Offset {
-                        x,
-                        y: existing.y,
-                    });
+                    style.offset = Some(Offset { x, y: existing.y });
                 }
             }
             "offset-y" => {
                 if let Ok(y) = value.trim().parse::<i16>() {
                     let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
-                    style.offset = Some(Offset {
-                        x: existing.x,
-                        y,
-                    });
+                    style.offset = Some(Offset { x: existing.x, y });
                 }
             }
             "constrain" => {
@@ -751,8 +745,12 @@ fn parse_spacing(value: &str) -> Option<crate::style::Spacing> {
     match nums.len() {
         1 => Some(crate::style::Spacing::all(nums[0])),
         2 => Some(crate::style::Spacing::vertical_horizontal(nums[0], nums[1])),
-        3 => Some(crate::style::Spacing::new(nums[0], nums[1], nums[2], nums[1])),
-        4 => Some(crate::style::Spacing::new(nums[0], nums[1], nums[2], nums[3])),
+        3 => Some(crate::style::Spacing::new(
+            nums[0], nums[1], nums[2], nums[1],
+        )),
+        4 => Some(crate::style::Spacing::new(
+            nums[0], nums[1], nums[2], nums[3],
+        )),
         _ => None,
     }
 }
@@ -1239,8 +1237,7 @@ mod tests {
 
     #[test]
     fn parse_focus_within_combined_with_other_pseudo() {
-        let chain =
-            parse_selector_chain("Container:focus-within:dark").expect("should parse");
+        let chain = parse_selector_chain("Container:focus-within:dark").expect("should parse");
         assert_eq!(chain.parts.len(), 1);
         assert_eq!(
             chain.parts[0].pseudos(),
@@ -1250,8 +1247,7 @@ mod tests {
 
     #[test]
     fn parse_focus_within_in_selector_chain() {
-        let chain =
-            parse_selector_chain("Form:focus-within > Input").expect("should parse");
+        let chain = parse_selector_chain("Form:focus-within > Input").expect("should parse");
         assert_eq!(chain.parts.len(), 2);
         assert_eq!(chain.parts[0].pseudos(), &[PseudoClass::FocusWithin]);
         assert!(chain.parts[1].pseudos().is_empty());
@@ -1355,9 +1351,7 @@ mod tests {
         use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
         // .foo has lower specificity (10) but !important.
         // #bar has higher specificity (100) but normal.
-        let sheet = StyleSheet::parse(
-            ".foo { color: red !important; } #bar { color: green; }",
-        );
+        let sheet = StyleSheet::parse(".foo { color: red !important; } #bar { color: green; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
             id: Some("bar".to_string()),
@@ -1373,9 +1367,8 @@ mod tests {
     fn cascade_two_important_higher_specificity_wins() {
         use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
         // Both rules have !important; higher specificity (#bar = 100) wins.
-        let sheet = StyleSheet::parse(
-            ".foo { color: red !important; } #bar { color: green !important; }",
-        );
+        let sheet =
+            StyleSheet::parse(".foo { color: red !important; } #bar { color: green !important; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
             id: Some("bar".to_string()),
@@ -1390,9 +1383,7 @@ mod tests {
     fn cascade_source_order_breaks_tie_same_specificity_and_importance() {
         use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
         // Two class selectors, same specificity (10), both normal — later wins.
-        let sheet = StyleSheet::parse(
-            ".a { color: red; } .b { color: green; }",
-        );
+        let sheet = StyleSheet::parse(".a { color: red; } .b { color: green; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
             id: None,

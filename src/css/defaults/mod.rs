@@ -48,8 +48,8 @@ pub fn default_widget_stylesheet() -> StyleSheet {
 mod tests {
     use super::*;
     use crate::style::{
-        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar,
-        Spacing, TextAlign, VerticalAlign,
+        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar, Spacing,
+        TextAlign, VerticalAlign,
     };
 
     /// Helper: find the first rule whose primary selector matches the given type name
@@ -110,9 +110,7 @@ mod tests {
                 }
             }
         }
-        panic!(
-            "no child rule found for `{parent_type}.{parent_class} > {child_type}`"
-        );
+        panic!("no child rule found for `{parent_type}.{parent_class} > {child_type}`");
     }
 
     #[test]
@@ -153,7 +151,9 @@ mod tests {
     fn button_has_content_align_center_middle() {
         let sheet = StyleSheet::parse(button::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Button");
-        let ca = style.content_align.expect("Button should have content-align");
+        let ca = style
+            .content_align
+            .expect("Button should have content-align");
         assert_eq!(ca.horizontal, HorizontalAlign::Center);
         assert_eq!(ca.vertical, VerticalAlign::Middle);
     }
@@ -272,7 +272,9 @@ mod tests {
     fn placeholder_has_content_align_center_middle() {
         let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Placeholder");
-        let ca = style.content_align.expect("Placeholder should have content-align");
+        let ca = style
+            .content_align
+            .expect("Placeholder should have content-align");
         assert_eq!(ca.horizontal, HorizontalAlign::Center);
         assert_eq!(ca.vertical, VerticalAlign::Middle);
     }
@@ -283,7 +285,10 @@ mod tests {
         let style = find_type_class_style(&sheet, "Rule", "-horizontal");
         assert_eq!(style.width, Some(Scalar::Fraction(1.0)));
         assert_eq!(style.height, Some(Scalar::Cells(1)));
-        assert!(style.margin.is_some(), "Rule.-horizontal should have margin");
+        assert!(
+            style.margin.is_some(),
+            "Rule.-horizontal should have margin"
+        );
     }
 
     #[test]

@@ -82,7 +82,9 @@ impl Widget for Container {
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let available_width = width.saturating_sub(margin.left as usize + margin.right as usize).max(1);
+            let available_width = width
+                .saturating_sub(margin.left as usize + margin.right as usize)
+                .max(1);
             let mut render_width = clamp_with_constraints(
                 available_width,
                 constraints.min_width,
@@ -90,7 +92,11 @@ impl Widget for Container {
                 available_width,
             );
             if matches!(resolved.width, Some(crate::style::Scalar::Auto)) {
-                let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
+                let pad = resolved
+                    .padding
+                    .map(|s| s.left as usize)
+                    .unwrap_or(0)
+                    .saturating_mul(2);
                 let (_, _, border_left, border_right) =
                     crate::widgets::helpers::border_spacing_from_style(&resolved);
                 let intrinsic = child
@@ -322,7 +328,8 @@ impl Widget for Container {
             let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             if let Some(width) = child.content_width() {
-                widest = widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
+                widest =
+                    widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
                 any = true;
             }
         }

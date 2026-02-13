@@ -96,7 +96,9 @@ impl App {
                 let render_nodes = collect_render_nodes(tree);
                 debug_render(&format!(
                     "[layout_pass] viewport={}x{} render_nodes={}",
-                    w, h, render_nodes.len()
+                    w,
+                    h,
+                    render_nodes.len()
                 ));
             }
         }
@@ -490,9 +492,7 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     while let Some(id) = stack.pop() {
         let render = tree
             .get(id)
-            .map(|node| {
-                node.display && node.visibility == crate::style::Visibility::Visible
-            })
+            .map(|node| node.display && node.visibility == crate::style::Visibility::Visible)
             .unwrap_or(false);
         result.push((id, render));
 
@@ -582,10 +582,7 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
 /// recursive `visit_children_mut`. Walks the tree depth-first and calls
 /// `on_layout(content_w, content_h)` on each widget whose bounding rect
 /// appears in the hit-test map.
-pub(crate) fn apply_layout_info_tree(
-    tree: &mut WidgetTree,
-    hit_test: &NodeHitTestMap,
-) {
+pub(crate) fn apply_layout_info_tree(tree: &mut WidgetTree, hit_test: &NodeHitTestMap) {
     let root = match tree.root() {
         Some(r) => r,
         None => return,
@@ -848,8 +845,7 @@ mod tests {
         let _guard = crate::css::set_style_context(sheet);
 
         let mut root_widget = AppRoot::new();
-        root_widget.styles_mut().unwrap().style.layers =
-            Some(vec!["base".into(), "top".into()]);
+        root_widget.styles_mut().unwrap().style.layers = Some(vec!["base".into(), "top".into()]);
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(root_widget));
@@ -911,8 +907,10 @@ mod tests {
         let child = tree.get(child_id).expect("child should exist");
         let lr = child.layout_rect;
         // The child should be positioned within the viewport.
-        assert!(lr.x1 > lr.x0 || lr.y1 > lr.y0 || (lr.x0 == 0 && lr.y0 == 0),
-            "child should have a non-degenerate or zero-origin layout rect");
+        assert!(
+            lr.x1 > lr.x0 || lr.y1 > lr.y0 || (lr.x0 == 0 && lr.y0 == 0),
+            "child should have a non-degenerate or zero-origin layout rect"
+        );
     }
 
     #[test]

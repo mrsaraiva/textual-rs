@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 use super::App;
 use super::devtools::DevtoolsCommand;
 use super::helpers::{
-    any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
-    mouse_scroll_deltas, pointer_shape_for_hover_tree, should_quit_key,
+    any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree, mouse_scroll_deltas,
+    pointer_shape_for_hover_tree, should_quit_key,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
@@ -79,12 +79,19 @@ fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
     if let Some((source, markup)) = current {
         MessageEvent {
             sender: source,
-            message: Message::HelpPanelFocusedHelpChanged(crate::message::HelpPanelFocusedHelpChanged { source, markup }),
+            message: Message::HelpPanelFocusedHelpChanged(
+                crate::message::HelpPanelFocusedHelpChanged { source, markup },
+            ),
+            control: Some(source),
         }
     } else {
+        let sender = App::runtime_message_sender();
         MessageEvent {
-            sender: App::runtime_message_sender(),
-            message: Message::HelpPanelFocusedHelpCleared(crate::message::HelpPanelFocusedHelpCleared),
+            sender,
+            message: Message::HelpPanelFocusedHelpCleared(
+                crate::message::HelpPanelFocusedHelpCleared,
+            ),
+            control: Some(sender),
         }
     }
 }
@@ -122,13 +129,17 @@ fn collect_clipboard_runtime_messages_with_backend(
     let mut generated = Vec::new();
     for event in messages {
         match &event.message {
-            Message::TextEditClipboardCopyRequested(crate::message::TextEditClipboardCopyRequested { text, .. }) => {
+            Message::TextEditClipboardCopyRequested(
+                crate::message::TextEditClipboardCopyRequested { text, .. },
+            ) => {
                 *clipboard = Some(text.clone());
                 if !backend.copy(text) {
                     debug_input("[clipboard] system copy unavailable; runtime fallback updated");
                 }
             }
-            Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }) => {
+            Message::TextEditClipboardPasteRequested(
+                crate::message::TextEditClipboardPasteRequested { target },
+            ) => {
                 let text = if let Some(system_text) = backend.paste() {
                     *clipboard = Some(system_text.clone());
                     Some(system_text)
@@ -390,7 +401,14 @@ fn collect_stylesheet_affected_widgets_tree(
     }
 
     let mut ancestors = Vec::new();
-    visit(tree, root, changed_rules, app_active, &mut ancestors, &mut affected);
+    visit(
+        tree,
+        root,
+        changed_rules,
+        app_active,
+        &mut ancestors,
+        &mut affected,
+    );
 
     let mut out = affected.into_iter().collect::<Vec<_>>();
     out.sort_by_key(|id| node_id_to_ffi(*id));
@@ -651,7 +669,10 @@ impl App {
             "debug_layout\t{}\n",
             bool_flag(self.debug_layout.enabled)
         ));
-        snapshot.push_str(&format!("frame\t{}\t{}\n", self.frame.width, self.frame.height));
+        snapshot.push_str(&format!(
+            "frame\t{}\t{}\n",
+            self.frame.width, self.frame.height
+        ));
         snapshot.push_str(&format!(
             "hovered\t{}\n",
             self.hovered
@@ -835,8 +856,7 @@ impl App {
                 &mut pending_invalidation,
                 InvalidationScope::Global,
             );
-            let mut msg_outcome =
-                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(
                 &mut msg_outcome,
                 &mut pending_invalidation,
@@ -852,8 +872,7 @@ impl App {
                 &mut pending_invalidation,
                 InvalidationScope::Global,
             );
-            let mut msg_outcome =
-                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(
                 &mut msg_outcome,
                 &mut pending_invalidation,
@@ -862,10 +881,8 @@ impl App {
         }
 
         // Track focused widget for Focus/Blur event dispatch.
-        let mut previous_focus: Option<NodeId> = self
-            .widget_tree
-            .as_ref()
-            .and_then(focused_node_id_tree);
+        let mut previous_focus: Option<NodeId> =
+            self.widget_tree.as_ref().and_then(focused_node_id_tree);
 
         let mut last_render = Instant::now();
 
@@ -948,12 +965,8 @@ impl App {
 
                         // Declarative BINDINGS: check focused widget chain for matching binding.
                         if let Some(tree) = self.widget_tree.as_ref() {
-                            if let Some((_node_id, action_str)) =
-                                match_binding_tree(tree, &key)
-                            {
-                                if let Some(parsed) =
-                                    crate::action::parse_action(&action_str)
-                                {
+                            if let Some((_node_id, action_str)) = match_binding_tree(tree, &key) {
+                                if let Some(parsed) = crate::action::parse_action(&action_str) {
                                     if let Some(tree_mut) = self.widget_tree.as_mut() {
                                         let focused = focused_node_id_tree(tree_mut);
                                         let resolved = {
@@ -1014,7 +1027,8 @@ impl App {
                         }
 
                         // Dispatch the raw key so focused widgets (e.g. Input) can consume it.
-                        let mut key_outcome = self.dispatch_event_auto(root, Event::Key(key.clone()));
+                        let mut key_outcome =
+                            self.dispatch_event_auto(root, Event::Key(key.clone()));
                         debug_input(&format!(
                             "[input] key dispatch handled={} repaint={} messages={}",
                             key_outcome.handled,
@@ -1142,11 +1156,8 @@ impl App {
                             let target = self.widget_at(mouse.column, mouse.row);
                             let (x, y) = target
                                 .map(|id| {
-                                    self.hit_test.content_local_coords(
-                                        id,
-                                        mouse.column,
-                                        mouse.row,
-                                    )
+                                    self.hit_test
+                                        .content_local_coords(id, mouse.column, mouse.row)
                                 })
                                 .unwrap_or((0, 0));
                             let mut outcome = self.dispatch_event_auto(
@@ -1199,11 +1210,8 @@ impl App {
                             let target = self.widget_at(mouse.column, mouse.row);
                             let (local_x, local_y) = target
                                 .map(|id| {
-                                    self.hit_test.content_local_coords(
-                                        id,
-                                        mouse.column,
-                                        mouse.row,
-                                    )
+                                    self.hit_test
+                                        .content_local_coords(id, mouse.column, mouse.row)
                                 })
                                 .unwrap_or((0, 0));
                             debug_input(&format!(
@@ -1257,7 +1265,9 @@ impl App {
                                 InvalidationScope::Global,
                             );
                             let mut outcome = if let Some(target) = target {
-                                self.dispatch_mouse_scroll_to_target_auto(root, target, delta_x, delta_y)
+                                self.dispatch_mouse_scroll_to_target_auto(
+                                    root, target, delta_x, delta_y,
+                                )
                             } else {
                                 dispatch_mouse_scroll(root, delta_x, delta_y)
                             };
@@ -1398,8 +1408,7 @@ impl App {
                 } else {
                     Event::Unmount(UnmountEvent { node: node_id })
                 };
-                let mut outcome =
-                    self.dispatch_event_to_target_auto(root, node_id, &event);
+                let mut outcome = self.dispatch_event_to_target_auto(root, node_id, &event);
                 self.absorb_outcome(
                     &mut outcome,
                     &mut pending_invalidation,
@@ -1430,10 +1439,8 @@ impl App {
             self.run_event_loop_reactive_phase(root, &mut pending_invalidation);
 
             // Detect focus transitions and dispatch Focus/Blur events.
-            let current_focus: Option<NodeId> = self
-                .widget_tree
-                .as_ref()
-                .and_then(focused_node_id_tree);
+            let current_focus: Option<NodeId> =
+                self.widget_tree.as_ref().and_then(focused_node_id_tree);
             if current_focus != previous_focus {
                 if let Some(old_id) = previous_focus {
                     let mut blur_outcome = self.dispatch_event_to_target_auto(
@@ -1692,11 +1699,7 @@ impl App {
         let affected = if let Some(tree) = &self.widget_tree {
             collect_stylesheet_affected_widgets_tree(tree, &reload.changed_rules, self.app_active)
         } else {
-            collect_stylesheet_affected_widgets_root(
-                _root,
-                &reload.changed_rules,
-                self.app_active,
-            )
+            collect_stylesheet_affected_widgets_root(_root, &reload.changed_rules, self.app_active)
         };
         if affected.is_empty() {
             return;
@@ -1938,10 +1941,7 @@ impl App {
     }
 
     /// Get focused help metadata via tree or root-only fallback.
-    fn focused_help_metadata_auto(
-        &self,
-        root: &mut dyn Widget,
-    ) -> Option<(NodeId, String)> {
+    fn focused_help_metadata_auto(&self, root: &mut dyn Widget) -> Option<(NodeId, String)> {
         if let Some(tree) = &self.widget_tree {
             focused_help_metadata_tree(tree)
         } else {
@@ -1994,7 +1994,6 @@ impl App {
             apply_layout_info_tree(tree, &node_hit_test);
         }
     }
-
 }
 
 #[cfg(test)]
@@ -2140,14 +2139,20 @@ mod tests {
             &[
                 MessageEvent {
                     sender: node_id_from_ffi(1),
-                    message: Message::TextEditClipboardCopyRequested(crate::message::TextEditClipboardCopyRequested {
-                        text: "hello".to_string(),
-                        cut: false,
-                    }),
+                    message: Message::TextEditClipboardCopyRequested(
+                        crate::message::TextEditClipboardCopyRequested {
+                            text: "hello".to_string(),
+                            cut: false,
+                        },
+                    ),
+                    control: None,
                 },
                 MessageEvent {
                     sender: node_id_from_ffi(2),
-                    message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
+                    message: Message::TextEditClipboardPasteRequested(
+                        crate::message::TextEditClipboardPasteRequested { target },
+                    ),
+                    control: None,
                 },
             ],
             &mut backend,
@@ -2173,7 +2178,10 @@ mod tests {
             &mut clipboard,
             &[MessageEvent {
                 sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
+                message: Message::TextEditClipboardPasteRequested(
+                    crate::message::TextEditClipboardPasteRequested { target },
+                ),
+                control: None,
             }],
             &mut backend,
         );
@@ -2194,7 +2202,10 @@ mod tests {
             &mut clipboard,
             &[MessageEvent {
                 sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested(crate::message::TextEditClipboardPasteRequested { target }),
+                message: Message::TextEditClipboardPasteRequested(
+                    crate::message::TextEditClipboardPasteRequested { target },
+                ),
+                control: None,
             }],
             &mut backend,
         );
@@ -2367,7 +2378,10 @@ mod tests {
             ..Default::default()
         };
         super::accumulate_worker_requests(&mut outcome);
-        assert!(outcome.worker_requests.is_empty(), "should drain from outcome");
+        assert!(
+            outcome.worker_requests.is_empty(),
+            "should drain from outcome"
+        );
 
         let drained = super::drain_accumulated_worker_requests();
         assert_eq!(drained.len(), 2);

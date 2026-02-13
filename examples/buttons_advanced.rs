@@ -93,9 +93,7 @@ struct StatusLine {
 
 impl StatusLine {
     fn new(text: Arc<Mutex<String>>) -> Self {
-        Self {
-            text,
-        }
+        Self { text }
     }
 }
 

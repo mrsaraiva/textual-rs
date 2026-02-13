@@ -4,9 +4,7 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{
-    LayoutConstraints, Widget, WidgetStyles, helpers::merge_constraints,
-};
+use crate::widgets::{LayoutConstraints, Widget, WidgetStyles, helpers::merge_constraints};
 
 pub struct Constrained {
     child: Box<dyn Widget>,

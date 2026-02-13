@@ -225,8 +225,12 @@ pub trait Widget: Send + Sync {
             segments
         };
 
-        let styled =
-            crate::css::apply_style_to_segments(_node_id, segments, resolved.clone(), parent_style.clone());
+        let styled = crate::css::apply_style_to_segments(
+            _node_id,
+            segments,
+            resolved.clone(),
+            parent_style.clone(),
+        );
         let segments = helpers::apply_border_edges(
             styled,
             inner_width,

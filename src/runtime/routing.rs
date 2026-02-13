@@ -301,9 +301,7 @@ fn is_message_replaceable(message: &Message) -> bool {
 /// discriminant, the earlier one is dropped and only the latest is kept.
 /// Non-replaceable envelopes and envelopes that differ in sender or variant
 /// pass through untouched.
-pub(crate) fn coalesce_message_queue(
-    queue: &mut std::collections::VecDeque<MessageEnvelope>,
-) {
+pub(crate) fn coalesce_message_queue(queue: &mut std::collections::VecDeque<MessageEnvelope>) {
     use std::mem::discriminant;
 
     if queue.len() < 2 {
@@ -449,6 +447,10 @@ fn dispatch_message_bubble(
     envelope: &mut MessageEnvelope,
     ctx: &mut EventCtx,
 ) {
+    // Sync the envelope's promoted/overridden control into the event so that
+    // widget `on_message(&MessageEvent, …)` handlers see the correct value.
+    envelope.event.control = envelope.control();
+
     let sender = envelope.sender();
     let bubble_path = build_path_to_node(tree, sender); // [root, …, parent, sender]
 
@@ -489,9 +491,7 @@ fn dispatch_message_bubble(
 }
 
 /// Return the focused widget's help markup, if any.
-pub(crate) fn focused_help_metadata_tree(
-    tree: &WidgetTree,
-) -> Option<(NodeId, String)> {
+pub(crate) fn focused_help_metadata_tree(tree: &WidgetTree) -> Option<(NodeId, String)> {
     let root = tree.root()?;
     for node_id in tree.walk_depth_first(root) {
         let node = tree.get(node_id)?;
@@ -560,9 +560,7 @@ pub(crate) fn match_binding_tree(
 /// Collect binding hints along the focused path (root→focused).
 ///
 /// If no widget has focus, falls back to root + single-child chain.
-pub(crate) fn active_binding_hints_tree(
-    tree: &WidgetTree,
-) -> (Vec<BindingHint>, Vec<NodeId>) {
+pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>) {
     if let Some(focus_id) = focused_node_id_tree(tree) {
         let path = build_path_to_node(tree, focus_id);
         let mut hints = Vec::new();
@@ -705,12 +703,10 @@ mod message_tests {
         fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
             if let Event::Key(key) = event {
                 if matches!(key.code, KeyCode::Char('x')) {
-                    ctx.post_message(
-                        Message::InputChanged(crate::message::InputChanged {
-                            value: "ok".into(),
-                            validation: crate::validation::ValidationResult::success(),
-                        }),
-                    );
+                    ctx.post_message(Message::InputChanged(crate::message::InputChanged {
+                        value: "ok".into(),
+                        validation: crate::validation::ValidationResult::success(),
+                    }));
                     ctx.set_handled();
                 }
             }
@@ -930,10 +926,7 @@ mod message_tests {
 
     impl ScrollSink {
         fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
-            Self {
-                focused,
-                hits,
-            }
+            Self { focused, hits }
         }
     }
 
@@ -1000,8 +993,7 @@ mod message_tests {
             Box::new(ScrollSink::new(false, second_hits.clone())),
         );
 
-        let outcome =
-            dispatch_scroll_action_tree(&mut tree, Action::ScrollDown, Some(second_id));
+        let outcome = dispatch_scroll_action_tree(&mut tree, Action::ScrollDown, Some(second_id));
         assert!(outcome.handled);
         assert_eq!(first_hits.load(Ordering::Relaxed), 0);
         assert_eq!(second_hits.load(Ordering::Relaxed), 1);
@@ -1028,16 +1020,20 @@ mod message_tests {
     #[test]
     fn focused_path_binding_hints_collects_ancestor_chain() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next focus")],
+        )));
         let mid_id = tree.mount(
             root_id,
             Box::new(HintNode::new(false, vec![BindingHint::new("left", "back")])),
         );
         let _leaf_id = tree.mount(
             mid_id,
-            Box::new(HintNode::new(true, vec![BindingHint::new("enter", "activate")])),
+            Box::new(HintNode::new(
+                true,
+                vec![BindingHint::new("enter", "activate")],
+            )),
         );
 
         let (hints, _sources) = active_binding_hints_tree(&tree);
@@ -1054,12 +1050,16 @@ mod message_tests {
     #[test]
     fn focused_path_binding_hints_returns_empty_without_focus() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next")],
+        )));
         let _leaf_id = tree.mount(
             root_id,
-            Box::new(HintNode::new(false, vec![BindingHint::new("enter", "activate")])),
+            Box::new(HintNode::new(
+                false,
+                vec![BindingHint::new("enter", "activate")],
+            )),
         );
 
         // No focused node — falls back to root scope (single-child chain).
@@ -1071,9 +1071,10 @@ mod message_tests {
     #[test]
     fn focused_help_metadata_returns_focused_widget_help() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next")],
+        )));
         let _child_id = tree.mount(
             root_id,
             Box::new(
@@ -1092,9 +1093,10 @@ mod message_tests {
     #[test]
     fn focused_help_metadata_returns_none_without_focus() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next")],
+        )));
         let _child_id = tree.mount(
             root_id,
             Box::new(
@@ -1109,9 +1111,10 @@ mod message_tests {
     #[test]
     fn focused_path_binding_hints_tracks_focus_transitions() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next focus")],
+        )));
         let child_id = tree.mount(
             root_id,
             Box::new(HintNode::new(
@@ -1141,9 +1144,10 @@ mod message_tests {
     fn focused_help_metadata_tracks_focus_transitions() {
         // State 1: child has focus + help markup.
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next focus")],
+        )));
         let _child_id = tree.mount(
             root_id,
             Box::new(
@@ -1161,8 +1165,7 @@ mod message_tests {
         // State 2: focus moves to root which has its own help markup.
         let mut tree2 = WidgetTree::new();
         let _root_id2 = tree2.set_root(Box::new(
-            HintNode::new(true, vec![BindingHint::new("tab", "next focus")])
-                .with_help("## Second"),
+            HintNode::new(true, vec![BindingHint::new("tab", "next focus")]).with_help("## Second"),
         ));
         let _child_id2 = tree2.mount(
             _root_id2,
@@ -1182,16 +1185,20 @@ mod message_tests {
     #[test]
     fn active_binding_hints_returns_focused_chain_and_sources() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("tab", "next focus")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("tab", "next focus")],
+        )));
         let mid_id = tree.mount(
             root_id,
             Box::new(HintNode::new(false, vec![BindingHint::new("left", "back")])),
         );
         let _leaf_id = tree.mount(
             mid_id,
-            Box::new(HintNode::new(true, vec![BindingHint::new("enter", "activate")])),
+            Box::new(HintNode::new(
+                true,
+                vec![BindingHint::new("enter", "activate")],
+            )),
         );
 
         let (hints, sources) = active_binding_hints_tree(&tree);
@@ -1209,9 +1216,10 @@ mod message_tests {
     #[test]
     fn active_binding_hints_falls_back_to_single_child_scope_without_focus() {
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            HintNode::new(false, vec![BindingHint::new("q", "quit")]),
-        ));
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("q", "quit")],
+        )));
         let _child_id = tree.mount(
             root_id,
             Box::new(HintNode::new(false, vec![BindingHint::new("f1", "help")])),
@@ -1238,8 +1246,8 @@ mod envelope_tests {
     use crate::widgets::Label;
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // -----------------------------------------------------------------------
     // Test widget: counts how many times on_message is called
@@ -1285,6 +1293,7 @@ mod envelope_tests {
         MessageEvent {
             sender: node_id_from_ffi(sender_ffi),
             message,
+            control: None,
         }
     }
 
@@ -1309,13 +1318,23 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "test".into(),
             }),
+            control: None,
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
         // All three nodes on the bubble path should see the message.
-        assert!(leaf_count.load(Ordering::Relaxed) >= 1, "leaf should see message");
-        assert!(mid_count.load(Ordering::Relaxed) >= 1, "mid should see message");
-        assert!(root_count.load(Ordering::Relaxed) >= 1, "root should see message");
+        assert!(
+            leaf_count.load(Ordering::Relaxed) >= 1,
+            "leaf should see message"
+        );
+        assert!(
+            mid_count.load(Ordering::Relaxed) >= 1,
+            "mid should see message"
+        );
+        assert!(
+            root_count.load(Ordering::Relaxed) >= 1,
+            "root should see message"
+        );
         assert!(outcome.handled || leaf_count.load(Ordering::Relaxed) > 0);
     }
 
@@ -1340,13 +1359,17 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "stop".into(),
             }),
+            control: None,
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
         assert!(outcome.handled, "mid should have handled it");
         // Leaf sees it first (bubble starts at sender), mid stops.
         assert!(leaf_count.load(Ordering::Relaxed) >= 1, "leaf sees message");
-        assert!(mid_count.load(Ordering::Relaxed) >= 1, "mid sees message and stops");
+        assert!(
+            mid_count.load(Ordering::Relaxed) >= 1,
+            "mid sees message and stops"
+        );
         assert_eq!(
             root_count.load(Ordering::Relaxed),
             0,
@@ -1390,6 +1413,7 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "dp".into(),
             }),
+            control: None,
         }];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
@@ -1415,6 +1439,7 @@ mod envelope_tests {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env1.set_replaceable(true);
 
@@ -1424,6 +1449,7 @@ mod envelope_tests {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env2.set_replaceable(true);
 
@@ -1451,19 +1477,25 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "first".into(),
             }),
+            control: None,
         });
         let env2 = MessageEnvelope::new(MessageEvent {
             sender,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "second".into(),
             }),
+            control: None,
         });
 
         queue.push_back(env1);
         queue.push_back(env2);
         coalesce_message_queue(&mut queue);
 
-        assert_eq!(queue.len(), 2, "non-replaceable messages should all survive");
+        assert_eq!(
+            queue.len(),
+            2,
+            "non-replaceable messages should all survive"
+        );
     }
 
     #[test]
@@ -1478,6 +1510,7 @@ mod envelope_tests {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env1.set_replaceable(true);
 
@@ -1487,6 +1520,7 @@ mod envelope_tests {
                 value: "b".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env2.set_replaceable(true);
 
@@ -1513,6 +1547,7 @@ mod envelope_tests {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env1.set_replaceable(true);
 
@@ -1522,6 +1557,7 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "click".into(),
             }),
+            control: None,
         });
 
         // Replaceable InputChanged #2
@@ -1531,6 +1567,7 @@ mod envelope_tests {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env3.set_replaceable(true);
 
@@ -1542,10 +1579,7 @@ mod envelope_tests {
         // Two InputChanged coalesce to one, ButtonPressed survives.
         assert_eq!(queue.len(), 2, "InputChanged pair → 1, ButtonPressed → 1");
         // First remaining should be ButtonPressed (index 0 InputChanged was removed).
-        assert!(matches!(
-            queue[0].message(),
-            Message::ButtonPressed(..)
-        ));
+        assert!(matches!(queue[0].message(), Message::ButtonPressed(..)));
         // Second should be the latest InputChanged.
         match queue[1].message() {
             Message::InputChanged(crate::message::InputChanged { value, .. }) => {
@@ -1571,6 +1605,7 @@ mod envelope_tests {
                 value: "x".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env.set_replaceable(true);
         queue.push_back(env);
@@ -1596,6 +1631,7 @@ mod envelope_tests {
                     value: "a".into(),
                     validation: crate::validation::ValidationResult::success(),
                 }),
+                control: None,
             },
             MessageEvent {
                 sender,
@@ -1603,6 +1639,7 @@ mod envelope_tests {
                     value: "ab".into(),
                     validation: crate::validation::ValidationResult::success(),
                 }),
+                control: None,
             },
             MessageEvent {
                 sender,
@@ -1610,6 +1647,7 @@ mod envelope_tests {
                     value: "abc".into(),
                     validation: crate::validation::ValidationResult::success(),
                 }),
+                control: None,
             },
         ];
 
@@ -1624,27 +1662,30 @@ mod envelope_tests {
     #[test]
     fn is_message_replaceable_covers_known_variants() {
         // Spot-check that known rapid-fire message types are replaceable.
-        assert!(is_message_replaceable(&Message::InputChanged(crate::message::InputChanged {
-            value: "x".into(),
-            validation: crate::validation::ValidationResult::success(),
-        })));
-        assert!(is_message_replaceable(&Message::TextAreaChanged(crate::message::TextAreaChanged {
-            value: "x".into(),
-        })));
-        assert!(is_message_replaceable(&Message::DataTableCursorMoved(crate::message::DataTableCursorMoved {
-            row: 0,
-            column: 0,
-        })));
-        assert!(is_message_replaceable(&Message::OptionHighlighted(crate::message::OptionHighlighted {
-            index: 0,
-        })));
+        assert!(is_message_replaceable(&Message::InputChanged(
+            crate::message::InputChanged {
+                value: "x".into(),
+                validation: crate::validation::ValidationResult::success(),
+            }
+        )));
+        assert!(is_message_replaceable(&Message::TextAreaChanged(
+            crate::message::TextAreaChanged { value: "x".into() }
+        )));
+        assert!(is_message_replaceable(&Message::DataTableCursorMoved(
+            crate::message::DataTableCursorMoved { row: 0, column: 0 }
+        )));
+        assert!(is_message_replaceable(&Message::OptionHighlighted(
+            crate::message::OptionHighlighted { index: 0 }
+        )));
         // Non-replaceable variants.
-        assert!(!is_message_replaceable(&Message::ButtonPressed(crate::message::ButtonPressed {
-            description: "x".into(),
-        })));
-        assert!(!is_message_replaceable(&Message::InputSubmitted(crate::message::InputSubmitted {
-            value: "x".into(),
-        })));
+        assert!(!is_message_replaceable(&Message::ButtonPressed(
+            crate::message::ButtonPressed {
+                description: "x".into(),
+            }
+        )));
+        assert!(!is_message_replaceable(&Message::InputSubmitted(
+            crate::message::InputSubmitted { value: "x".into() }
+        )));
     }
 
     // =====================================================================
@@ -1664,6 +1705,7 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ctrl".into(),
             }),
+            control: None,
         }];
 
         // Build the envelope the same way dispatch does and verify control.
@@ -1692,6 +1734,7 @@ mod envelope_tests {
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "bubble".into(),
             }),
+            control: None,
         };
         let mut env = MessageEnvelope::new(evt.clone());
         // Control should be the leaf (sender) before and after dispatch.
@@ -1721,6 +1764,7 @@ mod envelope_tests {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env1.set_replaceable(true);
 
@@ -1730,6 +1774,7 @@ mod envelope_tests {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env2.set_replaceable(true);
 
@@ -1759,6 +1804,7 @@ mod envelope_tests {
                 value: "a".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env1.set_replaceable(true);
 
@@ -1768,6 +1814,7 @@ mod envelope_tests {
                 value: "ab".into(),
                 validation: crate::validation::ValidationResult::success(),
             }),
+            control: None,
         });
         env2.set_replaceable(true);
         env2.set_control(override_node);
@@ -1781,6 +1828,95 @@ mod envelope_tests {
             queue[0].control(),
             Some(override_node),
             "overridden control on the latest envelope should survive coalescing"
+        );
+    }
+
+    // =====================================================================
+    // Widget observability: widgets receive correct control via MessageEvent
+    // =====================================================================
+
+    use crate::node_id::NodeId;
+    use std::sync::Mutex;
+
+    /// Widget that captures the `control` value from the MessageEvent it receives.
+    struct ControlCapture {
+        captured: Arc<Mutex<Vec<Option<NodeId>>>>,
+    }
+
+    impl ControlCapture {
+        fn new(captured: Arc<Mutex<Vec<Option<NodeId>>>>) -> Self {
+            Self { captured }
+        }
+    }
+
+    impl Widget for ControlCapture {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if matches!(message.message, Message::ButtonPressed(..)) {
+                self.captured.lock().unwrap().push(message.control);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    #[test]
+    fn widget_on_message_sees_promoted_control_from_envelope() {
+        // When control is None on the event, the envelope promotes it to
+        // Some(sender). dispatch_message_bubble must sync this back so the
+        // widget's on_message handler sees Some(sender), not None.
+        let captured = Arc::new(Mutex::new(Vec::new()));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(ControlCapture::new(captured.clone())));
+
+        let messages = vec![MessageEvent {
+            sender: root_id,
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
+                description: "test".into(),
+            }),
+            control: None, // None — envelope should promote to Some(root_id)
+        }];
+
+        dispatch_message_queue_tree(&mut tree, messages);
+
+        let values = captured.lock().unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0],
+            Some(root_id),
+            "widget should see control = Some(sender) after envelope promotion"
+        );
+    }
+
+    #[test]
+    fn widget_on_message_sees_explicit_control() {
+        // When control is explicitly set on the event, the widget should see
+        // that value, not the sender.
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let explicit_control = node_id_from_ffi(999);
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(ControlCapture::new(captured.clone())));
+
+        let messages = vec![MessageEvent {
+            sender: root_id,
+            message: Message::ButtonPressed(crate::message::ButtonPressed {
+                description: "explicit".into(),
+            }),
+            control: Some(explicit_control),
+        }];
+
+        dispatch_message_queue_tree(&mut tree, messages);
+
+        let values = captured.lock().unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0],
+            Some(explicit_control),
+            "widget should see the explicit control value from the event"
         );
     }
 }
@@ -1826,7 +1962,9 @@ mod binding_tests {
 
     #[test]
     fn binding_decl_chained_builders() {
-        let b = BindingDecl::new("x", "delete", "Delete").hidden().priority();
+        let b = BindingDecl::new("x", "delete", "Delete")
+            .hidden()
+            .priority();
         assert!(!b.show);
         assert!(b.priority);
     }
@@ -1937,10 +2075,7 @@ mod binding_tests {
             false,
             vec![BindingDecl::new("q", "app.quit", "Quit")],
         )));
-        let _child_id = tree.mount(
-            root_id,
-            Box::new(BindingWidget::new(false, vec![])),
-        );
+        let _child_id = tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
         // Focus the child
         if let Some(node) = tree.get_mut(_child_id) {
             node.widget.set_focus(true);
@@ -2012,10 +2147,7 @@ mod binding_tests {
             false,
             vec![BindingDecl::new("enter", "submit", "Submit")],
         )));
-        let _child_id = tree.mount(
-            root_id,
-            Box::new(BindingWidget::new(true, vec![])),
-        );
+        let _child_id = tree.mount(root_id, Box::new(BindingWidget::new(true, vec![])));
 
         let key =
             KeyEventData::from_crossterm(key_event(KeyCode::Char('z'), KeyModifiers::empty()));

@@ -137,11 +137,7 @@ impl ScreenStack {
     ///
     /// The callback is invoked with the `ScreenResult` when the screen is
     /// popped (either via `pop()` or via `dismiss()`).
-    pub fn push_with_callback(
-        &mut self,
-        screen: Box<dyn Screen>,
-        callback: ScreenResultCallback,
-    ) {
+    pub fn push_with_callback(&mut self, screen: Box<dyn Screen>, callback: ScreenResultCallback) {
         self.push_inner(screen, Some(callback), None);
     }
 
@@ -161,9 +157,10 @@ impl ScreenStack {
     /// no screen with that mode name exists.
     pub fn pop_mode(&mut self, mode_name: &str) -> Option<String> {
         // Find the entry with the matching mode name.
-        let idx = self.screens.iter().position(|e| {
-            e.mode_name.as_deref() == Some(mode_name)
-        })?;
+        let idx = self
+            .screens
+            .iter()
+            .position(|e| e.mode_name.as_deref() == Some(mode_name))?;
 
         let mut entry = self.screens.remove(idx);
         entry.screen.on_unmount();

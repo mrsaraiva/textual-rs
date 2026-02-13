@@ -149,7 +149,12 @@ impl Placeholder {
 
     // ── Watchers ─────────────────────────────────────────────────────────
 
-    fn watch_variant(&mut self, _old: &PlaceholderVariant, _new: &PlaceholderVariant, _ctx: &mut ReactiveCtx) {
+    fn watch_variant(
+        &mut self,
+        _old: &PlaceholderVariant,
+        _new: &PlaceholderVariant,
+        _ctx: &mut ReactiveCtx,
+    ) {
         self.rebuild_classes();
     }
 
@@ -236,11 +241,11 @@ impl Widget for Placeholder {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
                 self.cycle_variant();
-                ctx.post_message(
-                    Message::PlaceholderVariantChanged(PlaceholderVariantChanged {
+                ctx.post_message(Message::PlaceholderVariantChanged(
+                    PlaceholderVariantChanged {
                         variant: self.variant.message_name().to_string(),
-                    }),
-                );
+                    },
+                ));
                 ctx.request_repaint();
                 ctx.set_handled();
             }

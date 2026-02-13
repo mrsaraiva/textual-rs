@@ -117,10 +117,12 @@ impl Overlay {
         }
         self.visible = visible;
         // TODO(P1-14 integration): wire tree-based NodeId comparison
-        ctx.post_message(Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
-            overlay: NodeId::default(),
-            visible,
-        }));
+        ctx.post_message(Message::OverlayVisibilityChanged(
+            OverlayVisibilityChanged {
+                overlay: NodeId::default(),
+                visible,
+            },
+        ));
         ctx.request_repaint();
     }
 
@@ -223,7 +225,9 @@ impl Widget for Overlay {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible }) if *overlay == NodeId::default() => {
+            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
+                if *overlay == NodeId::default() =>
+            {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
@@ -234,7 +238,9 @@ impl Widget for Overlay {
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
-                let target_matches = overlay.map(|target| target == NodeId::default()).unwrap_or(true);
+                let target_matches = overlay
+                    .map(|target| target == NodeId::default())
+                    .unwrap_or(true);
                 let sender_in_modal = self.modal_contains(message.sender);
                 if target_matches && (sender_in_modal || overlay.is_some()) {
                     self.set_visible(false, ctx);

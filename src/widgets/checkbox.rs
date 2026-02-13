@@ -1,6 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::compose::ComposeResult;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 use crate::node_id::NodeId;
@@ -81,11 +82,17 @@ impl Checkbox {
     // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            Message::CheckboxChanged(CheckboxChanged {
-                checked: self.checked,
-            }),
-        );
+        ctx.post_message(Message::CheckboxChanged(CheckboxChanged {
+            checked: self.checked,
+        }));
+    }
+
+    /// Drain all children, returning them as owned widgets.
+    ///
+    /// Checkbox renders toggle+label inline, so this always returns an empty
+    /// Vec. Provided for API uniformity with Container-style widgets.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        Vec::new()
     }
 
     fn rebuild_classes_in_place(&mut self) {
@@ -122,6 +129,10 @@ impl ReactiveWidget for Checkbox {
 }
 
 impl Widget for Checkbox {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -288,11 +299,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         checkbox.on_event(&Event::Key(key), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::CheckboxChanged(CheckboxChanged { checked: true })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::CheckboxChanged(CheckboxChanged { checked: true })
+        )));
     }
 
     #[test]
@@ -317,11 +327,10 @@ mod tests {
         assert!(checkbox.execute_action(&action, &mut ctx));
         assert!(checkbox.checked());
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::CheckboxChanged(CheckboxChanged { checked: true })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::CheckboxChanged(CheckboxChanged { checked: true })
+        )));
     }
 
     // ── Reactive field tests ────────────────────────────────────────────
@@ -357,5 +366,20 @@ mod tests {
         checkbox.reactive_dispatch(&changes, &mut ctx);
         // watch_checked rebuilds classes — verify -on class
         assert!(checkbox.classes.contains(&"-on".to_string()));
+    }
+
+    // ── compose / take_composed_children tests ──────────────────────────
+
+    #[test]
+    fn checkbox_compose_returns_empty() {
+        let checkbox = Checkbox::new("Test");
+        assert!(checkbox.compose().is_empty());
+    }
+
+    #[test]
+    fn checkbox_take_composed_children_returns_empty() {
+        let mut checkbox = Checkbox::new("Test");
+        let taken = checkbox.take_composed_children();
+        assert!(taken.is_empty());
     }
 }

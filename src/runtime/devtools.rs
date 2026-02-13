@@ -4,9 +4,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    mpsc::{self, Sender},
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
+    mpsc::{self, Sender},
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

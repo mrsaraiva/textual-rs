@@ -1,10 +1,10 @@
 //! Integration tests for the reactive attribute system.
 
-use textual::reactive::{
-    ReactiveCtx, ReactiveFieldDescriptor, ReactiveFlags, ReactivePhaseResult, ReactiveWidget,
-    run_reactive_phase, MAX_REACTIVE_ITERATIONS,
-};
 use textual::Reactive;
+use textual::reactive::{
+    MAX_REACTIVE_ITERATIONS, ReactiveCtx, ReactiveFieldDescriptor, ReactiveFlags,
+    ReactivePhaseResult, ReactiveWidget, run_reactive_phase,
+};
 
 // ── Basic derive + getters/setters ──────────────────────────────────
 

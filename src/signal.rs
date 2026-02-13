@@ -113,7 +113,17 @@ mod tests {
     /// Helper: create a SlotMap and insert `n` nodes, returning (map, vec-of-ids).
     fn make_nodes(n: usize) -> (SlotMap<NodeId, &'static str>, Vec<NodeId>) {
         let mut sm = SlotMap::new();
-        let ids: Vec<NodeId> = (0..n).map(|i| sm.insert(if i == 0 { "a" } else if i == 1 { "b" } else { "c" })).collect();
+        let ids: Vec<NodeId> = (0..n)
+            .map(|i| {
+                sm.insert(if i == 0 {
+                    "a"
+                } else if i == 1 {
+                    "b"
+                } else {
+                    "c"
+                })
+            })
+            .collect();
         (sm, ids)
     }
 

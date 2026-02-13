@@ -98,6 +98,7 @@ fn overlay_dismiss_message_hides_modal() {
         &MessageEvent {
             sender: NodeId::default(),
             message: Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None }),
+            control: None,
         },
         &mut ctx,
     );

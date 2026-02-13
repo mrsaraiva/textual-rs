@@ -351,10 +351,18 @@ fn apply_easing(ease: AnimationEase, x: f32) -> f32 {
 
         // ── Expo ─────────────────────────────────────────────────
         AnimationEase::InExpo => {
-            if x == 0.0 { 0.0 } else { 2.0_f32.powf(10.0 * x - 10.0) }
+            if x == 0.0 {
+                0.0
+            } else {
+                2.0_f32.powf(10.0 * x - 10.0)
+            }
         }
         AnimationEase::OutExpo => {
-            if x == 1.0 { 1.0 } else { 1.0 - 2.0_f32.powf(-10.0 * x) }
+            if x == 1.0 {
+                1.0
+            } else {
+                1.0 - 2.0_f32.powf(-10.0 * x)
+            }
         }
         AnimationEase::InOutExpo => {
             if x == 0.0 {
@@ -587,14 +595,12 @@ pub fn interpolate_style_property(
         "opacity" => {
             let a = from.opacity? as f32;
             let b = to.opacity? as f32;
-            result.opacity =
-                Some(interpolate_f32(a, b, t).round().clamp(0.0, 100.0) as u8);
+            result.opacity = Some(interpolate_f32(a, b, t).round().clamp(0.0, 100.0) as u8);
         }
         "text_opacity" => {
             let a = from.text_opacity? as f32;
             let b = to.text_opacity? as f32;
-            result.text_opacity =
-                Some(interpolate_f32(a, b, t).round().clamp(0.0, 100.0) as u8);
+            result.text_opacity = Some(interpolate_f32(a, b, t).round().clamp(0.0, 100.0) as u8);
         }
         "width" => {
             result.width = Some(interpolate_scalar(&from.width?, &to.width?, t)?);
@@ -603,20 +609,16 @@ pub fn interpolate_style_property(
             result.height = Some(interpolate_scalar(&from.height?, &to.height?, t)?);
         }
         "min_width" => {
-            result.min_width =
-                Some(interpolate_scalar(&from.min_width?, &to.min_width?, t)?);
+            result.min_width = Some(interpolate_scalar(&from.min_width?, &to.min_width?, t)?);
         }
         "max_width" => {
-            result.max_width =
-                Some(interpolate_scalar(&from.max_width?, &to.max_width?, t)?);
+            result.max_width = Some(interpolate_scalar(&from.max_width?, &to.max_width?, t)?);
         }
         "min_height" => {
-            result.min_height =
-                Some(interpolate_scalar(&from.min_height?, &to.min_height?, t)?);
+            result.min_height = Some(interpolate_scalar(&from.min_height?, &to.min_height?, t)?);
         }
         "max_height" => {
-            result.max_height =
-                Some(interpolate_scalar(&from.max_height?, &to.max_height?, t)?);
+            result.max_height = Some(interpolate_scalar(&from.max_height?, &to.max_height?, t)?);
         }
         "margin" => {
             let a = from.margin.as_ref()?;
@@ -953,8 +955,14 @@ mod tests {
     fn interpolate_scalar_cells_boundaries() {
         let from = Scalar::Cells(10);
         let to = Scalar::Cells(30);
-        assert_eq!(interpolate_scalar(&from, &to, 0.0).unwrap(), Scalar::Cells(10));
-        assert_eq!(interpolate_scalar(&from, &to, 1.0).unwrap(), Scalar::Cells(30));
+        assert_eq!(
+            interpolate_scalar(&from, &to, 0.0).unwrap(),
+            Scalar::Cells(10)
+        );
+        assert_eq!(
+            interpolate_scalar(&from, &to, 1.0).unwrap(),
+            Scalar::Cells(30)
+        );
     }
 
     #[test]
@@ -1104,9 +1112,20 @@ mod tests {
     #[test]
     fn is_animatable_property_positive() {
         for prop in &[
-            "fg", "bg", "opacity", "text_opacity", "width", "height",
-            "min_width", "max_width", "min_height", "max_height",
-            "margin", "padding", "tint", "background_tint",
+            "fg",
+            "bg",
+            "opacity",
+            "text_opacity",
+            "width",
+            "height",
+            "min_width",
+            "max_width",
+            "min_height",
+            "max_height",
+            "margin",
+            "padding",
+            "tint",
+            "background_tint",
         ] {
             assert!(is_animatable_property(prop), "{prop} should be animatable");
         }
@@ -1115,11 +1134,24 @@ mod tests {
     #[test]
     fn is_animatable_property_negative() {
         for prop in &[
-            "display", "visibility", "layout", "dock", "overflow",
-            "bold", "italic", "underline", "border", "pointer",
-            "layer", "layers", "nonexistent",
+            "display",
+            "visibility",
+            "layout",
+            "dock",
+            "overflow",
+            "bold",
+            "italic",
+            "underline",
+            "border",
+            "pointer",
+            "layer",
+            "layers",
+            "nonexistent",
         ] {
-            assert!(!is_animatable_property(prop), "{prop} should NOT be animatable");
+            assert!(
+                !is_animatable_property(prop),
+                "{prop} should NOT be animatable"
+            );
         }
     }
 

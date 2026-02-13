@@ -39,6 +39,7 @@ fn welcome_re_emits_button_press_from_widget_sender() {
             message: Message::ButtonPressed(ButtonPressed {
                 description: "Button(classes='button', variant='success')".to_string(),
             }),
+            control: None,
         },
         &mut ctx,
     );

@@ -9,12 +9,10 @@ mod segments;
 // Public re-exports (used by `src/css/mod.rs` and external consumers)
 pub(crate) use ast::{Combinator, SelectorChain, SelectorMeta};
 pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
-pub use context::{
-    set_app_active, set_style_context, AppActiveGuard, StyleContextGuard,
-};
+pub use context::{AppActiveGuard, StyleContextGuard, set_app_active, set_style_context};
 // Re-exported for future use by the event loop / monolithic render path.
 #[allow(unused_imports)]
-pub use context::{set_focus_within, FocusWithinGuard};
+pub use context::{FocusWithinGuard, set_focus_within};
 pub(crate) use parser::parse_selector_list;
 
 // Crate-internal re-exports
@@ -37,7 +35,7 @@ mod tests {
         take_layout_affected_style_changes, with_style_stack,
     };
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
-    use crate::css::{default_widget_stylesheet, StyleSheet};
+    use crate::css::{StyleSheet, default_widget_stylesheet};
     use crate::node_id::node_id_from_ffi;
     use crate::style::{Color, Style, TransitionTiming};
     use crate::widgets::{Button, Widget};
@@ -197,8 +195,7 @@ mod tests {
         let mut light_segments = Segments::new();
         light_segments.push(Segment::new("x"));
         let light_style = parse_style_body("bg: #f5f5f5; fg: auto 87%;");
-        let light =
-            apply_style_to_segments(node_id_from_ffi(1), light_segments, light_style, None);
+        let light = apply_style_to_segments(node_id_from_ffi(1), light_segments, light_style, None);
         let light_fg = light
             .into_iter()
             .next()
@@ -500,9 +497,8 @@ mod tests {
 
     #[test]
     fn display_none_in_stylesheet_resolves() {
-        let _guard = super::context::set_style_context(StyleSheet::parse(
-            "Probe.hidden { display: none; }",
-        ));
+        let _guard =
+            super::context::set_style_context(StyleSheet::parse("Probe.hidden { display: none; }"));
         let mut widget = ProbeWidget::new();
         widget.classes.push("hidden".to_string());
         let meta = selector_meta_generic(&widget);

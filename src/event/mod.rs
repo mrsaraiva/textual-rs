@@ -574,54 +574,41 @@ impl EventCtx {
         self.messages.push(MessageEvent {
             sender: self.node_id,
             message,
+            control: Some(self.node_id),
         });
     }
 
-    pub fn spawn_async_task(
-        &mut self,
-        task_id: u64,
-        target: NodeId,
-        request: AsyncTaskRequest,
-    ) {
-        self.post_message(
-            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
-                task_id,
-                target,
-                request,
-            }),
-        );
+    pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
+        self.post_message(Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
+            task_id,
+            target,
+            request,
+        }));
     }
 
-    pub fn spawn_async_task_for(
-        &mut self,
-        task_id: u64,
-        request: AsyncTaskRequest,
-    ) {
+    pub fn spawn_async_task_for(&mut self, task_id: u64, request: AsyncTaskRequest) {
         let self_id = self.node_id;
         self.spawn_async_task(task_id, self_id, request);
     }
 
     pub fn cancel_async_task(&mut self, task_id: u64) {
-        self.post_message(Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }));
+        self.post_message(Message::AsyncTaskCancel(crate::message::AsyncTaskCancel {
+            task_id,
+        }));
     }
 
     pub fn cancel_async_tasks_for(&mut self, target: NodeId) {
-        self.post_message(Message::AsyncTaskCancelTarget(crate::message::AsyncTaskCancelTarget { target }));
+        self.post_message(Message::AsyncTaskCancelTarget(
+            crate::message::AsyncTaskCancelTarget { target },
+        ));
     }
 
-    pub fn schedule_timer(
-        &mut self,
-        timer_id: u64,
-        target: NodeId,
-        delay: Duration,
-    ) {
-        self.post_message(
-            Message::TimerSchedule(crate::message::TimerSchedule {
-                timer_id,
-                target,
-                delay,
-            }),
-        );
+    pub fn schedule_timer(&mut self, timer_id: u64, target: NodeId, delay: Duration) {
+        self.post_message(Message::TimerSchedule(crate::message::TimerSchedule {
+            timer_id,
+            target,
+            delay,
+        }));
     }
 
     pub fn schedule_timer_for(&mut self, timer_id: u64, delay: Duration) {
@@ -630,11 +617,15 @@ impl EventCtx {
     }
 
     pub fn cancel_timer(&mut self, timer_id: u64) {
-        self.post_message(Message::TimerCancel(crate::message::TimerCancel { timer_id }));
+        self.post_message(Message::TimerCancel(crate::message::TimerCancel {
+            timer_id,
+        }));
     }
 
     pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
-        self.post_message(Message::OverlaySetVisible(crate::message::OverlaySetVisible { overlay, visible }));
+        self.post_message(Message::OverlaySetVisible(
+            crate::message::OverlaySetVisible { overlay, visible },
+        ));
     }
 
     pub fn show_overlay(&mut self, overlay: NodeId) {
@@ -646,26 +637,33 @@ impl EventCtx {
     }
 
     pub fn toggle_overlay(&mut self, overlay: NodeId) {
-        self.post_message(Message::OverlayToggle(crate::message::OverlayToggle { overlay }));
+        self.post_message(Message::OverlayToggle(crate::message::OverlayToggle {
+            overlay,
+        }));
     }
 
     pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
-        self.post_message(Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay }));
+        self.post_message(Message::OverlayDismissRequested(
+            crate::message::OverlayDismissRequested { overlay },
+        ));
     }
 
     pub fn open_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteOpened(crate::message::CommandPaletteOpened));
+        self.post_message(Message::CommandPaletteOpened(
+            crate::message::CommandPaletteOpened,
+        ));
     }
 
     pub fn close_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteClosed(crate::message::CommandPaletteClosed));
+        self.post_message(Message::CommandPaletteClosed(
+            crate::message::CommandPaletteClosed,
+        ));
     }
 
-    pub fn set_command_palette_commands(
-        &mut self,
-        commands: Vec<CommandPaletteCommand>,
-    ) {
-        self.post_message(Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands }));
+    pub fn set_command_palette_commands(&mut self, commands: Vec<CommandPaletteCommand>) {
+        self.post_message(Message::CommandPaletteSetCommands(
+            crate::message::CommandPaletteSetCommands { commands },
+        ));
     }
 
     pub fn select_command_palette_command(
@@ -673,12 +671,12 @@ impl EventCtx {
         id: impl Into<String>,
         title: impl Into<String>,
     ) {
-        self.post_message(
-            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected {
+        self.post_message(Message::CommandPaletteCommandSelected(
+            crate::message::CommandPaletteCommandSelected {
                 id: id.into(),
                 title: title.into(),
-            }),
-        );
+            },
+        ));
     }
 
     pub fn request_animation(&mut self, request: AnimationRequest) {
@@ -706,8 +704,8 @@ impl EventCtx {
         duration: Duration,
         ease: AnimationEase,
     ) {
-        let request = StyleAnimationRequest::new(target, property, from, to, duration)
-            .with_ease(ease);
+        let request =
+            StyleAnimationRequest::new(target, property, from, to, duration).with_ease(ease);
         self.request_style_animation(request);
     }
 
@@ -768,8 +766,7 @@ impl EventCtx {
             .append(&mut other.animation_requests);
         self.style_animation_requests
             .append(&mut other.style_animation_requests);
-        self.worker_requests
-            .append(&mut other.worker_requests);
+        self.worker_requests.append(&mut other.worker_requests);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
@@ -927,13 +924,11 @@ mod tests {
         ctx.toggle_overlay(overlay_id);
         ctx.dismiss_overlay(Some(overlay_id));
         ctx.open_command_palette();
-        ctx.set_command_palette_commands(
-            vec![CommandPaletteCommand {
-                id: "open".to_string(),
-                title: "Open".to_string(),
-                help: "Open file".to_string(),
-            }],
-        );
+        ctx.set_command_palette_commands(vec![CommandPaletteCommand {
+            id: "open".to_string(),
+            title: "Open".to_string(),
+            help: "Open file".to_string(),
+        }]);
         ctx.select_command_palette_command("open", "Open");
         ctx.close_command_palette();
 
@@ -961,7 +956,10 @@ mod tests {
             messages[3].message,
             Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay: Some(target) }) if target == overlay_id
         ));
-        assert!(matches!(messages[4].message, Message::CommandPaletteOpened(_)));
+        assert!(matches!(
+            messages[4].message,
+            Message::CommandPaletteOpened(_)
+        ));
         assert!(matches!(
             &messages[5].message,
             Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands })
@@ -971,35 +969,62 @@ mod tests {
             &messages[6].message,
             Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected { id, title }) if id == "open" && title == "Open"
         ));
-        assert!(matches!(messages[7].message, Message::CommandPaletteClosed(_)));
+        assert!(matches!(
+            messages[7].message,
+            Message::CommandPaletteClosed(_)
+        ));
     }
 
     // ── New event struct construction tests ──────────────────────────
 
     #[test]
     fn mouse_enter_event_construction() {
-        let e = MouseEnterEvent { x: 5, y: 10, screen_x: 20, screen_y: 30 };
+        let e = MouseEnterEvent {
+            x: 5,
+            y: 10,
+            screen_x: 20,
+            screen_y: 30,
+        };
         assert_eq!(e.x, 5);
         assert_eq!(e.y, 10);
         assert_eq!(e.screen_x, 20);
         assert_eq!(e.screen_y, 30);
         let ev = Event::Enter(e);
-        assert!(matches!(ev, Event::Enter(MouseEnterEvent { x: 5, y: 10, .. })));
+        assert!(matches!(
+            ev,
+            Event::Enter(MouseEnterEvent { x: 5, y: 10, .. })
+        ));
     }
 
     #[test]
     fn mouse_leave_event_construction() {
-        let e = MouseLeaveEvent { x: 1, y: 2, screen_x: 3, screen_y: 4 };
+        let e = MouseLeaveEvent {
+            x: 1,
+            y: 2,
+            screen_x: 3,
+            screen_y: 4,
+        };
         let ev = Event::Leave(e);
         assert!(matches!(
             ev,
-            Event::Leave(MouseLeaveEvent { x: 1, y: 2, screen_x: 3, screen_y: 4 })
+            Event::Leave(MouseLeaveEvent {
+                x: 1,
+                y: 2,
+                screen_x: 3,
+                screen_y: 4
+            })
         ));
     }
 
     #[test]
     fn click_event_construction() {
-        let e = ClickEvent { x: 10, y: 20, screen_x: 50, screen_y: 60, button: 0 };
+        let e = ClickEvent {
+            x: 10,
+            y: 20,
+            screen_x: 50,
+            screen_y: 60,
+            button: 0,
+        };
         assert_eq!(e.button, 0);
         let ev = Event::Click(e);
         assert!(matches!(ev, Event::Click(ClickEvent { button: 0, .. })));
@@ -1007,13 +1032,21 @@ mod tests {
 
     #[test]
     fn click_event_right_button() {
-        let e = ClickEvent { x: 0, y: 0, screen_x: 0, screen_y: 0, button: 2 };
+        let e = ClickEvent {
+            x: 0,
+            y: 0,
+            screen_x: 0,
+            screen_y: 0,
+            button: 2,
+        };
         assert_eq!(e.button, 2);
     }
 
     #[test]
     fn paste_event_construction() {
-        let e = PasteEvent { text: "hello world".to_string() };
+        let e = PasteEvent {
+            text: "hello world".to_string(),
+        };
         assert_eq!(e.text, "hello world");
         let ev = Event::Paste(e);
         assert!(matches!(ev, Event::Paste(PasteEvent { .. })));
@@ -1021,7 +1054,9 @@ mod tests {
 
     #[test]
     fn paste_event_empty_text() {
-        let e = PasteEvent { text: String::new() };
+        let e = PasteEvent {
+            text: String::new(),
+        };
         assert!(e.text.is_empty());
     }
 
@@ -1073,7 +1108,15 @@ mod tests {
     #[test]
     fn style_value_color_construction() {
         let v = StyleValue::Color(Color::rgb(10, 20, 30));
-        assert!(matches!(v, StyleValue::Color(Color { r: 10, g: 20, b: 30, a: 255 })));
+        assert!(matches!(
+            v,
+            StyleValue::Color(Color {
+                r: 10,
+                g: 20,
+                b: 30,
+                a: 255
+            })
+        ));
     }
 
     #[test]
@@ -1279,5 +1322,23 @@ mod tests {
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].name.as_deref(), Some("a"));
         assert_eq!(reqs[1].name.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn post_message_sets_control_to_sender() {
+        let sender_id = node_id_from_ffi(42);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(sender_id);
+
+        ctx.post_message(Message::ClearRequested(crate::message::ClearRequested));
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sender, sender_id);
+        assert_eq!(
+            messages[0].control,
+            Some(sender_id),
+            "post_message should set control to Some(sender)"
+        );
     }
 }

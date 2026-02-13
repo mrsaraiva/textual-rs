@@ -3,21 +3,20 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::{debug_input, debug_layout, DebugLayout};
+use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{parse_color_like, TransitionTiming};
+use crate::style::{TransitionTiming, parse_color_like};
 
-use crate::node_id::NodeId;
 use crate::action::ParsedAction;
+use crate::node_id::NodeId;
 use crate::widgets::{
-    BindingDecl,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
-    Widget, WidgetStyles,
 };
 
 pub struct ScrollView {
@@ -367,11 +366,7 @@ impl Widget for ScrollView {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[scroll] id={} viewport=({}, {}) offset=({}, {})",
-                0u64,
-                width,
-                viewport_height,
-                self.offset_x,
-                self.offset_y
+                0u64, width, viewport_height, self.offset_x, self.offset_y
             ));
         }
         // Read the resolved CSS overflow properties (per-axis).
@@ -432,10 +427,7 @@ impl Widget for ScrollView {
             if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
                 debug_layout(&format!(
                     "[scroll] id={} child render_width={} constraints=({:?},{:?})",
-                    0u64,
-                    render_width,
-                    constraints.min_width,
-                    constraints.max_width
+                    0u64, render_width, constraints.min_width, constraints.max_width
                 ));
             }
             let render_height = clamp_with_constraints(

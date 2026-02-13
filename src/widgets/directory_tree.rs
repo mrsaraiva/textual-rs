@@ -52,10 +52,7 @@ impl DirectoryNode {
             node = node.with_component_class("directory-tree--folder");
         } else {
             node = node.with_component_class("directory-tree--file");
-            if let Some(ext) = Path::new(&self.label)
-                .extension()
-                .and_then(|e| e.to_str())
-            {
+            if let Some(ext) = Path::new(&self.label).extension().and_then(|e| e.to_str()) {
                 node = node.with_component_class("directory-tree--extension");
                 node = node.with_component_class(format!(
                     "directory-tree--extension-{}",
@@ -105,7 +102,13 @@ impl DirectoryTree {
         let root_path = path.into();
         let show_hidden = false;
         let filter: Option<fn(&Path) -> bool> = None;
-        let root = build_root(root_path.clone(), show_hidden, true, &HashSet::new(), filter);
+        let root = build_root(
+            root_path.clone(),
+            show_hidden,
+            true,
+            &HashSet::new(),
+            filter,
+        );
 
         let mut tree = Tree::new(vec![root.to_tree_node()]);
         tree.on_layout(1, 1);
@@ -244,17 +247,15 @@ impl DirectoryTree {
             .insert(path_buf.clone(), task_id);
         self.inflight_loads_by_task
             .insert(task_id, path_buf.clone());
-        ctx.post_message(
-            Message::AsyncTaskSpawn(AsyncTaskSpawn {
-                task_id,
-                // TODO(P1-14 integration): wire tree-based NodeId comparison
-                target: NodeId::default(),
-                request: AsyncTaskRequest::ReadDirectory {
-                    path: path_buf.display().to_string(),
-                    show_hidden: self.show_hidden,
-                },
-            }),
-        );
+        ctx.post_message(Message::AsyncTaskSpawn(AsyncTaskSpawn {
+            task_id,
+            // TODO(P1-14 integration): wire tree-based NodeId comparison
+            target: NodeId::default(),
+            request: AsyncTaskRequest::ReadDirectory {
+                path: path_buf.display().to_string(),
+                show_hidden: self.show_hidden,
+            },
+        }));
     }
 
     fn cancel_inflight_loads_for(&mut self, path: &Path, ctx: &mut EventCtx) {
@@ -448,13 +449,15 @@ impl Widget for DirectoryTree {
                 task_id,
                 target,
                 result,
-            // TODO(P1-14 integration): wire tree-based NodeId comparison
+                // TODO(P1-14 integration): wire tree-based NodeId comparison
             }) if *target == NodeId::default() => {
                 self.apply_directory_load_result(*task_id, result, ctx);
                 ctx.set_handled();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target }) if *target == NodeId::default() => {
+            Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target })
+                if *target == NodeId::default() =>
+            {
                 self.clear_inflight_task(*task_id);
                 ctx.set_handled();
             }
@@ -493,13 +496,11 @@ impl Widget for DirectoryTree {
                     .map(|entry| entry.path.display().to_string())
                     .unwrap_or_default();
                 self.update_node_expanded_state(*index, *expanded, ctx);
-                ctx.post_message(
-                    Message::TreeNodeToggled(TreeNodeToggled {
-                        index: *index,
-                        label,
-                        expanded: *expanded,
-                    }),
-                );
+                ctx.post_message(Message::TreeNodeToggled(TreeNodeToggled {
+                    index: *index,
+                    label,
+                    expanded: *expanded,
+                }));
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -740,6 +741,7 @@ mod tests {
                     index: 1,
                     label: "alpha.txt".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -771,6 +773,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -803,6 +806,7 @@ mod tests {
                     label: "nested".to_string(),
                     expanded: true,
                 }),
+                control: None,
             },
             &mut ctx,
         );
@@ -837,6 +841,7 @@ mod tests {
                     label: "nested".to_string(),
                     expanded: true,
                 }),
+                control: None,
             },
             &mut expand_ctx,
         );
@@ -851,15 +856,15 @@ mod tests {
                     label: "nested".to_string(),
                     expanded: false,
                 }),
+                control: None,
             },
             &mut collapse_ctx,
         );
 
         let emitted = collapse_ctx.take_messages();
-        assert!(
-            emitted
-                .iter()
-                .any(|event| matches!(event.message, Message::AsyncTaskCancel(AsyncTaskCancel { task_id: 1 })))
-        );
+        assert!(emitted.iter().any(|event| matches!(
+            event.message,
+            Message::AsyncTaskCancel(AsyncTaskCancel { task_id: 1 })
+        )));
     }
 }

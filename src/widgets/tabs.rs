@@ -275,7 +275,8 @@ impl Tabs {
         self.hovered_tab = None;
         self.underline_start = 0.0;
         self.underline_end = 0.0;
-        self.pending_messages.push(Message::TabsCleared(TabsCleared));
+        self.pending_messages
+            .push(Message::TabsCleared(TabsCleared));
     }
 
     /// Number of tabs.
@@ -324,12 +325,7 @@ impl Tabs {
         true
     }
 
-    fn set_tab_hidden_index(
-        &mut self,
-        index: usize,
-        hidden: bool,
-        ctx: &mut ReactiveCtx,
-    ) -> bool {
+    fn set_tab_hidden_index(&mut self, index: usize, hidden: bool, ctx: &mut ReactiveCtx) -> bool {
         if index >= self.tabs.len() {
             return false;
         }
@@ -443,13 +439,11 @@ impl Tabs {
                     self.underline_start = 0.0;
                     self.underline_end = 0.0;
                 }
-                ctx.post_message(
-                    Message::TabActivated(TabActivated {
-                        id: self.tabs[next].tab_id.clone(),
-                        index: next,
-                        title: self.tabs[next].title.clone(),
-                    }),
-                );
+                ctx.post_message(Message::TabActivated(TabActivated {
+                    id: self.tabs[next].tab_id.clone(),
+                    index: next,
+                    title: self.tabs[next].title.clone(),
+                }));
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.underline_start = target_start;

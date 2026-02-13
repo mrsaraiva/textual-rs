@@ -1,9 +1,9 @@
 use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::message::MessageEvent;
+use textual::node_id_from_ffi;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
-use textual::node_id_from_ffi;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -144,6 +144,7 @@ fn help_panel_help_can_be_driven_via_messages() {
                 panel: NodeId::default(),
                 markup: "## Runtime help".to_string(),
             }),
+            control: None,
         },
         &mut ctx,
     );
@@ -156,7 +157,10 @@ fn help_panel_help_can_be_driven_via_messages() {
     panel.on_message(
         &MessageEvent {
             sender: NodeId::default(),
-            message: Message::HelpPanelClearHelp(HelpPanelClearHelp { panel: NodeId::default() }),
+            message: Message::HelpPanelClearHelp(HelpPanelClearHelp {
+                panel: NodeId::default(),
+            }),
+            control: None,
         },
         &mut clear_ctx,
     );
@@ -175,6 +179,7 @@ fn help_panel_handles_focused_help_pipeline_messages() {
                 source: node_id_from_ffi(100),
                 markup: "## Focused widget help".to_string(),
             }),
+            control: None,
         },
         &mut set_ctx,
     );
@@ -186,6 +191,7 @@ fn help_panel_handles_focused_help_pipeline_messages() {
         &MessageEvent {
             sender: NodeId::default(),
             message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
+            control: None,
         },
         &mut clear_ctx,
     );

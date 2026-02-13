@@ -92,11 +92,9 @@ impl Link {
             if let Err(err) = open::that(&self.url) {
                 eprintln!("Link: failed to open URL {:?}: {}", self.url, err);
             }
-            ctx.post_message(
-                Message::LinkClicked(LinkClicked {
-                    url: self.url.clone(),
-                }),
-            );
+            ctx.post_message(Message::LinkClicked(LinkClicked {
+                url: self.url.clone(),
+            }));
         }
         ctx.request_repaint();
         ctx.set_handled();

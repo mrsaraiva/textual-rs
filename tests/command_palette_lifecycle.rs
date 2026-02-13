@@ -65,6 +65,7 @@ fn command_palette_closes_when_overlay_visibility_changes() {
                 overlay: NodeId::default(),
                 visible: true,
             }),
+            control: None,
         },
         &mut transition_ctx,
     );

@@ -155,7 +155,12 @@ impl Rule {
         self.classes.push(new_class.to_string());
     }
 
-    fn watch_orientation(&mut self, old: &RuleOrientation, new: &RuleOrientation, _ctx: &mut ReactiveCtx) {
+    fn watch_orientation(
+        &mut self,
+        old: &RuleOrientation,
+        new: &RuleOrientation,
+        _ctx: &mut ReactiveCtx,
+    ) {
         self.update_orientation_classes(old, new);
     }
 }

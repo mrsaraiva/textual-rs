@@ -300,7 +300,14 @@ impl Tree {
                     });
                 }
                 if node.expanded {
-                    walk(&node.children, tree_depth + 1, depth_offset, path, is_last, out);
+                    walk(
+                        &node.children,
+                        tree_depth + 1,
+                        depth_offset,
+                        path,
+                        is_last,
+                        out,
+                    );
                 }
                 path.pop();
                 is_last.pop();
@@ -310,7 +317,14 @@ impl Tree {
         let mut out = Vec::new();
         let mut path = Vec::new();
         let mut is_last = Vec::new();
-        walk(&self.roots, 0, depth_offset, &mut path, &mut is_last, &mut out);
+        walk(
+            &self.roots,
+            0,
+            depth_offset,
+            &mut path,
+            &mut is_last,
+            &mut out,
+        );
         out
     }
 
@@ -389,10 +403,9 @@ impl Tree {
                 return;
             }
             ctx.post_message(Message::TreeNodeSelected(TreeNodeSelected {
-                    index: self.selected,
-                    label: node.label.clone(),
-                }),
-            );
+                index: self.selected,
+                label: node.label.clone(),
+            }));
         }
     }
 
@@ -402,42 +415,34 @@ impl Tree {
                 return;
             }
             ctx.post_message(Message::TreeNodeActivated(TreeNodeActivated {
-                    index,
-                    label: node.label.clone(),
-                }),
-            );
+                index,
+                label: node.label.clone(),
+            }));
         }
     }
 
     fn emit_highlighted(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
             ctx.post_message(Message::TreeNodeHighlighted(TreeNodeHighlighted {
-                    index: self.selected,
-                    label: node.label.clone(),
-                }),
-            );
+                index: self.selected,
+                label: node.label.clone(),
+            }));
         }
     }
 
     fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
         ctx.post_message(Message::TreeNodeToggled(TreeNodeToggled {
-                index,
-                label: label.clone(),
-                expanded,
-            }),
-        );
+            index,
+            label: label.clone(),
+            expanded,
+        }));
         if expanded {
-            ctx.post_message(Message::TreeNodeExpanded(TreeNodeExpanded {
-                    index,
-                    label,
-                }),
-            );
+            ctx.post_message(Message::TreeNodeExpanded(TreeNodeExpanded { index, label }));
         } else {
             ctx.post_message(Message::TreeNodeCollapsed(TreeNodeCollapsed {
-                    index,
-                    label,
-                }),
-            );
+                index,
+                label,
+            }));
         }
     }
 
@@ -584,8 +589,7 @@ impl Tree {
             // Same parent and depth → sibling
             if n.depth == target_depth
                 && n.path.len() == info.path.len()
-                && (parent_path.is_empty()
-                    || n.path[..n.path.len() - 1] == parent_path)
+                && (parent_path.is_empty() || n.path[..n.path.len() - 1] == parent_path)
                 && !n.disabled
             {
                 self.select_index(i, ctx);
@@ -617,8 +621,7 @@ impl Tree {
         for (i, n) in nodes.iter().enumerate().skip(self.selected + 1) {
             if n.depth == target_depth
                 && n.path.len() == info.path.len()
-                && (parent_path.is_empty()
-                    || n.path[..n.path.len() - 1] == parent_path)
+                && (parent_path.is_empty() || n.path[..n.path.len() - 1] == parent_path)
                 && !n.disabled
             {
                 self.select_index(i, ctx);
@@ -641,10 +644,7 @@ impl Tree {
             return;
         }
         let parent_path = &info.path[..info.path.len() - 1];
-        if let Some(parent_idx) = nodes
-            .iter()
-            .position(|n| n.path.as_slice() == parent_path)
-        {
+        if let Some(parent_idx) = nodes.iter().position(|n| n.path.as_slice() == parent_path) {
             self.select_index(parent_idx, ctx);
         }
     }
@@ -984,7 +984,8 @@ impl Widget for Tree {
                     if node.disabled {
                         return;
                     }
-                    let twist_col = Self::twisty_hit_max_x(node, self.show_guides, self.guide_depth);
+                    let twist_col =
+                        Self::twisty_hit_max_x(node, self.show_guides, self.guide_depth);
                     if node.expandable && (mouse.x as usize) <= twist_col {
                         self.pressed_activation_index = None;
                         self.toggle_index(index, ctx);
@@ -1036,10 +1037,22 @@ impl Widget for Tree {
                 let shift = key.modifiers.contains(KeyModifiers::SHIFT);
                 let shift_handled = if shift {
                     match key.code {
-                        KeyCode::Up => { self.cursor_previous_sibling(ctx); true }
-                        KeyCode::Down => { self.cursor_next_sibling(ctx); true }
-                        KeyCode::Left => { self.cursor_parent(ctx); true }
-                        KeyCode::Char(' ') => { self.toggle_expand_all_selected(ctx); true }
+                        KeyCode::Up => {
+                            self.cursor_previous_sibling(ctx);
+                            true
+                        }
+                        KeyCode::Down => {
+                            self.cursor_next_sibling(ctx);
+                            true
+                        }
+                        KeyCode::Left => {
+                            self.cursor_parent(ctx);
+                            true
+                        }
+                        KeyCode::Char(' ') => {
+                            self.toggle_expand_all_selected(ctx);
+                            true
+                        }
                         _ => false,
                     }
                 } else {
@@ -1162,7 +1175,11 @@ impl Widget for Tree {
                 style = crate::css::resolve_component_style(self, &class_refs)
                     .to_rich()
                     .unwrap_or(style);
-                text = format!("{}{}", Self::row_prefix(node, highlighted, self.show_guides, self.guide_depth), node.label);
+                text = format!(
+                    "{}{}",
+                    Self::row_prefix(node, highlighted, self.show_guides, self.guide_depth),
+                    node.label
+                );
             }
             let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
             out.extend(line);
@@ -1456,10 +1473,7 @@ mod tests {
     #[test]
     fn execute_action_handles_cursor_down() {
         use crate::action::ParsedAction;
-        let mut tree = Tree::new(vec![
-            TreeNode::new("Child A"),
-            TreeNode::new("Child B"),
-        ]);
+        let mut tree = Tree::new(vec![TreeNode::new("Child A"), TreeNode::new("Child B")]);
         tree.set_focus(true);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {

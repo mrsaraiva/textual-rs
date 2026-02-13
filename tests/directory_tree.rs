@@ -78,6 +78,7 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
                 label: "nested".to_string(),
                 expanded: true,
             }),
+            control: None,
         },
         &mut message_ctx,
     );
@@ -108,6 +109,7 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
                     }],
                 },
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -137,6 +139,7 @@ fn directory_tree_refresh_preserves_expanded_paths() {
                 label: "nested".to_string(),
                 expanded: true,
             }),
+            control: None,
         },
         &mut message_ctx,
     );
@@ -171,6 +174,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                 label: "nested".to_string(),
                 expanded: true,
             }),
+            control: None,
         },
         &mut expand_ctx,
     );
@@ -185,6 +189,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                 label: "nested".to_string(),
                 expanded: false,
             }),
+            control: None,
         },
         &mut collapse_ctx,
     );
@@ -205,6 +210,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                     }],
                 },
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -233,6 +239,7 @@ fn directory_tree_handles_forwarded_selection_messages() {
                 index: 1,
                 label: "alpha.txt".to_string(),
             }),
+            control: None,
         },
         &mut message_ctx,
     );
@@ -256,6 +263,7 @@ fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
                 index: 1,
                 label: "nested".to_string(),
             }),
+            control: None,
         },
         &mut message_ctx,
     );
@@ -317,6 +325,7 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
                 label: "nested".to_string(),
                 expanded: true,
             }),
+            control: None,
         },
         &mut expand_ctx,
     );
@@ -338,6 +347,7 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
                     }],
                 },
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );

@@ -52,16 +52,17 @@ impl AsyncTaskRuntime {
         let (previous_generation, replaced) = if let Some(previous) = self.running.remove(&task_id)
         {
             previous.cancel_flag.store(true, Ordering::Relaxed);
-            (
-                previous.generation,
+            (previous.generation, {
+                let sender = super::App::runtime_message_sender();
                 Some(MessageEvent {
-                    sender: super::App::runtime_message_sender(),
+                    sender,
                     message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
                         task_id,
                         target: previous.target,
                     }),
-                }),
-            )
+                    control: Some(sender),
+                })
+            })
         } else {
             (0, None)
         };
@@ -99,13 +100,17 @@ impl AsyncTaskRuntime {
     pub(crate) fn cancel(&mut self, task_id: u64) -> Option<MessageEvent> {
         let task = self.running.remove(&task_id)?;
         task.cancel_flag.store(true, Ordering::Relaxed);
-        Some(MessageEvent {
-            sender: super::App::runtime_message_sender(),
-            message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
-                task_id,
-                target: task.target,
-            }),
-        })
+        {
+            let sender = super::App::runtime_message_sender();
+            Some(MessageEvent {
+                sender,
+                message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
+                    task_id,
+                    target: task.target,
+                }),
+                control: Some(sender),
+            })
+        }
     }
 
     pub(crate) fn cancel_for_target(&mut self, target: NodeId) -> Vec<MessageEvent> {
@@ -140,13 +145,15 @@ impl AsyncTaskRuntime {
             }
 
             self.running.remove(&completion.task_id);
+            let sender = super::App::runtime_message_sender();
             out.push(MessageEvent {
-                sender: super::App::runtime_message_sender(),
+                sender,
                 message: Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted {
                     task_id: completion.task_id,
                     target: completion.target,
                     result: completion.result,
                 }),
+                control: Some(sender),
             });
         }
         out

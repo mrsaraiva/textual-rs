@@ -13,6 +13,7 @@ use super::option_list::{OptionItem, OptionList};
 use crate::action::ParsedAction;
 
 use super::{BindingDecl, Widget, WidgetStyles};
+use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
@@ -264,6 +265,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         }
     }
 
+    /// Drain composed children for runtime mount.
+    ///
+    /// Select's inner OptionList is an integral implementation detail, not a
+    /// mountable child, so this always returns an empty list.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        Vec::new()
+    }
+
     // ── Internals ───────────────────────────────────────────────────
 
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
@@ -386,6 +395,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
+    /// Declare children for tree-based mounting.
+    ///
+    /// Select's inner OptionList is managed internally (not a mountable child),
+    /// so compose returns an empty list.
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -773,8 +790,8 @@ mod tests {
     use crate::event::{Event, EventCtx, MouseDownEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
-    use crate::node_id::node_id_from_ffi;
     use crate::node_id::NodeId;
+    use crate::node_id::node_id_from_ffi;
     use crate::reactive::ReactiveCtx;
     use slotmap::SlotMap;
 
@@ -885,12 +902,18 @@ mod tests {
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2)); // Beta
 
-        let option_selected_pos = delivered
-            .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
-        let select_changed_pos = delivered
-            .iter()
-            .position(|m| matches!(m.message, Message::SelectChanged(SelectChanged { index: 1, label: _ })));
+        let option_selected_pos = delivered.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::OptionSelected(OptionSelected { index: 1 })
+            )
+        });
+        let select_changed_pos = delivered.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::SelectChanged(SelectChanged { index: 1, label: _ })
+            )
+        });
         assert!(
             option_selected_pos.is_some()
                 && select_changed_pos.is_some()
@@ -928,12 +951,18 @@ mod tests {
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2));
         assert!(click_ctx.handled());
-        let option_selected_pos = delivered
-            .iter()
-            .position(|m| matches!(m.message, Message::OptionSelected(OptionSelected { index: 1 })));
-        let select_changed_pos = delivered
-            .iter()
-            .position(|m| matches!(m.message, Message::SelectChanged(SelectChanged { index: 1, label: _ })));
+        let option_selected_pos = delivered.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::OptionSelected(OptionSelected { index: 1 })
+            )
+        });
+        let select_changed_pos = delivered.iter().position(|m| {
+            matches!(
+                m.message,
+                Message::SelectChanged(SelectChanged { index: 1, label: _ })
+            )
+        });
         assert!(
             option_selected_pos.is_some()
                 && select_changed_pos.is_some()
@@ -1232,10 +1261,10 @@ mod tests {
     fn set_options_auto_selects_when_not_allow_blank() {
         let mut sel = make_select();
         let mut ctx = ReactiveCtx::new(make_node_id());
-        sel.set_options(vec![
-            ("Delta".to_string(), 10),
-            ("Echo".to_string(), 20),
-        ], &mut ctx);
+        sel.set_options(
+            vec![("Delta".to_string(), 10), ("Echo".to_string(), 20)],
+            &mut ctx,
+        );
         assert_eq!(sel.value(), Some(&10)); // Delta auto-selected
     }
 
@@ -1243,10 +1272,10 @@ mod tests {
     fn set_options_does_not_auto_select_when_allow_blank() {
         let mut sel = make_select_blank();
         let mut ctx = ReactiveCtx::new(make_node_id());
-        sel.set_options(vec![
-            ("Delta".to_string(), 10),
-            ("Echo".to_string(), 20),
-        ], &mut ctx);
+        sel.set_options(
+            vec![("Delta".to_string(), 10), ("Echo".to_string(), 20)],
+            &mut ctx,
+        );
         assert!(sel.value().is_none());
     }
 
@@ -1257,6 +1286,39 @@ mod tests {
         assert!(!bindings.is_empty());
         assert!(bindings.iter().any(|b| b.action == "show_overlay"));
         assert!(bindings.iter().any(|b| b.action == "dismiss_overlay"));
+    }
+
+    // ── compose() / take_composed_children() tests ────────────────
+
+    #[test]
+    fn compose_returns_empty() {
+        let sel = make_select();
+        let result = sel.compose();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn take_composed_children_returns_empty() {
+        let mut sel = make_select();
+        let children = sel.take_composed_children();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn compose_stable_across_state_changes() {
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(30, 20);
+
+        // Open the dropdown
+        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let mut ctx = EventCtx::default();
+        sel.on_event(&Event::Key(enter), &mut ctx);
+        assert!(sel.is_open());
+
+        // compose() should still return empty even when open
+        assert!(sel.compose().is_empty());
+        assert!(sel.take_composed_children().is_empty());
     }
 
     #[test]

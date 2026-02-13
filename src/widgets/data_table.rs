@@ -502,7 +502,10 @@ impl DataTable {
 
     /// Get the value of a specific cell, or `None` if out of bounds.
     pub fn get_cell(&self, row: usize, col: usize) -> Option<&str> {
-        self.rows.get(row).and_then(|r| r.get(col)).map(String::as_str)
+        self.rows
+            .get(row)
+            .and_then(|r| r.get(col))
+            .map(String::as_str)
     }
 
     /// Get all values in a row, or `None` if the row index is out of bounds.
@@ -1302,7 +1305,9 @@ impl Widget for DataTable {
                     self.ensure_cursor_column_visible(self.content_width as usize);
                 }
                 if let Some(col) = header_clicked {
-                    ctx.post_message(Message::DataTableHeaderSelected(DataTableHeaderSelected { column: col }));
+                    ctx.post_message(Message::DataTableHeaderSelected(DataTableHeaderSelected {
+                        column: col,
+                    }));
                 } else if selection_changed || cursor_changed {
                     ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
                         row: self.selected,

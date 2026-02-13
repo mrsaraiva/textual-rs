@@ -1,8 +1,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use crate::style::Style;
 use crate::node_id::NodeId;
+use crate::style::Style;
 
 use super::ast::{SelectorMeta, StyleSheet};
 
@@ -177,7 +177,9 @@ impl ComputedStyleCache {
     }
 
     pub(super) fn prior_resolved(&self, widget_id: NodeId) -> Option<Style> {
-        self.entries.get(&widget_id).map(|entry| entry.resolved.clone())
+        self.entries
+            .get(&widget_id)
+            .map(|entry| entry.resolved.clone())
     }
 
     pub(super) fn store(

@@ -733,6 +733,10 @@ impl_message_from!(
 pub struct MessageEvent {
     pub sender: NodeId,
     pub message: Message,
+    /// The originating widget ("control") — defaults to sender.
+    /// Handlers can use this to identify which widget produced the message,
+    /// even when the message has bubbled through containers.
+    pub control: Option<NodeId>,
 }
 
 /// Wraps a [`MessageEvent`] with propagation control metadata.
@@ -763,7 +767,7 @@ impl MessageEnvelope {
     /// The `control` field is initialised to `Some(event.sender)` — the
     /// originating widget is the sender by default.
     pub fn new(event: MessageEvent) -> Self {
-        let control = Some(event.sender);
+        let control = event.control.or(Some(event.sender));
         Self {
             event,
             control,
@@ -850,6 +854,7 @@ mod tests {
             message: Message::ButtonPressed(ButtonPressed {
                 description: "ok".into(),
             }),
+            control: None,
         }
     }
 
@@ -1058,5 +1063,44 @@ mod tests {
         }
         .into();
         assert!(matches!(msg, Message::ButtonPressed(..)));
+    }
+
+    // --- MessageEvent control field ---
+
+    #[test]
+    fn event_control_none_promoted_to_sender_by_envelope() {
+        // When control is None, MessageEnvelope::new() should set it to Some(sender).
+        let evt = test_event();
+        assert!(evt.control.is_none());
+        let env = MessageEnvelope::new(evt);
+        assert_eq!(env.control(), Some(node_id_from_ffi(1)));
+    }
+
+    #[test]
+    fn explicit_control_preserved_by_envelope() {
+        let other = node_id_from_ffi(42);
+        let evt = MessageEvent {
+            sender: node_id_from_ffi(1),
+            message: Message::ButtonPressed(ButtonPressed {
+                description: "ctrl".into(),
+            }),
+            control: Some(other),
+        };
+        let env = MessageEnvelope::new(evt);
+        // Envelope should use the explicit control, not sender.
+        assert_eq!(env.control(), Some(other));
+    }
+
+    #[test]
+    fn control_none_is_allowed() {
+        let evt = MessageEvent {
+            sender: node_id_from_ffi(1),
+            message: Message::ClearRequested(ClearRequested),
+            control: None,
+        };
+        // None is allowed on the event; envelope promotes it.
+        assert!(evt.control.is_none());
+        let env = MessageEnvelope::new(evt);
+        assert_eq!(env.control(), Some(node_id_from_ffi(1)));
     }
 }

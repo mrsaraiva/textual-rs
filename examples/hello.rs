@@ -6,9 +6,7 @@ struct TickLabel {
 
 impl TickLabel {
     fn new() -> Self {
-        Self {
-            tick: 0,
-        }
+        Self { tick: 0 }
     }
 }
 
@@ -32,9 +30,7 @@ struct MountedLabel {
 
 impl MountedLabel {
     fn new() -> Self {
-        Self {
-            mounted: false,
-        }
+        Self { mounted: false }
     }
 }
 

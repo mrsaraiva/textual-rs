@@ -105,7 +105,11 @@ impl Widget for Row {
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
                     if min == max { Some(min) } else { None }
                 } else if matches!(resolved.width, Some(Scalar::Auto)) {
-                    let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
+                    let pad = resolved
+                        .padding
+                        .map(|s| s.left as usize)
+                        .unwrap_or(0)
+                        .saturating_mul(2);
                     let (_, _, border_left, border_right) =
                         super::helpers::border_spacing_from_style(&resolved);
                     child
@@ -126,7 +130,8 @@ impl Widget for Row {
         for (idx, fixed) in fixed_widths.iter().enumerate() {
             if let Some(width) = fixed {
                 let margin = margins[idx];
-                fixed_total = fixed_total.saturating_add(width + margin.left as usize + margin.right as usize);
+                fixed_total = fixed_total
+                    .saturating_add(width + margin.left as usize + margin.right as usize);
             } else {
                 flex_count += 1;
             }
@@ -135,11 +140,7 @@ impl Widget for Row {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[row] id={} viewport=({}, {}) children={} fixed_total={}",
-                0u64,
-                width,
-                height_limit,
-                count,
-                fixed_total
+                0u64, width, height_limit, count, fixed_total
             ));
             for (idx, fixed) in fixed_widths.iter().enumerate() {
                 debug_layout(&format!(
@@ -184,12 +185,7 @@ impl Widget for Row {
         if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
             debug_layout(&format!(
                 "[row] id={} widths={:?} remaining={} flex_count={} base={} remainder={}",
-                0u64,
-                widths,
-                remaining,
-                flex_count,
-                base,
-                remainder
+                0u64, widths, remaining, flex_count, base, remainder
             ));
         }
 
@@ -342,7 +338,11 @@ impl Widget for Row {
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
                     if min == max { Some(min) } else { None }
                 } else if matches!(resolved.width, Some(Scalar::Auto)) {
-                    let pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0).saturating_mul(2);
+                    let pad = resolved
+                        .padding
+                        .map(|s| s.left as usize)
+                        .unwrap_or(0)
+                        .saturating_mul(2);
                     let (_, _, border_left, border_right) =
                         super::helpers::border_spacing_from_style(&resolved);
                     child
@@ -363,7 +363,8 @@ impl Widget for Row {
         for (idx, fixed) in fixed_widths.iter().enumerate() {
             if let Some(width) = fixed {
                 let margin = margins[idx];
-                fixed_total = fixed_total.saturating_add(width + margin.left as usize + margin.right as usize);
+                fixed_total = fixed_total
+                    .saturating_add(width + margin.left as usize + margin.right as usize);
             } else {
                 flex_count += 1;
             }
@@ -1335,10 +1336,14 @@ impl Widget for Grid {
                     (Margin::default(), LayoutConstraints::default())
                 };
                 let render_width = clamp_with_constraints(
-                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                    cell_width
+                        .saturating_sub(margin.left as usize + margin.right as usize)
+                        .max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                    cell_width
+                        .saturating_sub(margin.left as usize + margin.right as usize)
+                        .max(1),
                 );
                 let render_height = clamp_with_constraints(
                     cell_height
@@ -1464,10 +1469,14 @@ impl Widget for Grid {
                     (Margin::default(), LayoutConstraints::default())
                 };
                 let render_width = clamp_with_constraints(
-                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                    cell_width
+                        .saturating_sub(margin.left as usize + margin.right as usize)
+                        .max(1),
                     constraints.min_width,
                     constraints.max_width,
-                    cell_width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                    cell_width
+                        .saturating_sub(margin.left as usize + margin.right as usize)
+                        .max(1),
                 );
                 let render_height = clamp_with_constraints(
                     cell_height

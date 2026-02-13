@@ -444,7 +444,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         let (target, ref ev) = events[0];
         assert_eq!(target, old_id);
-        assert!(matches!(ev, Event::Leave(MouseLeaveEvent { x: 1, y: 2, .. })));
+        assert!(matches!(
+            ev,
+            Event::Leave(MouseLeaveEvent { x: 1, y: 2, .. })
+        ));
     }
 
     #[test]

@@ -232,7 +232,9 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         }
 
         if !commands.is_empty() {
-            ctx.post_message(Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands }));
+            ctx.post_message(Message::CommandPaletteSetCommands(
+                crate::message::CommandPaletteSetCommands { commands },
+            ));
         }
     }
 
@@ -323,7 +325,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     return;
                 }
             }
-            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected { id, title }) => {
+            Message::CommandPaletteCommandSelected(
+                crate::message::CommandPaletteCommandSelected { id, title },
+            ) => {
                 self.handle_command_palette_selection(id, ctx);
                 self.app
                     .lock()
@@ -366,13 +370,19 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .unwrap_or_else(|e| e.into_inner())
                     .on_checkbox_changed(*checked, ctx);
             }
-            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged { index, item }) => {
+            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged {
+                index,
+                item,
+            }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_list_view_selection_changed(*index, item, ctx);
             }
-            Message::ListViewItemActivated(crate::message::ListViewItemActivated { index, item }) => {
+            Message::ListViewItemActivated(crate::message::ListViewItemActivated {
+                index,
+                item,
+            }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -671,6 +681,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                control: None,
             },
             &mut open_ctx,
         );
@@ -686,10 +697,13 @@ mod tests {
         adapter.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected {
-                    id: "deploy".to_string(),
-                    title: "Deploy".to_string(),
-                }),
+                message: Message::CommandPaletteCommandSelected(
+                    crate::message::CommandPaletteCommandSelected {
+                        id: "deploy".to_string(),
+                        title: "Deploy".to_string(),
+                    },
+                ),
+                control: None,
             },
             &mut select_ctx,
         );
@@ -700,6 +714,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
+                control: None,
             },
             &mut close_ctx,
         );
@@ -724,6 +739,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                control: None,
             },
             &mut first_open_ctx,
         );
@@ -732,6 +748,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
+                control: None,
             },
             &mut first_close_ctx,
         );
@@ -740,6 +757,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                control: None,
             },
             &mut second_open_ctx,
         );
@@ -748,6 +766,7 @@ mod tests {
             &MessageEvent {
                 sender: NodeId::default(),
                 message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
+                control: None,
             },
             &mut second_close_ctx,
         );
@@ -804,6 +823,7 @@ mod tests {
                 &MessageEvent {
                     sender: NodeId::default(),
                     message,
+                    control: None,
                 },
                 &mut ctx,
             );

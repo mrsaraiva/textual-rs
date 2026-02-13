@@ -101,6 +101,7 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
                 overlay: NodeId::default(),
                 visible: false,
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -205,6 +206,7 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
                 x: 22,
                 y: 1,
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -223,6 +225,7 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
             message: Message::OverlayClearAnchor(OverlayClearAnchor {
                 overlay: NodeId::default(),
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -252,6 +255,7 @@ fn tooltip_forwards_non_matching_overlay_dismiss_to_child() {
             message: Message::OverlayDismissRequested(OverlayDismissRequested {
                 overlay: Some(node_id_from_ffi(999)),
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );
@@ -303,6 +307,7 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
                 overlay: NodeId::default(),
                 visible: true,
             }),
+            control: None,
         },
         &mut EventCtx::default(),
     );

@@ -7,8 +7,8 @@
 //! Widgets request workers via [`EventCtx`](crate::event::EventCtx); actual
 //! task spawning is handled by the runtime (deferred to a future sprint).
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::node_id::NodeId;
 
@@ -424,10 +424,7 @@ mod tests {
         let (id, _) = reg.register(owner, None, None);
         reg.set_running(id);
         reg.complete(id, Err("boom".into()));
-        assert_eq!(
-            reg.state(id),
-            Some(&WorkerState::Error("boom".into()))
-        );
+        assert_eq!(reg.state(id), Some(&WorkerState::Error("boom".into())));
     }
 
     #[test]
@@ -459,13 +456,11 @@ mod tests {
         let mut reg = WorkerRegistry::new();
         let owner = node_id_from_ffi(1);
 
-        let (id1, token1) =
-            reg.register(owner, Some("fetch".into()), Some("first".into()));
+        let (id1, token1) = reg.register(owner, Some("fetch".into()), Some("first".into()));
         reg.set_running(id1);
 
         // Register a second worker with the same exclusive key + owner.
-        let (id2, _token2) =
-            reg.register(owner, Some("fetch".into()), Some("second".into()));
+        let (id2, _token2) = reg.register(owner, Some("fetch".into()), Some("second".into()));
 
         assert_eq!(reg.state(id1), Some(&WorkerState::Cancelled));
         assert!(token1.is_cancelled());
@@ -478,8 +473,7 @@ mod tests {
         let owner_a = node_id_from_ffi(1);
         let owner_b = node_id_from_ffi(2);
 
-        let (id1, token1) =
-            reg.register(owner_a, Some("fetch".into()), None);
+        let (id1, token1) = reg.register(owner_a, Some("fetch".into()), None);
         reg.set_running(id1);
 
         // Different owner, same key — should NOT cancel.
@@ -684,10 +678,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].state, WorkerState::Success);
         // Worker was immediately completed → in terminal state.
-        assert_eq!(
-            reg.state(changes[0].worker_id),
-            Some(&WorkerState::Success)
-        );
+        assert_eq!(reg.state(changes[0].worker_id), Some(&WorkerState::Success));
     }
 
     #[test]
@@ -724,8 +715,7 @@ mod tests {
         let owner = node_id_from_ffi(7);
 
         // First: register a worker manually, leave it running.
-        let (prev_id, prev_token) =
-            reg.register(owner, Some("search".into()), Some("old".into()));
+        let (prev_id, prev_token) = reg.register(owner, Some("search".into()), Some("old".into()));
         reg.set_running(prev_id);
 
         // Then: process an exclusive request with the same key.

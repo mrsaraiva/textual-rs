@@ -56,8 +56,7 @@ impl Screen for NamedScreen {
 /// Mode factories create screens correctly.
 #[test]
 fn mode_factory_creates_screen() {
-    let factory: Box<dyn Fn() -> Box<dyn Screen>> =
-        Box::new(|| NamedScreen::boxed("HelpMode"));
+    let factory: Box<dyn Fn() -> Box<dyn Screen>> = Box::new(|| NamedScreen::boxed("HelpMode"));
 
     let screen = factory();
     assert_eq!(screen.name(), "HelpMode");

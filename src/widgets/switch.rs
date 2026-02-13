@@ -119,11 +119,7 @@ impl Switch {
     // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            Message::SwitchChanged(SwitchChanged {
-                value: self.value,
-            }),
-        );
+        ctx.post_message(Message::SwitchChanged(SwitchChanged { value: self.value }));
     }
 
     /// Called after an interactive toggle (from event handler).
@@ -326,7 +322,10 @@ impl Widget for Switch {
                 }
             } else if i > knob_start && i < knob_start + knob_size {
                 track.push('█');
-            } else if i == knob_start + knob_size && knob_size > 0 && knob_start + knob_size <= track_inner {
+            } else if i == knob_start + knob_size
+                && knob_size > 0
+                && knob_start + knob_size <= track_inner
+            {
                 // Trailing edge with fractional rendering
                 if frac < 0.25 {
                     track.push(' ');
@@ -406,11 +405,10 @@ mod tests {
         assert!(widget.value());
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::SwitchChanged(SwitchChanged { value: true })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::SwitchChanged(SwitchChanged { value: true })
+        )));
     }
 
     #[test]

@@ -231,7 +231,12 @@ impl Button {
 
     // ── Watchers ─────────────────────────────────────────────────────────
 
-    fn watch_variant(&mut self, _old: &ButtonVariant, _new: &ButtonVariant, _ctx: &mut ReactiveCtx) {
+    fn watch_variant(
+        &mut self,
+        _old: &ButtonVariant,
+        _new: &ButtonVariant,
+        _ctx: &mut ReactiveCtx,
+    ) {
         self.rebuild_classes_in_place();
     }
 
@@ -433,8 +438,7 @@ impl Widget for Button {
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
-                    0u64,
-                    self.label
+                    0u64, self.label
                 ));
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -448,17 +452,14 @@ impl Widget for Button {
                     if mouse.target == Some(NodeId::default()) {
                         debug_message(&format!(
                             "[button] emit mouse_up sender={} label=\"{}\"",
-                            0u64,
-                            self.label
+                            0u64, self.label
                         ));
                         self.dispatch_press(ctx);
                         ctx.set_handled();
                     } else {
                         debug_message(&format!(
                             "[button] cancel mouse_up sender={} label=\"{}\" up_target={:?}",
-                            0u64,
-                            self.label,
-                            mouse.target
+                            0u64, self.label, mouse.target
                         ));
                     }
                 }
@@ -467,14 +468,12 @@ impl Widget for Button {
                 self.pressed = PressedState::KeyboardPending;
                 debug_message(&format!(
                     "[button] emit action_toggle sender={} label=\"{}\"",
-                    0u64,
-                    self.label
+                    0u64, self.label
                 ));
                 self.dispatch_press(ctx);
                 debug_input(&format!(
                     "[button] toggle id={} label=\"{}\"",
-                    0u64,
-                    self.label
+                    0u64, self.label
                 ));
                 ctx.set_handled();
             }
@@ -483,15 +482,12 @@ impl Widget for Button {
                     self.pressed = PressedState::KeyboardPending;
                     debug_message(&format!(
                         "[button] emit key sender={} label=\"{}\" code={:?}",
-                        0u64,
-                        self.label,
-                        key.code
+                        0u64, self.label, key.code
                     ));
                     self.dispatch_press(ctx);
                     debug_input(&format!(
                         "[button] key id={} label=\"{}\"",
-                        0u64,
-                        self.label
+                        0u64, self.label
                     ));
                     ctx.set_handled();
                 }

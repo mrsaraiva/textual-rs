@@ -10,10 +10,7 @@ struct Swatch {
 
 impl Swatch {
     fn new(text: &'static str, style: Style) -> Self {
-        Self {
-            text,
-            style,
-        }
+        Self { text, style }
     }
 }
 

@@ -92,13 +92,13 @@ impl Tooltip {
             return;
         }
         self.visible = visible;
-        ctx.post_message(
-            Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
+        ctx.post_message(Message::OverlayVisibilityChanged(
+            OverlayVisibilityChanged {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
                 overlay: NodeId::default(),
                 visible,
-            }),
-        );
+            },
+        ));
         ctx.request_repaint();
     }
 
@@ -430,18 +430,24 @@ impl Widget for Tooltip {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible }) if *overlay == NodeId::default() => {
+            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
+                if *overlay == NodeId::default() =>
+            {
                 self.set_visible(*visible, ctx);
                 ctx.set_handled();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlaySetAnchor(OverlaySetAnchor { overlay, x, y }) if *overlay == NodeId::default() => {
+            Message::OverlaySetAnchor(OverlaySetAnchor { overlay, x, y })
+                if *overlay == NodeId::default() =>
+            {
                 self.set_anchor(*x, *y);
                 ctx.request_repaint();
                 ctx.set_handled();
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::OverlayClearAnchor(OverlayClearAnchor { overlay }) if *overlay == NodeId::default() => {
+            Message::OverlayClearAnchor(OverlayClearAnchor { overlay })
+                if *overlay == NodeId::default() =>
+            {
                 self.clear_anchor();
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -453,7 +459,9 @@ impl Widget for Tooltip {
             }
             Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
                 // TODO(P1-14 integration): wire tree-based NodeId comparison
-                let target_matches = overlay.map(|target| target == NodeId::default()).unwrap_or(true);
+                let target_matches = overlay
+                    .map(|target| target == NodeId::default())
+                    .unwrap_or(true);
                 if self.visible && target_matches {
                     self.set_visible(false, ctx);
                     ctx.set_handled();
@@ -547,6 +555,7 @@ mod tests {
                     overlay: NodeId::default(),
                     visible: true,
                 }),
+                control: None,
             },
             &mut ctx,
         );

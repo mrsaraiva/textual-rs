@@ -213,12 +213,12 @@ impl Widget for Welcome {
         }
 
         if let Message::ButtonPressed(..) = &message.message {
-            ctx.post_message(
-                Message::ButtonPressed(ButtonPressed {
-                    description: "Welcome.close".to_string(),
-                }),
-            );
-            ctx.post_message(Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None }));
+            ctx.post_message(Message::ButtonPressed(ButtonPressed {
+                description: "Welcome.close".to_string(),
+            }));
+            ctx.post_message(Message::OverlayDismissRequested(OverlayDismissRequested {
+                overlay: None,
+            }));
             ctx.set_handled();
         }
     }
@@ -335,6 +335,7 @@ mod tests {
                 message: Message::ButtonPressed(ButtonPressed {
                     description: "Button(classes='button', variant='success')".to_string(),
                 }),
+                control: None,
             },
             &mut ctx,
         );

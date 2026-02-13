@@ -56,21 +56,25 @@ impl OneShotTimerRuntime {
             let Some(timer) = self.running.remove(&timer_id) else {
                 continue;
             };
+            let sender = super::App::runtime_message_sender();
             ready.push(MessageEvent {
-                sender: super::App::runtime_message_sender(),
+                sender,
                 message: Message::TimerFired(crate::message::TimerFired {
                     timer_id,
                     target: timer.target,
                 }),
+                control: Some(sender),
             });
         }
         ready
     }
 
     fn cancelled_event(&self, timer_id: u64, target: NodeId) -> MessageEvent {
+        let sender = super::App::runtime_message_sender();
         MessageEvent {
-            sender: super::App::runtime_message_sender(),
+            sender,
             message: Message::TimerCancelled(crate::message::TimerCancelled { timer_id, target }),
+            control: Some(sender),
         }
     }
 }

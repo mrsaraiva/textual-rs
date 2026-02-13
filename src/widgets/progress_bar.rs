@@ -9,6 +9,7 @@ use super::{
     Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
+use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 // ── Color interpolation helper ─────────────────────────────────────
@@ -554,7 +555,26 @@ impl ProgressBar {
     }
 }
 
+impl ProgressBar {
+    /// Drain composed children for runtime mount.
+    ///
+    /// ProgressBar sub-components (Bar/PercentageStatus/ETAStatus) are logical
+    /// rendering helpers, not stored as separate children, so this always
+    /// returns an empty list.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        Vec::new()
+    }
+}
+
 impl Widget for ProgressBar {
+    /// Declare children for tree-based mounting.
+    ///
+    /// ProgressBar sub-components are logical rendering helpers, not mountable
+    /// children, so compose returns an empty list.
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         false
     }
@@ -617,8 +637,7 @@ impl Widget for ProgressBar {
                     let style = crate::css::resolve_component_style(self, &[component])
                         .to_rich()
                         .unwrap_or_else(rich_rs::Style::new);
-                    let line =
-                        adjust_line_length_no_bg(&[Segment::styled(text, style)], bar_width);
+                    let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], bar_width);
                     out.extend(line);
                 }
             } else {
@@ -1101,6 +1120,28 @@ mod tests {
         assert_eq!(segments.len(), 6);
         // Last segment should be 5 spaces (empty portion)
         assert_eq!(segments.last().unwrap().text, "     ");
+    }
+
+    // ── compose() / take_composed_children() tests ────────────────
+
+    #[test]
+    fn compose_returns_empty() {
+        let bar = ProgressBar::new(Some(100.0));
+        let result = bar.compose();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn take_composed_children_returns_empty() {
+        let mut bar = ProgressBar::new(Some(100.0));
+        let children = bar.take_composed_children();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn compose_returns_empty_indeterminate() {
+        let bar = ProgressBar::new(None);
+        assert!(bar.compose().is_empty());
     }
 
     #[test]

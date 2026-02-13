@@ -1,6 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::compose::ComposeResult;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
@@ -106,6 +107,67 @@ impl ListView {
         self
     }
 
+    /// Append an item to the end of the list.
+    pub fn append(&mut self, item: String) {
+        self.items.push(item);
+        self.disabled.push(false);
+    }
+
+    /// Remove all items, resetting selection and scroll offset to 0.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.disabled.clear();
+        self.selected = 0;
+        self.offset = 0;
+        self.hovered_index = None;
+        self.pressed_index = None;
+    }
+
+    /// Remove the item at `index`, returning it if valid.
+    ///
+    /// Adjusts selected index and scroll offset so they remain valid.
+    pub fn remove(&mut self, index: usize) -> Option<String> {
+        if index >= self.items.len() {
+            return None;
+        }
+        let item = self.items.remove(index);
+        if index < self.disabled.len() {
+            self.disabled.remove(index);
+        }
+        self.clamp_offsets();
+        self.ensure_visible();
+        Some(item)
+    }
+
+    /// Insert an item at `index`. Panics if `index > items.len()`.
+    ///
+    /// If the current selection is at or after `index`, it shifts forward.
+    pub fn insert(&mut self, index: usize, item: String) {
+        self.items.insert(index, item);
+        self.disabled.insert(index, false);
+        if self.selected >= index && !self.items.is_empty() && self.selected + 1 < self.items.len()
+        {
+            self.selected += 1;
+        }
+        self.ensure_visible();
+    }
+
+    /// Remove and return the last item, if any.
+    ///
+    /// Adjusts selected index and scroll offset so they remain valid.
+    pub fn pop(&mut self) -> Option<String> {
+        let item = self.items.pop()?;
+        self.disabled.pop();
+        self.clamp_offsets();
+        self.ensure_visible();
+        Some(item)
+    }
+
+    /// Compose stub — ListView items are strings, not widgets.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        Vec::new()
+    }
+
     fn max_offset(&self) -> usize {
         ScrollView::line_max_offset(self.items.len(), self.viewport_height.max(1))
     }
@@ -196,12 +258,12 @@ impl ListView {
         if self.is_selectable(self.selected)
             && let Some(item) = self.items.get(self.selected)
         {
-            ctx.post_message(
-                Message::ListViewSelectionChanged(ListViewSelectionChanged {
+            ctx.post_message(Message::ListViewSelectionChanged(
+                ListViewSelectionChanged {
                     index: self.selected,
                     item: item.clone(),
-                }),
-            );
+                },
+            ));
         }
     }
 
@@ -209,12 +271,10 @@ impl ListView {
         if self.is_selectable(index)
             && let Some(item) = self.items.get(index)
         {
-            ctx.post_message(
-                Message::ListViewItemActivated(ListViewItemActivated {
-                    index,
-                    item: item.clone(),
-                }),
-            );
+            ctx.post_message(Message::ListViewItemActivated(ListViewItemActivated {
+                index,
+                item: item.clone(),
+            }));
         }
     }
 
@@ -294,6 +354,10 @@ impl ListView {
 }
 
 impl Widget for ListView {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -722,5 +786,112 @@ mod tests {
         };
         assert!(list.execute_action(&action, &mut ctx));
         assert_eq!(list.selected(), 1);
+    }
+
+    // ── Mutation API tests ──────────────────────────────────────────────
+
+    #[test]
+    fn append_adds_item_and_extends_disabled() {
+        let mut list = ListView::new(vec!["A".into()]);
+        list.append("B".into());
+        assert_eq!(list.items(), &["A", "B"]);
+        assert!(!list.is_item_disabled(1));
+    }
+
+    #[test]
+    fn clear_resets_everything() {
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        list.set_selected(2);
+        list.clear();
+        assert!(list.items().is_empty());
+        assert_eq!(list.selected(), 0);
+        assert_eq!(list.offset(), 0);
+    }
+
+    #[test]
+    fn remove_valid_index() {
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        let removed = list.remove(1);
+        assert_eq!(removed.as_deref(), Some("B"));
+        assert_eq!(list.items(), &["A", "C"]);
+    }
+
+    #[test]
+    fn remove_out_of_bounds_returns_none() {
+        let mut list = ListView::new(vec!["A".into()]);
+        assert!(list.remove(5).is_none());
+        assert_eq!(list.items().len(), 1);
+    }
+
+    #[test]
+    fn remove_from_empty_returns_none() {
+        let mut list = ListView::new(vec![]);
+        assert!(list.remove(0).is_none());
+    }
+
+    #[test]
+    fn remove_adjusts_selected_when_at_end() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        list.set_selected(1);
+        list.remove(1);
+        assert_eq!(list.selected(), 0);
+    }
+
+    #[test]
+    fn insert_at_beginning() {
+        let mut list = ListView::new(vec!["B".into(), "C".into()]);
+        list.set_selected(0);
+        list.insert(0, "A".into());
+        assert_eq!(list.items(), &["A", "B", "C"]);
+        // selected was at 0, insert at 0 shifts it to 1
+        assert_eq!(list.selected(), 1);
+    }
+
+    #[test]
+    fn insert_at_end() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        list.insert(2, "C".into());
+        assert_eq!(list.items(), &["A", "B", "C"]);
+    }
+
+    #[test]
+    fn insert_disabled_entry_is_false() {
+        let mut list = ListView::new(vec!["A".into()]);
+        list.insert(0, "Z".into());
+        assert!(!list.is_item_disabled(0));
+    }
+
+    #[test]
+    fn pop_removes_last_item() {
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        let popped = list.pop();
+        assert_eq!(popped.as_deref(), Some("C"));
+        assert_eq!(list.items(), &["A", "B"]);
+    }
+
+    #[test]
+    fn pop_empty_returns_none() {
+        let mut list = ListView::new(vec![]);
+        assert!(list.pop().is_none());
+    }
+
+    #[test]
+    fn pop_adjusts_selected_when_pointing_past_end() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        list.set_selected(1);
+        list.pop();
+        assert_eq!(list.selected(), 0);
+    }
+
+    #[test]
+    fn compose_returns_empty() {
+        let list = ListView::new(vec!["A".into()]);
+        assert!(list.compose().is_empty());
+    }
+
+    #[test]
+    fn take_composed_children_returns_empty() {
+        let mut list = ListView::new(vec!["A".into()]);
+        assert!(list.take_composed_children().is_empty());
     }
 }

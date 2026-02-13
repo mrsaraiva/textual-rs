@@ -12,6 +12,7 @@ use super::{
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
 };
+use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// A container widget that groups `RadioButton` children for mutual exclusion.
@@ -213,7 +214,10 @@ impl RadioSet {
 
         // TODO(P1-14 integration): wire tree-based NodeId comparison
         let button_id = NodeId::default();
-        ctx.post_message(Message::RadioSetChanged(RadioSetChanged { index, button_id }));
+        ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
+            index,
+            button_id,
+        }));
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -225,9 +229,34 @@ impl RadioSet {
     fn has_enabled_button(&self) -> bool {
         self.buttons.iter().any(|button| !button.is_disabled())
     }
+
+    /// Read-only access to the radio buttons.
+    pub fn children(&self) -> &[RadioButton] {
+        &self.buttons
+    }
+
+    /// Mutable access to the radio buttons.
+    pub fn children_mut(&mut self) -> &mut Vec<RadioButton> {
+        &mut self.buttons
+    }
+
+    /// Drain all buttons, returning them as owned `Box<dyn Widget>`.
+    ///
+    /// Intended for runtime mount: the runtime can call this once during
+    /// tree construction to move children into the `WidgetTree` arena.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.buttons
+            .drain(..)
+            .map(|b| Box::new(b) as Box<dyn Widget>)
+            .collect()
+    }
 }
 
 impl Widget for RadioSet {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         !self.disabled && self.has_enabled_button()
     }
@@ -296,7 +325,11 @@ impl Widget for RadioSet {
         if let Message::RadioButtonChanged(RadioButtonChanged { value }) = &message.message {
             // Find which button sent this message.
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            if let Some(index) = self.buttons.iter().position(|_b| message.sender == NodeId::default()) {
+            if let Some(index) = self
+                .buttons
+                .iter()
+                .position(|_b| message.sender == NodeId::default())
+            {
                 if *value {
                     // A button was turned on — enforce mutual exclusion.
                     if let Some(prev) = self.cursor.selected() {
@@ -311,7 +344,10 @@ impl Widget for RadioSet {
 
                     // TODO(P1-14 integration): wire tree-based NodeId comparison
                     let button_id = NodeId::default();
-                    ctx.post_message(Message::RadioSetChanged(RadioSetChanged { index, button_id }));
+                    ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
+                        index,
+                        button_id,
+                    }));
                     ctx.request_repaint();
                 } else {
                     // A button was turned off — in a radio set, prevent deselection.
@@ -494,11 +530,10 @@ mod tests {
         set.on_event(&Event::Key(space), &mut ctx2);
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::RadioSetChanged(RadioSetChanged { index: 1, .. })))
-        );
+        assert!(messages.iter().any(|m| matches!(
+            m.message,
+            Message::RadioSetChanged(RadioSetChanged { index: 1, .. })
+        )));
     }
 
     #[test]
@@ -560,5 +595,36 @@ mod tests {
         set.on_event(&Event::Key(down), &mut ctx);
         assert!(!ctx.handled());
         assert!(!set.focusable());
+    }
+
+    // ── Compose / children accessor tests ───────────────────────────────
+
+    #[test]
+    fn compose_returns_empty() {
+        let set = RadioSet::from_labels(&["A", "B"]);
+        assert!(set.compose().is_empty());
+    }
+
+    #[test]
+    fn children_accessor_returns_buttons() {
+        let set = RadioSet::from_labels(&["A", "B", "C"]);
+        assert_eq!(set.children().len(), 3);
+        assert_eq!(set.children()[0].label(), "A");
+        assert_eq!(set.children()[2].label(), "C");
+    }
+
+    #[test]
+    fn children_mut_allows_modification() {
+        let mut set = RadioSet::from_labels(&["A", "B"]);
+        set.children_mut().push(RadioButton::new("C"));
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn take_composed_children_drains_buttons() {
+        let mut set = RadioSet::from_labels(&["A", "B", "C"]);
+        let children = set.take_composed_children();
+        assert_eq!(children.len(), 3);
+        assert!(set.is_empty());
     }
 }

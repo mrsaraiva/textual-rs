@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use unicode_width::UnicodeWidthChar;
 
 use rich_rs::highlighter::repr_highlighter;
@@ -508,12 +508,10 @@ impl RichLog {
     }
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
-        ctx.post_message(
-            Message::RichLogScrolled(RichLogScrolled {
-                offset: self.offset_y,
-                max_offset: self.max_offset(),
-            }),
-        );
+        ctx.post_message(Message::RichLogScrolled(RichLogScrolled {
+            offset: self.offset_y,
+            max_offset: self.max_offset(),
+        }));
     }
 
     fn physical_lines(
@@ -613,8 +611,7 @@ impl RichLog {
                     lines
                 } else {
                     let rendered = text.render(console, options);
-                    let split =
-                        Segment::split_and_crop_lines(rendered, width, None, true, false);
+                    let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
                     if let Some(first) = split.first() {
                         vec![first.clone()]
                     } else {

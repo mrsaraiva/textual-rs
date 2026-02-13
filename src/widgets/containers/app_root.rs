@@ -10,9 +10,8 @@ use crate::node_id::NodeId;
 use crate::widgets::{
     Widget, WidgetStyles,
     helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints,
-        constraints_from_style, fixed_height_from_constraints,
-        margin_from_style, merge_constraints, pad_lines_to_width,
+        apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
+        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
 };
 
@@ -119,10 +118,14 @@ impl Widget for AppRoot {
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width = clamp_with_constraints(
-                width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                width
+                    .saturating_sub(margin.left as usize + margin.right as usize)
+                    .max(1),
                 constraints.min_width,
                 constraints.max_width,
-                width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                width
+                    .saturating_sub(margin.left as usize + margin.right as usize)
+                    .max(1),
             );
             let render_height = clamp_with_constraints(
                 height_limit
@@ -207,10 +210,14 @@ impl Widget for AppRoot {
             let style_constraints = constraints_from_style(&resolved);
             let constraints = merge_constraints(style_constraints, child.layout_constraints());
             let render_width = clamp_with_constraints(
-                width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                width
+                    .saturating_sub(margin.left as usize + margin.right as usize)
+                    .max(1),
                 constraints.min_width,
                 constraints.max_width,
-                width.saturating_sub(margin.left as usize + margin.right as usize).max(1),
+                width
+                    .saturating_sub(margin.left as usize + margin.right as usize)
+                    .max(1),
             );
             let render_height = clamp_with_constraints(
                 height_limit
@@ -393,7 +400,8 @@ impl Widget for AppRoot {
             let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             if let Some(width) = child.content_width() {
-                widest = widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
+                widest =
+                    widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
                 any = true;
             }
         }
@@ -444,11 +452,7 @@ mod focus_tests {
         let ids: Vec<_> = tree
             .walk_depth_first(root_id)
             .into_iter()
-            .filter(|&id| {
-                tree.get(id)
-                    .map(|n| n.widget.focusable())
-                    .unwrap_or(false)
-            })
+            .filter(|&id| tree.get(id).map(|n| n.widget.focusable()).unwrap_or(false))
             .collect();
         assert_eq!(ids.len(), 2);
         assert_eq!(ids[0], first_id);

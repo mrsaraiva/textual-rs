@@ -157,8 +157,7 @@ pub fn layout_resolve_1d(total: u16, edges: &[Edge]) -> Vec<u16> {
             let (edge_idx, fraction, min_size) = flexible[idx];
             let lhs = remaining * (fraction as u64);
             let rhs = (min_size as u64) * total_fraction;
-            if min_size > 0 && lhs < rhs
-            {
+            if min_size > 0 && lhs < rhs {
                 // Fix this edge at its minimum size.
                 sizes[edge_idx] = Some(min_size);
                 remaining = remaining.saturating_sub(min_size as u64);
@@ -252,11 +251,7 @@ fn horizontal_chrome(
     margin.left + border_left + padding.left + padding.right + border_right + margin.right
 }
 
-fn resolve_scalar_to_cells(
-    scalar: &Scalar,
-    parent_size: u16,
-    viewport_size: u16,
-) -> u16 {
+fn resolve_scalar_to_cells(scalar: &Scalar, parent_size: u16, viewport_size: u16) -> u16 {
     resolve_scalar(scalar, parent_size, viewport_size, 0.0, 0)
 }
 
@@ -481,8 +476,9 @@ pub fn layout_vertical(
 
         // Apply max-width constraint.
         let layout_w = if let Some(max_w) = spec.max_width_cells {
-            let max_w_with_chrome =
-                max_w.saturating_add(spec.border_left + spec.border_right + spec.padding.left + spec.padding.right);
+            let max_w_with_chrome = max_w.saturating_add(
+                spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
+            );
             layout_w.min(max_w_with_chrome)
         } else {
             layout_w
@@ -490,8 +486,9 @@ pub fn layout_vertical(
 
         // Apply max-height constraint.
         let layout_h = if let Some(max_h) = spec.max_height_cells {
-            let max_h_with_chrome =
-                max_h.saturating_add(spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom);
+            let max_h_with_chrome = max_h.saturating_add(
+                spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
+            );
             layout_h.min(max_h_with_chrome)
         } else {
             layout_h
@@ -509,8 +506,7 @@ pub fn layout_vertical(
 
         if let Some(node) = tree.get_mut(child) {
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
-            node.content_rect =
-                Region::new(content_x, content_y, content_w, content_h).to_rect();
+            node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
 
         y = y.saturating_add(total_h);
@@ -565,15 +561,17 @@ pub fn layout_horizontal(
 
         // Apply max constraints.
         let layout_w = if let Some(max_w) = spec.max_width_cells {
-            let max_w_with_chrome =
-                max_w.saturating_add(spec.border_left + spec.border_right + spec.padding.left + spec.padding.right);
+            let max_w_with_chrome = max_w.saturating_add(
+                spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
+            );
             layout_w.min(max_w_with_chrome)
         } else {
             layout_w
         };
         let layout_h = if let Some(max_h) = spec.max_height_cells {
-            let max_h_with_chrome =
-                max_h.saturating_add(spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom);
+            let max_h_with_chrome = max_h.saturating_add(
+                spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
+            );
             layout_h.min(max_h_with_chrome)
         } else {
             layout_h
@@ -591,8 +589,7 @@ pub fn layout_horizontal(
 
         if let Some(node) = tree.get_mut(child) {
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
-            node.content_rect =
-                Region::new(content_x, content_y, content_w, content_h).to_rect();
+            node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
 
         x = x.saturating_add(total_w);
@@ -762,37 +759,39 @@ pub fn layout_grid(
         let (bt, bb, bl, br) = border_spacing(&style);
 
         // Layout rect: cell + available offset, margin inset.
-        let layout_x = available.x.saturating_add(cell_x).saturating_add(margin.left);
-        let layout_y = available.y.saturating_add(cell_y).saturating_add(margin.top);
+        let layout_x = available
+            .x
+            .saturating_add(cell_x)
+            .saturating_add(margin.left);
+        let layout_y = available
+            .y
+            .saturating_add(cell_y)
+            .saturating_add(margin.top);
         let mut layout_w = cell_w.saturating_sub(margin.left + margin.right);
         let mut layout_h = cell_h.saturating_sub(margin.top + margin.bottom);
 
         // Apply max-width constraint.
         if let Some(ref s) = style.max_width {
             let max_w = resolve_scalar_to_cells(s, available.width, viewport.0);
-            let max_w_chrome =
-                max_w.saturating_add(bl + br + padding.left + padding.right);
+            let max_w_chrome = max_w.saturating_add(bl + br + padding.left + padding.right);
             layout_w = layout_w.min(max_w_chrome);
         }
         // Apply min-width constraint.
         if let Some(ref s) = style.min_width {
             let min_w = resolve_scalar_to_cells(s, available.width, viewport.0);
-            let min_w_chrome =
-                min_w.saturating_add(bl + br + padding.left + padding.right);
+            let min_w_chrome = min_w.saturating_add(bl + br + padding.left + padding.right);
             layout_w = layout_w.max(min_w_chrome);
         }
         // Apply max-height constraint.
         if let Some(ref s) = style.max_height {
             let max_h = resolve_scalar_to_cells(s, available.height, viewport.1);
-            let max_h_chrome =
-                max_h.saturating_add(bt + bb + padding.top + padding.bottom);
+            let max_h_chrome = max_h.saturating_add(bt + bb + padding.top + padding.bottom);
             layout_h = layout_h.min(max_h_chrome);
         }
         // Apply min-height constraint.
         if let Some(ref s) = style.min_height {
             let min_h = resolve_scalar_to_cells(s, available.height, viewport.1);
-            let min_h_chrome =
-                min_h.saturating_add(bt + bb + padding.top + padding.bottom);
+            let min_h_chrome = min_h.saturating_add(bt + bb + padding.top + padding.bottom);
             layout_h = layout_h.max(min_h_chrome);
         }
 
@@ -804,8 +803,7 @@ pub fn layout_grid(
 
         if let Some(node) = tree.get_mut(child) {
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
-            node.content_rect =
-                Region::new(content_x, content_y, content_w, content_h).to_rect();
+            node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
     }
 }
@@ -861,8 +859,12 @@ pub fn arrange_dock(
 
         let chrome_h = border_top + border_bottom + padding.top + padding.bottom;
         let chrome_w = border_left + border_right + padding.left + padding.right;
-        let outer_h = child_h.saturating_add(chrome_h).saturating_add(margin.top + margin.bottom);
-        let outer_w = child_w.saturating_add(chrome_w).saturating_add(margin.left + margin.right);
+        let outer_h = child_h
+            .saturating_add(chrome_h)
+            .saturating_add(margin.top + margin.bottom);
+        let outer_w = child_w
+            .saturating_add(chrome_w)
+            .saturating_add(margin.left + margin.right);
 
         let (layout_x, layout_y, layout_w, layout_h) = match dock {
             Dock::Top => {
@@ -907,8 +909,7 @@ pub fn arrange_dock(
 
         if let Some(node) = tree.get_mut(child) {
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
-            node.content_rect =
-                Region::new(content_x, content_y, content_w, content_h).to_rect();
+            node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
     }
 
@@ -998,9 +999,21 @@ mod tests {
     #[test]
     fn resolve_1d_all_fixed() {
         let edges = vec![
-            Edge { size: Some(10), fraction: 1, min_size: 0 },
-            Edge { size: Some(20), fraction: 1, min_size: 0 },
-            Edge { size: Some(30), fraction: 1, min_size: 0 },
+            Edge {
+                size: Some(10),
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: Some(20),
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: Some(30),
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         assert_eq!(layout_resolve_1d(100, &edges), vec![10, 20, 30]);
     }
@@ -1008,9 +1021,21 @@ mod tests {
     #[test]
     fn resolve_1d_all_flexible_equal() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         // 90 / 3 = 30 each
         assert_eq!(layout_resolve_1d(90, &edges), vec![30, 30, 30]);
@@ -1019,9 +1044,21 @@ mod tests {
     #[test]
     fn resolve_1d_all_flexible_weighted() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 2, min_size: 0 },
-            Edge { size: None, fraction: 3, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 2,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 3,
+                min_size: 0,
+            },
         ];
         // total_fraction = 6, 60/6 = 10 per fraction
         assert_eq!(layout_resolve_1d(60, &edges), vec![10, 20, 30]);
@@ -1030,9 +1067,21 @@ mod tests {
     #[test]
     fn resolve_1d_mixed_fixed_and_flexible() {
         let edges = vec![
-            Edge { size: Some(20), fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
+            Edge {
+                size: Some(20),
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         // remaining = 100 - 20 = 80, split equally: 40 each
         assert_eq!(layout_resolve_1d(100, &edges), vec![20, 40, 40]);
@@ -1041,8 +1090,16 @@ mod tests {
     #[test]
     fn resolve_1d_min_size_kicks_in() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 50 },
-            Edge { size: None, fraction: 1, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 50,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         // 60 total, equal weight. 60/2 = 30 each, but edge 0 needs min 50.
         // Fix edge 0 at 50, remaining = 10, edge 1 gets 10.
@@ -1052,8 +1109,16 @@ mod tests {
     #[test]
     fn resolve_1d_zero_total() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         // remaining = 0 - 0 = 0, which is <= 0. Flexible edges get max(min_size, 1) = 1.
         assert_eq!(layout_resolve_1d(0, &edges), vec![1, 1]);
@@ -1061,13 +1126,21 @@ mod tests {
 
     #[test]
     fn resolve_1d_single_edge_flexible() {
-        let edges = vec![Edge { size: None, fraction: 1, min_size: 0 }];
+        let edges = vec![Edge {
+            size: None,
+            fraction: 1,
+            min_size: 0,
+        }];
         assert_eq!(layout_resolve_1d(50, &edges), vec![50]);
     }
 
     #[test]
     fn resolve_1d_single_edge_fixed() {
-        let edges = vec![Edge { size: Some(30), fraction: 1, min_size: 0 }];
+        let edges = vec![Edge {
+            size: Some(30),
+            fraction: 1,
+            min_size: 0,
+        }];
         assert_eq!(layout_resolve_1d(50, &edges), vec![30]);
     }
 
@@ -1080,9 +1153,21 @@ mod tests {
     fn resolve_1d_remainder_distribution() {
         // 100 / 3 = 33 remainder 1. The remainder cascades forward.
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
         ];
         let sizes = layout_resolve_1d(100, &edges);
         // Sum must equal 100.
@@ -1094,7 +1179,11 @@ mod tests {
     #[test]
     fn resolve_1d_many_edges() {
         let edges: Vec<Edge> = (0..10)
-            .map(|_| Edge { size: None, fraction: 1, min_size: 0 })
+            .map(|_| Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            })
             .collect();
         let sizes = layout_resolve_1d(100, &edges);
         assert_eq!(sizes.iter().copied().sum::<u16>(), 100);
@@ -1106,8 +1195,16 @@ mod tests {
     #[test]
     fn resolve_1d_no_room_assigns_min() {
         let edges = vec![
-            Edge { size: Some(80), fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 1, min_size: 5 },
+            Edge {
+                size: Some(80),
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 5,
+            },
         ];
         // remaining = 100 - 80 = 20, flexible gets 20.
         assert_eq!(layout_resolve_1d(100, &edges), vec![80, 20]);
@@ -1119,8 +1216,16 @@ mod tests {
     #[test]
     fn resolve_1d_all_min_sizes_forced() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 40 },
-            Edge { size: None, fraction: 1, min_size: 40 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 40,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 40,
+            },
         ];
         // 50 total, each needs min 40. 50/2=25 < 40, so first fixed at 40.
         // remaining = 10, total_fr=1, 10*1 < 40*1 → second also fixed at 40.
@@ -1132,8 +1237,16 @@ mod tests {
     #[test]
     fn resolve_1d_fraction_weights_with_remainder() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 0 },
-            Edge { size: None, fraction: 3, min_size: 0 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 0,
+            },
+            Edge {
+                size: None,
+                fraction: 3,
+                min_size: 0,
+            },
         ];
         // total=100, total_fraction=4
         // edge 0: 100*1/4 = 25
@@ -1145,9 +1258,21 @@ mod tests {
     fn resolve_1d_cascading_min_size() {
         // Three flexible edges, but min_size forces sequential fixation.
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 30 },
-            Edge { size: None, fraction: 1, min_size: 25 },
-            Edge { size: None, fraction: 1, min_size: 20 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 30,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 25,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 20,
+            },
         ];
         // total=60, 60/3=20. Edge 0 needs 30 → fix at 30.
         // remaining=30, total_fr=2, 30/2=15. Edge 1 needs 25 → fix at 25.
@@ -1169,7 +1294,15 @@ mod tests {
     fn region_to_rect() {
         let r = Region::new(5, 10, 20, 15);
         let rect = r.to_rect();
-        assert_eq!(rect, Rect { x0: 5, y0: 10, x1: 25, y1: 25 });
+        assert_eq!(
+            rect,
+            Rect {
+                x0: 5,
+                y0: 10,
+                x1: 25,
+                y1: 25
+            }
+        );
     }
 
     #[test]
@@ -1187,17 +1320,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let a = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "A",
-                Style::new().height(Scalar::Cells(10)),
-            ),
+            LayoutTestWidget::boxed_with_style("A", Style::new().height(Scalar::Cells(10))),
         );
         let b = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "B",
-                Style::new().height(Scalar::Cells(20)),
-            ),
+            LayoutTestWidget::boxed_with_style("B", Style::new().height(Scalar::Cells(20))),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1218,10 +1345,7 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let fixed = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Fixed",
-                Style::new().height(Scalar::Cells(10)),
-            ),
+            LayoutTestWidget::boxed_with_style("Fixed", Style::new().height(Scalar::Cells(10))),
         );
         let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
 
@@ -1291,14 +1415,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let child = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Child",
-                {
-                    let mut s = Style::new();
-                    s.max_width = Some(Scalar::Cells(40));
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Child", {
+                let mut s = Style::new();
+                s.max_width = Some(Scalar::Cells(40));
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1320,17 +1441,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let a = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "A",
-                Style::new().width(Scalar::Cells(20)),
-            ),
+            LayoutTestWidget::boxed_with_style("A", Style::new().width(Scalar::Cells(20))),
         );
         let b = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "B",
-                Style::new().width(Scalar::Cells(30)),
-            ),
+            LayoutTestWidget::boxed_with_style("B", Style::new().width(Scalar::Cells(30))),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1348,10 +1463,7 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let fixed = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Fixed",
-                Style::new().width(Scalar::Cells(20)),
-            ),
+            LayoutTestWidget::boxed_with_style("Fixed", Style::new().width(Scalar::Cells(20))),
         );
         let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
 
@@ -1395,14 +1507,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Header",
-                {
-                    let mut s = Style::new().height(Scalar::Cells(3));
-                    s.dock = Some(Dock::Top);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Header", {
+                let mut s = Style::new().height(Scalar::Cells(3));
+                s.dock = Some(Dock::Top);
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1420,14 +1529,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Footer",
-                {
-                    let mut s = Style::new().height(Scalar::Cells(2));
-                    s.dock = Some(Dock::Bottom);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Footer", {
+                let mut s = Style::new().height(Scalar::Cells(2));
+                s.dock = Some(Dock::Bottom);
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1444,14 +1550,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Sidebar",
-                {
-                    let mut s = Style::new().width(Scalar::Cells(20));
-                    s.dock = Some(Dock::Left);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Sidebar", {
+                let mut s = Style::new().width(Scalar::Cells(20));
+                s.dock = Some(Dock::Left);
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1468,14 +1571,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Panel",
-                {
-                    let mut s = Style::new().width(Scalar::Cells(25));
-                    s.dock = Some(Dock::Right);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Panel", {
+                let mut s = Style::new().width(Scalar::Cells(25));
+                s.dock = Some(Dock::Right);
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1492,41 +1592,31 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let header = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Header",
-                {
-                    let mut s = Style::new().height(Scalar::Cells(3));
-                    s.dock = Some(Dock::Top);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Header", {
+                let mut s = Style::new().height(Scalar::Cells(3));
+                s.dock = Some(Dock::Top);
+                s
+            }),
         );
         let footer = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Footer",
-                {
-                    let mut s = Style::new().height(Scalar::Cells(2));
-                    s.dock = Some(Dock::Bottom);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Footer", {
+                let mut s = Style::new().height(Scalar::Cells(2));
+                s.dock = Some(Dock::Bottom);
+                s
+            }),
         );
         let sidebar = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Sidebar",
-                {
-                    let mut s = Style::new().width(Scalar::Cells(20));
-                    s.dock = Some(Dock::Left);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Sidebar", {
+                let mut s = Style::new().width(Scalar::Cells(20));
+                s.dock = Some(Dock::Left);
+                s
+            }),
         );
 
         let available = Region::new(0, 0, 80, 50);
-        let remaining =
-            arrange_dock(&mut tree, &[header, footer, sidebar], available, (80, 50));
+        let remaining = arrange_dock(&mut tree, &[header, footer, sidebar], available, (80, 50));
 
         // Header: top, full width, 3 tall.
         assert_layout_rect(&tree, header, 0, 0, 80, 3);
@@ -1545,24 +1635,18 @@ mod tests {
     #[test]
     fn dock_plus_layout_children() {
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(LayoutTestWidget::boxed_with_style(
-            "Container",
-            {
-                let mut s = Style::new();
-                s.layout = Some(Layout::Vertical);
-                s
-            },
-        ));
+        let root = tree.set_root(LayoutTestWidget::boxed_with_style("Container", {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Vertical);
+            s
+        }));
         let header = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Header",
-                {
-                    let mut s = Style::new().height(Scalar::Cells(3));
-                    s.dock = Some(Dock::Top);
-                    s
-                },
-            ),
+            LayoutTestWidget::boxed_with_style("Header", {
+                let mut s = Style::new().height(Scalar::Cells(3));
+                s.dock = Some(Dock::Top);
+                s
+            }),
         );
         let body = tree.mount(root, LayoutTestWidget::boxed("Body"));
 
@@ -1586,17 +1670,11 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let a = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "A",
-                Style::new().height(Scalar::Cells(10)),
-            ),
+            LayoutTestWidget::boxed_with_style("A", Style::new().height(Scalar::Cells(10))),
         );
         let b = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "B",
-                Style::new().height(Scalar::Cells(20)),
-            ),
+            LayoutTestWidget::boxed_with_style("B", Style::new().height(Scalar::Cells(20))),
         );
 
         resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
@@ -1608,27 +1686,18 @@ mod tests {
     #[test]
     fn resolve_layout_horizontal() {
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(LayoutTestWidget::boxed_with_style(
-            "Container",
-            {
-                let mut s = Style::new();
-                s.layout = Some(Layout::Horizontal);
-                s
-            },
-        ));
+        let root = tree.set_root(LayoutTestWidget::boxed_with_style("Container", {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Horizontal);
+            s
+        }));
         let a = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "A",
-                Style::new().width(Scalar::Cells(30)),
-            ),
+            LayoutTestWidget::boxed_with_style("A", Style::new().width(Scalar::Cells(30))),
         );
         let b = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "B",
-                Style::new().width(Scalar::Cells(50)),
-            ),
+            LayoutTestWidget::boxed_with_style("B", Style::new().width(Scalar::Cells(50))),
         );
 
         resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
@@ -1640,15 +1709,12 @@ mod tests {
     #[test]
     fn resolve_layout_grid_dispatch() {
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(LayoutTestWidget::boxed_with_style(
-            "Container",
-            {
-                let mut s = Style::new();
-                s.layout = Some(Layout::Grid);
-                s.grid_size_columns = Some(2);
-                s
-            },
-        ));
+        let root = tree.set_root(LayoutTestWidget::boxed_with_style("Container", {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Grid);
+            s.grid_size_columns = Some(2);
+            s
+        }));
         let a = tree.mount(root, LayoutTestWidget::boxed("A"));
         let b = tree.mount(root, LayoutTestWidget::boxed("B"));
         let c = tree.mount(root, LayoutTestWidget::boxed("C"));
@@ -1670,10 +1736,7 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let visible = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "Visible",
-                Style::new().height(Scalar::Cells(10)),
-            ),
+            LayoutTestWidget::boxed_with_style("Visible", Style::new().height(Scalar::Cells(10))),
         );
         let hidden = tree.mount(
             root,
@@ -1707,8 +1770,16 @@ mod tests {
     #[test]
     fn resolve_1d_large_min_exceeds_total() {
         let edges = vec![
-            Edge { size: None, fraction: 1, min_size: 60 },
-            Edge { size: None, fraction: 1, min_size: 60 },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 60,
+            },
+            Edge {
+                size: None,
+                fraction: 1,
+                min_size: 60,
+            },
         ];
         // Both need 60, only 50 available. First gets fixed at 60,
         // remaining = 0 (saturating_sub). Second also triggers min_size (0 < 60).
@@ -1724,10 +1795,7 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let a = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style(
-                "A",
-                Style::new().height(Scalar::Cells(5)),
-            ),
+            LayoutTestWidget::boxed_with_style("A", Style::new().height(Scalar::Cells(5))),
         );
 
         let available = Region::new(10, 20, 60, 30);

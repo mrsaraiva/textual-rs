@@ -202,20 +202,26 @@ impl Widget for HelpPanel {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         match &message.message {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::HelpPanelSetHelp(HelpPanelSetHelp { panel, markup }) if *panel == NodeId::default() => {
+            Message::HelpPanelSetHelp(HelpPanelSetHelp { panel, markup })
+                if *panel == NodeId::default() =>
+            {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
             // TODO(P1-14 integration): wire tree-based NodeId comparison
-            Message::HelpPanelClearHelp(HelpPanelClearHelp { panel }) if *panel == NodeId::default() => {
+            Message::HelpPanelClearHelp(HelpPanelClearHelp { panel })
+                if *panel == NodeId::default() =>
+            {
                 self.clear_help();
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged { markup, .. }) => {
+            Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
+                markup, ..
+            }) => {
                 self.set_help(markup.clone());
                 ctx.request_repaint();
                 return;
@@ -344,6 +350,7 @@ mod tests {
                 source: crate::node_id::NodeId::default(),
                 markup: "## Widget Help\nPress Enter to confirm.".to_string(),
             }),
+            control: None,
         };
         panel.on_message(&msg, &mut ctx);
         assert!(panel.showing_help());
@@ -360,6 +367,7 @@ mod tests {
         let msg = MessageEvent {
             sender: crate::node_id::NodeId::default(),
             message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
+            control: None,
         };
         panel.on_message(&msg, &mut ctx);
         assert!(!panel.showing_help());

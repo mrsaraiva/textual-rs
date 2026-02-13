@@ -77,6 +77,7 @@ fn panel_forwards_layout_and_messages() {
     let message = MessageEvent {
         sender: NodeId::default(),
         message: Message::ClearRequested(ClearRequested),
+        control: None,
     };
     let mut ctx = EventCtx::default();
     panel.on_message(&message, &mut ctx);
@@ -98,6 +99,7 @@ fn frame_forwards_layout_messages_and_scroll() {
     let message = MessageEvent {
         sender: NodeId::default(),
         message: Message::ClearRequested(ClearRequested),
+        control: None,
     };
     let mut ctx = EventCtx::default();
     frame.on_message(&message, &mut ctx);

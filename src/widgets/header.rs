@@ -664,6 +664,7 @@ mod tests {
                 title: Some("Screen Title".to_string()),
                 sub_title: Some("Screen Sub".to_string()),
             }),
+            control: None,
         };
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
@@ -687,6 +688,7 @@ mod tests {
                 title: Some("Screen".to_string()),
                 sub_title: None,
             }),
+            control: None,
         };
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
@@ -700,6 +702,7 @@ mod tests {
                 title: None,
                 sub_title: None,
             }),
+            control: None,
         };
         let mut ctx2 = EventCtx::default();
         header.on_message(&msg2, &mut ctx2);
