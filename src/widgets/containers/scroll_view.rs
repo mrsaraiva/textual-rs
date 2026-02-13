@@ -12,7 +12,7 @@ use crate::style::{TransitionTiming, parse_color_like};
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
 use crate::widgets::{
-    BindingDecl, Widget, WidgetStyles,
+    BindingDecl, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
@@ -21,6 +21,7 @@ use crate::widgets::{
 
 pub struct ScrollView {
     child: Box<dyn Widget>,
+    child_extracted: bool,
     focused: bool,
     height: Option<usize>,
     pub(crate) offset_y: usize,
@@ -47,6 +48,7 @@ impl ScrollView {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
             child: Box::new(child),
+            child_extracted: false,
             focused: false,
             height: None,
             offset_y: 0,
@@ -359,6 +361,19 @@ impl ScrollView {
 }
 
 impl Widget for ScrollView {
+    fn compose(&self) -> crate::compose::ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -1119,6 +1134,10 @@ impl Widget for ScrollView {
             }
         } else {
             let (child_x, child_y) = self.child_coords(x, y);
+            debug_input(&format!(
+                "[hover][scrollview] x={} y={} child=({}, {})",
+                x, y, child_x, child_y
+            ));
             changed |= self.child.on_mouse_move(child_x, child_y);
         }
         changed

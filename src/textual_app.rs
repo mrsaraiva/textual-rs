@@ -10,7 +10,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
-use crate::widgets::{AppRoot, Widget};
+use crate::widgets::{AppRoot, Spacer, Widget};
 use crate::{App, Result};
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
@@ -191,6 +191,7 @@ impl OverlayScreenStack {
 struct TextualAppAdapter<T: TextualApp> {
     app: Arc<Mutex<T>>,
     child: Box<dyn Widget>,
+    child_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
 }
@@ -200,6 +201,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         Self {
             app,
             child: Box::new(child),
+            child_extracted: false,
             command_palette_providers: Vec::new(),
             command_palette_provider_index: HashMap::new(),
         }
@@ -252,6 +254,15 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 }
 
 impl<T: TextualApp> Widget for TextualAppAdapter<T> {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.child.render_styled(console, options)
     }
@@ -280,6 +291,14 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.child.on_layout(width, height);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.child.on_mouse_move(x, y)
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -839,6 +858,25 @@ mod tests {
         assert_eq!(app.hooks.list_activated, Some((3, "delta".to_string())));
         assert_eq!(app.hooks.tab_activated, Some((1, "General".to_string())));
         assert_eq!(app.hooks.fallback_count, 8);
+    }
+
+    #[test]
+    fn adapter_exposes_composed_child_once_for_tree_build() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+
+        let first = adapter.take_composed_children();
+        assert_eq!(first.len(), 1);
+
+        let second = adapter.take_composed_children();
+        assert!(second.is_empty());
     }
 
     #[test]

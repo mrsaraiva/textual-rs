@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::{DebugLayout, debug_layout};
+use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{Action, Event, EventCtx};
 use crate::node_id::NodeId;
 
@@ -15,7 +15,7 @@ use super::{
         merge_constraints, pad_lines_to_width,
     },
 };
-use crate::style::{Margin, Scalar};
+use crate::style::{Dock as StyleDock, Margin, Scalar};
 
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
@@ -697,10 +697,20 @@ impl Widget for Row {
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let hit = self.child_at_x(x);
         let mut changed = false;
+        debug_input(&format!(
+            "[hover][row] x={} y={} hit={:?}",
+            x,
+            y,
+            hit.map(|(idx, local_x)| (idx, local_x))
+        ));
 
         for (idx, child) in self.children.iter_mut().enumerate() {
             let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
             if child.is_hovered() != hovered {
+                debug_input(&format!(
+                    "[hover][row] set child={} hovered={}",
+                    idx, hovered
+                ));
                 child.set_hovered(hovered);
                 changed = true;
             }
@@ -845,6 +855,42 @@ impl Dock {
         self.focus_child(focusable[next_pos])
     }
 
+    fn apply_item_layout_hints(item: &mut DockItem) {
+        let Some(styles) = item.child.styles_mut() else {
+            return;
+        };
+        let style = &mut styles.style;
+        match item.kind {
+            DockKind::Top => {
+                style.dock = Some(StyleDock::Top);
+                if let Some(height) = item.size {
+                    style.height = Some(Scalar::Cells(height as u16));
+                }
+            }
+            DockKind::Bottom => {
+                style.dock = Some(StyleDock::Bottom);
+                if let Some(height) = item.size {
+                    style.height = Some(Scalar::Cells(height as u16));
+                }
+            }
+            DockKind::Left => {
+                style.dock = Some(StyleDock::Left);
+                if let Some(width) = item.size {
+                    style.width = Some(Scalar::Cells(width as u16));
+                }
+            }
+            DockKind::Right => {
+                style.dock = Some(StyleDock::Right);
+                if let Some(width) = item.size {
+                    style.width = Some(Scalar::Cells(width as u16));
+                }
+            }
+            DockKind::Fill => {
+                style.dock = None;
+            }
+        }
+    }
+
     fn child_at_xy(&self, x: u16, y: u16) -> Option<(usize, u16, u16, u16, u16)> {
         let mut x0 = 0u16;
         let mut y0 = 0u16;
@@ -933,6 +979,19 @@ impl Dock {
 }
 
 impl Widget for Dock {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        let mut children = Vec::with_capacity(self.items.len());
+        for mut item in std::mem::take(&mut self.items) {
+            Self::apply_item_layout_hints(&mut item);
+            children.push(item.child);
+        }
+        children
+    }
+
     fn focusable(&self) -> bool {
         self.items
             .iter()

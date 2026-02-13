@@ -109,6 +109,14 @@ impl Horizontal {
 }
 
 impl Widget for Horizontal {
+    fn compose(&self) -> ComposeResult {
+        self.row.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.row.take_composed_children()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.row.render(console, options)
     }
@@ -150,6 +158,10 @@ impl Widget for Horizontal {
         self.row.on_event(event, ctx);
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.row.on_mouse_move(x, y)
+    }
+
     fn layout_height(&self) -> Option<usize> {
         self.row.layout_height()
     }
@@ -179,12 +191,26 @@ impl Vertical {
         self
     }
 
+    /// Add multiple children from a `compose![]` result.
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        self.container = self.container.with_compose(children);
+        self
+    }
+
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.container.push(child);
     }
 }
 
 impl Widget for Vertical {
+    fn compose(&self) -> ComposeResult {
+        self.container.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.container.take_composed_children()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.container.render(console, options)
     }
@@ -226,6 +252,10 @@ impl Widget for Vertical {
         self.container.on_event(event, ctx);
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.container.on_mouse_move(x, y)
+    }
+
     fn layout_height(&self) -> Option<usize> {
         self.container.layout_height()
     }
@@ -265,6 +295,14 @@ impl VerticalGroup {
 }
 
 impl Widget for VerticalGroup {
+    fn compose(&self) -> ComposeResult {
+        self.inner.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.inner.take_composed_children()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }
@@ -304,6 +342,10 @@ impl Widget for VerticalGroup {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event(event, ctx);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.inner.on_mouse_move(x, y)
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -805,6 +847,14 @@ impl HorizontalGroup {
 }
 
 impl Widget for HorizontalGroup {
+    fn compose(&self) -> ComposeResult {
+        self.inner.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.inner.take_composed_children()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }
@@ -844,6 +894,10 @@ impl Widget for HorizontalGroup {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event(event, ctx);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.inner.on_mouse_move(x, y)
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -945,6 +999,14 @@ impl VerticalScroll {
 }
 
 impl Widget for VerticalScroll {
+    fn compose(&self) -> ComposeResult {
+        self.child.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.child.take_composed_children()
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -1258,6 +1320,14 @@ impl ScrollableContainer {
 }
 
 impl Widget for ScrollableContainer {
+    fn compose(&self) -> ComposeResult {
+        self.inner.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.inner.take_composed_children()
+    }
+
     fn focusable(&self) -> bool {
         self.inner.focusable()
     }
@@ -1393,6 +1463,14 @@ impl HorizontalScroll {
 }
 
 impl Widget for HorizontalScroll {
+    fn compose(&self) -> ComposeResult {
+        self.child.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.child.take_composed_children()
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -1648,6 +1726,14 @@ impl ItemGrid {
 }
 
 impl Widget for ItemGrid {
+    fn compose(&self) -> ComposeResult {
+        self.inner.compose()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.inner.take_composed_children()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
     }

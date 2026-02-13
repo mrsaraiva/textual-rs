@@ -851,16 +851,17 @@ fn p1_gate_container_header_plus_button_click_is_handled() {
 #[test]
 fn p1_gate_buttons_wrapper_chain_click_clears_previous_focus() {
     let sink = Arc::new(Mutex::new(Vec::new()));
-    let mut root = Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
-        VerticalScroll::new().with_compose(compose![
-            Static::new("Left"),
-            FocusProbe::new("left", sink.clone()),
-        ]),
-        VerticalScroll::new().with_compose(compose![
-            Static::new("Right"),
-            FocusProbe::new("right", sink.clone()),
-        ]),
-    ])));
+    let mut root =
+        Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Left"),
+                FocusProbe::new("left", sink.clone()),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Right"),
+                FocusProbe::new("right", sink.clone()),
+            ]),
+        ])));
     let console = Console::new();
     let mut opts = console.options().clone();
     opts.size = (80, 20);

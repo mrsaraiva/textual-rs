@@ -413,7 +413,13 @@ impl Widget for Button {
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+        if self.hovered != hovered {
+            debug_input(&format!(
+                "[hover][button] label=\"{}\" hovered {} -> {}",
+                self.label, self.hovered, hovered
+            ));
+            self.hovered = hovered;
+        }
     }
 
     fn is_active(&self) -> bool {
@@ -437,6 +443,9 @@ impl Widget for Button {
             Event::MouseDown(mouse)
                 if crate::runtime::dispatch_ctx::is_self_target(mouse.target) =>
             {
+                // Enter active visual state immediately on targeted press even if
+                // hover-move events haven't run yet in this frame.
+                self.hovered = true;
                 self.pressed = PressedState::Mouse;
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
@@ -538,6 +547,23 @@ impl Widget for Button {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.hovered || self.focused || self.is_active() {
+            let meta = crate::css::selector_meta_generic(self);
+            let resolved = crate::css::resolve_style(self, &meta);
+            debug_input(&format!(
+                "[hover][button-style] label=\"{}\" hovered={} focused={} active={} bg={:?} fg={:?} border_top={:?} border_bottom={:?} tint={:?}",
+                self.label,
+                self.hovered,
+                self.focused,
+                self.is_active(),
+                resolved.bg,
+                resolved.fg,
+                resolved.border_top,
+                resolved.border_bottom,
+                resolved.background_tint
+            ));
+        }
+
         let width = options.size.0.max(1);
 
         // Rich text content takes precedence over plain label.
@@ -740,6 +766,30 @@ mod tests {
             .disabled(false);
         assert_eq!(button.action(), Some("app.save"));
         assert!(!button.disabled);
+    }
+
+    #[test]
+    fn mouse_down_enters_active_state_without_prior_hover() {
+        let mut button = Button::new("Run");
+        let mut ctx = EventCtx::default();
+
+        button.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 1,
+                screen_y: 1,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        assert!(button.pressed(), "mouse down should set pressed state");
+        assert!(button.is_hovered(), "mouse down should set hovered state");
+        assert!(
+            button.is_active(),
+            "mouse down should produce active visual state immediately"
+        );
     }
 
     // ── WP-19: Button markup label ──────────────────────────────────────

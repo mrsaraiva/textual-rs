@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **[wip] DOM tree targeting now reaches deep widgets (hover/click path), layout follow-up in progress**
+  - Improved tree hit-target selection to prefer deeper valid descendants when frame metadata and tree targets disagree, reducing coarse row-level targeting.
+  - Added richer runtime diagnostics for target selection (`id/type/parent/children`) to trace tree-routing mismatches in wrapper-heavy demos.
+  - Extended alias/container composition extraction so wrapper widgets contribute real children to the arena tree (`Horizontal`/`Vertical` groups and scroll aliases).
+  - Added one-shot composed-child extraction for `ScrollView` and dock-child extraction/style mapping for `Dock`, moving more structure into tree-driven composition.
+  - Result: hover/click targeting now reaches button-level nodes in `buttons_advanced`; remaining regression focus is layout/stacking (for example missing `VerticalScroll` presentation) while tree composition is stabilized further.
+
 - **[wip] DOM input routing stabilization for wrapper-heavy demos (`buttons_advanced`)**
   - Hardened runtime hit-test targeting: ignore invalid/default metadata node IDs and only route mouse events to live tree nodes.
   - Added root fallback dispatch for mouse-down/up when no valid hit-test target exists, preserving screen-local coordinates so legacy/container routing can still resolve child hits.

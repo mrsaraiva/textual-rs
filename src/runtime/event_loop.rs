@@ -1169,12 +1169,9 @@ impl App {
                                 mouse.row,
                                 self.hovered.map(|id| node_id_to_ffi(id))
                             ));
-                            if let Some(target) = self.widget_at(mouse.column, mouse.row) {
-                                let (x, y) = self.hit_test.content_local_coords(
-                                    target,
-                                    mouse.column,
-                                    mouse.row,
-                                );
+                            if let Some(target) = self.widget_at_auto(mouse.column, mouse.row) {
+                                let (x, y) =
+                                    self.content_local_coords_auto(target, mouse.column, mouse.row);
                                 debug_input(&format!(
                                     "[input] mouse target id={}",
                                     node_id_to_ffi(target)
@@ -1244,11 +1241,10 @@ impl App {
                             }
                         }
                         MouseEventKind::Up(_) => {
-                            let target = self.widget_at(mouse.column, mouse.row);
+                            let target = self.widget_at_auto(mouse.column, mouse.row);
                             let (x, y) = target
                                 .map(|id| {
-                                    self.hit_test
-                                        .content_local_coords(id, mouse.column, mouse.row)
+                                    self.content_local_coords_auto(id, mouse.column, mouse.row)
                                 })
                                 .unwrap_or((mouse.column, mouse.row));
                             let up_event = Event::MouseUp(MouseUpEvent {
@@ -1316,11 +1312,10 @@ impl App {
                             }
                             let (delta_x, delta_y) =
                                 mouse_scroll_deltas(mouse.kind, mouse.modifiers);
-                            let target = self.widget_at(mouse.column, mouse.row);
+                            let target = self.widget_at_auto(mouse.column, mouse.row);
                             let (local_x, local_y) = target
                                 .map(|id| {
-                                    self.hit_test
-                                        .content_local_coords(id, mouse.column, mouse.row)
+                                    self.content_local_coords_auto(id, mouse.column, mouse.row)
                                 })
                                 .unwrap_or((0, 0));
                             debug_input(&format!(

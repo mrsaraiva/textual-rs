@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::DebugLayout;
+use crate::debug::{DebugLayout, debug_input};
 use crate::event::{Event, EventCtx};
 
 use crate::node_id::NodeId;
@@ -18,6 +18,7 @@ pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
     focused: Option<NodeId>,
     styles: WidgetStyles,
+    last_layout_height: u16,
 }
 
 #[cfg(test)]
@@ -29,6 +30,7 @@ impl AppRoot {
             children: Vec::new(),
             focused: None,
             styles: WidgetStyles::default(),
+            last_layout_height: 0,
         }
     }
 
@@ -49,6 +51,47 @@ impl AppRoot {
 
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
+    }
+
+    fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
+        let mut cursor = 0u16;
+        let viewport_h = self.last_layout_height.max(1);
+        for (idx, child) in self.children.iter().enumerate() {
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let top_margin = margin.top;
+            let bottom_margin = margin.bottom;
+            let inner_height = if let Some(h) = child.layout_height() {
+                h.max(1) as u16
+            } else if idx + 1 == self.children.len() {
+                // For an auto-height final child, treat it as consuming the
+                // remaining viewport; this keeps root hit-testing aligned with
+                // full-screen layouts like AppRoot -> Dock/ScrollView.
+                viewport_h
+                    .saturating_sub(cursor)
+                    .saturating_sub(bottom_margin)
+                    .max(1)
+            } else {
+                1
+            };
+            let outer_height = inner_height.saturating_add(top_margin + bottom_margin);
+            let outer_end = cursor.saturating_add(outer_height);
+            debug_input(&format!(
+                "[hover][approot] idx={} y={} cursor={} inner={} top={} bottom={} outer_end={} viewport_h={}",
+                idx, y, cursor, inner_height, top_margin, bottom_margin, outer_end, viewport_h
+            ));
+            if y < outer_end {
+                let inner_start = cursor.saturating_add(top_margin);
+                let inner_end = inner_start.saturating_add(inner_height);
+                if y >= inner_start && y < inner_end {
+                    return Some((idx, y.saturating_sub(inner_start)));
+                }
+                return None;
+            }
+            cursor = outer_end;
+        }
+        None
     }
 
     /// Read-only access to the root's children.
@@ -318,6 +361,13 @@ impl Widget for AppRoot {
         }
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.last_layout_height = height.max(1);
+        for child in &mut self.children {
+            child.on_layout(width, height);
+        }
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         for child in &mut self.children {
             child.on_event_capture(event, ctx);
@@ -346,6 +396,33 @@ impl Widget for AppRoot {
                 break;
             }
         }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hit = self.child_at_y(y);
+        debug_input(&format!(
+            "[hover][approot] move x={} y={} hit={:?}",
+            x,
+            y,
+            hit.map(|(idx, local_y)| (idx, local_y))
+        ));
+        let mut changed = false;
+
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
+            if child.is_hovered() != hovered {
+                child.set_hovered(hovered);
+                changed = true;
+            }
+        }
+
+        if let Some((idx, local_y)) = hit {
+            if let Some(child) = self.children.get_mut(idx) {
+                changed |= child.on_mouse_move(x, local_y);
+            }
+        }
+
+        changed
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -406,7 +483,32 @@ mod focus_tests {
     use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
-    use rich_rs::Console;
+    use rich_rs::{Console, ConsoleOptions, Segments};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    };
+
+    struct ProbeWidget {
+        last_y: Arc<AtomicU16>,
+    }
+
+    impl ProbeWidget {
+        fn new(last_y: Arc<AtomicU16>) -> Self {
+            Self { last_y }
+        }
+    }
+
+    impl Widget for ProbeWidget {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+            self.last_y.store(y, Ordering::Relaxed);
+            true
+        }
+    }
 
     #[test]
     fn focus_next_advances_after_set_focus_by_id() {
@@ -569,5 +671,15 @@ mod focus_tests {
             48,
             "false vertical scrollbar shrank viewport width"
         );
+    }
+
+    #[test]
+    fn app_root_routes_mouse_move_across_full_height_for_auto_child() {
+        let observed_y = Arc::new(AtomicU16::new(0));
+        let mut root = AppRoot::new().with_child(ProbeWidget::new(observed_y.clone()));
+
+        root.on_layout(80, 24);
+        assert!(root.on_mouse_move(7, 19));
+        assert_eq!(observed_y.load(Ordering::Relaxed), 19);
     }
 }

@@ -11,12 +11,13 @@ mod types;
 use crate::animation::{Animator, animation_level_from_env};
 use crate::compose::{ChildDecl, WidgetBuilder};
 use crate::css::{StyleSheet, default_widget_stylesheet};
-use crate::debug::{DebugLayout, debug_render};
+use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
 use crate::event::{ActionMap, BindingHint, KeyBind};
 use crate::message::MessageEvent;
 use crate::node_id::NodeId;
 use crate::node_id::node_id_from_ffi;
+use crate::node_id::node_id_to_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
 use crate::style::Theme;
@@ -37,7 +38,9 @@ use types::{
     StylesheetWatcher,
 };
 
-use helpers::{ClickTracker, apply_size, default_action_map};
+use helpers::{
+    ClickTracker, apply_size, default_action_map, tree_content_local_coords, widget_at_tree_layout,
+};
 
 pub struct App {
     driver: TerminalDriver,
@@ -728,10 +731,17 @@ impl App {
         if x >= self.frame.width || y >= self.frame.height {
             return false;
         }
-        let hovered = self.widget_at(x as u16, y as u16);
+        let hovered = self.widget_at_auto(x as u16, y as u16);
 
         let hovered_changed = hovered != self.hovered;
         if hovered_changed {
+            debug_input(&format!(
+                "[hover] screen=({}, {}) hovered {:?} -> {:?}",
+                x,
+                y,
+                self.hovered.map(node_id_to_ffi),
+                hovered.map(node_id_to_ffi)
+            ));
             // Update hover state on actual widgets via the tree.
             if let Some(tree) = self.widget_tree.as_mut() {
                 if let Some(old_id) = self.hovered {
@@ -751,11 +761,24 @@ impl App {
         }
 
         // Forward updated coordinates so widgets can track intra-widget mouse position.
-        let mut moved_changed = false;
-        if let Some(id) = self.hovered {
-            let (lx, ly) = self.hit_test.content_local_coords(id, x as u16, y as u16);
-            moved_changed = self.call_on_mouse_move_auto(root, id, lx, ly);
-        }
+        let moved_changed = if let Some(id) = self.hovered {
+            let (lx, ly) = self.content_local_coords_auto(id, x as u16, y as u16);
+            self.call_on_mouse_move_auto(root, id, lx, ly)
+        } else if self.widget_tree.is_some() {
+            // Tree root is a synthetic `TreeStubWidget`; forwarding mouse move
+            // there discards hover propagation. Always use the real root widget
+            // for no-target movement.
+            debug_input(&format!(
+                "[hover] fallback root-move via real-root screen=({}, {})",
+                x, y
+            ));
+            root.on_mouse_move(x as u16, y as u16)
+        } else {
+            // When hit-test target resolution fails (common in partially tree-wired
+            // wrapper chains), still forward mouse movement through the root widget
+            // tree so containers can maintain descendant hover state.
+            root.on_mouse_move(x as u16, y as u16)
+        };
 
         hovered_changed || moved_changed
     }
@@ -807,6 +830,87 @@ impl App {
         }
 
         Some(target)
+    }
+
+    fn widget_at_auto(&self, x: u16, y: u16) -> Option<NodeId> {
+        let frame_target = self.widget_at(x, y);
+        if let Some(tree) = self.widget_tree.as_ref() {
+            let tree_target = widget_at_tree_layout(tree, x, y);
+            let chosen = choose_deeper_target(tree, frame_target, tree_target);
+            if frame_target != tree_target {
+                debug_input(&format!(
+                    "[hover] widget_at mismatch x={} y={} frame={} tree={} chosen={}",
+                    x,
+                    y,
+                    debug_target_label(tree, frame_target),
+                    debug_target_label(tree, tree_target),
+                    debug_target_label(tree, chosen)
+                ));
+            } else if let Some(target) = chosen {
+                debug_input(&format!(
+                    "[hover] widget_at source=frame+tree x={} y={} target={}",
+                    x,
+                    y,
+                    node_id_to_ffi(target)
+                ));
+            } else {
+                debug_input(&format!(
+                    "[hover] widget_at source=frame+tree x={} y={} target=None",
+                    x, y
+                ));
+            }
+            chosen
+        } else {
+            if let Some(target) = frame_target {
+                debug_input(&format!(
+                    "[hover] widget_at source=frame x={} y={} target={}",
+                    x,
+                    y,
+                    node_id_to_ffi(target)
+                ));
+                Some(target)
+            } else {
+                debug_input(&format!(
+                    "[hover] widget_at source=none x={} y={} target=None (tree-missing)",
+                    x, y
+                ));
+                None
+            }
+        }
+    }
+
+    fn content_local_coords_auto(
+        &self,
+        target: NodeId,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> (u16, u16) {
+        if let Some(tree) = &self.widget_tree {
+            if tree.contains(target) {
+                let coords = tree_content_local_coords(tree, target, screen_x, screen_y);
+                debug_input(&format!(
+                    "[hover] local source=tree target={} screen=({}, {}) local=({}, {})",
+                    node_id_to_ffi(target),
+                    screen_x,
+                    screen_y,
+                    coords.0,
+                    coords.1
+                ));
+                return coords;
+            }
+        }
+        let coords = self
+            .hit_test
+            .content_local_coords(target, screen_x, screen_y);
+        debug_input(&format!(
+            "[hover] local source=frame target={} screen=({}, {}) local=({}, {})",
+            node_id_to_ffi(target),
+            screen_x,
+            screen_y,
+            coords.0,
+            coords.1
+        ));
+        coords
     }
 
     fn refresh_size(&mut self) -> Result<()> {
@@ -885,6 +989,59 @@ impl App {
     }
 }
 
+fn is_ancestor_or_self(tree: &WidgetTree, ancestor: NodeId, node: NodeId) -> bool {
+    let mut cursor = Some(node);
+    while let Some(id) = cursor {
+        if id == ancestor {
+            return true;
+        }
+        cursor = tree.parent(id);
+    }
+    false
+}
+
+fn choose_deeper_target(
+    tree: &WidgetTree,
+    frame_target: Option<NodeId>,
+    tree_target: Option<NodeId>,
+) -> Option<NodeId> {
+    match (frame_target, tree_target) {
+        (Some(frame), Some(tree_hit)) if frame != tree_hit => {
+            if is_ancestor_or_self(tree, frame, tree_hit) {
+                Some(tree_hit)
+            } else if is_ancestor_or_self(tree, tree_hit, frame) {
+                Some(frame)
+            } else {
+                Some(tree_hit)
+            }
+        }
+        (Some(frame), Some(_)) => Some(frame),
+        (Some(frame), None) => Some(frame),
+        (None, Some(tree_hit)) => Some(tree_hit),
+        (None, None) => None,
+    }
+}
+
+fn debug_target_label(tree: &WidgetTree, id: Option<NodeId>) -> String {
+    match id {
+        Some(node_id) => {
+            if let Some(node) = tree.get(node_id) {
+                let parent = tree.parent(node_id).map(node_id_to_ffi).unwrap_or(0);
+                format!(
+                    "Some(id={},type={},parent={},children={})",
+                    node_id_to_ffi(node_id),
+                    node.widget.style_type(),
+                    parent,
+                    node.children.len()
+                )
+            } else {
+                format!("Some(id={},missing)", node_id_to_ffi(node_id))
+            }
+        }
+        None => "None".to_string(),
+    }
+}
+
 fn changed_rules_between(previous: &StyleSheet, next: &StyleSheet) -> Vec<crate::css::StyleRule> {
     let old_rules = previous.rules();
     let new_rules = next.rules();
@@ -954,5 +1111,33 @@ impl Widget for TreeStubWidget {
 
     fn style_type(&self) -> &'static str {
         self.type_name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::{AppRoot, Label};
+
+    #[test]
+    fn choose_deeper_target_prefers_tree_descendant_over_frame_ancestor() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let frame_target = tree.mount(root, Box::new(Label::new("row")));
+        let tree_target = tree.mount(frame_target, Box::new(Label::new("button")));
+
+        let chosen = choose_deeper_target(&tree, Some(frame_target), Some(tree_target));
+        assert_eq!(chosen, Some(tree_target));
+    }
+
+    #[test]
+    fn choose_deeper_target_keeps_frame_when_tree_hit_is_ancestor() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let tree_target = tree.mount(root, Box::new(Label::new("row")));
+        let frame_target = tree.mount(tree_target, Box::new(Label::new("button")));
+
+        let chosen = choose_deeper_target(&tree, Some(frame_target), Some(tree_target));
+        assert_eq!(chosen, Some(frame_target));
     }
 }

@@ -165,6 +165,55 @@ pub(crate) fn call_on_mouse_move_tree(
     }
 }
 
+/// Find the deepest visible node at a screen coordinate using tree layout
+/// geometry, independent of rendered segment metadata.
+pub(crate) fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId> {
+    let root = tree.root()?;
+    let mut hit_any: Option<NodeId> = None;
+    let mut hit_interactive: Option<NodeId> = None;
+    for node_id in tree.walk_depth_first(root) {
+        let Some(node) = tree.get(node_id) else {
+            continue;
+        };
+        if !node.display || node.visibility != crate::style::Visibility::Visible {
+            continue;
+        }
+        let rect = node.layout_rect;
+        let inside = x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1;
+        if !inside {
+            continue;
+        }
+        hit_any = Some(node_id);
+        if node.widget.mouse_interactive() {
+            hit_interactive = Some(node_id);
+        }
+    }
+    hit_interactive.or(hit_any).or(Some(root))
+}
+
+/// Translate screen coordinates to content-local coordinates using tree node
+/// geometry (prefers `content_rect`, falls back to `layout_rect`).
+pub(crate) fn tree_content_local_coords(
+    tree: &WidgetTree,
+    target: NodeId,
+    screen_x: u16,
+    screen_y: u16,
+) -> (u16, u16) {
+    let Some(node) = tree.get(target) else {
+        return (0, 0);
+    };
+    let content = node.content_rect;
+    let rect = if content.x1 > content.x0 && content.y1 > content.y0 {
+        content
+    } else {
+        node.layout_rect
+    };
+    (
+        screen_x.saturating_sub(rect.x0),
+        screen_y.saturating_sub(rect.y0),
+    )
+}
+
 /// Check whether any widget in the tree reports `is_active() == true`.
 pub(crate) fn any_widget_active_tree(tree: &WidgetTree) -> bool {
     let root = match tree.root() {

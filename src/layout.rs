@@ -426,6 +426,24 @@ pub fn resolve_layout(
             }
         }
     }
+
+    // Recurse into all laid-out descendants so every node receives
+    // layout/content rectangles, not only one level under `node`.
+    for child in children {
+        let Some(child_node) = tree.get(child) else {
+            continue;
+        };
+        if !child_node.display || child_node.visibility != crate::style::Visibility::Visible {
+            continue;
+        }
+        let rect = child_node.content_rect;
+        let w = rect.x1.saturating_sub(rect.x0);
+        let h = rect.y1.saturating_sub(rect.y0);
+        if w == 0 || h == 0 {
+            continue;
+        }
+        resolve_layout(tree, child, Region::new(rect.x0, rect.y0, w, h), viewport);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1761,6 +1779,25 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Empty"));
         // Should not panic.
         resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+    }
+
+    #[test]
+    fn resolve_layout_recurses_into_grandchildren() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Root"));
+        let parent = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Parent", Style::new().height(Scalar::Cells(20))),
+        );
+        let child = tree.mount(
+            parent,
+            LayoutTestWidget::boxed_with_style("Child", Style::new().height(Scalar::Cells(5))),
+        );
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+
+        assert_layout_rect(&tree, parent, 0, 0, 80, 20);
+        assert_layout_rect(&tree, child, 0, 0, 80, 5);
     }
 
     // =========================================================================

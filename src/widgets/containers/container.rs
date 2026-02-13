@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::DebugLayout;
+use crate::debug::{DebugLayout, debug_input};
 use crate::event::{Action, Event, EventCtx};
 use crate::node_id::NodeId;
 
@@ -445,10 +445,20 @@ impl Widget for Container {
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let hit = self.child_at_y(y);
         let mut changed = false;
+        debug_input(&format!(
+            "[hover][container] x={} y={} hit={:?}",
+            x,
+            y,
+            hit.map(|(idx, local_y)| (idx, local_y))
+        ));
 
         for (idx, child) in self.children.iter_mut().enumerate() {
             let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
             if child.is_hovered() != hovered {
+                debug_input(&format!(
+                    "[hover][container] set child={} hovered={}",
+                    idx, hovered
+                ));
                 child.set_hovered(hovered);
                 changed = true;
             }
