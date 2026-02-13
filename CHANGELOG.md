@@ -21,6 +21,7 @@ until the API stabilizes.
   - Applied the same wrapper-delegation model to `VerticalScroll` (aliases layer): child layout sync, mouse coordinate translation with scroll offset, hover forwarding, and focus descent handoff.
   - Adjusted Tab handling flow so focused branches can consume `FocusNext/FocusPrev` before tree-level fallback focus cycling, enabling nested non-tree descendants to receive focus actions.
   - Expanded `tests/p1_dom_input_gates.rs` with `VerticalScroll` click/focus gates.
+  - Refined wrapper focus behavior: removed implicit focus descent from wrapper `set_focus(true)` (which could force first-child focus on mouse click), keeping descent via explicit focus actions instead.
 
 - **Sprint 25: Complete tree-driven rendering (P1-12/P1-13)**
   - **Tree-driven compositor:** New `render_tree_composed()` path walks the arena tree depth-first, rendering each widget at its `layout_rect` position with CSS style stack management for proper inheritance. Replaces the legacy recursive `render_styled()` path when the tree is populated.

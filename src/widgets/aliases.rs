@@ -920,11 +920,6 @@ impl Widget for VerticalScroll {
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
         self.child.set_focus(focused);
-        if focused && !self.child.has_focus() {
-            let mut child_ctx = EventCtx::default();
-            self.child
-                .on_event(&Event::Action(Action::FocusNext), &mut child_ctx);
-        }
     }
 
     fn has_focus(&self) -> bool {
