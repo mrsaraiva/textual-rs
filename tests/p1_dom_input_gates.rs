@@ -1,8 +1,8 @@
 use rich_rs::{Console, ConsoleOptions, Segments};
+use std::sync::{Arc, Mutex};
 use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::node_id::NodeId;
 use textual::prelude::*;
-use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 struct ClickProbe {
@@ -36,9 +36,7 @@ impl Widget for ClickProbe {
                 self.pressed = true;
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse)
-                if self.pressed && mouse.target == Some(NodeId::default()) =>
-            {
+            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(NodeId::default()) => {
                 self.pressed = false;
                 self.sink
                     .lock()
@@ -47,6 +45,47 @@ impl Widget for ClickProbe {
                 ctx.set_handled();
             }
             _ => {}
+        }
+    }
+}
+
+#[derive(Clone)]
+struct HoverProbe {
+    id: &'static str,
+    hovered: bool,
+    sink: Arc<Mutex<Vec<String>>>,
+}
+
+impl HoverProbe {
+    fn new(id: &'static str, sink: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            id,
+            hovered: false,
+            sink,
+        }
+    }
+}
+
+impl Widget for HoverProbe {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if self.hovered != hovered {
+            self.hovered = hovered;
+            self.sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("{}:{hovered}", self.id));
         }
     }
 }
@@ -182,5 +221,47 @@ fn p1_gate_row_click_targets_correct_child_by_x() {
         descriptions,
         vec!["right".to_string()],
         "P1 gate: a click on the right side must route to the right child"
+    );
+}
+
+#[test]
+fn p1_gate_container_hover_targets_child_by_y() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Container::new()
+        .with_child(HoverProbe::new("first", sink.clone()))
+        .with_child(HoverProbe::new("second", sink.clone()));
+
+    assert!(root.on_mouse_move(0, 1));
+    assert!(root.on_mouse_move(0, 0));
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"second:true".to_string()),
+        "P1 gate: hovering row 1 should mark second child hovered; events={events:?}"
+    );
+    assert!(
+        events.contains(&"second:false".to_string()) && events.contains(&"first:true".to_string()),
+        "P1 gate: moving back to row 0 should swap hover from second to first; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_row_hover_targets_child_by_x() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Row::new()
+        .with_child(HoverProbe::new("left", sink.clone()))
+        .with_child(HoverProbe::new("right", sink.clone()));
+
+    assert!(root.on_mouse_move(9, 0));
+    assert!(root.on_mouse_move(0, 0));
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"right:true".to_string()),
+        "P1 gate: hovering right side should mark right child hovered; events={events:?}"
+    );
+    assert!(
+        events.contains(&"right:false".to_string()) && events.contains(&"left:true".to_string()),
+        "P1 gate: moving to left side should swap hover from right to left; events={events:?}"
     );
 }

@@ -369,6 +369,27 @@ impl Widget for Container {
         }
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hit = self.child_at_y(y);
+        let mut changed = false;
+
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
+            if child.is_hovered() != hovered {
+                child.set_hovered(hovered);
+                changed = true;
+            }
+        }
+
+        if let Some((idx, local_y)) = hit {
+            if let Some(child) = self.children.get_mut(idx) {
+                changed |= child.on_mouse_move(x, local_y);
+            }
+        }
+
+        changed
+    }
+
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);

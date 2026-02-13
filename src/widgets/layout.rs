@@ -645,6 +645,27 @@ impl Widget for Row {
             }
         }
     }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hit = self.child_at_x(x);
+        let mut changed = false;
+
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
+            if child.is_hovered() != hovered {
+                child.set_hovered(hovered);
+                changed = true;
+            }
+        }
+
+        if let Some((idx, local_x)) = hit {
+            if let Some(child) = self.children.get_mut(idx) {
+                changed |= child.on_mouse_move(local_x, y);
+            }
+        }
+
+        changed
+    }
 }
 
 impl Renderable for Row {
