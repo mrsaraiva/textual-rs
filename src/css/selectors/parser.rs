@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::style::{
     Align, BorderEdge, BorderType, Constrain, ContentAlign, Display, Dock, HorizontalAlign,
-    Layout, Margin, Offset, Overflow, Scalar, Style, StyleProperty, TextAlign, Tint,
+    Layout, Margin, Offset, Overflow, Pointer, Scalar, Style, StyleProperty, TextAlign, Tint,
     TransitionTiming, VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
@@ -225,7 +225,9 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
         "layout" => &[StyleProperty::Layout],
         "display" => &[StyleProperty::Display],
         "visibility" => &[StyleProperty::Visibility],
-        "overflow" | "overflow-x" | "overflow-y" => &[StyleProperty::Overflow],
+        "overflow" => &[StyleProperty::Overflow, StyleProperty::OverflowX, StyleProperty::OverflowY],
+        "overflow-x" => &[StyleProperty::OverflowX],
+        "overflow-y" => &[StyleProperty::OverflowY],
         "dock" => &[StyleProperty::Dock],
         "margin" => &[StyleProperty::Margin],
         "bold" => &[StyleProperty::Bold],
@@ -268,6 +270,7 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
         "layer" => &[StyleProperty::Layer],
         "layers" => &[StyleProperty::Layers],
         "constrain" => &[StyleProperty::Constrain],
+        "pointer" => &[StyleProperty::Pointer],
         _ => &[],
     }
 }
@@ -343,8 +346,17 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "visibility" => {
                 style.visibility = parse_visibility(value);
             }
-            "overflow" | "overflow-x" | "overflow-y" => {
-                style.overflow = parse_overflow(value);
+            "overflow" => {
+                let v = parse_overflow(value);
+                style.overflow = v;
+                style.overflow_x = v;
+                style.overflow_y = v;
+            }
+            "overflow-x" => {
+                style.overflow_x = parse_overflow(value);
+            }
+            "overflow-y" => {
+                style.overflow_y = parse_overflow(value);
             }
             "dock" => {
                 style.dock = parse_dock(value);
@@ -694,6 +706,15 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     "none" => Some(Constrain::None),
                     "inside" => Some(Constrain::Inside),
                     "inflect" => Some(Constrain::Inflect),
+                    _ => None,
+                };
+            }
+            "pointer" => {
+                style.pointer = match value.trim().to_lowercase().as_str() {
+                    "default" => Some(Pointer::Default),
+                    "pointer" => Some(Pointer::Pointer),
+                    "text" => Some(Pointer::Text),
+                    "not-allowed" => Some(Pointer::NotAllowed),
                     _ => None,
                 };
             }

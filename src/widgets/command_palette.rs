@@ -16,6 +16,107 @@ use super::{
     BindingDecl, Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
 };
 
+// ---------------------------------------------------------------------------
+// Provider trait & ProviderResult
+// ---------------------------------------------------------------------------
+
+/// A single result from a [`Provider`] search.
+#[derive(Debug, Clone)]
+pub struct ProviderResult {
+    /// Unique identifier for this result (used in selection messages).
+    pub id: String,
+    /// Display text shown in the result list.
+    pub title: String,
+    /// Optional help text shown below the title.
+    pub help: String,
+    /// Match score — higher values sort first.
+    pub score: f64,
+}
+
+/// A source of commands for the [`CommandPalette`].
+///
+/// Implement this trait to feed commands into the palette from any source.
+///
+/// # Lifecycle
+///
+/// * [`startup()`](Provider::startup) — called once when the palette opens.
+/// * [`search()`](Provider::search) — called on every keystroke.
+/// * [`shutdown()`](Provider::shutdown) — called when the palette closes.
+pub trait Provider: Send + Sync + 'static {
+    /// Human-readable name for this provider.
+    fn name(&self) -> &str;
+
+    /// Called once when the command palette opens.
+    fn startup(&mut self) {}
+
+    /// Return commands matching `query`. Empty `query` = discovery mode.
+    fn search(&self, query: &str) -> Vec<ProviderResult>;
+
+    /// Called when the command palette closes.
+    fn shutdown(&mut self) {}
+}
+
+// ---------------------------------------------------------------------------
+// SystemCommandsProvider
+// ---------------------------------------------------------------------------
+
+/// Built-in provider that serves the static list of [`PaletteCommand`]s.
+pub struct SystemCommandsProvider {
+    commands: Vec<PaletteCommand>,
+}
+
+impl SystemCommandsProvider {
+    pub fn new(commands: Vec<PaletteCommand>) -> Self {
+        Self { commands }
+    }
+
+    /// Borrow the current command list.
+    pub fn commands(&self) -> &[PaletteCommand] {
+        &self.commands
+    }
+}
+
+impl Provider for SystemCommandsProvider {
+    fn name(&self) -> &str {
+        "system"
+    }
+
+    fn search(&self, query: &str) -> Vec<ProviderResult> {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return self
+                .commands
+                .iter()
+                .map(|cmd| ProviderResult {
+                    id: cmd.id.clone(),
+                    title: cmd.title.clone(),
+                    help: cmd.help.clone(),
+                    score: 0.0,
+                })
+                .collect();
+        }
+        self.commands
+            .iter()
+            .filter_map(|cmd| {
+                let best = [&cmd.id, &cmd.title, &cmd.help]
+                    .iter()
+                    .filter_map(|text| FuzzyMatcher::score(&needle, &text.to_lowercase()))
+                    .max();
+                best.map(|score| ProviderResult {
+                    id: cmd.id.clone(),
+                    title: cmd.title.clone(),
+                    help: cmd.help.clone(),
+                    score: score as f64,
+                })
+            })
+            .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FuzzyMatcher
+// ---------------------------------------------------------------------------
+
 /// Simple fuzzy matcher: scores a query against text based on character positions,
 /// consecutive-match bonuses, and start-of-word bonuses.
 pub struct FuzzyMatcher;
@@ -100,8 +201,8 @@ pub struct CommandPalette {
     query: Input,
     list: ListView,
     key_panel: KeyPanel,
-    commands: Vec<PaletteCommand>,
-    filtered: Vec<usize>,
+    /// Built-in system commands served via the Provider pattern.
+    system_provider: SystemCommandsProvider,
     key_panel_render_width: f32,
     panel_visible: bool,
     panel_render_y: f32,
@@ -109,6 +210,10 @@ pub struct CommandPalette {
     layout_width: usize,
     layout_height: usize,
     styles: WidgetStyles,
+    /// External providers registered via [`add_provider`](Self::add_provider).
+    providers: Vec<Box<dyn Provider>>,
+    /// Merged results from all providers, sorted by descending score.
+    provider_results: Vec<ProviderResult>,
 }
 
 impl CommandPalette {
@@ -139,8 +244,7 @@ impl CommandPalette {
             query: Input::new().with_placeholder("Search for commands..."),
             list: ListView::new(Vec::new()).scroll_step(2),
             key_panel: KeyPanel::new(),
-            commands,
-            filtered: Vec::new(),
+            system_provider: SystemCommandsProvider::new(commands),
             key_panel_render_width: 0.0,
             panel_visible: false,
             panel_render_y: 0.0,
@@ -148,19 +252,32 @@ impl CommandPalette {
             layout_width: 1,
             layout_height: 1,
             styles: WidgetStyles::default(),
+            providers: Vec::new(),
+            provider_results: Vec::new(),
         };
         out.rebuild_results();
         out
     }
 
+    /// Register an external command provider.
+    pub fn add_provider(&mut self, provider: impl Provider) {
+        self.providers.push(Box::new(provider));
+    }
+
+    /// Builder variant of [`add_provider`](Self::add_provider).
+    pub fn with_provider(mut self, provider: impl Provider) -> Self {
+        self.add_provider(provider);
+        self
+    }
+
     pub fn with_commands(mut self, commands: Vec<PaletteCommand>) -> Self {
-        self.commands = commands;
+        self.system_provider = SystemCommandsProvider::new(commands);
         self.rebuild_results();
         self
     }
 
     pub fn set_commands(&mut self, commands: Vec<PaletteCommand>) {
-        self.commands = commands;
+        self.system_provider = SystemCommandsProvider::new(commands);
         self.rebuild_results();
     }
 
@@ -307,29 +424,31 @@ impl CommandPalette {
     }
 
     fn rebuild_results(&mut self) {
-        let needle = self.query.text().trim().to_lowercase();
-        if needle.is_empty() {
-            self.filtered = (0..self.commands.len()).collect();
-        } else {
-            let mut scored: Vec<(usize, u32)> = self
-                .commands
-                .iter()
-                .enumerate()
-                .filter_map(|(index, command)| {
-                    let best = [&command.id, &command.title, &command.help]
-                        .iter()
-                        .filter_map(|text| FuzzyMatcher::score(&needle, &text.to_lowercase()))
-                        .max();
-                    best.map(|score| (index, score))
-                })
-                .collect();
-            scored.sort_by(|a, b| b.1.cmp(&a.1));
-            self.filtered = scored.into_iter().map(|(idx, _)| idx).collect();
+        let query = self.query.text().trim().to_string();
+
+        // System provider always contributes (it holds the built-in commands).
+        let mut all: Vec<ProviderResult> = self.system_provider.search(&query);
+
+        // External providers only contribute when the palette is open
+        // (respects the startup-before-search lifecycle contract).
+        if self.open {
+            for provider in &self.providers {
+                all.extend(provider.search(&query));
+            }
         }
+
+        all.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        self.provider_results = all;
+
         let list_items = self
-            .filtered
+            .provider_results
             .iter()
-            .map(|index| self.commands[*index].title.clone())
+            .map(|r| r.title.clone())
             .collect::<Vec<_>>();
         self.list.set_items(list_items);
         self.list.set_selected(0);
@@ -363,6 +482,9 @@ impl CommandPalette {
             if self.previously_focused_child.is_some() {
                 self.child.set_focus(false);
             }
+            for provider in &mut self.providers {
+                provider.startup();
+            }
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
@@ -376,6 +498,9 @@ impl CommandPalette {
             self.animate_panel_y(start_y, target_y, ctx);
             ctx.post_message(Message::CommandPaletteOpened(CommandPaletteOpened));
         } else {
+            for provider in &mut self.providers {
+                provider.shutdown();
+            }
             self.query.set_focus(false);
             self.list.set_focus(false);
             self.restore_child_focus();
@@ -394,19 +519,19 @@ impl CommandPalette {
     }
 
     fn execute_selected(&mut self, ctx: &mut EventCtx) {
-        if self.filtered.is_empty() {
+        if self.provider_results.is_empty() {
             self.set_open(false, ctx);
             return;
         }
-        let selected = self.list.selected().min(self.filtered.len() - 1);
-        let command = &self.commands[self.filtered[selected]];
+        let selected = self.list.selected().min(self.provider_results.len() - 1);
+        let result = &self.provider_results[selected];
         ctx.post_message(
             Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected {
-                id: command.id.clone(),
-                title: command.title.clone(),
+                id: result.id.clone(),
+                title: result.title.clone(),
             }),
         );
-        match command.id.as_str() {
+        match result.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
                 let before = self
@@ -550,23 +675,23 @@ impl Widget for CommandPalette {
         let selected = self
             .list
             .selected()
-            .min(self.filtered.len().saturating_sub(1));
+            .min(self.provider_results.len().saturating_sub(1));
         let start = self
             .list
             .offset()
-            .min(self.filtered.len().saturating_sub(visible_items));
+            .min(self.provider_results.len().saturating_sub(visible_items));
         for row in 0..visible_items {
             let index = start.saturating_add(row);
             let ty_title = results_y.saturating_add(row.saturating_mul(2));
             let ty_help = ty_title.saturating_add(1);
-            if index >= self.filtered.len() || ty_title >= height {
+            if index >= self.provider_results.len() || ty_title >= height {
                 break;
             }
-            let command = &self.commands[self.filtered[index]];
+            let result = &self.provider_results[index];
             let active = index == selected;
             let title_cell_style = if active { selected_style } else { title_style };
             let help_cell_style = if active { selected_style } else { help_style };
-            let mut title_text = console.render_str(&command.title, Some(true), None, None, None);
+            let mut title_text = console.render_str(&result.title, Some(true), None, None, None);
             title_text.stylize_before(title_cell_style, 0, None);
             let title_buffer =
                 FrameBuffer::from_renderable(console, &result_line_options, &title_text, None);
@@ -585,7 +710,7 @@ impl Widget for CommandPalette {
                 *overlay.get_mut(tx, ty_title) = title_buffer.get(col, 0).clone();
             }
             if ty_help < height {
-                let mut help_text = console.render_str(&command.help, Some(true), None, None, None);
+                let mut help_text = console.render_str(&result.help, Some(true), None, None, None);
                 help_text.stylize_before(help_cell_style, 0, None);
                 let help_buffer =
                     FrameBuffer::from_renderable(console, &result_line_options, &help_text, None);
@@ -666,6 +791,11 @@ impl Widget for CommandPalette {
         self.query.on_unmount();
         self.list.on_unmount();
         self.key_panel.on_unmount();
+        if self.open {
+            for provider in &mut self.providers {
+                provider.shutdown();
+            }
+        }
         self.open = false;
         self.panel_visible = false;
         self.panel_render_y = Self::CLOSED_PANEL_Y;
@@ -945,9 +1075,9 @@ impl Widget for CommandPalette {
                     let start = self
                         .list
                         .offset()
-                        .min(self.filtered.len().saturating_sub(visible_items));
+                        .min(self.provider_results.len().saturating_sub(visible_items));
                     let index = start.saturating_add(row);
-                    if index < self.filtered.len() {
+                    if index < self.provider_results.len() {
                         self.list.set_selected(index);
                         self.execute_selected(ctx);
                         ctx.set_handled();
@@ -1326,8 +1456,8 @@ mod tests {
         );
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
-        assert_eq!(palette.commands.len(), 1);
-        assert_eq!(palette.commands[0].id, "deploy");
+        assert_eq!(palette.system_provider.commands().len(), 1);
+        assert_eq!(palette.system_provider.commands()[0].id, "deploy");
     }
 
     #[test]
@@ -1682,6 +1812,194 @@ mod tests {
             arguments: vec![],
         };
         assert!(palette.execute_action(&action, &mut ctx));
+        assert!(!palette.is_open());
+    }
+
+    // -----------------------------------------------------------------------
+    // Provider pattern tests
+    // -----------------------------------------------------------------------
+
+    struct TestProvider {
+        name: &'static str,
+        commands: Vec<(&'static str, &'static str, &'static str)>,
+        startup_count: Arc<AtomicUsize>,
+        shutdown_count: Arc<AtomicUsize>,
+    }
+
+    impl TestProvider {
+        fn new(
+            name: &'static str,
+            commands: Vec<(&'static str, &'static str, &'static str)>,
+            startup_count: Arc<AtomicUsize>,
+            shutdown_count: Arc<AtomicUsize>,
+        ) -> Self {
+            Self { name, commands, startup_count, shutdown_count }
+        }
+    }
+
+    impl Provider for TestProvider {
+        fn name(&self) -> &str { self.name }
+
+        fn startup(&mut self) {
+            self.startup_count.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn search(&self, query: &str) -> Vec<ProviderResult> {
+            let needle = query.trim().to_lowercase();
+            self.commands
+                .iter()
+                .filter_map(|(id, title, help)| {
+                    if needle.is_empty() {
+                        return Some(ProviderResult {
+                            id: id.to_string(),
+                            title: title.to_string(),
+                            help: help.to_string(),
+                            score: 0.0,
+                        });
+                    }
+                    FuzzyMatcher::score(&needle, &title.to_lowercase()).map(|s| ProviderResult {
+                        id: id.to_string(),
+                        title: title.to_string(),
+                        help: help.to_string(),
+                        score: s as f64,
+                    })
+                })
+                .collect()
+        }
+
+        fn shutdown(&mut self) {
+            self.shutdown_count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn system_commands_provider_returns_all_on_empty_query() {
+        let commands = vec![
+            PaletteCommand::new("a", "Alpha", "First"),
+            PaletteCommand::new("b", "Beta", "Second"),
+        ];
+        let provider = SystemCommandsProvider::new(commands);
+        let results = provider.search("");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "a");
+        assert_eq!(results[1].id, "b");
+    }
+
+    #[test]
+    fn system_commands_provider_filters_on_query() {
+        let commands = vec![
+            PaletteCommand::new("a", "Alpha", "First"),
+            PaletteCommand::new("b", "Beta", "Second"),
+        ];
+        let provider = SystemCommandsProvider::new(commands);
+        let results = provider.search("beta");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "b");
+    }
+
+    #[test]
+    fn provider_results_sorted_by_score_across_providers() {
+        let s1 = Arc::new(AtomicUsize::new(0));
+        let d1 = Arc::new(AtomicUsize::new(0));
+        let s2 = Arc::new(AtomicUsize::new(0));
+        let d2 = Arc::new(AtomicUsize::new(0));
+
+        let mut palette = CommandPalette::new(Label::new("body"))
+            .with_commands(Vec::new())
+            .with_provider(TestProvider::new(
+                "p1",
+                vec![("zz", "Zzz sleep", "low score")],
+                s1.clone(), d1.clone(),
+            ))
+            .with_provider(TestProvider::new(
+                "p2",
+                vec![("aa", "Alpha action", "high score")],
+                s2.clone(), d2.clone(),
+            ));
+
+        let mut ctx = EventCtx::default();
+        palette.set_open(true, &mut ctx);
+
+        palette.query.set_text("a");
+        palette.rebuild_results();
+
+        assert_eq!(s1.load(Ordering::Relaxed), 1);
+        assert_eq!(s2.load(Ordering::Relaxed), 1);
+        assert!(!palette.provider_results.is_empty());
+        assert_eq!(palette.provider_results[0].id, "aa");
+
+        palette.set_open(false, &mut ctx);
+        assert_eq!(d1.load(Ordering::Relaxed), 1);
+        assert_eq!(d2.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn provider_startup_shutdown_called_on_open_close() {
+        let startup = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicUsize::new(0));
+
+        let mut palette = CommandPalette::new(Label::new("body"))
+            .with_provider(TestProvider::new(
+                "tracker",
+                vec![("cmd", "Command", "Help")],
+                startup.clone(), shutdown.clone(),
+            ));
+
+        let mut ctx = EventCtx::default();
+        palette.set_open(true, &mut ctx);
+        assert_eq!(startup.load(Ordering::Relaxed), 1);
+        assert_eq!(shutdown.load(Ordering::Relaxed), 0);
+
+        palette.set_open(false, &mut ctx);
+        assert_eq!(startup.load(Ordering::Relaxed), 1);
+        assert_eq!(shutdown.load(Ordering::Relaxed), 1);
+
+        palette.set_open(true, &mut ctx);
+        assert_eq!(startup.load(Ordering::Relaxed), 2);
+        palette.set_open(false, &mut ctx);
+        assert_eq!(shutdown.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn provider_results_merged_with_builtin_commands() {
+        let startup = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicUsize::new(0));
+
+        let mut palette = CommandPalette::new(Label::new("body"))
+            .with_provider(TestProvider::new(
+                "custom",
+                vec![("deploy", "Deploy", "Ship it")],
+                startup.clone(), shutdown.clone(),
+            ));
+
+        let mut ctx = EventCtx::default();
+        palette.set_open(true, &mut ctx);
+
+        // 5 built-in + 1 provider = 6 results on empty query.
+        assert_eq!(palette.provider_results.len(), 6);
+        let ids: Vec<&str> = palette.provider_results.iter().map(|r| r.id.as_str()).collect();
+        assert!(ids.contains(&"deploy"));
+        assert!(ids.contains(&"quit"));
+    }
+
+    #[test]
+    fn provider_shutdown_called_on_unmount_while_open() {
+        let startup = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicUsize::new(0));
+
+        let mut palette = CommandPalette::new(Label::new("body"))
+            .with_provider(TestProvider::new(
+                "tracker",
+                vec![("cmd", "Command", "Help")],
+                startup.clone(), shutdown.clone(),
+            ));
+
+        let mut ctx = EventCtx::default();
+        palette.set_open(true, &mut ctx);
+        assert_eq!(startup.load(Ordering::Relaxed), 1);
+
+        palette.on_unmount();
+        assert_eq!(shutdown.load(Ordering::Relaxed), 1);
         assert!(!palette.is_open());
     }
 }

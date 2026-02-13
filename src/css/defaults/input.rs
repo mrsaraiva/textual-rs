@@ -9,6 +9,7 @@ Input {
     bg: $surface;
     fg: $foreground;
     border: tall $border-blurred;
+    pointer: text;
 }
 
 Input:focus { border: tall $border; background-tint: $foreground 5%; }
@@ -28,6 +29,7 @@ MaskedInput {
     bg: $surface;
     fg: $foreground;
     border: tall $border-blurred;
+    pointer: text;
 }
 
 MaskedInput:focus { border: tall $border; background-tint: $foreground 5%; }

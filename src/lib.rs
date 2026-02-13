@@ -13,6 +13,7 @@ pub mod event;
 pub mod keys;
 pub mod message;
 pub mod node_id;
+pub mod reactive;
 pub mod render;
 pub mod runtime;
 pub mod screen;
@@ -39,6 +40,7 @@ pub use textual_app::{
     run_textual_app_with_output,
 };
 pub use widgets::WidgetStyles;
+pub use textual_macros::Reactive;
 
 pub mod prelude {
     pub use crate::animation::{Animator, animation_level_from_env};

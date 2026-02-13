@@ -975,6 +975,11 @@ dependencies = [
 [[package]]
 name = "textual-macros"
 version = "0.0.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "thiserror"

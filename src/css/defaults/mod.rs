@@ -48,7 +48,7 @@ pub fn default_widget_stylesheet() -> StyleSheet {
 mod tests {
     use super::*;
     use crate::style::{
-        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Scalar,
+        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar,
         Spacing, TextAlign, VerticalAlign,
     };
 
@@ -236,6 +236,20 @@ mod tests {
         let sheet = StyleSheet::parse(input::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Input");
         assert_eq!(style.width, Some(Scalar::Percent(100.0)));
+    }
+
+    #[test]
+    fn input_has_pointer_text() {
+        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Input");
+        assert_eq!(style.pointer, Some(Pointer::Text));
+    }
+
+    #[test]
+    fn masked_input_has_pointer_text() {
+        let sheet = StyleSheet::parse(input::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "MaskedInput");
+        assert_eq!(style.pointer, Some(Pointer::Text));
     }
 
     #[test]

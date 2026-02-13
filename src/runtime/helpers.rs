@@ -182,6 +182,9 @@ pub(crate) fn any_widget_active_tree(tree: &WidgetTree) -> bool {
 }
 
 /// Determine the pointer shape for a hovered node.
+///
+/// Reads the widget's CSS `pointer` property first. Falls back to
+/// `PointerShape::Pointer` for interactive widgets (or `NotAllowed` if disabled).
 pub(crate) fn pointer_shape_for_hover_tree(
     tree: &WidgetTree,
     hovered: Option<NodeId>,
@@ -196,21 +199,30 @@ pub(crate) fn pointer_shape_for_hover_tree(
 
     let mouse_interactive = node.widget.mouse_interactive();
     let disabled = node.widget.is_disabled();
-    let ty = node.widget.style_type();
 
     if !mouse_interactive {
         return PointerShape::Default;
     }
 
-    if ty == "Input" {
-        return PointerShape::Text;
+    // Disabled widgets always show not-allowed, regardless of CSS pointer.
+    if disabled {
+        return PointerShape::NotAllowed;
     }
 
-    if disabled {
-        PointerShape::NotAllowed
-    } else {
-        PointerShape::Pointer
+    // Read the widget's computed CSS `pointer` property.
+    if let Some(style) = node.widget.style() {
+        if let Some(ptr) = style.pointer {
+            return match ptr {
+                crate::style::Pointer::Default => PointerShape::Default,
+                crate::style::Pointer::Pointer => PointerShape::Pointer,
+                crate::style::Pointer::Text => PointerShape::Text,
+                crate::style::Pointer::NotAllowed => PointerShape::NotAllowed,
+            };
+        }
     }
+
+    // Default for interactive widgets with no explicit CSS pointer.
+    PointerShape::Pointer
 }
 
 // ---------------------------------------------------------------------------

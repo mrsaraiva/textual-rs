@@ -436,21 +436,38 @@ mod tests {
     fn parses_overflow_auto_hidden_scroll() {
         let style = parse_style_body("overflow: auto;");
         assert_eq!(style.overflow, Some(crate::style::Overflow::Auto));
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Auto));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Auto));
 
         let style = parse_style_body("overflow: hidden;");
         assert_eq!(style.overflow, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Hidden));
 
         let style = parse_style_body("overflow: scroll;");
         assert_eq!(style.overflow, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Scroll));
     }
 
     #[test]
     fn parses_overflow_x_and_overflow_y() {
+        // overflow-x only sets overflow_x, not overflow or overflow_y
         let style = parse_style_body("overflow-x: hidden;");
-        assert_eq!(style.overflow, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow, None);
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow_y, None);
 
+        // overflow-y only sets overflow_y, not overflow or overflow_x
         let style = parse_style_body("overflow-y: scroll;");
-        assert_eq!(style.overflow, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow, None);
+        assert_eq!(style.overflow_x, None);
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Scroll));
+
+        // Combined: shorthand + per-axis override
+        let style = parse_style_body("overflow: auto; overflow-x: hidden;");
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Auto));
     }
 
     #[test]
@@ -458,6 +475,27 @@ mod tests {
         let parent = parse_style_body("overflow: hidden;");
         let child = Style::new().inherit_from(&parent);
         assert_eq!(child.overflow, None);
+        assert_eq!(child.overflow_x, None);
+        assert_eq!(child.overflow_y, None);
+    }
+
+    #[test]
+    fn parses_pointer_property() {
+        let style = parse_style_body("pointer: default;");
+        assert_eq!(style.pointer, Some(crate::style::Pointer::Default));
+
+        let style = parse_style_body("pointer: pointer;");
+        assert_eq!(style.pointer, Some(crate::style::Pointer::Pointer));
+
+        let style = parse_style_body("pointer: text;");
+        assert_eq!(style.pointer, Some(crate::style::Pointer::Text));
+
+        let style = parse_style_body("pointer: not-allowed;");
+        assert_eq!(style.pointer, Some(crate::style::Pointer::NotAllowed));
+
+        // Unknown value -> None
+        let style = parse_style_body("pointer: crosshair;");
+        assert_eq!(style.pointer, None);
     }
 
     #[test]

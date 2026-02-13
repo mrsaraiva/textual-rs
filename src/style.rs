@@ -825,6 +825,8 @@ pub enum StyleProperty {
     TransitionDelay = 43,
     TransitionTiming = 44,
     Constrain = 45,
+    OverflowX = 46,
+    OverflowY = 47,
 }
 
 /// Bitset tracking which [`Style`] properties carry `!important`.
@@ -902,7 +904,10 @@ pub struct Style {
     pub layout: Option<Layout>,
     pub display: Option<Display>,
     pub visibility: Option<Visibility>,
+    /// Shorthand field: set when `overflow: <value>` is used (sets both axes).
     pub overflow: Option<Overflow>,
+    pub overflow_x: Option<Overflow>,
+    pub overflow_y: Option<Overflow>,
     pub dock: Option<Dock>,
 
     // --- Alignment ---
@@ -1268,6 +1273,8 @@ impl Style {
             display: cascade_field!(self, other, imp, display, StyleProperty::Display),
             visibility: cascade_field!(self, other, imp, visibility, StyleProperty::Visibility),
             overflow: cascade_field!(self, other, imp, overflow, StyleProperty::Overflow),
+            overflow_x: cascade_field!(self, other, imp, overflow_x, StyleProperty::OverflowX),
+            overflow_y: cascade_field!(self, other, imp, overflow_y, StyleProperty::OverflowY),
             dock: cascade_field!(self, other, imp, dock, StyleProperty::Dock),
             text_align: cascade_field!(self, other, imp, text_align, StyleProperty::TextAlign),
             content_align: cascade_field!(self, other, imp, content_align, StyleProperty::ContentAlign),
@@ -1340,6 +1347,8 @@ impl Style {
             display: self.display,
             visibility: self.visibility,
             overflow: self.overflow,
+            overflow_x: self.overflow_x,
+            overflow_y: self.overflow_y,
             dock: self.dock,
             // text_align IS inherited (CSS semantics).
             text_align: self.text_align.or(parent.text_align),
@@ -1471,6 +1480,8 @@ impl Style {
             && self.display.is_none()
             && self.visibility.is_none()
             && self.overflow.is_none()
+            && self.overflow_x.is_none()
+            && self.overflow_y.is_none()
             && self.dock.is_none()
             && self.text_align.is_none()
             && self.content_align.is_none()

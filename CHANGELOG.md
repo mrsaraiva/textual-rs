@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-13
+- **Parity Sprint 19: Reactive foundations + CSS overflow/pointer + CommandPalette Provider**
+  - **P3-01..P3-05 complete:** Reactive field system foundation.
+    - `src/reactive.rs`: `ReactiveFlags` (repaint/layout/init control), `ReactiveChange` (field_name + flags + type-erased old/new values), `ReactiveCtx` (node_id + change accumulator + repaint/layout request tracking), `ReactiveWidget` trait with default no-op `reactive_dispatch()`. 12 unit tests.
+    - `textual-macros/src/reactive.rs`: Full `#[derive(Reactive)]` proc macro — parses `#[reactive]`, `#[reactive(layout)]`, `#[reactive(watch)]`, `#[var]` field attributes. Generates typed getters (`fn field(&self) -> &T`) and setters (`fn set_field(&mut self, value: T, ctx: &mut ReactiveCtx)`) with PartialEq change detection. Generates `ReactiveWidget` impl with watcher dispatch for `#[reactive(watch)]` fields (naming convention: `watch_{field}(old, new, ctx)`). Attribute validation rejects unknown args. 13 integration tests.
+  - **P2-22 complete:** Split overflow axes — `overflow_x`/`overflow_y` fields on `Style`, `OverflowX`/`OverflowY` `StyleProperty` variants (46/47) with cascade + importance tracking. Parser maps `overflow-x:`/`overflow-y:` to separate fields while `overflow:` shorthand sets both. ScrollView per-axis scrollbar visibility with fallback to shorthand.
+  - **P2-23 complete:** CSS `pointer` property wired to runtime — `pointer_shape_for_hover_tree` rewritten to read computed `style.pointer` instead of hardcoded widget type-name checks. `pointer: text;` added to Input/MaskedInput default CSS. Disabled widgets always show `NotAllowed` cursor.
+  - **P5-13 complete:** CommandPalette Provider pattern — `Provider` trait (`Send + Sync + 'static`) with `startup()`/`search()`/`shutdown()` lifecycle hooks. `ProviderResult` struct (id, title, help, score). `SystemCommandsProvider` wrapping built-in `PaletteCommand` list. `add_provider()`/`with_provider()` builder API. Lifecycle wired: startup on open, shutdown on close/unmount, search on keystroke. 6 tests.
+  - Build: 0 errors. Tests: 1468 passed (+36 new), 0 failed. 1 pre-existing integration test failure (`background_is_not_inherited_by_children`).
+
 ### 2026-02-12
 - **Parity Sprint 18: P4-06 — Message struct-per-variant refactor**
   - **P4-03/P4-04/P4-05 resolved:** Candidate A chosen (two-tier: closed enum + trait object). Candidate B (generated union via proc macro) excluded. Prototyping skipped — decision made directly.

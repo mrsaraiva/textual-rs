@@ -374,16 +374,21 @@ impl Widget for ScrollView {
                 self.offset_y
             ));
         }
-        // Read the resolved CSS overflow property.
+        // Read the resolved CSS overflow properties (per-axis).
         // - Auto (default): show scrollbars when content exceeds viewport.
         // - Hidden: clip content, never show scrollbars.
         // - Scroll: always show scrollbar track (even when content fits).
-        let overflow = {
+        let (overflow_x, overflow_y) = {
             let meta = crate::css::selector_meta_generic(self);
             let style = crate::css::resolve_style(self, &meta);
-            style.overflow.unwrap_or(crate::style::Overflow::Auto)
+            let fallback = style.overflow.unwrap_or(crate::style::Overflow::Auto);
+            (
+                style.overflow_x.unwrap_or(fallback),
+                style.overflow_y.unwrap_or(fallback),
+            )
         };
-        let allow_scrollbars = !matches!(overflow, crate::style::Overflow::Hidden);
+        let allow_scrollbars_h = !matches!(overflow_x, crate::style::Overflow::Hidden);
+        let allow_scrollbars_v = !matches!(overflow_y, crate::style::Overflow::Hidden);
 
         let constraints = self.child.layout_constraints();
         const V_SCROLLBAR_SIZE: usize = 2;
@@ -461,8 +466,8 @@ impl Widget for ScrollView {
                 .max()
                 .unwrap_or(viewport_w)
                 .max(viewport_w);
-            let next_show_v = allow_scrollbars && candidate_height > viewport_h;
-            let next_show_h = allow_scrollbars && candidate_width > viewport_w;
+            let next_show_v = allow_scrollbars_v && candidate_height > viewport_h;
+            let next_show_h = allow_scrollbars_h && candidate_width > viewport_w;
 
             lines = candidate;
             content_width = candidate_width;
