@@ -328,4 +328,53 @@ mod tests {
         assert_eq!(help_height, 1);
         assert_eq!(keys_height, 1);
     }
+
+    // ── WP-28: Auto-discover via focus-change messages ───────────────
+
+    #[test]
+    fn help_panel_auto_discovers_focused_help_via_message() {
+        let mut panel = HelpPanel::new();
+        assert!(!panel.showing_help());
+
+        // Simulate runtime sending HelpPanelFocusedHelpChanged on focus change.
+        let mut ctx = EventCtx::default();
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
+                source: crate::node_id::NodeId::default(),
+                markup: "## Widget Help\nPress Enter to confirm.".to_string(),
+            }),
+        };
+        panel.on_message(&msg, &mut ctx);
+        assert!(panel.showing_help());
+        assert_eq!(panel.help(), "## Widget Help\nPress Enter to confirm.");
+        assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn help_panel_auto_clears_on_focused_help_cleared_message() {
+        let mut panel = HelpPanel::new().with_help("## Some help");
+        assert!(panel.showing_help());
+
+        let mut ctx = EventCtx::default();
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
+        };
+        panel.on_message(&msg, &mut ctx);
+        assert!(!panel.showing_help());
+        assert!(ctx.repaint_requested());
+    }
+
+    #[test]
+    fn help_panel_auto_updates_bindings_on_event() {
+        let mut panel = HelpPanel::new();
+        let hints = vec![
+            BindingHint::new("ctrl+s", "Save"),
+            BindingHint::new("ctrl+q", "Quit"),
+        ];
+        let mut ctx = EventCtx::default();
+        panel.on_event(&Event::BindingsChanged(hints), &mut ctx);
+        assert!(ctx.repaint_requested());
+    }
 }

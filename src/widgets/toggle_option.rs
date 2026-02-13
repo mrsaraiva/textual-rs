@@ -1,4 +1,5 @@
 use crossterm::event::KeyCode;
+use rich_rs::Text;
 
 use crate::event::{Action, Event};
 use crate::node_id::NodeId;
@@ -30,20 +31,53 @@ impl From<&str> for OptionId {
 }
 
 /// Shared option row model used by `OptionList`, `Select`, and `SelectionList`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Items can hold either a plain text `prompt` or rich [`Text`] content.
+/// When both are present, rich content takes precedence during rendering
+/// while the plain prompt serves as a fallback / accessibility label.
+#[derive(Debug, Clone)]
 pub enum OptionItem {
     Option {
         prompt: String,
+        /// Rich text content. When set, takes precedence over `prompt` during rendering.
+        content: Option<Text>,
         id: Option<OptionId>,
         disabled: bool,
     },
     Separator,
 }
 
+/// Equality considers prompt/id/disabled only — rich `content` is a rendering detail.
+impl PartialEq for OptionItem {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Option {
+                    prompt: p1,
+                    id: id1,
+                    disabled: d1,
+                    ..
+                },
+                Self::Option {
+                    prompt: p2,
+                    id: id2,
+                    disabled: d2,
+                    ..
+                },
+            ) => p1 == p2 && id1 == id2 && d1 == d2,
+            (Self::Separator, Self::Separator) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for OptionItem {}
+
 impl OptionItem {
     pub fn new(prompt: impl Into<String>) -> Self {
         Self::Option {
             prompt: prompt.into(),
+            content: None,
             id: None,
             disabled: false,
         }
@@ -52,6 +86,7 @@ impl OptionItem {
     pub fn with_id(prompt: impl Into<String>, id: impl Into<OptionId>) -> Self {
         Self::Option {
             prompt: prompt.into(),
+            content: None,
             id: Some(id.into()),
             disabled: false,
         }
@@ -60,6 +95,7 @@ impl OptionItem {
     pub fn disabled(prompt: impl Into<String>) -> Self {
         Self::Option {
             prompt: prompt.into(),
+            content: None,
             id: None,
             disabled: true,
         }
@@ -68,9 +104,43 @@ impl OptionItem {
     pub fn disabled_with_id(prompt: impl Into<String>, id: impl Into<OptionId>) -> Self {
         Self::Option {
             prompt: prompt.into(),
+            content: None,
             id: Some(id.into()),
             disabled: true,
         }
+    }
+
+    /// Create an option with rich [`Text`] content.
+    ///
+    /// The `label` is stored as the plain-text fallback; `content` is used for rendering.
+    pub fn rich(label: impl Into<String>, content: Text) -> Self {
+        Self::Option {
+            prompt: label.into(),
+            content: Some(content),
+            id: None,
+            disabled: false,
+        }
+    }
+
+    /// Create a rich option with a typed id.
+    pub fn rich_with_id(label: impl Into<String>, content: Text, id: impl Into<OptionId>) -> Self {
+        Self::Option {
+            prompt: label.into(),
+            content: Some(content),
+            id: Some(id.into()),
+            disabled: false,
+        }
+    }
+
+    /// Builder: attach rich [`Text`] content to this option.
+    pub fn with_content(mut self, content: Text) -> Self {
+        if let Self::Option {
+            content: ref mut c, ..
+        } = self
+        {
+            *c = Some(content);
+        }
+        self
     }
 
     pub fn is_separator(&self) -> bool {
@@ -88,6 +158,14 @@ impl OptionItem {
     pub fn prompt(&self) -> Option<&str> {
         match self {
             Self::Option { prompt, .. } => Some(prompt),
+            Self::Separator => None,
+        }
+    }
+
+    /// Rich content, if any.
+    pub fn content(&self) -> Option<&Text> {
+        match self {
+            Self::Option { content, .. } => content.as_ref(),
             Self::Separator => None,
         }
     }

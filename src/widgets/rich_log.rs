@@ -91,6 +91,8 @@ pub struct RichLog {
     styles: WidgetStyles,
     cache: Mutex<LineCache>,
     cache_width: AtomicUsize,
+    /// Whether this widget has been rendered at least once (size is known).
+    sized: bool,
 }
 
 enum LogLine {
@@ -154,6 +156,7 @@ impl RichLog {
             styles: WidgetStyles::default(),
             cache: Mutex::new(LineCache::new(1000)),
             cache_width: AtomicUsize::new(0),
+            sized: false,
         }
     }
 
@@ -326,7 +329,21 @@ impl RichLog {
         self.cache.lock().unwrap().clear();
     }
 
+    /// Returns true if the widget has been rendered at least once (size is known).
+    /// After first render, widget_width is set to actual width (>= min_width).
+    fn is_sized(&self) -> bool {
+        self.sized || self.widget_width.load(Ordering::Relaxed) > 1
+    }
+
+    /// Lazily mark sized=true once widget_width indicates a render happened.
+    fn mark_sized_if_ready(&mut self) {
+        if !self.sized && self.widget_width.load(Ordering::Relaxed) > 1 {
+            self.sized = true;
+        }
+    }
+
     pub fn write(&mut self, content: impl Into<String>) -> &mut Self {
+        self.mark_sized_if_ready();
         let content = content.into();
         let insert_from = self.lines.len();
         if content.is_empty() {
@@ -350,13 +367,24 @@ impl RichLog {
     }
 
     pub fn write_segments(&mut self, segments: Vec<Segment>) -> &mut Self {
+        self.mark_sized_if_ready();
         let insert_from = self.lines.len();
-        let estimated_added_lines = self.estimate_segment_lines(&segments);
+        // Skip expensive estimation when widget hasn't been sized yet
+        // (widget_width is still default=1, estimation would be inaccurate)
+        let estimated_added_lines = if self.is_sized() {
+            self.estimate_segment_lines(&segments)
+        } else {
+            1
+        };
         self.lines.push(LogLine::Styled(segments));
         self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
-            self.scroll_end_with_estimated_added_lines(estimated_added_lines);
+            if self.is_sized() {
+                self.scroll_end_with_estimated_added_lines(estimated_added_lines);
+            } else {
+                self.scroll_end();
+            }
         } else {
             self.clamp_offset();
         }
@@ -364,6 +392,7 @@ impl RichLog {
     }
 
     pub fn write_markup(&mut self, content: impl Into<String>) -> &mut Self {
+        self.mark_sized_if_ready();
         let content = content.into();
         let insert_from = self.lines.len();
         if content.is_empty() {
@@ -387,13 +416,23 @@ impl RichLog {
     }
 
     pub fn write_renderable(&mut self, renderable: impl Renderable + 'static) -> &mut Self {
+        self.mark_sized_if_ready();
         let insert_from = self.lines.len();
-        let estimated_added_lines = self.estimate_renderable_lines(&renderable);
+        // Skip expensive estimation when widget hasn't been sized yet
+        let estimated_added_lines = if self.is_sized() {
+            self.estimate_renderable_lines(&renderable)
+        } else {
+            1
+        };
         self.lines.push(LogLine::Renderable(Box::new(renderable)));
         self.cache.lock().unwrap().invalidate_from(insert_from);
         self.trim_to_max_lines();
         if self.auto_scroll {
-            self.scroll_end_with_estimated_added_lines(estimated_added_lines);
+            if self.is_sized() {
+                self.scroll_end_with_estimated_added_lines(estimated_added_lines);
+            } else {
+                self.scroll_end();
+            }
         } else {
             self.clamp_offset();
         }

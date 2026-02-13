@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Parity Sprint 22: P1-15 composition migration + widget polish**
+  - **P1-15 complete:** Composition migration — all 5 containers with `Vec<Box<dyn Widget>>` (Container, AppRoot, ContentSwitcher, Row, Collapsible) now implement `compose()`, `children()`, `children_mut()`, and `take_composed_children()`. Pragmatic incremental approach: compose() returns empty due to `&self` ownership constraint; `take_composed_children()` (pub(crate)) is the bridge for future runtime tree mount. Rendering unchanged.
+  - **WP-21 complete:** OptionList rich Visual support — `content: Option<Text>` field on `OptionItem::Option`, `rich()` / `rich_with_id()` builders, `render_rich_line()` with style merging. 9 new tests.
+  - **WP-27 complete:** OptionList virtual scrolling — `visible_range()` helper, render loop only processes items in viewport range.
+  - **WP-28 complete:** HelpPanel auto-discover confirmed already wired via runtime's `dispatch_focused_help_changed` + `dispatch_binding_hints_changed`. Added 3 regression tests.
+  - **WP-23 complete:** RichLog deferred rendering — `sized` flag with lazy initialization, write methods skip expensive line estimation until first render provides actual dimensions.
+  - **WP-24 complete:** Log text selection — `LogPos`/`SelectionRange` structs, mouse-driven selection (drag to select, click to clear), `apply_selection_to_segments()` with reverse-style highlight, Ctrl+C copy via clipboard message. 2 new tests.
+  - **WP-25 complete:** Log LRU render cache — `LogLineCache` (same pattern as RichLog), cache invalidation on write/clear/width change, keyed by `(line_index, content_hash)`. 3 new tests.
+  - Build: 0 errors. Tests: 1527 passed (+17 new), 1 pre-existing failure. 10 files changed, +1028/-25 lines.
+
 - **Parity Sprint 21: Close Pillar 3 — full reactive widget migration**
   - **P3-14 complete:** TextArea migrated to reactive — 8 reactive fields (`read_only`, `show_line_numbers`, `indent_width`, `soft_wrap`, `placeholder`, `language`, `cursor_blink_enabled`, `theme`) with 5 watchers (read_only → class rebuild, soft_wrap → layout, language/theme → syntax cache invalidation, cursor_blink → blink state reset). Manual `ReactiveWidget` impl.
   - **P3-15 complete:** DataTable migrated to reactive — 8 reactive setters (`selected`, `cursor`, `cursor_type`, `fixed_rows`, `fixed_columns`, `show_header`, `show_row_labels`, `zebra_stripes`) with 3 watchers (cursor_type, show_header, zebra_stripes).

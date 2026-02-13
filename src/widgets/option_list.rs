@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
@@ -84,6 +84,27 @@ impl OptionList {
         let was_empty = self.cursor.highlighted().is_none();
         self.items.push(OptionItem::Option {
             prompt: prompt.into(),
+            content: None,
+            id,
+            disabled,
+        });
+        if was_empty && !disabled {
+            self.cursor.set_highlighted(Some(self.items.len() - 1));
+        }
+    }
+
+    /// Add a selectable option with rich [`Text`] content.
+    pub fn add_rich_option(
+        &mut self,
+        label: impl Into<String>,
+        content: Text,
+        id: Option<OptionId>,
+        disabled: bool,
+    ) {
+        let was_empty = self.cursor.highlighted().is_none();
+        self.items.push(OptionItem::Option {
+            prompt: label.into(),
+            content: Some(content),
             id,
             disabled,
         });
@@ -155,6 +176,51 @@ impl OptionList {
     }
 
     // ── Internals ───────────────────────────────────────────────────
+
+    /// Visible item range `(start, end)` for the current scroll offset and viewport.
+    ///
+    /// Only items in this range are rendered (virtual scrolling).
+    fn visible_range(&self, viewport_height: usize) -> (usize, usize) {
+        let start = self.offset;
+        let end = (start + viewport_height).min(self.items.len());
+        (start, end)
+    }
+
+    /// Render a rich [`Text`] option line, applying the resolved `line_style` as a base
+    /// (for highlight/hover/disabled backgrounds) underneath the content's own styling.
+    fn render_rich_line(
+        &self,
+        content: &Text,
+        line_style: rich_rs::Style,
+        width: usize,
+        console: &Console,
+        options: &ConsoleOptions,
+    ) -> Vec<Segment> {
+        let indent_width = 2usize;
+        let content_width = width.saturating_sub(indent_width);
+        let mut content_options = options.clone();
+        content_options.size = (content_width, 1);
+        content_options.max_width = content_width;
+
+        let rendered: Vec<Segment> = content.render(console, &content_options).into_iter().collect();
+
+        // Build segments: 2-char indent + first line of content with merged styles.
+        // Stop at the first newline/control segment to enforce single-row semantics.
+        let mut segments = Vec::with_capacity(rendered.len() + 1);
+        segments.push(Segment::styled("  ", line_style));
+        for seg in &rendered {
+            if seg.is_control() || seg.text.contains('\n') {
+                break; // single-row: stop at first newline / control
+            }
+            if seg.text.is_empty() {
+                continue;
+            }
+            // Merge: line_style provides base (bg), segment's own style overrides (fg, bold, …).
+            let merged = line_style.combine(&seg.style.unwrap_or_default());
+            segments.push(Segment::styled(seg.text.clone(), merged));
+        }
+        adjust_line_length_no_bg(&segments, width)
+    }
 
     fn first_selectable(&self) -> Option<usize> {
         self.items.iter().position(|item| item.is_selectable())
@@ -476,7 +542,7 @@ impl Widget for OptionList {
         self.hovered_index = None;
     }
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         let mut out = Segments::new();
@@ -485,23 +551,34 @@ impl Widget for OptionList {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
 
-        for row in 0..height {
-            let index = self.offset + row;
-            let mut text = String::new();
-            let mut style = base_style;
+        // Virtual scrolling: only render items in the visible window.
+        let (vis_start, vis_end) = self.visible_range(height);
 
-            if let Some(item) = self.items.get(index) {
+        for row in 0..height {
+            let index = vis_start + row;
+
+            if index >= vis_end {
+                // Past the last item — emit an empty padded line.
+                let line = adjust_line_length_no_bg(&[], width);
+                out.extend(line);
+            } else if let Some(item) = self.items.get(index) {
                 match item {
                     OptionItem::Separator => {
                         let sep_style =
                             crate::css::resolve_component_style(self, &["option-list--separator"])
                                 .to_rich()
                                 .unwrap_or(base_style);
-                        text = "─".repeat(width);
-                        style = sep_style;
+                        let line = adjust_line_length_no_bg(
+                            &[Segment::styled("─".repeat(width), sep_style)],
+                            width,
+                        );
+                        out.extend(line);
                     }
                     OptionItem::Option {
-                        prompt, disabled, ..
+                        prompt,
+                        content,
+                        disabled,
+                        ..
                     } => {
                         let highlighted = self.cursor.highlighted() == Some(index);
                         let hovered = self.hovered_index == Some(index);
@@ -518,16 +595,28 @@ impl Widget for OptionList {
                         if highlighted && self.focused {
                             classes.push("-focus");
                         }
-                        style = crate::css::resolve_component_style(self, &classes)
+                        let style = crate::css::resolve_component_style(self, &classes)
                             .to_rich()
-                            .unwrap_or(style);
-                        text = format!("  {prompt}");
+                            .unwrap_or(base_style);
+
+                        let line = if let Some(rich) = content {
+                            // Rich content: render Text, apply option style as base.
+                            self.render_rich_line(rich, style, width, console, options)
+                        } else {
+                            // Plain text fallback.
+                            adjust_line_length_no_bg(
+                                &[Segment::styled(format!("  {prompt}"), style)],
+                                width,
+                            )
+                        };
+                        out.extend(line);
                     }
                 }
+            } else {
+                let line = adjust_line_length_no_bg(&[], width);
+                out.extend(line);
             }
 
-            let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
-            out.extend(line);
             if row + 1 < height {
                 out.push(Segment::line());
             }
@@ -545,7 +634,16 @@ impl Widget for OptionList {
             .items
             .iter()
             .map(|item| match item {
-                OptionItem::Option { prompt, .. } => rich_rs::cell_len(prompt).saturating_add(2),
+                OptionItem::Option {
+                    prompt, content, ..
+                } => {
+                    let text_width = if let Some(rich) = content {
+                        rich.cell_len()
+                    } else {
+                        rich_rs::cell_len(prompt)
+                    };
+                    text_width.saturating_add(2) // 2-char indent
+                }
                 OptionItem::Separator => 3,
             })
             .max()
@@ -789,5 +887,107 @@ mod tests {
         assert!(!list.is_hovered());
         assert!(list.hovered_index.is_none());
         assert!(ctx.repaint_requested());
+    }
+
+    // ── WP-21: Rich content support ──────────────────────────────────
+
+    #[test]
+    fn option_item_rich_stores_content() {
+        let content = rich_rs::Text::plain("Bold option");
+        let item = OptionItem::rich("Bold option", content);
+        assert!(item.content().is_some());
+        assert_eq!(item.prompt(), Some("Bold option"));
+        assert!(item.is_selectable());
+    }
+
+    #[test]
+    fn option_item_with_content_builder() {
+        let item = OptionItem::new("Plain").with_content(rich_rs::Text::plain("Rich"));
+        assert!(item.content().is_some());
+        assert_eq!(item.content().unwrap().plain_text(), "Rich");
+    }
+
+    #[test]
+    fn option_item_rich_with_id_stores_both() {
+        let content = rich_rs::Text::plain("Styled");
+        let item = OptionItem::rich_with_id("label", content, "my-id");
+        assert_eq!(item.string_id(), Some("my-id"));
+        assert!(item.content().is_some());
+    }
+
+    #[test]
+    fn option_list_add_rich_option() {
+        let mut list = OptionList::new();
+        list.add_rich_option(
+            "Bold",
+            rich_rs::Text::plain("Bold"),
+            Some(OptionId::new("b")),
+            false,
+        );
+        assert_eq!(list.option_count(), 1);
+        assert!(list.get_option(0).unwrap().content().is_some());
+        assert_eq!(list.highlighted(), Some(0));
+    }
+
+    #[test]
+    fn option_list_content_width_uses_rich_content() {
+        let content = rich_rs::Text::plain("Long rich content");
+        let items = vec![
+            OptionItem::new("Short"),
+            OptionItem::rich("Label", content),
+        ];
+        let list = OptionList::with_items(items);
+        let cw = list.content_width().unwrap();
+        // "Long rich content" = 17 chars + 2 indent = 19
+        assert_eq!(cw, 19);
+    }
+
+    #[test]
+    fn option_list_rich_render_produces_segments() {
+        let content = rich_rs::Text::plain("Hello");
+        let items = vec![OptionItem::rich("Hello", content)];
+        let list = OptionList::with_items(items);
+        let console = rich_rs::Console::new();
+        let options = rich_rs::ConsoleOptions {
+            size: (20, 1),
+            max_width: 20,
+            max_height: 1,
+            ..Default::default()
+        };
+        let segments: Vec<_> = Widget::render(&list, &console, &options).into_iter().collect();
+        let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
+        assert!(text.contains("Hello"));
+    }
+
+    // ── WP-27: Virtual scrolling ─────────────────────────────────────
+
+    #[test]
+    fn visible_range_clamps_to_item_count() {
+        let items = vec![OptionItem::new("A"), OptionItem::new("B")];
+        let list = OptionList::with_items(items);
+        let (start, end) = list.visible_range(10);
+        assert_eq!(start, 0);
+        assert_eq!(end, 2); // Only 2 items even though viewport is 10
+    }
+
+    #[test]
+    fn visible_range_respects_offset() {
+        let items: Vec<_> = (0..20).map(|i| OptionItem::new(format!("Item {i}"))).collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 5);
+        list.set_highlighted(10);
+        let (start, end) = list.visible_range(5);
+        assert!(start <= 10);
+        assert!(end >= 10);
+        assert_eq!(end - start, 5);
+    }
+
+    // ── OptionItem equality ignores content ──────────────────────────
+
+    #[test]
+    fn option_item_eq_ignores_rich_content() {
+        let a = OptionItem::new("Hello");
+        let b = OptionItem::new("Hello").with_content(rich_rs::Text::plain("Hello"));
+        assert_eq!(a, b);
     }
 }

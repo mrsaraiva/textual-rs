@@ -1,6 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::compose::ComposeResult;
 use crate::css;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
@@ -71,6 +72,25 @@ impl Collapsible {
         self.children.push(Box::new(child));
     }
 
+    /// Read-only access to the collapsible's children.
+    pub fn children(&self) -> &[Box<dyn Widget>] {
+        &self.children
+    }
+
+    /// Mutable access to the collapsible's children.
+    pub fn children_mut(&mut self) -> &mut Vec<Box<dyn Widget>> {
+        &mut self.children
+    }
+
+    /// Drain all children, returning them as owned widgets.
+    ///
+    /// Intended for runtime mount: the runtime can call this once during
+    /// tree construction to move children into the `WidgetTree` arena.
+    /// After draining, `self.children` is empty.
+    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
+    }
+
     // ── Reactive getters ─────────────────────────────────────────────────
 
     pub fn is_collapsed(&self) -> bool {
@@ -123,6 +143,18 @@ impl Collapsible {
 }
 
 impl Widget for Collapsible {
+    /// Declare children for tree-based mounting.
+    ///
+    /// TODO(P1-15): Collapsible stores children via `with_child()`/`add_child()`
+    /// as owned `Box<dyn Widget>`. Because `compose()` is `&self`, we cannot move
+    /// them into `ChildDecl` entries. Once the runtime supports extracting
+    /// children from containers during mount (via `take_composed_children()`),
+    /// this will return proper declarations. Until then, render/event methods
+    /// continue iterating `self.children` directly.
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
     fn focusable(&self) -> bool {
         true
     }

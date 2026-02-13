@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use crossterm::event::{KeyCode, KeyModifiers};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as RichStyle};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
@@ -9,6 +12,95 @@ use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_
 use crate::node_id::NodeId;
 
 use super::{ScrollView, Widget, WidgetStyles};
+
+// ── WP-25: LRU render cache ────────────────────────────────────────────────
+
+/// Simple LRU cache for rendered line segments, keyed by (line_index, content_hash).
+#[derive(Debug)]
+struct LogLineCache {
+    entries: HashMap<(usize, u64), Vec<Segment>>,
+    order: Vec<(usize, u64)>,
+    max_size: usize,
+}
+
+impl LogLineCache {
+    fn new(max_size: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: Vec::new(),
+            max_size: max_size.max(1),
+        }
+    }
+
+    fn get(&mut self, key: &(usize, u64)) -> Option<&Vec<Segment>> {
+        if self.entries.contains_key(key) {
+            self.order.retain(|k| k != key);
+            self.order.push(*key);
+            self.entries.get(key)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: (usize, u64), value: Vec<Segment>) {
+        if self.entries.contains_key(&key) {
+            self.order.retain(|k| *k != key);
+        } else if self.entries.len() >= self.max_size {
+            if let Some(evicted) = self.order.first().cloned() {
+                self.entries.remove(&evicted);
+                self.order.remove(0);
+            }
+        }
+        self.entries.insert(key, value);
+        self.order.push(key);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
+    fn invalidate_from(&mut self, line_index: usize) {
+        self.entries.retain(|&(idx, _), _| idx < line_index);
+        self.order.retain(|&(idx, _)| idx < line_index);
+    }
+}
+
+// ── WP-24: Selection state ─────────────────────────────────────────────────
+
+/// A position in the log: (line_index, column).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LogPos {
+    line: usize,
+    col: usize,
+}
+
+impl LogPos {
+    fn new(line: usize, col: usize) -> Self {
+        Self { line, col }
+    }
+}
+
+impl PartialOrd for LogPos {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for LogPos {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.line.cmp(&other.line).then(self.col.cmp(&other.col))
+    }
+}
+
+/// Normalized selection range (start <= end).
+#[derive(Debug, Clone, Copy)]
+struct SelectionRange {
+    start: LogPos,
+    end: LogPos,
+}
+
+// ── Log widget ─────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 pub struct Log {
@@ -28,6 +120,13 @@ pub struct Log {
     drag_v: Option<usize>,
     max_line_width: usize,
     styles: WidgetStyles,
+    // WP-24: text selection
+    selection_anchor: Option<LogPos>,
+    selection_end: Option<LogPos>,
+    selecting: bool,
+    // WP-25: render cache
+    cache: Mutex<LogLineCache>,
+    cache_width: AtomicUsize,
 }
 
 impl Log {
@@ -49,6 +148,11 @@ impl Log {
             drag_v: None,
             max_line_width: 0,
             styles: WidgetStyles::default(),
+            selection_anchor: None,
+            selection_end: None,
+            selecting: false,
+            cache: Mutex::new(LogLineCache::new(1000)),
+            cache_width: AtomicUsize::new(0),
         }
     }
 
@@ -97,6 +201,7 @@ impl Log {
         if data.is_empty() {
             return self;
         }
+        let insert_from = self.lines.len();
         if self.lines.is_empty() {
             self.lines.push(String::new());
         }
@@ -114,6 +219,7 @@ impl Log {
             }
         }
 
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.prune_max_lines();
         if self.auto_scroll {
             self.scroll_end();
@@ -132,6 +238,7 @@ impl Log {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let insert_from = self.lines.len();
         let mut appended_any = false;
         for line in lines {
             for split in line.as_ref().lines() {
@@ -144,6 +251,7 @@ impl Log {
             return self;
         }
 
+        self.cache.lock().unwrap().invalidate_from(insert_from);
         self.prune_max_lines();
         if self.auto_scroll {
             self.scroll_end();
@@ -158,6 +266,8 @@ impl Log {
         self.max_line_width = 0;
         self.offset_y = 0;
         self.content_height.store(1, Ordering::Relaxed);
+        self.clear_selection();
+        self.cache.lock().unwrap().clear();
         self
     }
 
@@ -173,6 +283,7 @@ impl Log {
                     .map(|line| Self::processed_width(line))
                     .max()
                     .unwrap_or(0);
+                self.cache.lock().unwrap().clear();
             }
         }
     }
@@ -260,7 +371,50 @@ impl Log {
         out
     }
 
-    fn render_line_segments(&self, console: &Console, options: &ConsoleOptions, line: &str, viewport_width: usize) -> Vec<Segment> {
+    /// Compute a content hash for a line string for cache keying.
+    fn line_content_hash(line: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        line.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn render_line_segments(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        line: &str,
+        viewport_width: usize,
+        line_index: usize,
+    ) -> Vec<Segment> {
+        // WP-25: check cache
+        let content_hash = Self::line_content_hash(line);
+        let cache_key = (line_index, content_hash);
+        {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(cached) = cache.get(&cache_key) {
+                return cached.clone();
+            }
+        }
+
+        let result = self.render_line_segments_uncached(console, options, line, viewport_width);
+
+        // Store in cache
+        {
+            let mut cache = self.cache.lock().unwrap();
+            cache.insert(cache_key, result.clone());
+        }
+
+        result
+    }
+
+    fn render_line_segments_uncached(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        line: &str,
+        viewport_width: usize,
+    ) -> Vec<Segment> {
         let processed = Self::process_line(line);
         if self.highlight {
             // Use markup=false to avoid interpreting log text like "[error]" as rich markup.
@@ -277,6 +431,149 @@ impl Log {
             adjust_line_length_no_bg(&[Segment::new(processed)], viewport_width.max(1))
         }
     }
+
+    // ── WP-24: Selection helpers ────────────────────────────────────────
+
+    /// Convert mouse coordinates (content-local) to a LogPos.
+    fn mouse_to_pos(&self, x: usize, y: usize) -> LogPos {
+        let line = (self.offset_y + y).min(self.line_count().saturating_sub(1));
+        let col = if line < self.lines.len() {
+            let processed = Self::process_line(&self.lines[line]);
+            // Convert cell x to character column
+            let mut cell_x = 0usize;
+            let mut char_col = 0usize;
+            for ch in processed.chars() {
+                if cell_x >= x {
+                    break;
+                }
+                cell_x += unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+                char_col += 1;
+            }
+            char_col
+        } else {
+            0
+        };
+        LogPos::new(line, col)
+    }
+
+    fn clear_selection(&mut self) {
+        self.selection_anchor = None;
+        self.selection_end = None;
+        self.selecting = false;
+    }
+
+    /// Returns the normalized selection range (start <= end), if any.
+    fn selection_range(&self) -> Option<SelectionRange> {
+        match (self.selection_anchor, self.selection_end) {
+            (Some(a), Some(b)) if a != b => {
+                let (start, end) = if a <= b { (a, b) } else { (b, a) };
+                Some(SelectionRange { start, end })
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract the selected text as a string.
+    fn selected_text(&self) -> Option<String> {
+        let sel = self.selection_range()?;
+        let display_count = self.line_count();
+        let mut result = String::new();
+        for line_idx in sel.start.line..=sel.end.line.min(display_count.saturating_sub(1)) {
+            if line_idx >= self.lines.len() {
+                break;
+            }
+            let processed = Self::process_line(&self.lines[line_idx]);
+            let chars: Vec<char> = processed.chars().collect();
+            let start_col = if line_idx == sel.start.line {
+                sel.start.col
+            } else {
+                0
+            };
+            let end_col = if line_idx == sel.end.line {
+                sel.end.col
+            } else {
+                chars.len()
+            };
+            let start_col = start_col.min(chars.len());
+            let end_col = end_col.min(chars.len());
+            result.extend(&chars[start_col..end_col]);
+            if line_idx < sel.end.line {
+                result.push('\n');
+            }
+        }
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
+
+    /// Apply selection highlight to a line's segments.
+    fn apply_selection_to_segments(
+        segments: &[Segment],
+        line_index: usize,
+        sel: &SelectionRange,
+    ) -> Vec<Segment> {
+        if line_index < sel.start.line || line_index > sel.end.line {
+            return segments.to_vec();
+        }
+
+        let sel_style = RichStyle::default().with_reverse(true);
+
+        // Compute cell-based selection bounds for this line
+        let line_start_col = if line_index == sel.start.line {
+            sel.start.col
+        } else {
+            0
+        };
+        let line_end_col = if line_index == sel.end.line {
+            sel.end.col
+        } else {
+            usize::MAX
+        };
+
+        // Walk through segments, converting char columns to cell positions
+        let mut result = Vec::new();
+        let mut char_col = 0usize;
+
+        for seg in segments {
+            let mut before = String::new();
+            let mut selected = String::new();
+            let mut after = String::new();
+
+            for ch in seg.text.chars() {
+                if char_col < line_start_col {
+                    before.push(ch);
+                } else if char_col < line_end_col {
+                    selected.push(ch);
+                } else {
+                    after.push(ch);
+                }
+                char_col += 1;
+            }
+
+            let base_style = seg.style.unwrap_or_default();
+            let has_before = !before.is_empty();
+            let has_selected = !selected.is_empty();
+            let has_after = !after.is_empty();
+
+            if has_before {
+                result.push(Segment::styled(before, base_style));
+            }
+            if has_selected {
+                let merged = base_style.combine(&sel_style);
+                result.push(Segment::styled(selected, merged));
+            }
+            if has_after {
+                result.push(Segment::styled(after, base_style));
+            }
+            if !has_before && !has_selected && !has_after {
+                // Preserve empty/control segments as-is
+                result.push(seg.clone());
+            }
+        }
+        result
+    }
 }
 
 impl Widget for Log {
@@ -286,6 +583,12 @@ impl Widget for Log {
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(height, Ordering::Relaxed);
         const V_SCROLLBAR_SIZE: usize = 2;
+
+        // WP-25: invalidate cache if width changed
+        let prev_width = self.cache_width.swap(width, Ordering::Relaxed);
+        if prev_width != width {
+            self.cache.lock().unwrap().clear();
+        }
 
         let mut viewport_width = width;
         let mut content_height = self.display_line_count();
@@ -309,11 +612,23 @@ impl Widget for Log {
         let start = offset.min(content_height);
         let end = (start + height).min(content_height);
 
+        let selection = self.selection_range();
         let display_count = self.line_count();
         let mut rows: Vec<Vec<Segment>> = Vec::with_capacity(height);
         for index in start..end {
             if index < display_count {
-                rows.push(self.render_line_segments(console, options, &self.lines[index], viewport_width));
+                let mut segs = self.render_line_segments(
+                    console,
+                    options,
+                    &self.lines[index],
+                    viewport_width,
+                    index,
+                );
+                // WP-24: apply selection highlight
+                if let Some(ref sel) = selection {
+                    segs = Self::apply_selection_to_segments(&segs, index, sel);
+                }
+                rows.push(segs);
             } else {
                 rows.push(adjust_line_length_no_bg(
                     &[Segment::new(String::new())],
@@ -391,6 +706,28 @@ impl Widget for Log {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        // WP-24: handle key events for copy
+        if let Event::Key(key) = event {
+            if self.focused {
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::SUPER);
+                if ctrl && key.code == KeyCode::Char('c') {
+                    if let Some(text) = self.selected_text() {
+                        ctx.post_message(Message::TextEditClipboardCopyRequested(
+                            TextEditClipboardCopyRequested {
+                                text,
+                                cut: false,
+                            },
+                        ));
+                        self.clear_selection();
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                        return;
+                    }
+                }
+            }
+        }
+
         if let Event::MouseDown(mouse) = event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
             if mouse.target == NodeId::default() {
@@ -429,10 +766,37 @@ impl Widget for Log {
                     ctx.set_handled();
                     return;
                 }
+
+                // WP-24: start text selection
+                let pos = self.mouse_to_pos(local_x, local_y);
+                self.selection_anchor = Some(pos);
+                self.selection_end = Some(pos);
+                self.selecting = true;
+                ctx.request_repaint();
             }
         }
 
-        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
+        if let Event::MouseUp(_) = event {
+            if self.selecting {
+                self.selecting = false;
+                // Single click (no drag) clears selection
+                if self.selection_anchor == self.selection_end {
+                    self.clear_selection();
+                }
+                ctx.request_repaint();
+            }
+            let was_dragging = self.drag_v.take().is_some();
+            if was_dragging {
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+        }
+
+        if let Event::AppFocus(false) = event {
+            if self.selecting {
+                self.selecting = false;
+                ctx.request_repaint();
+            }
             let was_dragging = self.drag_v.take().is_some();
             if was_dragging {
                 ctx.request_repaint();
@@ -476,7 +840,16 @@ impl Widget for Log {
         ctx.set_handled();
     }
 
-    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        // WP-24: extend selection during drag
+        if self.selecting {
+            let pos = self.mouse_to_pos(x as usize, y as usize);
+            if self.selection_end != Some(pos) {
+                self.selection_end = Some(pos);
+                return true;
+            }
+        }
+
         let Some(grab_offset) = self.drag_v else {
             return false;
         };
@@ -604,5 +977,109 @@ mod tests {
         );
         assert!(up_ctx.handled());
         assert!(up_ctx.repaint_requested());
+    }
+
+    #[test]
+    fn cache_avoids_rerender() {
+        let console = Console::new();
+        let options = options_for(&console, 20, 5);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["alpha", "beta", "gamma"]);
+
+        // First render populates the cache
+        let _ = log.render(&console, &options);
+        let cache_entries = log.cache.lock().unwrap().entries.len();
+        assert!(cache_entries > 0, "cache should be populated after render");
+
+        // Second render should reuse cached entries (no assertion on internals,
+        // but we verify no panic and output is consistent)
+        let out1 = log.render(&console, &options);
+        let out2 = log.render(&console, &options);
+        assert_eq!(out1.len(), out2.len());
+    }
+
+    #[test]
+    fn cache_invalidated_on_write() {
+        let console = Console::new();
+        let options = options_for(&console, 20, 5);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["alpha", "beta"]);
+        let _ = log.render(&console, &options);
+
+        let before = log.cache.lock().unwrap().entries.len();
+        log.write_line("gamma");
+        let after = log.cache.lock().unwrap().entries.len();
+        // New line was added at index 2, so entries for 0 and 1 should remain
+        assert!(after <= before, "cache entries for existing lines preserved");
+
+        // But rendering includes the new line
+        let _ = log.render(&console, &options);
+        let final_count = log.cache.lock().unwrap().entries.len();
+        assert!(final_count >= 3, "cache should have all 3 lines after render");
+    }
+
+    #[test]
+    fn cache_cleared_on_clear() {
+        let console = Console::new();
+        let options = options_for(&console, 20, 5);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["alpha", "beta"]);
+        let _ = log.render(&console, &options);
+        assert!(log.cache.lock().unwrap().entries.len() > 0);
+
+        log.clear();
+        assert_eq!(log.cache.lock().unwrap().entries.len(), 0);
+    }
+
+    #[test]
+    fn selection_text_extraction() {
+        let mut log = Log::new();
+        log.write_lines(["hello world", "foo bar", "baz qux"]);
+
+        // Simulate selection of "world\nfoo"
+        log.selection_anchor = Some(super::LogPos::new(0, 6));
+        log.selection_end = Some(super::LogPos::new(1, 3));
+
+        let text = log.selected_text();
+        assert_eq!(text.as_deref(), Some("world\nfoo"));
+    }
+
+    #[test]
+    fn selection_cleared_on_single_click() {
+        let console = Console::new();
+        let options = options_for(&console, 20, 5);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["hello", "world"]);
+        let _ = log.render(&console, &options);
+
+        let id = NodeId::default();
+        // Mouse down starts selection
+        let mut ctx = EventCtx::default();
+        log.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: id,
+                screen_x: 2,
+                screen_y: 0,
+                x: 2,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(log.selecting);
+
+        // Mouse up at same position clears selection
+        let mut ctx = EventCtx::default();
+        log.on_event(
+            &Event::MouseUp(crate::event::MouseUpEvent {
+                target: Some(id),
+                screen_x: 2,
+                screen_y: 0,
+                x: 2,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        assert!(!log.selecting);
+        assert!(log.selection_range().is_none());
     }
 }
