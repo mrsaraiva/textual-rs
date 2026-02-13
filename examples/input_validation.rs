@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use textual::compose;
 use textual::prelude::*;
 
 /// Mirrors Python Textual's `docs/examples/widgets/input_validation.py`.
@@ -38,20 +39,19 @@ impl InputValidationApp {
 impl TextualApp for InputValidationApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
-            Container::new()
-                .with_child(Label::new(
+            Container::new().with_compose(compose![
+                Label::new(
                     "Enter an even number between 1 and 100 that is also a palindrome.",
-                ))
-                .with_child(
-                    Input::new()
-                        .with_placeholder("Enter a number...")
-                        .with_validators(vec![
-                            Arc::new(Number::new().minimum(1.0).maximum(100.0)) as ValidatorRef,
-                            Arc::new(Function::new(is_even, "Value is not even.")) as ValidatorRef,
-                            Arc::new(Palindrome) as ValidatorRef,
-                        ]),
-                )
-                .with_child(Pretty::shared(self.pretty_str.clone())),
+                ),
+                Input::new()
+                    .with_placeholder("Enter a number...")
+                    .with_validators(vec![
+                        Arc::new(Number::new().minimum(1.0).maximum(100.0)) as ValidatorRef,
+                        Arc::new(Function::new(is_even, "Value is not even.")) as ValidatorRef,
+                        Arc::new(Palindrome) as ValidatorRef,
+                    ]),
+                Pretty::shared(self.pretty_str.clone()),
+            ]),
         )
     }
 

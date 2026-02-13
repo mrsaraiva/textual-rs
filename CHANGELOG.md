@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Sprint 24: Examples rewrite with compose! macro + modernization**
+  - **Framework:** Added `with_compose(ComposeResult)` to 6 multi-child containers (AppRoot, Container, Row, Horizontal, VerticalScroll, HorizontalScroll) — bridges the `compose![]` macro to the widget tree builder pattern.
+  - **8 examples rewritten** to use `compose![]` for multi-child composition: buttons.rs, buttons_composed_pattern.rs, buttons_advanced.rs, hello.rs, horizontal_scroll.rs, input.rs, input_types.rs, input_validation.rs.
+  - **buttons_advanced.rs:** Replaced raw `on_message` matching with `on_button_pressed` typed hook.
+  - **tabbed_content.rs:** Fixed height over-allocation bug in TabbedDemo layout when terminal height <= 1.
+  - Build: 0 errors, 29 warnings (pre-existing). Tests: 1577 passed, 1 pre-existing failure.
+
 - **Parity Sprint 23 (FINAL): Composition rewrites + MessageEvent control**
   - **WP-01 complete:** ListView mutation APIs — `append()`, `clear()`, `remove()`, `insert()`, `pop()` with selected/offset/disabled consistency. compose() + take_composed_children() wiring. 15 new tests.
   - **WP-02 complete:** RadioSet compose() wiring — `take_composed_children()` drains buttons, `children()` / `children_mut()` accessors. 4 new tests.

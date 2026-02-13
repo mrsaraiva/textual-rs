@@ -7,6 +7,7 @@ use crate::style::parse_color_like;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::helpers::{clamp_with_constraints, crop_line_horizontal, pad_lines_to_width};
+use crate::compose::ComposeResult;
 use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetStyles};
 
 fn scrollbar_thumb(
@@ -87,6 +88,12 @@ impl Horizontal {
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
         self.row = self.row.with_child(child);
+        self
+    }
+
+    /// Add multiple children from a `compose![]` result.
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        self.row = self.row.with_compose(children);
         self
     }
 
@@ -849,6 +856,12 @@ impl VerticalScroll {
         self
     }
 
+    /// Add multiple children from a `compose![]` result.
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        self.child = self.child.with_compose(children);
+        self
+    }
+
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.child.push(child);
     }
@@ -1225,6 +1238,12 @@ impl HorizontalScroll {
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
         self.child.push(child);
+        self
+    }
+
+    /// Add multiple children from a `compose![]` result.
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        self.child = self.child.with_compose(children);
         self
     }
 

@@ -1,3 +1,4 @@
+use textual::compose;
 use textual::prelude::*;
 
 struct TickLabel {
@@ -82,18 +83,17 @@ impl TextualApp for HelloApp {
 
         let controls = Constrained::new(
             Panel::new(
-                Container::new()
-                    .with_child(
-                        Constrained::new(ListView::new(vec![
-                            "item one".to_string(),
-                            "item two".to_string(),
-                            "item three".to_string(),
-                        ]))
-                        .min_height(3)
-                        .max_height(3),
-                    )
-                    .with_child(Spacer::new(1))
-                    .with_child(Frame::new(Button::new("Toggle me with Enter/Space")).padding(1)),
+                Container::new().with_compose(compose![
+                    Constrained::new(ListView::new(vec![
+                        "item one".to_string(),
+                        "item two".to_string(),
+                        "item three".to_string(),
+                    ]))
+                    .min_height(3)
+                    .max_height(3),
+                    Spacer::new(1),
+                    Frame::new(Button::new("Toggle me with Enter/Space")).padding(1),
+                ]),
             )
             .title("Controls")
             .padding(1),
@@ -101,34 +101,31 @@ impl TextualApp for HelloApp {
 
         AppRoot::new().with_child(
             ScrollView::new(
-                AppRoot::new()
-                    .with_child(Label::new("textual-rs demo (widget tree + layout)"))
-                    .with_child(SizeLabel::new())
-                    .with_child(
-                        Row::new()
-                            .with_child(Label::new("row: left"))
-                            .with_child(Label::new("row: right")),
-                    )
-                    .with_child(
-                        Dock::new()
-                            .height(5)
-                            .push_top(Some(1), Label::new("dock: top"))
-                            .push_bottom(Some(1), Label::new("dock: bottom"))
-                            .push_left(6, Label::new("dock L"))
-                            .push_right(6, Label::new("dock R"))
-                            .push_fill(Label::new("dock center")),
-                    )
-                    .with_child(ScrollView::new(grid).height(4))
-                    .with_child(Node::new(controls).class("panel").class("controls"))
-                    .with_child(DataTable::new(
+                AppRoot::new().with_compose(compose![
+                    Label::new("textual-rs demo (widget tree + layout)"),
+                    SizeLabel::new(),
+                    Row::new().with_compose(compose![
+                        Label::new("row: left"),
+                        Label::new("row: right"),
+                    ]),
+                    Dock::new()
+                        .height(5)
+                        .push_top(Some(1), Label::new("dock: top"))
+                        .push_bottom(Some(1), Label::new("dock: bottom"))
+                        .push_left(6, Label::new("dock L"))
+                        .push_right(6, Label::new("dock R"))
+                        .push_fill(Label::new("dock center")),
+                    ScrollView::new(grid).height(4),
+                    Node::new(controls).class("panel").class("controls"),
+                    DataTable::new(
                         vec!["Name".into(), "Value".into()],
                         vec![
                             vec!["Alpha".into(), "1".into()],
                             vec!["Beta".into(), "2".into()],
                             vec!["Gamma".into(), "3".into()],
                         ],
-                    ))
-                    .with_child(Tree::new(vec![
+                    ),
+                    Tree::new(vec![
                         TreeNode::new("Root")
                             .with_child(TreeNode::new("Child A"))
                             .with_child(
@@ -137,23 +134,22 @@ impl TextualApp for HelloApp {
                                     .with_child(TreeNode::new("Leaf")),
                             ),
                         TreeNode::new("Other"),
-                    ]))
-                    .with_child(
-                        Tabs::new()
-                            .with_tab("One", Label::new("first tab"))
-                            .with_tab("Two", Label::new("second tab")),
-                    )
-                    .with_child(Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`"))
-                    .with_child(Overlay::new(
+                    ]),
+                    Tabs::new()
+                        .with_tab("One", Label::new("first tab"))
+                        .with_tab("Two", Label::new("second tab")),
+                    Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`"),
+                    Overlay::new(
                         Label::new("overlay base"),
                         Frame::new(Label::new("overlay modal")).padding(1),
-                    ))
-                    .with_child(Input::new().with_placeholder("type here..."))
-                    .with_child(Checkbox::new("accept terms"))
-                    .with_child(TickLabel::new())
-                    .with_child(MountedLabel::new())
-                    .with_child(Spacer::new(1))
-                    .with_child(Label::new("press ctrl+q to quit")),
+                    ),
+                    Input::new().with_placeholder("type here..."),
+                    Checkbox::new("accept terms"),
+                    TickLabel::new(),
+                    MountedLabel::new(),
+                    Spacer::new(1),
+                    Label::new("press ctrl+q to quit"),
+                ]),
             )
             .scroll_step(2)
             .scroll_step_x(4),

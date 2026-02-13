@@ -35,6 +35,16 @@ impl Row {
         self
     }
 
+    /// Add multiple children from a `compose![]` result.
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        for decl in children {
+            match decl.builder {
+                crate::compose::WidgetBuilder::Ready(widget) => self.children.push(widget),
+            }
+        }
+        self
+    }
+
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
     }

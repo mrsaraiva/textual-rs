@@ -56,8 +56,8 @@ impl Widget for TabbedDemo {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let footer_height = 1usize.min(height);
-        let body_height = height.saturating_sub(footer_height).max(1);
+        let footer_height = if height > 1 { 1usize } else { 0 };
+        let body_height = height.saturating_sub(footer_height);
 
         let mut body_options = options.clone();
         body_options.size = (width, body_height);
@@ -111,8 +111,8 @@ impl Widget for TabbedDemo {
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        let footer_height = 1u16.min(height);
-        let body_height = height.saturating_sub(footer_height).max(1);
+        let footer_height = if height > 1 { 1u16 } else { 0 };
+        let body_height = height.saturating_sub(footer_height);
         self.tabs.on_layout(width, body_height);
         self.footer.on_layout(width, footer_height);
     }
