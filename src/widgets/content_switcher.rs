@@ -91,15 +91,8 @@ impl ContentSwitcher {
         &mut self.children
     }
 
-    /// Drain all children, returning them as owned widgets.
-    ///
-    /// Intended for runtime mount: the runtime can call this once during
-    /// tree construction to move children into the `WidgetTree` arena.
-    /// After draining, `self.children` is empty.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        std::mem::take(&mut self.children)
-    }
 }
+
 
 impl Widget for ContentSwitcher {
     /// Declare children for tree-based mounting.
@@ -112,6 +105,10 @@ impl Widget for ContentSwitcher {
     /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
     }
 
     fn focusable(&self) -> bool {

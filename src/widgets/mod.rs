@@ -64,7 +64,7 @@ pub use core::{
     BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetStyles, classify_style_change,
 };
 pub use data_table::{CursorType, DataTable};
-pub use digits::{Digits, DigitsAlign};
+pub use digits::Digits;
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding};
 pub use header::Header;

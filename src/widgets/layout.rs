@@ -64,15 +64,8 @@ impl Row {
         &mut self.children
     }
 
-    /// Drain all children, returning them as owned widgets.
-    ///
-    /// Intended for runtime mount: the runtime can call this once during
-    /// tree construction to move children into the `WidgetTree` arena.
-    /// After draining, `self.children` is empty.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        std::mem::take(&mut self.children)
-    }
 }
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum RowAlign {
@@ -92,6 +85,10 @@ impl Widget for Row {
     /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {

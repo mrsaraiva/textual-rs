@@ -154,6 +154,8 @@ impl Switch {
         self.focused_classes = focused_classes;
     }
 
+    /// Test helper for verifying animation correctness.
+    #[allow(dead_code)]
     fn is_animating(&self) -> bool {
         (self.slider_pos - self.slider_target).abs() > f32::EPSILON
     }

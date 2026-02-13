@@ -36,7 +36,7 @@ use types::{
     StylesheetWatcher,
 };
 
-use helpers::{apply_size, default_action_map};
+use helpers::{ClickTracker, apply_size, default_action_map};
 
 pub struct App {
     driver: TerminalDriver,
@@ -55,6 +55,7 @@ pub struct App {
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
     hovered: Option<NodeId>,
+    click_tracker: ClickTracker,
     last_render_at: Instant,
     resized_since_last_render: bool,
     clear_on_next_render: bool,
@@ -137,6 +138,7 @@ impl App {
             stylesheet_watch: None,
             running: true,
             hovered: None,
+            click_tracker: ClickTracker::new(),
             last_render_at: Instant::now(),
             resized_since_last_render: false,
             clear_on_next_render: false,
@@ -164,39 +166,97 @@ impl App {
         Ok(app)
     }
 
-    /// Build the arena-based widget tree from a root widget's `compose()` declarations.
+    /// Build the arena-based widget tree by extracting children from the root widget.
     ///
-    /// Recursively processes each widget's `compose()` output, mounting children
-    /// into the `WidgetTree`. After building, the tree is stored in `self.widget_tree`
-    /// and tree-based dispatch paths become active.
-    pub(crate) fn build_widget_tree(&mut self, root: &dyn Widget) {
+    /// Uses `take_composed_children()` to recursively move children out of
+    /// containers and into the arena tree. After building, the tree is stored
+    /// in `self.widget_tree` and tree-based dispatch paths become active.
+    ///
+    /// Also processes `compose()` declarations for any widget that provides them.
+    pub(crate) fn build_widget_tree(&mut self, root: &mut dyn Widget) {
         let mut tree = WidgetTree::new();
-        let declarations = root.compose();
-        if declarations.is_empty() {
-            // No compose declarations — tree stays empty (root-only widgets
-            // still use the old recursive paths for children they manage
-            // internally via visit_children_mut).
-            self.widget_tree = None;
-            return;
-        }
+
         // Mount a synthetic root node that mirrors the real root widget.
         // We don't move the root widget into the tree — it stays as the
         // `&mut dyn Widget` parameter. The tree tracks structure only.
-        //
-        // Use a lightweight stub widget for the root slot.
         let root_node_id = tree.set_root(Box::new(TreeStubWidget::from_widget(root)));
-        Self::mount_declarations(&mut tree, root_node_id, declarations);
+
+        // Extract children from root into tree, recursively.
+        Self::extract_children_to_tree(&mut tree, root_node_id, root);
+
+        // Also process compose() declarations (if any).
+        let declarations = root.compose();
+        if !declarations.is_empty() {
+            Self::mount_declarations(&mut tree, root_node_id, declarations);
+        }
+
+        if tree.len() <= 1 {
+            // Only root stub, no children — keep legacy path.
+            self.widget_tree = None;
+            return;
+        }
+
         // Drain lifecycle events from initial build (mount events) — the
         // runtime will call on_mount separately via the existing path.
         let _ = tree.drain_lifecycle();
         self.widget_tree = Some(tree);
     }
 
+    /// Recursively extract children from a widget via `take_composed_children()`
+    /// and mount them into the tree.
+    fn extract_children_to_tree(
+        tree: &mut WidgetTree,
+        parent: NodeId,
+        widget: &mut dyn Widget,
+    ) {
+        let children = widget.take_composed_children();
+        for mut child in children {
+            // Recursively extract grandchildren before mounting the child.
+            // We must do this while we still have &mut access to the child.
+            let grandchildren = child.take_composed_children();
+            // Also collect compose() declarations from the child.
+            let child_compose = child.compose();
+
+            let node_id = tree.mount(parent, child);
+
+            // Recursively mount grandchildren under this node.
+            for grandchild in grandchildren {
+                Self::mount_extracted_recursive(tree, node_id, grandchild);
+            }
+
+            // Mount compose() declarations from the child.
+            if !child_compose.is_empty() {
+                Self::mount_declarations(tree, node_id, child_compose);
+            }
+        }
+    }
+
+    /// Recursively mount an already-extracted child widget and its descendants.
+    fn mount_extracted_recursive(
+        tree: &mut WidgetTree,
+        parent: NodeId,
+        mut widget: Box<dyn Widget>,
+    ) {
+        let grandchildren = widget.take_composed_children();
+        let compose_decls = widget.compose();
+
+        let node_id = tree.mount(parent, widget);
+
+        for grandchild in grandchildren {
+            Self::mount_extracted_recursive(tree, node_id, grandchild);
+        }
+
+        if !compose_decls.is_empty() {
+            Self::mount_declarations(tree, node_id, compose_decls);
+        }
+    }
+
     /// Recursively mount `ChildDecl` declarations into the tree under `parent`.
     fn mount_declarations(tree: &mut WidgetTree, parent: NodeId, declarations: Vec<ChildDecl>) {
         for decl in declarations {
-            let WidgetBuilder::Ready(widget) = decl.builder;
-            // Collect nested compose declarations from the widget itself.
+            let WidgetBuilder::Ready(mut widget) = decl.builder;
+            // Extract children from declared widgets too.
+            let extracted = widget.take_composed_children();
             let child_compose = widget.compose();
             let node_id = tree.mount(parent, widget);
             // Apply CSS id/classes from the declaration.
@@ -208,7 +268,11 @@ impl App {
             for class in &decl.classes {
                 tree.add_class(node_id, class);
             }
-            // Mount explicit child declarations first.
+            // Mount extracted children first.
+            for child in extracted {
+                Self::mount_extracted_recursive(tree, node_id, child);
+            }
+            // Mount explicit child declarations.
             if !decl.children.is_empty() {
                 Self::mount_declarations(tree, node_id, decl.children);
             }
@@ -652,23 +716,6 @@ impl App {
 
     /// Run the CSS-layout pass on the arena tree (if present).
     ///
-    /// Computes `layout_rect`/`content_rect` for all tree nodes using the
-    /// CSS layout solvers. Call before rendering so precomputed rects are
-    /// available for widget sizing and positioning.
-    ///
-    /// Sets its own CSS stylesheet context for the duration of the layout
-    /// resolve, so the caller does not need to manage context guards.
-    pub(crate) fn run_layout_pass(&mut self) {
-        if let Some(tree) = self.widget_tree.as_mut() {
-            let mut sheet = self.default_stylesheet.clone();
-            sheet.extend(&self.stylesheet);
-            let _active = crate::css::set_app_active(self.app_active);
-            let _guard = crate::css::set_style_context(sheet);
-            let (w, h) = self.options.size;
-            render::run_layout_pass(tree, (w as u16, h as u16));
-        }
-    }
-
     pub async fn run(&mut self) -> Result<()> {
         if !self.running {
             return Err(Error::RuntimeStopped);
@@ -698,9 +745,20 @@ impl App {
 
         let hovered_changed = hovered != self.hovered;
         if hovered_changed {
+            // Update hover state on actual widgets via the tree.
+            if let Some(tree) = self.widget_tree.as_mut() {
+                if let Some(old_id) = self.hovered {
+                    if let Some(node) = tree.get_mut(old_id) {
+                        node.widget.set_hovered(false);
+                    }
+                }
+                if let Some(new_id) = hovered {
+                    if let Some(node) = tree.get_mut(new_id) {
+                        node.widget.set_hovered(true);
+                    }
+                }
+            }
             self.hovered = hovered;
-            // Hover state is tracked by the runtime (self.hovered).
-            // Tree-based hover is set during render; no recursive walk needed.
             let shape = self.pointer_shape_for_hover_auto(root, self.hovered);
             let _ = self.set_pointer_shape(shape);
         }

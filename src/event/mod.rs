@@ -777,6 +777,9 @@ impl EventCtx {
         std::mem::take(&mut self.animation_requests)
     }
 
+    /// Animation infrastructure — will be wired when the animation system
+    /// drives CSS transition requests through EventCtx.
+    #[allow(dead_code)]
     pub(crate) fn take_style_animation_requests(&mut self) -> Vec<StyleAnimationRequest> {
         std::mem::take(&mut self.style_animation_requests)
     }
@@ -810,6 +813,10 @@ pub struct WidgetCtx<'a> {
 
 impl<'a> WidgetCtx<'a> {
     /// Create a new widget context. Called by the runtime, not by widgets.
+    ///
+    /// Public API — documented migration path from EventCtx for tree-aware
+    /// event handling. Not yet called from the runtime event loop.
+    #[allow(dead_code)]
     pub(crate) fn new(node_id: NodeId, event_ctx: &'a mut EventCtx) -> Self {
         Self { node_id, event_ctx }
     }

@@ -8,6 +8,19 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **Sprint 25: Complete tree-driven rendering (P1-12/P1-13)**
+  - **Tree-driven compositor:** New `render_tree_composed()` path walks the arena tree depth-first, rendering each widget at its `layout_rect` position with CSS style stack management for proper inheritance. Replaces the legacy recursive `render_styled()` path when the tree is populated.
+  - **`take_composed_children()` on Widget trait:** Promoted from per-widget inherent method to trait method. Containers drain their children into the arena tree during mount; tree-driven rendering handles child layout.
+  - **`build_widget_tree()` rewrite:** Now extracts children via `take_composed_children()` recursively (in addition to `compose()` declarations), populating the arena with the full widget hierarchy.
+  - **Hover tracking wired through tree:** `set_hovered(true/false)` called on actual widgets via tree nodes, enabling `:hover` CSS pseudo-class matching.
+  - **Enter/Leave event dispatch:** `generate_enter_leave_events()` wired into the mouse moved handler; events dispatched through tree paths on hover change.
+  - **Click synthesis:** `ClickTracker` integrated into runtime; synthesizes Click events when mousedown and mouseup target the same widget.
+  - **ScreenStack::top()** wired into `active_title()`/`active_sub_title()`.
+  - **CSS style stack:** Added `push_style_context()`/`pop_style_context()` for tree compositor's manual depth-tracking walk.
+  - **FrameBuffer:** Added `write_line_at()` for positioned cell painting in the compositor.
+  - **Dead code cleanup:** Deleted ThemeDarkGuard, `render_tree_scaffold()`, `App::run_layout_pass()` wrapper, `DigitsAlign` alias. Remaining 8 dead-code items annotated with justification.
+  - Build: 0 errors, 0 warnings (down from 29). Tests: 1316+ passed, 1 pre-existing failure.
+
 - **Sprint 24: Examples rewrite with compose! macro + modernization**
   - **Framework:** Added `with_compose(ComposeResult)` to 6 multi-child containers (AppRoot, Container, Row, Horizontal, VerticalScroll, HorizontalScroll) — bridges the `compose![]` macro to the widget tree builder pattern.
   - **8 examples rewritten** to use `compose![]` for multi-child composition: buttons.rs, buttons_composed_pattern.rs, buttons_advanced.rs, hello.rs, horizontal_scroll.rs, input.rs, input_types.rs, input_validation.rs.

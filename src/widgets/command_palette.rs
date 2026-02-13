@@ -71,6 +71,8 @@ impl SystemCommandsProvider {
     }
 
     /// Borrow the current command list.
+    /// Public API accessor for command palette providers.
+    #[allow(dead_code)]
     pub fn commands(&self) -> &[PaletteCommand] {
         &self.commands
     }

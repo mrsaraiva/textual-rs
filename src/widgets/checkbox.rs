@@ -87,14 +87,6 @@ impl Checkbox {
         }));
     }
 
-    /// Drain all children, returning them as owned widgets.
-    ///
-    /// Checkbox renders toggle+label inline, so this always returns an empty
-    /// Vec. Provided for API uniformity with Container-style widgets.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
-    }
-
     fn rebuild_classes_in_place(&mut self) {
         let mut classes = vec!["checkbox".to_string()];
         if self.checked {
@@ -130,6 +122,10 @@ impl ReactiveWidget for Checkbox {
 
 impl Widget for Checkbox {
     fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         Vec::new()
     }
 

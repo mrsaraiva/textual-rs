@@ -30,6 +30,8 @@ pub(crate) enum EditCommand {
     DeleteToEnd,
     DeleteLine,
     SelectAll,
+    /// Used in text_area pattern matching for line selection.
+    #[allow(dead_code)]
     SelectLine,
     Undo,
     Redo,

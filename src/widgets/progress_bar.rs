@@ -555,23 +555,16 @@ impl ProgressBar {
     }
 }
 
-impl ProgressBar {
-    /// Drain composed children for runtime mount.
-    ///
-    /// ProgressBar sub-components (Bar/PercentageStatus/ETAStatus) are logical
-    /// rendering helpers, not stored as separate children, so this always
-    /// returns an empty list.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
-    }
-}
-
 impl Widget for ProgressBar {
     /// Declare children for tree-based mounting.
     ///
     /// ProgressBar sub-components are logical rendering helpers, not mountable
     /// children, so compose returns an empty list.
     fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         Vec::new()
     }
 

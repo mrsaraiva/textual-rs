@@ -281,7 +281,9 @@ pub(crate) struct ClickTracker {
     down: Option<ClickDownState>,
 }
 
+/// Coordinates are stored for future drag-distance thresholds / long-press detection.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 struct ClickDownState {
     target: NodeId,
     screen_x: u16,

@@ -1,5 +1,6 @@
 use crate::css::{
-    begin_style_render_pass, set_app_active, set_style_context, take_layout_affected_style_changes,
+    begin_style_render_pass, pop_style_context, push_style_context, resolve_style,
+    selector_meta_generic, set_app_active, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::debug_render;
 use crate::node_id::NodeId;
@@ -103,6 +104,13 @@ impl App {
             }
         }
 
+        // Tree-driven render path: walk the arena tree depth-first,
+        // rendering each widget at its layout_rect position.
+        if self.widget_tree.is_some() {
+            return self.render_tree_composed(widget, dirty_regions, layout_invalidation);
+        }
+
+        // Legacy render path: recursive widget.render_styled() from root.
         let segments = if self.debug_layout.enabled {
             widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
         } else {
@@ -144,6 +152,128 @@ impl App {
         if resize_trace_enabled() && (self.resized_since_last_render || clear_before_draw) {
             debug_render(&format!(
                 "[render_trace] kind=widget size={}x{} controls={} home={} clear={} cr={} move_to={} cursor_moves={} text_segments={} text_bytes={} newlines={} touch_last_col={} overflow_right={} max_cursor=({}, {}) control_head=[{}]",
+                next.width,
+                next.height,
+                stream_stats.controls,
+                stream_stats.home,
+                stream_stats.clear,
+                stream_stats.carriage_return,
+                stream_stats.move_to,
+                stream_stats.cursor_moves,
+                stream_stats.text_segments,
+                stream_stats.text_bytes,
+                stream_stats.newline_text,
+                stream_stats.touch_last_col,
+                stream_stats.overflow_right,
+                stream_stats.max_cursor_x,
+                stream_stats.max_cursor_y,
+                control_head(&diff, 12)
+            ));
+        }
+        self.print_segments(&diff)?;
+        self.resized_since_last_render = false;
+        self.clear_on_next_render = false;
+        let next_hit_test = HitTestMap::from_frame(&next);
+        let geometry_changed = self.hit_test != next_hit_test;
+        self.hit_test = next_hit_test;
+        if layout_invalidation || geometry_changed || layout_affected_style_change {
+            self.apply_layout_info(widget, &self.hit_test);
+        }
+        self.frame = next;
+        Ok(())
+    }
+
+    /// Tree-driven render path: walk the arena tree depth-first, rendering
+    /// each widget at its `layout_rect` position and compositing into a
+    /// single FrameBuffer.
+    ///
+    /// This replaces the legacy recursive `render_styled()` path when the
+    /// tree is populated (i.e., `self.widget_tree` is `Some`).
+    fn render_tree_composed(
+        &mut self,
+        widget: &mut dyn Widget,
+        dirty_regions: Option<&[DirtyRegion]>,
+        layout_invalidation: bool,
+    ) -> crate::Result<()> {
+        let (width, height) = self.options.size;
+        let base_style = self.theme.base.to_rich();
+
+        // Take tree out of self to avoid borrow conflicts — we need &tree for
+        // reading widgets and &mut self for frame/notifications/output.
+        let tree = self.widget_tree.take().unwrap();
+
+        let mut next = FrameBuffer::new(width, height, base_style);
+
+        // Render the real root widget first. Its children have been extracted,
+        // so this produces only the root's CSS chrome (background, border, padding).
+        let root_segments = widget.render_styled_dyn_obj(
+            &self.console,
+            &self.options,
+            if self.debug_layout.enabled {
+                Some(&self.debug_layout)
+            } else {
+                None
+            },
+            NodeId::default(),
+        );
+        let root_lines =
+            Segment::split_and_crop_lines(root_segments, width, None, true, false);
+        for (row, line) in root_lines.iter().enumerate() {
+            next.write_line_at(0, row, line, true);
+        }
+
+        // Walk tree children (skip the stub root node) and render each at
+        // its layout_rect position with CSS style stack management.
+        if let Some(root_id) = tree.root() {
+            // Push root widget's style context so children can inherit.
+            let root_meta = selector_meta_generic(widget);
+            let root_resolved = resolve_style(widget, &root_meta);
+            push_style_context(root_meta, root_resolved);
+
+            let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
+            for child_id in child_ids {
+                render_tree_node(&tree, child_id, &mut next, &self.console);
+            }
+
+            pop_style_context();
+        }
+
+        let layout_affected_style_change = take_layout_affected_style_changes();
+
+        // Put tree back before the rest of the pipeline.
+        self.widget_tree = Some(tree);
+
+        self.compose_notifications(&mut next);
+        let now = std::time::Instant::now();
+        let dt_ms = now.duration_since(self.last_render_at).as_millis();
+        self.last_render_at = now;
+        let clear_before_draw = self.clear_on_next_render;
+        let diff_body = if clear_before_draw {
+            next.diff_to_segments(&self.frame)
+        } else if let Some(regions) = dirty_regions {
+            next.diff_to_segments_in_regions(&self.frame, regions)
+        } else {
+            next.diff_to_segments(&self.frame)
+        };
+        let diff = prepend_clear_if_needed(diff_body, clear_before_draw);
+        let stream_stats = analyze_segment_stream(&diff, next.width);
+        debug_render(&format!(
+            "[render_tree] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
+            dt_ms,
+            self.resized_since_last_render,
+            clear_before_draw,
+            next.width,
+            next.height,
+            self.frame.width,
+            self.frame.height,
+            diff.len(),
+            stream_stats.controls,
+            stream_stats.text_segments,
+            stream_stats.text_bytes
+        ));
+        if resize_trace_enabled() && (self.resized_since_last_render || clear_before_draw) {
+            debug_render(&format!(
+                "[render_trace] kind=tree size={}x{} controls={} home={} clear={} cr={} move_to={} cursor_moves={} text_segments={} text_bytes={} newlines={} touch_last_col={} overflow_right={} max_cursor=({}, {}) control_head=[{}]",
                 next.width,
                 next.height,
                 stream_stats.controls,
@@ -390,6 +520,83 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 }
 
 // ===========================================================================
+// Tree-driven compositor: render each widget at its layout_rect position
+// ===========================================================================
+
+/// Recursively render a tree node and its children into the frame buffer.
+///
+/// Each widget is rendered at its `layout_rect` position with CSS style
+/// stack management for proper inheritance. The style stack must already
+/// contain the ancestor chain when this function is called.
+fn render_tree_node(
+    tree: &WidgetTree,
+    node_id: NodeId,
+    frame: &mut FrameBuffer,
+    console: &rich_rs::Console,
+) {
+    let node = match tree.get(node_id) {
+        Some(n) => n,
+        None => return,
+    };
+
+    // Skip non-displayed nodes entirely (no layout, no render).
+    if !node.display {
+        return;
+    }
+
+    let rect = node.layout_rect;
+    let w = (rect.x1.saturating_sub(rect.x0)) as usize;
+    let h = (rect.y1.saturating_sub(rect.y0)) as usize;
+
+    // Only render if the node is visible AND has a non-zero extent.
+    let should_render =
+        node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
+
+    if should_render {
+        // Create options sized to this widget's layout rect.
+        let mut opts = rich_rs::ConsoleOptions::default();
+        opts.size = (w, h);
+        opts.max_width = w;
+        opts.max_height = h;
+
+        // render_styled_dyn_obj handles CSS resolution, border composition,
+        // segment tagging with the real arena NodeId, and style stack
+        // push/pop for this node's own content rendering.
+        let segments = node.widget.render_styled_dyn_obj(
+            console,
+            &opts,
+            None,
+            node_id,
+        );
+
+        // Split into lines and paint at the layout position.
+        let lines = rich_rs::Segment::split_and_crop_lines(
+            segments, w, None, true, false,
+        );
+        for (row_idx, line) in lines.iter().enumerate() {
+            let y = rect.y0 as usize + row_idx;
+            if y >= frame.height {
+                break;
+            }
+            frame.write_line_at(rect.x0 as usize, y, line, false);
+        }
+    }
+
+    // Push this node's resolved style onto the stack for children
+    // to inherit, then recurse into children.
+    let meta = selector_meta_generic(node.widget.as_ref());
+    let resolved = resolve_style(node.widget.as_ref(), &meta);
+    push_style_context(meta, resolved);
+
+    let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
+    for child_id in child_ids {
+        render_tree_node(tree, child_id, frame, console);
+    }
+
+    pop_style_context();
+}
+
+// ===========================================================================
 // P1-12 / P2-18a: Arena-tree-based render scaffold + layout integration
 //
 // These standalone functions implement tree-walk render and layout patterns
@@ -426,49 +633,6 @@ pub(crate) fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
 
     // Resolve children's layout rects.
     crate::layout::resolve_layout(tree, root_id, available, viewport);
-}
-
-/// Render the widget tree via depth-first traversal, producing styled segments.
-///
-/// When the layout solver has already run (`run_layout_pass`), uses the root's
-/// precomputed `content_rect` to set `ConsoleOptions.size` for the render call.
-/// Falls back to the caller-provided options when rects are not populated.
-///
-/// # Current limitations
-///
-/// The current widget rendering model is monolithic: a container widget's
-/// `render_styled()` calls `visit_children_mut` internally to render its
-/// children. This scaffold calls `render_styled()` on the root node, which
-/// still uses the old recursive path internally. The per-widget tree-driven
-/// render loop (where the *tree traversal* drives individual widget render
-/// calls and composites their segments externally) is a deeper change for a
-/// future sprint.
-pub(crate) fn render_tree_scaffold(
-    tree: &mut WidgetTree,
-    console: &rich_rs::Console,
-    options: &rich_rs::ConsoleOptions,
-) -> Option<Segments> {
-    let root_id = tree.root()?;
-    let node = tree.get(root_id)?;
-    if !node.display {
-        return Some(Segments::new());
-    }
-
-    // Use precomputed content_rect from the layout solver to set render size.
-    // Falls back to the caller-provided options when rects are not populated.
-    let cr = node.content_rect;
-    let content_w = cr.x1.saturating_sub(cr.x0) as usize;
-    let content_h = cr.y1.saturating_sub(cr.y0) as usize;
-
-    if content_w > 0 && content_h > 0 {
-        let mut render_options = options.clone();
-        render_options.size = (content_w, content_h);
-        render_options.max_width = content_w;
-        render_options.max_height = content_h;
-        Some(node.widget.render_styled(console, &render_options))
-    } else {
-        Some(node.widget.render_styled(console, options))
-    }
 }
 
 /// Walk visible nodes in depth-first order and collect render metadata.
@@ -938,30 +1102,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn render_tree_scaffold_produces_segments() {
-        use crate::widget_tree::WidgetTree;
-        use crate::widgets::AppRoot;
-
-        let sheet = crate::css::default_widget_stylesheet();
-        let _guard = crate::css::set_style_context(sheet);
-
-        let mut tree = WidgetTree::new();
-        let _root = tree.set_root(Box::new(AppRoot::new()));
-
-        let console = rich_rs::Console::default();
-        let options = rich_rs::ConsoleOptions {
-            size: (80, 24),
-            max_width: 80,
-            max_height: 24,
-            ..Default::default()
-        };
-
-        run_layout_pass(&mut tree, (80, 24));
-        let segments = render_tree_scaffold(&mut tree, &console, &options);
-        assert!(
-            segments.is_some(),
-            "render_tree_scaffold should produce segments for a non-empty tree"
-        );
-    }
 }

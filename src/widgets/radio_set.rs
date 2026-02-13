@@ -240,21 +240,19 @@ impl RadioSet {
         &mut self.buttons
     }
 
-    /// Drain all buttons, returning them as owned `Box<dyn Widget>`.
-    ///
-    /// Intended for runtime mount: the runtime can call this once during
-    /// tree construction to move children into the `WidgetTree` arena.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.buttons
-            .drain(..)
-            .map(|b| Box::new(b) as Box<dyn Widget>)
-            .collect()
-    }
 }
+
 
 impl Widget for RadioSet {
     fn compose(&self) -> ComposeResult {
         Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.buttons
+            .drain(..)
+            .map(|b| Box::new(b) as Box<dyn Widget>)
+            .collect()
     }
 
     fn focusable(&self) -> bool {

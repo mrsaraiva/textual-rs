@@ -194,12 +194,29 @@ impl FrameBuffer {
     }
 
     fn write_line(&mut self, y: usize, line: &[Segment]) {
+        self.write_line_at(0, y, line, true);
+    }
+
+    /// Write a line of segments at position (x_offset, y) in the buffer.
+    ///
+    /// If `clear_first` is true, the region from x_offset to width is cleared
+    /// to blank cells before writing. When painting tree nodes at arbitrary
+    /// positions, pass `false` to composite over existing content.
+    pub(crate) fn write_line_at(
+        &mut self,
+        x_offset: usize,
+        y: usize,
+        line: &[Segment],
+        clear_first: bool,
+    ) {
         if y >= self.height {
             return;
         }
-        self.clear_line(y);
+        if clear_first {
+            self.clear_line(y);
+        }
 
-        let mut x: usize = 0;
+        let mut x: usize = x_offset;
         let mut last_non_zero: Option<(usize, usize)> = None; // (x, width)
 
         for seg in line {

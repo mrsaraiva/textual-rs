@@ -92,7 +92,11 @@ pub type ScreenResultCallback = Box<dyn FnOnce(ScreenResult) + Send>;
 /// Internal entry in the screen stack.
 pub(crate) struct ScreenEntry {
     pub screen: Box<dyn Screen>,
+    /// Needs screen switching to swap active tree (no demo uses multiple screens yet).
+    #[allow(dead_code)]
     pub widget_tree: WidgetTree,
+    /// Per-screen stylesheet; requires screen switching infrastructure.
+    #[allow(dead_code)]
     pub stylesheet: Option<StyleSheet>,
     /// Optional callback invoked when this screen is popped.
     result_callback: Option<ScreenResultCallback>,
@@ -279,6 +283,10 @@ impl ScreenStack {
     }
 
     /// Mutable reference to the topmost screen entry.
+    ///
+    /// Currently unused but part of the public screen API — needed when screen
+    /// switching swaps the active widget tree (no demo exercises this yet).
+    #[allow(dead_code)]
     pub(crate) fn top_mut(&mut self) -> Option<&mut ScreenEntry> {
         self.screens.last_mut()
     }
@@ -295,12 +303,12 @@ impl ScreenStack {
 
     /// Get the title from the topmost screen (if it defines one).
     pub fn active_title(&self) -> Option<&str> {
-        self.screens.last().and_then(|e| e.screen.title())
+        self.top().and_then(|e| e.screen.title())
     }
 
     /// Get the sub-title from the topmost screen (if it defines one).
     pub fn active_sub_title(&self) -> Option<&str> {
-        self.screens.last().and_then(|e| e.screen.sub_title())
+        self.top().and_then(|e| e.screen.sub_title())
     }
 }
 

@@ -265,14 +265,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         }
     }
 
-    /// Drain composed children for runtime mount.
-    ///
-    /// Select's inner OptionList is an integral implementation detail, not a
-    /// mountable child, so this always returns an empty list.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
-    }
-
     // ── Internals ───────────────────────────────────────────────────
 
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
@@ -400,6 +392,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     /// Select's inner OptionList is managed internally (not a mountable child),
     /// so compose returns an empty list.
     fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         Vec::new()
     }
 

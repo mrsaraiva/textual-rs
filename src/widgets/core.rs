@@ -148,6 +148,16 @@ pub trait Widget: Send + Sync {
         Vec::new()
     }
 
+    /// Move children out of this widget for tree mounting.
+    ///
+    /// Containers override this to drain their owned children vec.
+    /// After calling, the container's children list is empty — the tree
+    /// takes ownership and tree-driven rendering handles child layout.
+    /// Leaf widgets return an empty vec (the default).
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        Vec::new()
+    }
+
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so

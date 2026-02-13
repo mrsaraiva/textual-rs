@@ -4,14 +4,6 @@ use crate::style::TextAlign;
 
 use super::{Widget, WidgetStyles};
 
-/// Deprecated: use [`TextAlign`] from `crate::style` instead.
-///
-/// Previously the Digits widget used its own alignment enum. Now it reads
-/// `text-align` from the resolved CSS style, so this is a backward-compatible
-/// alias kept for code that still references the old name.
-#[deprecated(note = "Use crate::style::TextAlign instead")]
-pub type DigitsAlign = TextAlign;
-
 /// Characters recognized by the 3×3 digit font.
 const DIGITS: &str = " 0123456789+-^x:ABCDEF$£€()";
 

@@ -18,8 +18,9 @@ use std::time::{Duration, Instant};
 use super::App;
 use super::devtools::DevtoolsCommand;
 use super::helpers::{
-    any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree, mouse_scroll_deltas,
-    pointer_shape_for_hover_tree, should_quit_key,
+    any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
+    generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
+    should_quit_key,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
@@ -802,9 +803,9 @@ impl App {
         self.start()?;
         root.on_mount();
 
-        // Build the arena-based widget tree from compose() declarations.
-        // If the root widget provides compose() children, tree-based dispatch
-        // paths become active; otherwise we fall back to recursive dispatch.
+        // Build the arena-based widget tree by extracting children from root.
+        // If children are found (via take_composed_children or compose),
+        // tree-based dispatch paths become active; otherwise legacy dispatch.
         self.build_widget_tree(root);
 
         // Auto-focus the first focusable widget via the arena tree.
@@ -1058,6 +1059,12 @@ impl App {
                                     pending_invalidation.request_full_content();
                                     continue;
                                 }
+                                if matches!(action, Action::FocusNext | Action::FocusPrev)
+                                    && self.move_focus_auto(root, action)
+                                {
+                                    pending_invalidation.request_full_content();
+                                    continue;
+                                }
                                 debug_input(&format!(
                                     "[input] action-map {:?} -> {:?}",
                                     bind, action
@@ -1106,9 +1113,28 @@ impl App {
                                 } else {
                                     pending_invalidation.request_full_content();
                                 }
+
+                                // Dispatch Enter/Leave events on hover change.
+                                let enter_leave = generate_enter_leave_events(
+                                    before,
+                                    self.hovered,
+                                    mouse.column,
+                                    mouse.row,
+                                    mouse.column,
+                                    mouse.row,
+                                );
+                                for (target, event) in enter_leave {
+                                    let mut outcome =
+                                        self.dispatch_event_to_target_auto(root, target, &event);
+                                    self.absorb_outcome(
+                                        &mut outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                }
                             }
                         }
-                        MouseEventKind::Down(_) => {
+                        MouseEventKind::Down(btn) => {
                             debug_input(&format!(
                                 "[input] mouse down x={} y={} hovered={:?}",
                                 mouse.column,
@@ -1125,16 +1151,24 @@ impl App {
                                     "[input] mouse target id={}",
                                     node_id_to_ffi(target)
                                 ));
-                                let mut outcome = self.dispatch_event_auto(
-                                    root,
-                                    Event::MouseDown(MouseDownEvent {
-                                        target,
-                                        screen_x: mouse.column,
-                                        screen_y: mouse.row,
-                                        x,
-                                        y,
-                                    }),
+                                // Record click tracker state for click synthesis.
+                                let button = match btn {
+                                    crossterm::event::MouseButton::Left => 0,
+                                    crossterm::event::MouseButton::Right => 2,
+                                    crossterm::event::MouseButton::Middle => 1,
+                                };
+                                self.click_tracker.on_mouse_down(
+                                    target, x, y, mouse.column, mouse.row, button,
                                 );
+                                let down_event = Event::MouseDown(MouseDownEvent {
+                                    target,
+                                    screen_x: mouse.column,
+                                    screen_y: mouse.row,
+                                    x,
+                                    y,
+                                });
+                                let mut outcome =
+                                    self.dispatch_event_to_target_auto(root, target, &down_event);
                                 self.absorb_outcome(
                                     &mut outcome,
                                     &mut pending_invalidation,
@@ -1160,21 +1194,38 @@ impl App {
                                         .content_local_coords(id, mouse.column, mouse.row)
                                 })
                                 .unwrap_or((0, 0));
-                            let mut outcome = self.dispatch_event_auto(
-                                root,
-                                Event::MouseUp(MouseUpEvent {
-                                    target,
-                                    screen_x: mouse.column,
-                                    screen_y: mouse.row,
-                                    x,
-                                    y,
-                                }),
-                            );
+                            let up_event = Event::MouseUp(MouseUpEvent {
+                                target,
+                                screen_x: mouse.column,
+                                screen_y: mouse.row,
+                                x,
+                                y,
+                            });
+                            let mut outcome = if let Some(target) = target {
+                                self.dispatch_event_to_target_auto(root, target, &up_event)
+                            } else {
+                                self.dispatch_event_auto(root, up_event)
+                            };
                             self.absorb_outcome(
                                 &mut outcome,
                                 &mut pending_invalidation,
                                 InvalidationScope::Global,
                             );
+                            // Synthesize Click if mouseup target matches mousedown target.
+                            if let Some((click_target, click_event)) = self
+                                .click_tracker
+                                .on_mouse_up(target, x, y, mouse.column, mouse.row)
+                            {
+                                let mut click_outcome = self
+                                    .dispatch_event_to_target_auto(
+                                        root, click_target, &click_event,
+                                    );
+                                self.absorb_outcome(
+                                    &mut click_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                            }
                             let mut msg_outcome =
                                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
                             self.absorb_outcome(

@@ -155,7 +155,9 @@ impl NodeHitTestMap {
     /// Translate screen coordinates to content-local coordinates for `target`.
     ///
     /// Mirrors [`HitTestMap::content_local_coords`] but uses the arena tree
-    /// instead of recursive `visit_children_mut`.
+    /// instead of recursive `visit_children_mut`. Will be called when the
+    /// runtime uses `NodeHitTestMap` for tree-based coordinate translation.
+    #[allow(dead_code)]
     pub(crate) fn content_local_coords(
         &self,
         tree: &mut crate::widget_tree::WidgetTree,

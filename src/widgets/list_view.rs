@@ -163,11 +163,6 @@ impl ListView {
         Some(item)
     }
 
-    /// Compose stub — ListView items are strings, not widgets.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
-    }
-
     fn max_offset(&self) -> usize {
         ScrollView::line_max_offset(self.items.len(), self.viewport_height.max(1))
     }
@@ -355,6 +350,10 @@ impl ListView {
 
 impl Widget for ListView {
     fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         Vec::new()
     }
 

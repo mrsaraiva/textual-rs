@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::node_id::NodeId;
@@ -13,7 +13,6 @@ thread_local! {
     pub(super) static APP_ACTIVE: RefCell<bool> = RefCell::new(true);
     pub(super) static COMPUTED_STYLE_CACHE: RefCell<ComputedStyleCache> =
         RefCell::new(ComputedStyleCache::default());
-    pub(super) static THEME_DARK: Cell<bool> = Cell::new(false);
     /// Set of `NodeId`s that match the `:focus-within` pseudo-class.
     ///
     /// Populated by the render pipeline before style resolution: the focused
@@ -45,28 +44,6 @@ impl Drop for AppActiveGuard {
 
 pub(super) fn app_is_active() -> bool {
     APP_ACTIVE.with(|v| *v.borrow())
-}
-
-pub struct ThemeDarkGuard(bool);
-
-pub fn set_theme_dark(dark: bool) -> ThemeDarkGuard {
-    let prev = THEME_DARK.with(|v| {
-        let prev = v.get();
-        v.set(dark);
-        prev
-    });
-    ThemeDarkGuard(prev)
-}
-
-impl Drop for ThemeDarkGuard {
-    fn drop(&mut self) {
-        let prev = self.0;
-        THEME_DARK.with(|v| v.set(prev));
-    }
-}
-
-pub(super) fn theme_is_dark() -> bool {
-    THEME_DARK.with(|v| v.get())
 }
 
 // -- Focus-within context ---------------------------------------------------

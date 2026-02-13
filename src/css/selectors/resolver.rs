@@ -224,6 +224,21 @@ pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl F
     })
 }
 
+/// Push a widget's resolved style + selector meta onto the style stack.
+///
+/// Used by the tree-driven compositor to establish parent CSS context
+/// before rendering children. Must be paired with `pop_style_context`.
+pub(crate) fn push_style_context(meta: SelectorMeta, resolved: Style) {
+    STYLE_STACK.with(|stack| stack.borrow_mut().push(resolved));
+    SELECTOR_STACK.with(|stack| stack.borrow_mut().push(meta));
+}
+
+/// Pop a previously pushed style context.
+pub(crate) fn pop_style_context() {
+    SELECTOR_STACK.with(|stack| stack.borrow_mut().pop());
+    STYLE_STACK.with(|stack| stack.borrow_mut().pop());
+}
+
 fn layout_fields_equal(a: &Style, b: &Style) -> bool {
     a.margin == b.margin
         && a.padding == b.padding

@@ -77,7 +77,7 @@ pub mod prelude {
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant, Center, CenterMiddle, Checkbox,
         Collapsible, CollapsibleTitle, CommandPalette, CommandPaletteScreen, Constrained,
-        Container, ContentSwitcher, CursorType, DataTable, Digits, DigitsAlign, DirectoryTree,
+        Container, ContentSwitcher, CursorType, DataTable, Digits, DirectoryTree,
         Dock, Footer, FooterBinding, Frame, FuzzyMatcher, Grid, Header, HelpPanel, Horizontal,
         HorizontalGroup, HorizontalScroll, Input, InputType, ItemGrid, KeyPanel, Label,
         LabelVariant, LayoutConstraints, LineStyle, Link, ListView, LoadingIndicator, Log,

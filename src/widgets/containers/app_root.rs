@@ -59,15 +59,6 @@ impl AppRoot {
         &mut self.children
     }
 
-    /// Drain all children, returning them as owned widgets.
-    ///
-    /// Intended for runtime mount: the runtime can call this once during
-    /// tree construction to move children into the `WidgetTree` arena.
-    /// After draining, `self.children` is empty.
-    pub(crate) fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        std::mem::take(&mut self.children)
-    }
-
     pub fn focus_first(&mut self) {
         // Legacy stub calls removed (P1-14g): collect_focus_ids/set_focus_by_id
         // were no-ops. Tree-based focus management handles actual traversal.
@@ -101,16 +92,12 @@ impl Default for AppRoot {
 }
 
 impl Widget for AppRoot {
-    /// Declare children for tree-based mounting.
-    ///
-    /// TODO(P1-15): AppRoot stores children via `with_child()`/`push()` as
-    /// owned `Box<dyn Widget>`. Because `compose()` is `&self`, we cannot move
-    /// them into `ChildDecl` entries. Once the runtime supports extracting
-    /// children from containers during mount (via `take_composed_children()`),
-    /// this will return proper declarations. Until then, render/event methods
-    /// continue iterating `self.children` directly.
     fn compose(&self) -> ComposeResult {
         Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
