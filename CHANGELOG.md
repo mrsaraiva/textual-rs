@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **[wip] DOM input routing stabilization for wrapper-heavy demos (`buttons_advanced`)**
+  - Hardened runtime hit-test targeting: ignore invalid/default metadata node IDs and only route mouse events to live tree nodes.
+  - Added root fallback dispatch for mouse-down/up when no valid hit-test target exists, preserving screen-local coordinates so legacy/container routing can still resolve child hits.
+  - Removed stale focus interception in `AppRoot` (`FocusNext`/`FocusPrev`/`Tab`) that was swallowing focus actions while the old stub focus API is inactive.
+  - Forwarded `on_layout` through alias wrappers that already forwarded `on_resize` (`Horizontal`, `Vertical`, `VerticalGroup`, `HorizontalGroup`, `Center*`, `Right`, `Middle`, `ScrollableContainer`, `HorizontalScroll`, `ItemGrid`).
+  - Updated container Y-hit-testing to account for child margins and expanded P1 DOM input gates with wrapper-chain button-click coverage.
+
 - **Pillar 1 DOM hardening: dispatch recipient context for tree routing**
   - Added runtime dispatch recipient context (`src/runtime/dispatch_ctx.rs`) and wired it into tree/event/message routing so handlers can resolve "self target" against the currently dispatched node instead of relying on `NodeId::default()`.
   - Migrated remaining widget-side `NodeId::default()` self-target checks to recipient-aware predicates across controls, inputs, lists/tables, tree/tabs, overlays/tooltips, command palette, and related mouse/message handlers.

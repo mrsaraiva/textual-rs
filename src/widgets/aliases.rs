@@ -138,6 +138,10 @@ impl Widget for Horizontal {
         self.row.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.row.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.row.on_event_capture(event, ctx);
     }
@@ -208,6 +212,10 @@ impl Widget for Vertical {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.container.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.container.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -284,6 +292,10 @@ impl Widget for VerticalGroup {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.inner.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -427,6 +439,10 @@ impl Widget for Center {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
@@ -534,6 +550,10 @@ impl Widget for CenterMiddle {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
@@ -623,6 +643,10 @@ impl Widget for Right {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.child.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -725,6 +749,10 @@ impl Widget for Middle {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
@@ -804,6 +832,10 @@ impl Widget for HorizontalGroup {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.inner.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1258,6 +1290,10 @@ impl Widget for ScrollableContainer {
         self.inner.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event_capture(event, ctx);
     }
@@ -1499,6 +1535,10 @@ impl Widget for HorizontalScroll {
         self.child.on_resize(width, height);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.child.on_layout(width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
     }
@@ -1635,6 +1675,10 @@ impl Widget for ItemGrid {
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.inner.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {

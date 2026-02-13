@@ -59,12 +59,23 @@ impl Container {
     fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
         let mut cursor = 0u16;
         for (idx, child) in self.children.iter().enumerate() {
-            let height = child.layout_height().unwrap_or(1).max(1) as u16;
-            let end = cursor.saturating_add(height);
-            if y < end {
-                return Some((idx, y.saturating_sub(cursor)));
+            let meta = css::selector_meta_generic(child.as_ref());
+            let resolved = css::resolve_style(child.as_ref(), &meta);
+            let margin = margin_from_style(&resolved);
+            let top_margin = margin.top;
+            let bottom_margin = margin.bottom;
+            let inner_height = child.layout_height().unwrap_or(1).max(1) as u16;
+            let outer_height = inner_height.saturating_add(top_margin + bottom_margin);
+            let outer_end = cursor.saturating_add(outer_height);
+            if y < outer_end {
+                let inner_start = cursor.saturating_add(top_margin);
+                let inner_end = inner_start.saturating_add(inner_height);
+                if y >= inner_start && y < inner_end {
+                    return Some((idx, y.saturating_sub(inner_start)));
+                }
+                return None;
             }
-            cursor = end;
+            cursor = outer_end;
         }
         None
     }

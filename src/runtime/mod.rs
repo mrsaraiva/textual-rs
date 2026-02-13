@@ -728,17 +728,7 @@ impl App {
         if x >= self.frame.width || y >= self.frame.height {
             return false;
         }
-
-        let cell = self.frame.get(x, y);
-        let hovered = cell
-            .meta
-            .as_ref()
-            .and_then(|m| m.meta.as_ref())
-            .and_then(|map| map.get("textual:widget_id"))
-            .and_then(|value| match value {
-                MetaValue::Int(n) if *n >= 0 => Some(node_id_from_ffi(*n as u64)),
-                _ => None,
-            });
+        let hovered = self.widget_at(x as u16, y as u16);
 
         let hovered_changed = hovered != self.hovered;
         if hovered_changed {
@@ -792,14 +782,31 @@ impl App {
             return None;
         }
         let cell = self.frame.get(x, y);
-        cell.meta
+        let target = cell
+            .meta
             .as_ref()
             .and_then(|m| m.meta.as_ref())
             .and_then(|map| map.get("textual:widget_id"))
             .and_then(|value| match value {
                 MetaValue::Int(n) if *n >= 0 => Some(node_id_from_ffi(*n as u64)),
                 _ => None,
-            })
+            });
+
+        let Some(target) = target else {
+            return None;
+        };
+
+        if target == NodeId::default() {
+            return None;
+        }
+
+        if let Some(tree) = &self.widget_tree {
+            if !tree.contains(target) {
+                return None;
+            }
+        }
+
+        Some(target)
     }
 
     fn refresh_size(&mut self) -> Result<()> {

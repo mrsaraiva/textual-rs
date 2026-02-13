@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Segments};
 use std::sync::{Arc, Mutex};
+use textual::compose;
 use textual::event::{Action, Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::keys::KeyEventData;
 use textual::node_id::NodeId;
@@ -656,5 +657,193 @@ fn p1_gate_vertical_scroll_focus_next_descends_to_nested_focusable() {
     assert!(
         events.iter().any(|entry| entry == "button_like:true"),
         "P1 gate: VerticalScroll focus should descend into nested focusables"
+    );
+}
+
+#[test]
+fn p1_gate_buttons_wrapper_chain_click_reaches_probe() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Dock::new().push_fill(ScrollView::new(
+        Horizontal::new().with_child(
+            VerticalScroll::new()
+                .with_child(Static::new("header"))
+                .with_child(ClickProbe::new("button_like", sink.clone())),
+        ),
+    ));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (80, 20);
+    opts.max_width = 80;
+    opts.max_height = 20;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(
+        descriptions,
+        vec!["button_like".to_string()],
+        "P1 gate: buttons-style wrapper chain must deliver click to nested child"
+    );
+}
+
+#[test]
+fn p1_gate_buttons_wrapper_chain_click_emits_button_pressed() {
+    let mut root = Dock::new().push_fill(ScrollView::new(
+        Horizontal::new().with_child(
+            VerticalScroll::new()
+                .with_child(Static::new("header"))
+                .with_child(Button::new("Default")),
+        ),
+    ));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (80, 20);
+    opts.max_width = 80;
+    opts.max_height = 20;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 2,
+            screen_y: 1,
+            x: 2,
+            y: 1,
+        }),
+        &mut ctx,
+    );
+
+    assert!(
+        ctx.handled(),
+        "P1 gate: buttons-style wrapper chain click should be handled by nested button"
+    );
+}
+
+#[test]
+fn p1_gate_buttons_advanced_like_chain_click_on_first_button_is_handled() {
+    let mut root = Dock::new()
+        .push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Standard Buttons"),
+                Button::new("Default"),
+                Button::primary("Primary!"),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("Disabled Buttons"),
+                Button::new("Default").disabled(true),
+            ]),
+        ])))
+        .push_bottom(Some(3), Static::new("status"));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (80, 24);
+    opts.max_width = 80;
+    opts.max_height = 24;
+    let _ = root.render(&console, &opts);
+
+    let mut handled_points = Vec::new();
+    for x in 0..20u16 {
+        for y in 0..12u16 {
+            let mut ctx = EventCtx::default();
+            root.on_event(
+                &Event::MouseDown(MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                }),
+                &mut ctx,
+            );
+            root.on_event(
+                &Event::MouseUp(MouseUpEvent {
+                    target: Some(NodeId::default()),
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                }),
+                &mut ctx,
+            );
+            if ctx.handled() {
+                handled_points.push((x, y));
+            }
+        }
+    }
+
+    assert!(
+        !handled_points.is_empty(),
+        "P1 gate: buttons_advanced-like chain should handle some click points; handled_points={handled_points:?}"
+    );
+}
+
+#[test]
+fn p1_gate_container_header_plus_button_click_is_handled() {
+    let mut root = Container::new()
+        .with_child(Static::new("header"))
+        .with_child(Button::new("Default"))
+        .with_child(Button::primary("Primary!"));
+    let mut handled_rows = Vec::new();
+    for y in 0..12u16 {
+        let mut ctx = EventCtx::default();
+        root.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 2,
+                screen_y: y,
+                x: 2,
+                y,
+            }),
+            &mut ctx,
+        );
+        root.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                target: Some(NodeId::default()),
+                screen_x: 2,
+                screen_y: y,
+                x: 2,
+                y,
+            }),
+            &mut ctx,
+        );
+        if ctx.handled() {
+            handled_rows.push(y);
+        }
+    }
+    assert!(
+        !handled_rows.is_empty(),
+        "P1 gate: container with header+buttons should handle click on some rows; handled_rows={handled_rows:?}"
     );
 }

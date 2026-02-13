@@ -1217,6 +1217,30 @@ impl App {
                                 if outcome.stop_requested || msg_outcome.stop_requested {
                                     break 'event_loop;
                                 }
+                            } else {
+                                let down_event = Event::MouseDown(MouseDownEvent {
+                                    target: NodeId::default(),
+                                    screen_x: mouse.column,
+                                    screen_y: mouse.row,
+                                    x: mouse.column,
+                                    y: mouse.row,
+                                });
+                                let mut outcome = self.dispatch_event_auto(root, down_event);
+                                self.absorb_outcome(
+                                    &mut outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                let mut msg_outcome = self
+                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                if outcome.stop_requested || msg_outcome.stop_requested {
+                                    break 'event_loop;
+                                }
                             }
                         }
                         MouseEventKind::Up(_) => {
@@ -1226,7 +1250,7 @@ impl App {
                                     self.hit_test
                                         .content_local_coords(id, mouse.column, mouse.row)
                                 })
-                                .unwrap_or((0, 0));
+                                .unwrap_or((mouse.column, mouse.row));
                             let up_event = Event::MouseUp(MouseUpEvent {
                                 target,
                                 screen_x: mouse.column,

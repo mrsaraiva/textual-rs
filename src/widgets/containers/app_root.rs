@@ -1,10 +1,9 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::DebugLayout;
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Event, EventCtx};
 
 use crate::node_id::NodeId;
 use crate::widgets::{
@@ -20,6 +19,9 @@ pub struct AppRoot {
     focused: Option<NodeId>,
     styles: WidgetStyles,
 }
+
+#[cfg(test)]
+use crate::event::Action;
 
 impl AppRoot {
     pub fn new() -> Self {
@@ -336,28 +338,6 @@ impl Widget for AppRoot {
         }
         if let Event::MouseDown(mouse) = event {
             let _ = self.focus(mouse.target);
-        }
-        if let Event::Action(action) = event {
-            match action {
-                Action::FocusNext => {
-                    self.focus_next();
-                    ctx.set_handled();
-                    return;
-                }
-                Action::FocusPrev => {
-                    self.focus_prev();
-                    ctx.set_handled();
-                    return;
-                }
-                _ => {}
-            }
-        }
-        if let Event::Key(key) = event {
-            if key.code == KeyCode::Tab {
-                self.focus_next();
-                ctx.set_handled();
-                return;
-            }
         }
 
         for child in &mut self.children {
