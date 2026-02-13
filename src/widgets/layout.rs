@@ -845,7 +845,7 @@ impl Dock {
         self.focus_child(focusable[next_pos])
     }
 
-    fn child_at_xy(&self, x: u16, y: u16) -> Option<(usize, u16, u16)> {
+    fn child_at_xy(&self, x: u16, y: u16) -> Option<(usize, u16, u16, u16, u16)> {
         let mut x0 = 0u16;
         let mut y0 = 0u16;
         let mut width = self.last_layout_width.load(Ordering::Relaxed).max(1) as u16;
@@ -867,7 +867,7 @@ impl Dock {
                         && y >= y0
                         && y < y0.saturating_add(h)
                     {
-                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0)));
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0), width, h));
                     }
                     y0 = y0.saturating_add(h);
                     height = height.saturating_sub(h);
@@ -885,7 +885,7 @@ impl Dock {
                         && y >= by
                         && y < by.saturating_add(h)
                     {
-                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(by)));
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(by), width, h));
                     }
                     height = height.saturating_sub(h);
                 }
@@ -896,7 +896,7 @@ impl Dock {
                         && y >= y0
                         && y < y0.saturating_add(height)
                     {
-                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0)));
+                        return Some((idx, x.saturating_sub(x0), y.saturating_sub(y0), w, height));
                     }
                     x0 = x0.saturating_add(w);
                     width = width.saturating_sub(w);
@@ -909,7 +909,7 @@ impl Dock {
                         && y >= y0
                         && y < y0.saturating_add(height)
                     {
-                        return Some((idx, x.saturating_sub(bx), y.saturating_sub(y0)));
+                        return Some((idx, x.saturating_sub(bx), y.saturating_sub(y0), w, height));
                     }
                     width = width.saturating_sub(w);
                 }
@@ -926,7 +926,7 @@ impl Dock {
             && y >= fy
             && y < fy.saturating_add(fh)
         {
-            return Some((idx, x.saturating_sub(fx), y.saturating_sub(fy)));
+            return Some((idx, x.saturating_sub(fx), y.saturating_sub(fy), fw, fh));
         }
         None
     }
@@ -1202,8 +1202,11 @@ impl Widget for Dock {
                 }
             }
             Event::MouseDown(mouse) => {
-                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
                     let _ = self.focus_child(idx);
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
                     let child_event = Event::MouseDown(crate::event::MouseDownEvent {
                         target: NodeId::default(),
                         screen_x: mouse.screen_x,
@@ -1220,7 +1223,10 @@ impl Widget for Dock {
                 }
             }
             Event::MouseUp(mouse) => {
-                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
                     let child_event = Event::MouseUp(crate::event::MouseUpEvent {
                         target: Some(NodeId::default()),
                         screen_x: mouse.screen_x,
@@ -1237,7 +1243,10 @@ impl Widget for Dock {
                 }
             }
             Event::MouseScroll(mouse) => {
-                if let Some((idx, local_x, local_y)) = self.child_at_xy(mouse.x, mouse.y) {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
                     let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
                         target: Some(NodeId::default()),
                         screen_x: mouse.screen_x,
@@ -1270,17 +1279,20 @@ impl Widget for Dock {
         let mut changed = false;
         let hit = self
             .child_at_xy(x, y)
-            .map(|(idx, local_x, local_y)| (idx, local_x, local_y));
+            .map(|(idx, local_x, local_y, w, h)| (idx, local_x, local_y, w, h));
         for (idx, item) in self.items.iter_mut().enumerate() {
-            let hovered = hit.map(|(hit_idx, _, _)| hit_idx == idx).unwrap_or(false);
+            let hovered = hit
+                .map(|(hit_idx, _, _, _, _)| hit_idx == idx)
+                .unwrap_or(false);
             if item.child.is_hovered() != hovered {
                 item.child.set_hovered(hovered);
                 changed = true;
             }
         }
-        if let Some((idx, local_x, local_y)) = hit
+        if let Some((idx, local_x, local_y, w, h)) = hit
             && let Some(item) = self.items.get_mut(idx)
         {
+            item.child.on_layout(w, h);
             changed |= item.child.on_mouse_move(local_x, local_y);
         }
         changed

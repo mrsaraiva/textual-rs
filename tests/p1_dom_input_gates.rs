@@ -171,6 +171,10 @@ impl Widget for DataTableNavProbe {
         self.inner.set_focus(focused);
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         let before = self.inner.selected();
         self.inner.on_event(event, ctx);
@@ -492,5 +496,104 @@ fn p1_gate_row_focus_routes_arrow_keys_to_datatable() {
     assert!(
         events.contains(&"row:0->1".to_string()),
         "P1 gate: focused DataTable in row should react to Down key; events={events:?}"
+    );
+}
+
+#[test]
+fn p1_gate_dock_scroll_click_routes_to_nested_child() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Dock::new().push_fill(
+        ScrollView::new(
+            Container::new()
+                .with_child(ClickProbe::new("row0", sink.clone()))
+                .with_child(ClickProbe::new("row1", sink.clone()))
+                .with_child(ClickProbe::new("row2", sink.clone())),
+        )
+        .scroll_step(1),
+    );
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (40, 10);
+    opts.max_width = 40;
+    opts.max_height = 10;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 2,
+            x: 2,
+            y: 2,
+        }),
+        &mut ctx,
+    );
+    root.on_event(
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(NodeId::default()),
+            screen_x: 2,
+            screen_y: 2,
+            x: 2,
+            y: 2,
+        }),
+        &mut ctx,
+    );
+
+    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert_eq!(
+        descriptions,
+        vec!["row2".to_string()],
+        "P1 gate: Dock->ScrollView wrappers must preserve click row targeting"
+    );
+}
+
+#[test]
+fn p1_gate_dock_scroll_focus_next_descends_to_nested_focusable() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Dock::new().push_fill(ScrollView::new(Row::new().with_child(FocusProbe::new(
+        "first",
+        sink.clone(),
+    ))));
+
+    root.set_focus(true);
+    let mut ctx = EventCtx::default();
+    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.iter().any(|entry| entry == "first:true"),
+        "P1 gate: FocusNext through Dock->ScrollView should focus nested descendant"
+    );
+}
+
+#[test]
+fn p1_gate_dock_scroll_datatable_click_updates_row() {
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let mut root = Dock::new().push_fill(ScrollView::new(DataTableNavProbe::new(sink.clone())));
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (60, 12);
+    opts.max_width = 60;
+    opts.max_height = 12;
+    let _ = root.render(&console, &opts);
+
+    let mut ctx = EventCtx::default();
+    // Header is y=0, first data row is y=1, second data row is y=2.
+    root.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 2,
+            screen_y: 2,
+            x: 2,
+            y: 2,
+        }),
+        &mut ctx,
+    );
+
+    let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(
+        events.contains(&"row:0->1".to_string()),
+        "P1 gate: DataTable click under Dock->ScrollView should update selected row; events={events:?}"
     );
 }

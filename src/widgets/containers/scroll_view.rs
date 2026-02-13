@@ -350,6 +350,12 @@ impl ScrollView {
             y.saturating_add(self.offset_y as u16),
         )
     }
+
+    fn sync_child_layout(&mut self) {
+        let width = self.viewport_width.load(Ordering::Relaxed).max(1) as u16;
+        let height = self.viewport_height.load(Ordering::Relaxed).max(1) as u16;
+        self.child.on_layout(width, height);
+    }
 }
 
 impl Widget for ScrollView {
@@ -360,6 +366,11 @@ impl Widget for ScrollView {
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
         self.child.set_focus(focused);
+        if focused && !self.child.has_focus() {
+            let mut child_ctx = EventCtx::default();
+            self.child
+                .on_event(&Event::Action(Action::FocusNext), &mut child_ctx);
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -743,6 +754,7 @@ impl Widget for ScrollView {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.sync_child_layout();
         if let Event::AnimationValue(AnimationValueEvent {
             target,
             attribute,
@@ -1072,6 +1084,7 @@ impl Widget for ScrollView {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.sync_child_layout();
         let mut changed = false;
         if let Some(grab_offset) = self.drag_v {
             let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
