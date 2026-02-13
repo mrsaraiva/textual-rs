@@ -98,6 +98,10 @@ Deliverable: ~~compose a view with multiple widgets and update state to trigger 
 | Done | Worker system | `WorkerId`, `WorkerState`, `CancellationToken`, `WorkerRegistry` with register/cancel/exclusive/cleanup. `EventCtx::request_worker()` / `request_exclusive_worker()`. |
 | Done | CSS parser: align/offset | `text-align`, `content-align`, `content-align-horizontal/vertical`, `align`, `align-horizontal/vertical`, `offset`, `offset-x/y` all parsed and applied. |
 | Done | Widget polish batch 2 | Digits CSS text-align integration, ProgressBar gradient, Select allow_blank mode. |
+| Done | Screen system | `Screen` trait + `ScreenStack` + push/pop with lifecycle hooks (mount/suspend/resume/unmount). `ScreenResult` for return values. Per-screen WidgetTree + CSS. |
+| Done | Worker runtime wiring | `WorkerRegistry` in event loop, `WorkerStateChanged` message delivery, exclusive mode, cleanup. |
+| Done | BINDINGS migration | 11 widgets (Button, Input, Checkbox, ListView, Tabs, Tree, DataTable, Select, TextArea, CommandPalette, ScrollView) implement `bindings()` + `execute_action()`. |
+| Done | Constrain CSS property | `constrain: none/inside/inflect` for overlay/tooltip positioning. Tooltip viewport clamping. Default tooltip CSS. |
 
 Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Done.**
 

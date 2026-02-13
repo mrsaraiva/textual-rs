@@ -18,6 +18,7 @@ mod misc;
 mod select;
 mod tabs;
 mod text_area;
+mod tooltip;
 mod tree;
 
 use super::StyleSheet;
@@ -37,6 +38,7 @@ pub fn default_widget_stylesheet() -> StyleSheet {
         tabs::DEFAULT_CSS,
         button::DEFAULT_CSS,
         data_table::DEFAULT_CSS,
+        tooltip::DEFAULT_CSS,
     ]
     .join("\n");
     StyleSheet::parse(&combined)

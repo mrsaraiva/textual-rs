@@ -11,8 +11,10 @@ use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Widget, WidgetStyles,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -775,6 +777,33 @@ impl Widget for Tabs {
         }
     }
 
+    fn action_namespace(&self) -> &str {
+        "tabs"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("left,h", "previous", "Previous tab"),
+            BindingDecl::new("right,l", "next", "Next tab"),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "previous" => {
+                self.activate_prev_with_ctx(Some(ctx));
+                ctx.set_handled();
+                true
+            }
+            "next" => {
+                self.activate_next_with_ctx(Some(ctx));
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
             tab.child.on_event_capture(event, ctx);
@@ -1299,5 +1328,34 @@ mod tests {
             }
             other => panic!("expected TabActivated, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"));
+        let bindings = tabs.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "previous"));
+        assert!(bindings.iter().any(|b| b.action == "next"));
+    }
+
+    #[test]
+    fn execute_action_handles_next() {
+        use crate::action::ParsedAction;
+        let mut tabs = Tabs::new()
+            .with_tab("One", Label::new("first"))
+            .with_tab("Two", Label::new("second"));
+        tabs.set_focus(true);
+        tabs.on_layout(40, 6);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "next".to_string(),
+            arguments: vec![],
+        };
+        assert!(tabs.execute_action(&action, &mut ctx));
+        assert_eq!(tabs.active(), Some("Two"));
     }
 }

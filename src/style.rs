@@ -689,6 +689,18 @@ pub enum Pointer {
     NotAllowed,
 }
 
+/// Controls how floating/overlay elements are constrained to their container or viewport.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Constrain {
+    /// No constraint (default).
+    #[default]
+    None,
+    /// Keep the element fully inside the viewport/container.
+    Inside,
+    /// Flip to the opposite side if it would overflow.
+    Inflect,
+}
+
 // ---------------------------------------------------------------------------
 // Border types (unchanged)
 // ---------------------------------------------------------------------------
@@ -812,6 +824,7 @@ pub enum StyleProperty {
     TransitionDuration = 42,
     TransitionDelay = 43,
     TransitionTiming = 44,
+    Constrain = 45,
 }
 
 /// Bitset tracking which [`Style`] properties carry `!important`.
@@ -900,6 +913,9 @@ pub struct Style {
 
     // --- Pointer ---
     pub pointer: Option<Pointer>,
+
+    // --- Constrain ---
+    pub constrain: Option<Constrain>,
 
     // --- Grid ---
     pub grid_size_columns: Option<u16>,
@@ -1258,6 +1274,7 @@ impl Style {
             align: cascade_field!(self, other, imp, align, StyleProperty::Align),
             offset: cascade_field!(self, other, imp, offset, StyleProperty::Offset),
             pointer: cascade_field!(self, other, imp, pointer, StyleProperty::Pointer),
+            constrain: cascade_field!(self, other, imp, constrain, StyleProperty::Constrain),
             grid_size_columns: cascade_field!(self, other, imp, grid_size_columns, StyleProperty::GridSizeColumns),
             grid_size_rows: cascade_field!(self, other, imp, grid_size_rows, StyleProperty::GridSizeRows),
             grid_columns: cascade_field!(self, other, imp, grid_columns, StyleProperty::GridColumns),
@@ -1331,6 +1348,8 @@ impl Style {
             align: self.align,
             offset: self.offset,
             pointer: self.pointer,
+            // constrain is NOT inherited (render hint for overlays).
+            constrain: self.constrain,
             // grid fields are NOT inherited (layout properties).
             grid_size_columns: self.grid_size_columns,
             grid_size_rows: self.grid_size_rows,
@@ -1458,6 +1477,7 @@ impl Style {
             && self.align.is_none()
             && self.offset.is_none()
             && self.pointer.is_none()
+            && self.constrain.is_none()
             && self.grid_size_columns.is_none()
             && self.grid_size_rows.is_none()
             && self.grid_columns.is_none()
@@ -2011,5 +2031,72 @@ mod tests {
         let parent = Style::new().fg(Color::rgb(0, 255, 0));
         let inherited = child.inherit_from(&parent);
         assert!(inherited.importance.is_empty(), "importance should be cleared after inheritance");
+    }
+
+    // ---- Constrain enum tests ----
+
+    #[test]
+    fn constrain_default_is_none() {
+        assert_eq!(Constrain::default(), Constrain::None);
+    }
+
+    #[test]
+    fn constrain_field_in_combine_cascade() {
+        let base = {
+            let mut s = Style::new();
+            s.constrain = Some(Constrain::Inside);
+            s
+        };
+        let overlay = {
+            let mut s = Style::new();
+            s.constrain = Some(Constrain::Inflect);
+            s
+        };
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.constrain, Some(Constrain::Inflect));
+    }
+
+    #[test]
+    fn constrain_combine_preserves_base_when_overlay_is_none() {
+        let base = {
+            let mut s = Style::new();
+            s.constrain = Some(Constrain::Inside);
+            s
+        };
+        let overlay = Style::new();
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.constrain, Some(Constrain::Inside));
+    }
+
+    #[test]
+    fn constrain_not_inherited() {
+        let parent = {
+            let mut s = Style::new();
+            s.constrain = Some(Constrain::Inside);
+            s
+        };
+        let child = Style::new();
+        let inherited = child.inherit_from(&parent);
+        assert_eq!(inherited.constrain, None);
+    }
+
+    #[test]
+    fn constrain_field_makes_style_not_empty() {
+        let mut s = Style::new();
+        assert!(s.is_empty());
+        s.constrain = Some(Constrain::Inside);
+        assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn combine_important_constrain_wins() {
+        let mut base = Style::new();
+        base.constrain = Some(Constrain::Inside);
+        base.importance.set(StyleProperty::Constrain);
+        let mut overlay = Style::new();
+        overlay.constrain = Some(Constrain::Inflect);
+        let combined = base.combine(&overlay);
+        assert_eq!(combined.constrain, Some(Constrain::Inside));
+        assert!(combined.importance.get(StyleProperty::Constrain));
     }
 }

@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-12
+- **Parity Sprint 16: Screen system + Worker wiring + BINDINGS migration + Overlay constraint**
+  - **P5-01/02/03 complete:** Screen system foundation — `Screen` trait with lifecycle hooks (mount/suspend/resume/unmount), `ScreenStack` with push/pop, `ScreenResult` (Dismissed/Value). ScreenEntry builds WidgetTree from compose() and parses per-screen CSS. Wired into App struct with `push_screen()`/`pop_screen()`. 22 tests.
+  - **P5-09 complete:** Worker runtime wiring — `WorkerRegistry` integrated into event loop. `EventCtx::take_worker_requests()` consumed after dispatch, workers registered/set_running/completed. `WorkerStateChanged` message delivered to owning widget. Exclusive mode cancels previous. Cleanup on each tick.
+  - **WP-17 complete:** Declarative BINDINGS on 11 widgets — Button, Input, Checkbox, ListView, Tabs, Tree, DataTable, Select, TextArea, CommandPalette, ScrollView all implement `bindings()`, `action_namespace()`, `execute_action()`. Existing on_event handling preserved alongside.
+  - **P2-21 + WP-10 complete:** `Constrain` CSS property (none/inside/inflect) — parsed in CSS, cascaded in Style. Tooltip updated with constrain-aware viewport clamping. Default tooltip CSS (`constrain: inside`). Overlay container respects constrain property.
+  - Build: 0 errors. Tests: 1123 passed (+69 new), 0 failed. 1 pre-existing integration test failure (command_palette).
+
 - **Parity Sprint 15: Declarative bindings + Worker system + CSS parser gaps + widget polish**
   - **P4-16 complete:** Declarative `BINDINGS` on widgets — `BindingDecl` struct with `new()`/`hidden()`/`priority()` builders. `Widget::bindings()` trait method. `match_binding_tree()` walks focused chain (priority first, then normal). Wired into event loop before `on_event` dispatch. Binding hints auto-collected for footer/help. Action routing via `action_namespace()`/`action_registry()`/`execute_action()` on Widget trait. 12 tests.
   - **P5-07 + P5-08 complete:** Worker abstraction — `WorkerId`, `WorkerState` (Pending/Running/Cancelled/Success/Error), `CancellationToken` (cooperative), `WorkerEntry` lifecycle, `WorkerRegistry` (register/cancel/cancel_by_owner/exclusive mode/cleanup). `WorkerRequest` via `EventCtx::request_worker()`/`request_exclusive_worker()`. 29 tests.

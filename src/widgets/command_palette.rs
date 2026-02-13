@@ -10,8 +10,10 @@ use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
+    BindingDecl, Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
 };
 
 /// Simple fuzzy matcher: scores a query against text based on character positions,
@@ -341,9 +343,9 @@ impl CommandPalette {
     }
 
     fn restore_child_focus(&mut self) {
-        // Legacy stub calls removed (P1-14g). Tree-based focus management
-        // handles actual focus restoration. Consume the saved target.
-        let _ = self.previously_focused_child.take();
+        if self.previously_focused_child.take().is_some() {
+            self.child.set_focus(true);
+        }
     }
 
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
@@ -358,6 +360,9 @@ impl CommandPalette {
         if self.open {
             self.panel_visible = true;
             self.previously_focused_child = Self::focused_widget_id(self.child.as_ref());
+            if self.previously_focused_child.is_some() {
+                self.child.set_focus(false);
+            }
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
@@ -762,6 +767,28 @@ impl Widget for CommandPalette {
             }
         } else {
             self.child.on_event_capture(event, ctx);
+        }
+    }
+
+    fn action_namespace(&self) -> &str {
+        "command-palette"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("escape", "dismiss", "Dismiss command palette"),
+            BindingDecl::new("enter", "command_list.select_cursor", "Execute selected command"),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "dismiss" => {
+                self.set_open(false, ctx);
+                ctx.set_handled();
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1551,5 +1578,29 @@ mod tests {
         assert!(!palette.is_open());
         assert!(!palette.panel_visible);
         assert_eq!(palette.panel_render_y, CommandPalette::CLOSED_PANEL_Y);
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let palette = CommandPalette::new(Label::new("body"));
+        let bindings = palette.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "dismiss"));
+    }
+
+    #[test]
+    fn execute_action_handles_dismiss() {
+        use crate::action::ParsedAction;
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.set_open(true, &mut EventCtx::default());
+        assert!(palette.is_open());
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "dismiss".to_string(),
+            arguments: vec![],
+        };
+        assert!(palette.execute_action(&action, &mut ctx));
+        assert!(!palette.is_open());
     }
 }

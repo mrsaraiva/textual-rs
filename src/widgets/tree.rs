@@ -6,8 +6,10 @@ use crate::message::Message;
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    ScrollView, Widget, WidgetStyles,
+    BindingDecl, ScrollView, Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -793,6 +795,109 @@ impl Widget for Tree {
         self.ensure_visible();
     }
 
+    fn action_namespace(&self) -> &str {
+        "tree"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("up", "cursor_up", "Move cursor up"),
+            BindingDecl::new("down", "cursor_down", "Move cursor down"),
+            BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
+            BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
+            BindingDecl::new("home", "scroll_home", "Move to first node").hidden(),
+            BindingDecl::new("end", "scroll_end", "Move to last node").hidden(),
+            BindingDecl::new("left", "collapse_or_parent", "Collapse or move to parent"),
+            BindingDecl::new("right", "expand_or_child", "Expand or move to child"),
+            BindingDecl::new("enter", "select_cursor", "Activate node"),
+            BindingDecl::new("space", "toggle_node", "Toggle node"),
+            BindingDecl::new("shift+up", "cursor_previous_sibling", "Previous sibling").hidden(),
+            BindingDecl::new("shift+down", "cursor_next_sibling", "Next sibling").hidden(),
+            BindingDecl::new("shift+left", "cursor_parent", "Go to parent").hidden(),
+            BindingDecl::new("shift+space", "toggle_expand_all", "Toggle expand all").hidden(),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "cursor_up" => {
+                self.move_selection(-1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_down" => {
+                self.move_selection(1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_up" => {
+                self.move_selection(-(self.page_step() as isize), ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_down" => {
+                self.move_selection(self.page_step() as isize, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_home" => {
+                self.select_index(0, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_end" => {
+                let total = self.visible_count();
+                if total > 0 {
+                    self.select_index(total - 1, ctx);
+                }
+                ctx.set_handled();
+                true
+            }
+            "collapse_or_parent" => {
+                self.collapse_or_parent(ctx);
+                ctx.set_handled();
+                true
+            }
+            "expand_or_child" => {
+                self.expand_or_child(ctx);
+                ctx.set_handled();
+                true
+            }
+            "select_cursor" => {
+                let nodes = self.visible_nodes();
+                self.emit_activated(ctx, self.selected, &nodes);
+                ctx.set_handled();
+                true
+            }
+            "toggle_node" => {
+                self.toggle_selected(ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_previous_sibling" => {
+                self.cursor_previous_sibling(ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_next_sibling" => {
+                self.cursor_next_sibling(ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_parent" => {
+                self.cursor_parent(ctx);
+                ctx.set_handled();
+                true
+            }
+            "toggle_expand_all" => {
+                self.toggle_expand_all_selected(ctx);
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             // TODO(P1-14 integration): wire tree-based NodeId comparison
@@ -1259,5 +1364,33 @@ mod tests {
 
         let rendered = Widget::render(&tree, &console, &options);
         assert_eq!(rendered.cell_len(), 8);
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let tree = Tree::new(vec![TreeNode::new("Root")]);
+        let bindings = tree.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "cursor_up"));
+        assert!(bindings.iter().any(|b| b.action == "cursor_down"));
+        assert!(bindings.iter().any(|b| b.action == "toggle_node"));
+        assert!(bindings.iter().any(|b| b.action == "select_cursor"));
+    }
+
+    #[test]
+    fn execute_action_handles_cursor_down() {
+        use crate::action::ParsedAction;
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Child A"),
+            TreeNode::new("Child B"),
+        ]);
+        tree.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "cursor_down".to_string(),
+            arguments: vec![],
+        };
+        assert!(tree.execute_action(&action, &mut ctx));
     }
 }

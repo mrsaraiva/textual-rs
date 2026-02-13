@@ -10,7 +10,9 @@ use crate::event::{
 use crate::style::{parse_color_like, TransitionTiming};
 
 use crate::node_id::NodeId;
+use crate::action::ParsedAction;
 use crate::widgets::{
+    BindingDecl,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
@@ -651,6 +653,90 @@ impl Widget for ScrollView {
         self.child.on_event_capture(event, ctx);
     }
 
+    fn action_namespace(&self) -> &str {
+        "scroll-view"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("up", "scroll_up", "Scroll up").hidden(),
+            BindingDecl::new("down", "scroll_down", "Scroll down").hidden(),
+            BindingDecl::new("pageup", "page_up", "Page up").hidden(),
+            BindingDecl::new("pagedown", "page_down", "Page down").hidden(),
+            BindingDecl::new("home", "scroll_home", "Scroll to top").hidden(),
+            BindingDecl::new("end", "scroll_end", "Scroll to bottom").hidden(),
+            BindingDecl::new("left", "scroll_left", "Scroll left").hidden(),
+            BindingDecl::new("right", "scroll_right", "Scroll right").hidden(),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "scroll_up" => {
+                let before = self.offset_y;
+                self.scroll_by(-(self.scroll_step as i32));
+                self.request_offset_y_animation(before, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_down" => {
+                let before = self.offset_y;
+                self.scroll_by(self.scroll_step as i32);
+                self.request_offset_y_animation(before, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "page_up" => {
+                let before = self.offset_y;
+                let viewport_h = self.viewport_height.load(Ordering::Relaxed);
+                self.scroll_by(-(viewport_h as i32));
+                self.request_offset_y_animation(before, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "page_down" => {
+                let before = self.offset_y;
+                let viewport_h = self.viewport_height.load(Ordering::Relaxed);
+                self.scroll_by(viewport_h as i32);
+                self.request_offset_y_animation(before, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_home" => {
+                let before_x = self.offset_x;
+                let before_y = self.offset_y;
+                self.scroll_to(0);
+                self.scroll_to_x(0);
+                self.request_offset_x_animation(before_x, self.offset_x, ctx);
+                self.request_offset_y_animation(before_y, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_end" => {
+                let before_y = self.offset_y;
+                self.scroll_to(self.max_offset());
+                self.request_offset_y_animation(before_y, self.offset_y, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_left" => {
+                let before = self.offset_x;
+                self.scroll_by_x(-(self.scroll_step as i32));
+                self.request_offset_x_animation(before, self.offset_x, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_right" => {
+                let before = self.offset_x;
+                self.scroll_by_x(self.scroll_step as i32);
+                self.request_offset_x_animation(before, self.offset_x, ctx);
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::AnimationValue(AnimationValueEvent {
             target,
@@ -995,5 +1081,37 @@ impl Widget for ScrollView {
 impl Renderable for ScrollView {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action::ParsedAction;
+    use crate::event::EventCtx;
+    use crate::prelude::Label;
+
+    #[test]
+    fn bindings_are_declared() {
+        let sv = ScrollView::new(Label::new("content"));
+        let bindings = sv.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "scroll_up"));
+        assert!(bindings.iter().any(|b| b.action == "scroll_down"));
+        assert!(bindings.iter().any(|b| b.action == "scroll_home"));
+        assert!(bindings.iter().any(|b| b.action == "scroll_end"));
+    }
+
+    #[test]
+    fn execute_action_handles_scroll_down() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "scroll_down".to_string(),
+            arguments: vec![],
+        };
+        assert!(sv.execute_action(&action, &mut ctx));
+        assert!(ctx.handled());
     }
 }

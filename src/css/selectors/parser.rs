@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use crate::style::{
-    Align, BorderEdge, BorderType, ContentAlign, Display, Dock, HorizontalAlign, Layout, Margin,
-    Offset, Overflow, Scalar, Style, StyleProperty, TextAlign, Tint, TransitionTiming,
-    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
+    Align, BorderEdge, BorderType, Constrain, ContentAlign, Display, Dock, HorizontalAlign,
+    Layout, Margin, Offset, Overflow, Scalar, Style, StyleProperty, TextAlign, Tint,
+    TransitionTiming, VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -267,6 +267,7 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
         "offset" | "offset-x" | "offset-y" => &[StyleProperty::Offset],
         "layer" => &[StyleProperty::Layer],
         "layers" => &[StyleProperty::Layers],
+        "constrain" => &[StyleProperty::Constrain],
         _ => &[],
     }
 }
@@ -687,6 +688,14 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                         y,
                     });
                 }
+            }
+            "constrain" => {
+                style.constrain = match value.trim().to_lowercase().as_str() {
+                    "none" => Some(Constrain::None),
+                    "inside" => Some(Constrain::Inside),
+                    "inflect" => Some(Constrain::Inflect),
+                    _ => None,
+                };
             }
             _ => {}
         }
@@ -1613,5 +1622,55 @@ mod tests {
         let o = style.offset.expect("offset should be Some");
         assert_eq!(o.x, 0);
         assert_eq!(o.y, -3);
+    }
+
+    // ---- constrain parsing tests ----
+
+    #[test]
+    fn parse_constrain_none() {
+        let style = parse_style_body("constrain: none;");
+        assert_eq!(style.constrain, Some(crate::style::Constrain::None));
+    }
+
+    #[test]
+    fn parse_constrain_inside() {
+        let style = parse_style_body("constrain: inside;");
+        assert_eq!(style.constrain, Some(crate::style::Constrain::Inside));
+    }
+
+    #[test]
+    fn parse_constrain_inflect() {
+        let style = parse_style_body("constrain: inflect;");
+        assert_eq!(style.constrain, Some(crate::style::Constrain::Inflect));
+    }
+
+    #[test]
+    fn parse_constrain_case_insensitive() {
+        let style = parse_style_body("constrain: INSIDE;");
+        assert_eq!(style.constrain, Some(crate::style::Constrain::Inside));
+    }
+
+    #[test]
+    fn parse_constrain_unknown_value_is_none() {
+        let style = parse_style_body("constrain: bogus;");
+        assert_eq!(style.constrain, None);
+    }
+
+    #[test]
+    fn parse_constrain_important() {
+        let style = parse_style_body("constrain: inside !important;");
+        assert_eq!(style.constrain, Some(crate::style::Constrain::Inside));
+        assert!(style.importance.get(StyleProperty::Constrain));
+    }
+
+    #[test]
+    fn parse_constrain_via_stylesheet() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse("Tooltip { constrain: inflect; }");
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(
+            sheet.rules[0].style.constrain,
+            Some(crate::style::Constrain::Inflect)
+        );
     }
 }

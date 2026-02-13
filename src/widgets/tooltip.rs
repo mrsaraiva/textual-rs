@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::{Message, MessageEvent};
 use crate::render::FrameBuffer;
-use crate::style::parse_color_like;
+use crate::style::{Constrain, parse_color_like};
 
 use crate::node_id::NodeId;
 
@@ -275,28 +275,57 @@ impl Tooltip {
         base_height: usize,
         overlay_width: usize,
         overlay_height: usize,
+        constrain: Constrain,
     ) -> (usize, usize) {
-        let max_x = base_width.saturating_sub(overlay_width);
-        let max_y = base_height.saturating_sub(overlay_height);
         let (anchor_x, anchor_y) = self.anchor.unwrap_or((base_width.saturating_sub(1) / 2, 0));
         let anchor_x = anchor_x.min(base_width.saturating_sub(1));
         let anchor_y = anchor_y.min(base_height.saturating_sub(1));
 
-        let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
-
-        let preferred_below = anchor_y.saturating_add(self.y_offset);
-        let fits_below = preferred_below.saturating_add(overlay_height) <= base_height;
-        let y0 = if fits_below {
-            preferred_below.min(max_y)
-        } else {
-            let needed_above = overlay_height.saturating_add(self.y_offset);
-            if anchor_y >= needed_above {
-                anchor_y.saturating_sub(needed_above).min(max_y)
-            } else {
-                max_y
+        match constrain {
+            Constrain::Inside => {
+                // Clamp the tooltip fully inside the viewport.
+                let max_x = base_width.saturating_sub(overlay_width);
+                let max_y = base_height.saturating_sub(overlay_height);
+                let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
+                let preferred_below = anchor_y.saturating_add(self.y_offset);
+                let y0 = if preferred_below.saturating_add(overlay_height) <= base_height {
+                    preferred_below.min(max_y)
+                } else {
+                    // Try above the anchor.
+                    let needed_above = overlay_height.saturating_add(self.y_offset);
+                    if anchor_y >= needed_above {
+                        anchor_y.saturating_sub(needed_above).min(max_y)
+                    } else {
+                        max_y
+                    }
+                };
+                (x0, y0)
             }
-        };
-        (x0, y0)
+            Constrain::Inflect => {
+                // Preferred placement: below & centered.  If it overflows, flip vertically.
+                let max_x = base_width.saturating_sub(overlay_width);
+                let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
+                let preferred_below = anchor_y.saturating_add(self.y_offset);
+                let y0 = if preferred_below.saturating_add(overlay_height) <= base_height {
+                    preferred_below
+                } else {
+                    let needed_above = overlay_height.saturating_add(self.y_offset);
+                    if anchor_y >= needed_above {
+                        anchor_y.saturating_sub(needed_above)
+                    } else {
+                        // Neither side fits — place at top.
+                        0
+                    }
+                };
+                (x0, y0)
+            }
+            Constrain::None => {
+                // No constraint — place below anchor, centered. No clamping.
+                let x0 = anchor_x.saturating_sub(overlay_width / 2);
+                let y0 = anchor_y.saturating_add(self.y_offset);
+                (x0, y0)
+            }
+        }
     }
 }
 
@@ -308,8 +337,16 @@ impl Widget for Tooltip {
         if self.visible {
             if let Some(tooltip) = self.tooltip_frame(options.size.0.max(1), options.size.1.max(1))
             {
-                let (x0, y0) =
-                    self.overlay_origin(merged.width, merged.height, tooltip.width, tooltip.height);
+                let constrain = crate::css::resolve_component_style(self, &[])
+                    .constrain
+                    .unwrap_or(Constrain::Inside);
+                let (x0, y0) = self.overlay_origin(
+                    merged.width,
+                    merged.height,
+                    tooltip.width,
+                    tooltip.height,
+                    constrain,
+                );
                 Overlay::compose_overlay_at(&mut merged, &tooltip, x0, y0);
             }
         }

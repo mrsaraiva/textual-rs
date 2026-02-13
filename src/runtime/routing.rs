@@ -23,6 +23,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        worker_requests: ctx.take_worker_requests(),
         default_prevented: false,
     };
     debug_message(&format!(
@@ -68,6 +69,7 @@ pub(crate) fn dispatch_mouse_scroll(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        worker_requests: ctx.take_worker_requests(),
         default_prevented: false,
     }
 }
@@ -158,6 +160,7 @@ pub(crate) fn dispatch_event_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        worker_requests: ctx.take_worker_requests(),
         default_prevented: false,
     };
     debug_message(&format!(
@@ -209,6 +212,7 @@ pub(crate) fn dispatch_event_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        worker_requests: ctx.take_worker_requests(),
         default_prevented: false,
     }
 }
@@ -266,6 +270,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        worker_requests: ctx.take_worker_requests(),
         default_prevented: false,
     }
 }
@@ -357,6 +362,7 @@ pub(crate) fn dispatch_message_queue_tree(
     let mut default_prevented = false;
     let mut emitted: Vec<MessageEvent> = Vec::new();
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
+    let mut worker_requests: Vec<crate::worker::WorkerRequest> = Vec::new();
 
     // Wrap incoming messages in envelopes and mark known rapid-fire variants
     // as replaceable so the coalescing pass can deduplicate them.
@@ -392,6 +398,7 @@ pub(crate) fn dispatch_message_queue_tree(
         default_prevented |= envelope.is_default_prevented();
         let next = ctx.take_messages();
         let mut next_anims = ctx.take_animation_requests();
+        let mut next_workers = ctx.take_worker_requests();
         if !next.is_empty() {
             let next_envelopes: VecDeque<MessageEnvelope> = next
                 .iter()
@@ -412,6 +419,9 @@ pub(crate) fn dispatch_message_queue_tree(
         if !next_anims.is_empty() {
             animation_requests.append(&mut next_anims);
         }
+        if !next_workers.is_empty() {
+            worker_requests.append(&mut next_workers);
+        }
     }
 
     DispatchOutcome {
@@ -421,6 +431,7 @@ pub(crate) fn dispatch_message_queue_tree(
         stop_requested,
         messages: emitted,
         animation_requests,
+        worker_requests,
         default_prevented,
     }
 }

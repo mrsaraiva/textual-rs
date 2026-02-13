@@ -16,6 +16,7 @@ use crate::event::{ActionMap, BindingHint, KeyBind};
 use crate::message::MessageEvent;
 use crate::node_id::NodeId;
 use crate::render::FrameBuffer;
+use crate::screen::ScreenStack;
 use crate::style::Theme;
 use crate::widget_tree::WidgetTree;
 use crate::node_id::node_id_from_ffi;
@@ -80,6 +81,9 @@ pub struct App {
     /// When present, the runtime uses tree-based event dispatch and focus
     /// management instead of the legacy recursive `visit_children_mut` paths.
     widget_tree: Option<WidgetTree>,
+    /// Stack of screens. Each screen owns an independent widget tree and
+    /// optional stylesheet. The topmost screen is the active one.
+    screen_stack: ScreenStack,
 }
 
 impl App {
@@ -146,6 +150,7 @@ impl App {
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             widget_tree: None,
+            screen_stack: ScreenStack::new(),
         };
         Ok(app)
     }
@@ -475,6 +480,26 @@ impl App {
 
     pub fn stop(&mut self) {
         self.running = false;
+    }
+
+    /// Push a screen onto the screen stack.
+    ///
+    /// Suspends the currently active screen (if any) and mounts the new one.
+    pub fn push_screen(&mut self, screen: Box<dyn crate::screen::Screen>) {
+        self.screen_stack.push(screen);
+    }
+
+    /// Pop the topmost screen from the screen stack.
+    ///
+    /// Unmounts the popped screen and resumes the one below (if any).
+    /// Returns `None` if the stack is empty.
+    pub fn pop_screen(&mut self) -> Option<crate::screen::ScreenResult> {
+        self.screen_stack.pop().map(|(_screen, result)| result)
+    }
+
+    /// Number of screens on the stack.
+    pub fn screen_count(&self) -> usize {
+        self.screen_stack.len()
     }
 
     /// Run the CSS-layout pass on the arena tree (if present).

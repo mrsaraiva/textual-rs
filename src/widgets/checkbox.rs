@@ -5,8 +5,10 @@ use crate::message::Message;
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Widget, WidgetStyles,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::BinaryToggleState,
 };
@@ -86,6 +88,30 @@ impl Widget for Checkbox {
         Some(rich_rs::cell_len(&self.label).saturating_add(4).max(1))
     }
 
+    fn action_namespace(&self) -> &str {
+        "checkbox"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![BindingDecl::new("enter,space", "toggle", "Toggle checkbox")]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "toggle" => {
+                if self.state.disabled() {
+                    return false;
+                }
+                self.state.toggle();
+                self.emit_changed(ctx);
+                ctx.request_repaint();
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         let outcome = self.state.handle_event(event, NodeId::default());
         if outcome.toggled {
@@ -151,6 +177,35 @@ mod tests {
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
         checkbox.on_event(&Event::Key(key), &mut ctx);
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::CheckboxChanged { checked: true }))
+        );
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let checkbox = Checkbox::new("Test");
+        let bindings = checkbox.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "toggle"));
+    }
+
+    #[test]
+    fn execute_action_handles_toggle() {
+        let mut checkbox = Checkbox::new("Remember");
+        checkbox.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "toggle".to_string(),
+            arguments: vec![],
+        };
+        assert!(!checkbox.checked());
+        assert!(checkbox.execute_action(&action, &mut ctx));
+        assert!(checkbox.checked());
         let messages = ctx.take_messages();
         assert!(
             messages

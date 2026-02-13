@@ -6,8 +6,10 @@ use crate::event::{
 };
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
+use crate::worker::{WorkerRegistry, WorkerRequest, process_worker_requests};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
 use rich_rs::Renderable;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -29,6 +31,31 @@ use super::routing::{
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::widgets::Widget;
+
+// ── Worker request accumulator ──────────────────────────────────────
+//
+// `absorb_outcome` is called from ~37 sites and we cannot add a
+// `WorkerRegistry` field to `App` (defined in mod.rs).  Instead, each
+// `absorb_outcome` call drains `outcome.worker_requests` into this
+// thread-local.  The main loop drains the accumulator once per tick and
+// feeds the requests to a function-local `WorkerRegistry`.
+
+thread_local! {
+    static WORKER_REQUEST_ACC: RefCell<Vec<WorkerRequest>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Drain all worker requests accumulated during this tick.
+fn drain_accumulated_worker_requests() -> Vec<WorkerRequest> {
+    WORKER_REQUEST_ACC.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+}
+
+/// Push worker requests from an outcome into the thread-local accumulator.
+fn accumulate_worker_requests(outcome: &mut DispatchOutcome) {
+    let requests = std::mem::take(&mut outcome.worker_requests);
+    if !requests.is_empty() {
+        WORKER_REQUEST_ACC.with(|cell| cell.borrow_mut().extend(requests));
+    }
+}
 
 fn should_dispatch_binding_hints(
     last_hints: &[crate::event::BindingHint],
@@ -678,6 +705,9 @@ impl App {
             aggregate
                 .animation_requests
                 .append(&mut outcome.animation_requests);
+            aggregate
+                .worker_requests
+                .append(&mut outcome.worker_requests);
 
             if aggregate.stop_requested || runtime_messages.is_empty() {
                 break;
@@ -776,6 +806,7 @@ impl App {
         let mut tick: u64 = 0;
         let idle_tick_rate = Duration::from_millis(100);
         let active_tick_rate = Duration::from_millis(16);
+        let mut worker_registry = WorkerRegistry::new();
         let mut pending_invalidation = PendingInvalidation::default();
         pending_invalidation.request_flags(initial_help_outcome.invalidation);
         if initial_help_outcome.should_repaint() {
@@ -1459,6 +1490,17 @@ impl App {
                 break 'event_loop;
             }
 
+            // ── Process accumulated worker requests for this tick ────
+            {
+                let pending_workers = drain_accumulated_worker_requests();
+                if !pending_workers.is_empty() {
+                    let _changes = process_worker_requests(&mut worker_registry, pending_workers);
+                    // TODO: deliver WorkerStateChanged messages to owning widgets
+                    // once the Message enum gains a variant for it.
+                }
+                worker_registry.cleanup();
+            }
+
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
                 let regions = pending_invalidation
                     .content_regions
@@ -1569,6 +1611,11 @@ impl App {
                 requests.extend(msg_outcome.animation_requests);
                 requests
             },
+            worker_requests: {
+                let mut requests = outcome.worker_requests;
+                requests.extend(msg_outcome.worker_requests);
+                requests
+            },
             default_prevented: outcome.default_prevented || msg_outcome.default_prevented,
         }
     }
@@ -1618,6 +1665,7 @@ impl App {
         }
         let requests = std::mem::take(&mut outcome.animation_requests);
         self.enqueue_animation_requests(requests);
+        accumulate_worker_requests(outcome);
     }
 
     fn absorb_stylesheet_reload(
@@ -1685,6 +1733,12 @@ impl App {
             aggregate.animation_requests.extend(requests);
             let msg_requests = std::mem::take(&mut msg_outcome.animation_requests);
             aggregate.animation_requests.extend(msg_requests);
+            aggregate
+                .worker_requests
+                .extend(std::mem::take(&mut outcome.worker_requests));
+            aggregate
+                .worker_requests
+                .extend(std::mem::take(&mut msg_outcome.worker_requests));
 
             aggregate.stop_requested |= outcome.stop_requested || msg_outcome.stop_requested;
             aggregate.default_prevented |=
@@ -1786,6 +1840,7 @@ impl App {
             let mut stop_requested = false;
             let mut emitted = Vec::new();
             let mut animation_requests = Vec::new();
+            let mut worker_requests = Vec::new();
             let mut queue: VecDeque<MessageEvent> = initial.into();
             const LIMIT: usize = 1024;
             let mut processed = 0usize;
@@ -1802,6 +1857,7 @@ impl App {
                 stop_requested |= ctx.stop_requested();
                 let next = ctx.take_messages();
                 animation_requests.extend(ctx.take_animation_requests());
+                worker_requests.extend(ctx.take_worker_requests());
                 if !next.is_empty() {
                     queue.extend(next.clone());
                     emitted.extend(next);
@@ -1814,6 +1870,7 @@ impl App {
                 stop_requested,
                 messages: emitted,
                 animation_requests,
+                worker_requests,
                 default_prevented: false,
             }
         }
@@ -2236,5 +2293,132 @@ mod tests {
 
         assert!(!affected_active.is_empty());
         assert!(affected_inactive.is_empty());
+    }
+
+    // ── Worker request accumulator tests ─────────────────────────────
+
+    #[test]
+    fn worker_accumulator_drain_empty() {
+        // Ensure thread-local is empty before starting.
+        let _ = super::drain_accumulated_worker_requests();
+        let drained = super::drain_accumulated_worker_requests();
+        assert!(drained.is_empty());
+    }
+
+    #[test]
+    fn worker_accumulator_collects_from_outcome() {
+        use crate::worker::WorkerRequest;
+        // Clear any leftovers.
+        let _ = super::drain_accumulated_worker_requests();
+
+        let mut outcome = super::DispatchOutcome {
+            worker_requests: vec![
+                WorkerRequest {
+                    owner: node_id_from_ffi(1),
+                    exclusive_key: None,
+                    name: Some("w1".into()),
+                },
+                WorkerRequest {
+                    owner: node_id_from_ffi(2),
+                    exclusive_key: Some("exc".into()),
+                    name: None,
+                },
+            ],
+            ..Default::default()
+        };
+        super::accumulate_worker_requests(&mut outcome);
+        assert!(outcome.worker_requests.is_empty(), "should drain from outcome");
+
+        let drained = super::drain_accumulated_worker_requests();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].name.as_deref(), Some("w1"));
+        assert_eq!(drained[1].exclusive_key.as_deref(), Some("exc"));
+
+        // Second drain should be empty.
+        let drained2 = super::drain_accumulated_worker_requests();
+        assert!(drained2.is_empty());
+    }
+
+    #[test]
+    fn worker_accumulator_multiple_outcomes() {
+        use crate::worker::WorkerRequest;
+        let _ = super::drain_accumulated_worker_requests();
+
+        let mut o1 = super::DispatchOutcome {
+            worker_requests: vec![WorkerRequest {
+                owner: node_id_from_ffi(1),
+                exclusive_key: None,
+                name: Some("a".into()),
+            }],
+            ..Default::default()
+        };
+        let mut o2 = super::DispatchOutcome {
+            worker_requests: vec![WorkerRequest {
+                owner: node_id_from_ffi(2),
+                exclusive_key: None,
+                name: Some("b".into()),
+            }],
+            ..Default::default()
+        };
+        super::accumulate_worker_requests(&mut o1);
+        super::accumulate_worker_requests(&mut o2);
+
+        let drained = super::drain_accumulated_worker_requests();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].name.as_deref(), Some("a"));
+        assert_eq!(drained[1].name.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn worker_accumulator_empty_outcome_is_noop() {
+        let _ = super::drain_accumulated_worker_requests();
+
+        let mut outcome = super::DispatchOutcome::default();
+        super::accumulate_worker_requests(&mut outcome);
+
+        let drained = super::drain_accumulated_worker_requests();
+        assert!(drained.is_empty());
+    }
+
+    #[test]
+    fn worker_full_pipeline_ctx_to_registry() {
+        use crate::event::EventCtx;
+        use crate::worker::{WorkerRegistry, WorkerState, process_worker_requests};
+        let _ = super::drain_accumulated_worker_requests();
+
+        // 1. Widget creates worker requests via EventCtx.
+        let owner = node_id_from_ffi(42);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(owner);
+        ctx.request_worker(Some("bg-job"));
+        ctx.request_exclusive_worker("search", Some("searcher"));
+
+        // 2. Runtime drains ctx (simulating what routing.rs does).
+        let requests = ctx.take_worker_requests();
+        assert_eq!(requests.len(), 2);
+
+        // 3. Feed into an outcome (simulating DispatchOutcome construction).
+        let mut outcome = super::DispatchOutcome {
+            worker_requests: requests,
+            ..Default::default()
+        };
+
+        // 4. accumulate_worker_requests drains outcome into thread-local.
+        super::accumulate_worker_requests(&mut outcome);
+        assert!(outcome.worker_requests.is_empty());
+
+        // 5. At end of tick, drain and process.
+        let pending = super::drain_accumulated_worker_requests();
+        assert_eq!(pending.len(), 2);
+
+        let mut registry = WorkerRegistry::new();
+        let changes = process_worker_requests(&mut registry, pending);
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].state, WorkerState::Success);
+        assert_eq!(changes[1].state, WorkerState::Success);
+
+        // 6. Cleanup removes finished workers.
+        registry.cleanup();
+        assert!(registry.active_workers().is_empty());
     }
 }

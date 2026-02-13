@@ -14,8 +14,10 @@ use crate::{Error, Result};
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Widget, WidgetStyles,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     text_edit::{
         EditCommand, MoveUnit, byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
@@ -1151,6 +1153,49 @@ impl Widget for TextArea {
         true
     }
 
+    fn action_namespace(&self) -> &str {
+        "text-area"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("ctrl+z", "undo", "Undo").hidden(),
+            BindingDecl::new("ctrl+y", "redo", "Redo").hidden(),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if self.read_only {
+            return false;
+        }
+        match action.name.as_str() {
+            "undo" => {
+                self.save_undo_checkpoint();
+                if self.undo() {
+                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.adjust_scroll_to_cursor();
+                    self.reset_blink();
+                    self.post_changed(ctx);
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
+                true
+            }
+            "redo" => {
+                if self.redo() {
+                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.adjust_scroll_to_cursor();
+                    self.reset_blink();
+                    self.post_changed(ctx);
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::AppFocus(active) => {
@@ -1875,6 +1920,30 @@ mod tests {
         );
 
         assert_eq!(text_area.text(), "aX\nYbc");
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let ta = TextArea::new("hello");
+        let bindings = ta.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "undo"));
+        assert!(bindings.iter().any(|b| b.action == "redo"));
+    }
+
+    #[test]
+    fn execute_action_handles_undo() {
+        use crate::action::ParsedAction;
+        let mut ta = TextArea::new("hello world");
+        ta.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "undo".to_string(),
+            arguments: vec![],
+        };
+        assert!(ta.execute_action(&action, &mut ctx));
         assert!(ctx.handled());
     }
 }

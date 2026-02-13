@@ -257,6 +257,49 @@ impl Default for WorkerRegistry {
     }
 }
 
+// ── WorkerStateChanged ───────────────────────────────────────────────
+
+/// Notification delivered when a worker transitions to a terminal state.
+///
+/// The runtime produces one of these after a worker reaches `Success`,
+/// `Error`, or `Cancelled`.  In a future sprint this will be delivered
+/// to the owning widget as a message; for now it is returned from
+/// [`process_worker_requests`] for test observability.
+#[derive(Clone, Debug)]
+pub struct WorkerStateChanged {
+    pub worker_id: WorkerId,
+    pub state: WorkerState,
+}
+
+// ── Runtime helper ──────────────────────────────────────────────────
+
+/// Process a batch of [`WorkerRequest`]s against a [`WorkerRegistry`].
+///
+/// For each request the helper registers the worker, transitions it to
+/// `Running`, and (as a placeholder until async spawning lands)
+/// immediately completes it with `Success`.
+///
+/// Returns one [`WorkerStateChanged`] per completed worker so the
+/// caller can deliver notifications in a future sprint.
+pub(crate) fn process_worker_requests(
+    registry: &mut WorkerRegistry,
+    requests: Vec<WorkerRequest>,
+) -> Vec<WorkerStateChanged> {
+    let mut changes = Vec::new();
+    for req in requests {
+        let (id, _token) = registry.register(req.owner, req.exclusive_key, req.name);
+        registry.set_running(id);
+        // TODO: actual async task spawning in a future sprint.
+        // For now, immediately mark as success placeholder.
+        registry.complete(id, Ok(()));
+        changes.push(WorkerStateChanged {
+            worker_id: id,
+            state: WorkerState::Success,
+        });
+    }
+    changes
+}
+
 // ── WorkerRequest (EventCtx integration) ──────────────────────────────
 
 /// A request from a widget to spawn a background worker.
@@ -579,5 +622,167 @@ mod tests {
         let reg = WorkerRegistry::new();
         let bogus = WorkerId::new();
         assert_eq!(reg.state(bogus), None);
+    }
+
+    // ── WorkerStateChanged ───────────────────────────────────────────
+
+    #[test]
+    fn worker_state_changed_construction() {
+        let id = WorkerId::new();
+        let changed = WorkerStateChanged {
+            worker_id: id,
+            state: WorkerState::Success,
+        };
+        assert_eq!(changed.worker_id, id);
+        assert_eq!(changed.state, WorkerState::Success);
+    }
+
+    #[test]
+    fn worker_state_changed_debug_format() {
+        let id = WorkerId::new();
+        let changed = WorkerStateChanged {
+            worker_id: id,
+            state: WorkerState::Error("oops".into()),
+        };
+        let s = format!("{changed:?}");
+        assert!(s.contains("WorkerStateChanged"));
+        assert!(s.contains("oops"));
+    }
+
+    #[test]
+    fn worker_state_changed_clone() {
+        let id = WorkerId::new();
+        let original = WorkerStateChanged {
+            worker_id: id,
+            state: WorkerState::Cancelled,
+        };
+        let cloned = original.clone();
+        assert_eq!(cloned.worker_id, id);
+        assert_eq!(cloned.state, WorkerState::Cancelled);
+    }
+
+    // ── process_worker_requests ──────────────────────────────────────
+
+    #[test]
+    fn process_worker_requests_empty() {
+        let mut reg = WorkerRegistry::new();
+        let changes = process_worker_requests(&mut reg, vec![]);
+        assert!(changes.is_empty());
+        assert!(reg.active_workers().is_empty());
+    }
+
+    #[test]
+    fn process_worker_requests_registers_and_completes() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(10);
+        let requests = vec![WorkerRequest {
+            owner,
+            exclusive_key: None,
+            name: Some("bg-task".into()),
+        }];
+        let changes = process_worker_requests(&mut reg, requests);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].state, WorkerState::Success);
+        // Worker was immediately completed → in terminal state.
+        assert_eq!(
+            reg.state(changes[0].worker_id),
+            Some(&WorkerState::Success)
+        );
+    }
+
+    #[test]
+    fn process_worker_requests_multiple() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(5);
+        let requests = vec![
+            WorkerRequest {
+                owner,
+                exclusive_key: None,
+                name: Some("a".into()),
+            },
+            WorkerRequest {
+                owner,
+                exclusive_key: None,
+                name: Some("b".into()),
+            },
+            WorkerRequest {
+                owner,
+                exclusive_key: None,
+                name: None,
+            },
+        ];
+        let changes = process_worker_requests(&mut reg, requests);
+        assert_eq!(changes.len(), 3);
+        for c in &changes {
+            assert_eq!(c.state, WorkerState::Success);
+        }
+    }
+
+    #[test]
+    fn process_worker_requests_exclusive_cancels_previous() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(7);
+
+        // First: register a worker manually, leave it running.
+        let (prev_id, prev_token) =
+            reg.register(owner, Some("search".into()), Some("old".into()));
+        reg.set_running(prev_id);
+
+        // Then: process an exclusive request with the same key.
+        let requests = vec![WorkerRequest {
+            owner,
+            exclusive_key: Some("search".into()),
+            name: Some("new".into()),
+        }];
+        let changes = process_worker_requests(&mut reg, requests);
+
+        // The previous worker should have been cancelled.
+        assert_eq!(reg.state(prev_id), Some(&WorkerState::Cancelled));
+        assert!(prev_token.is_cancelled());
+
+        // The new worker should be completed.
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].state, WorkerState::Success);
+    }
+
+    #[test]
+    fn process_worker_requests_cleanup_removes_finished() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(3);
+        let requests = vec![WorkerRequest {
+            owner,
+            exclusive_key: None,
+            name: None,
+        }];
+        let changes = process_worker_requests(&mut reg, requests);
+        assert_eq!(changes.len(), 1);
+        // Before cleanup: worker is in registry (Success state).
+        assert!(reg.state(changes[0].worker_id).is_some());
+        // After cleanup: removed.
+        reg.cleanup();
+        assert!(reg.state(changes[0].worker_id).is_none());
+        assert!(reg.active_workers().is_empty());
+    }
+
+    #[test]
+    fn process_worker_requests_drains_from_event_ctx() {
+        use crate::event::EventCtx;
+
+        let owner = node_id_from_ffi(20);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(owner);
+        ctx.request_worker(Some("fetch"));
+        ctx.request_exclusive_worker("load", Some("loader"));
+
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 2);
+
+        let mut reg = WorkerRegistry::new();
+        let changes = process_worker_requests(&mut reg, reqs);
+        assert_eq!(changes.len(), 2);
+
+        // Second take should be empty.
+        let reqs2 = ctx.take_worker_requests();
+        assert!(reqs2.is_empty());
     }
 }

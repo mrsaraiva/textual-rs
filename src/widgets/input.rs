@@ -10,8 +10,10 @@ use crate::validation::{ValidationResult, ValidatorRef};
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Widget, WidgetStyles,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
@@ -433,6 +435,29 @@ impl Widget for Input {
         self.selection.end = next;
         self.cursor = next;
         true
+    }
+
+    fn action_namespace(&self) -> &str {
+        "input"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("enter", "submit", "Submit"),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "submit" => {
+                ctx.post_message(Message::InputSubmitted {
+                    value: self.text.clone(),
+                });
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1133,5 +1158,33 @@ mod tests {
         );
         assert_eq!(input.text(), "aXYZbc");
         assert!(ctx.handled());
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let input = Input::new();
+        let bindings = input.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "submit"));
+    }
+
+    #[test]
+    fn execute_action_handles_submit() {
+        use crate::action::ParsedAction;
+        let mut input = Input::new();
+        input.set_focus(true);
+        input.set_text("hello");
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "submit".to_string(),
+            arguments: vec![],
+        };
+        assert!(input.execute_action(&action, &mut ctx));
+        let messages = ctx.take_messages();
+        assert!(messages.iter().any(|m| matches!(
+            &m.message,
+            Message::InputSubmitted { value } if value == "hello"
+        )));
     }
 }

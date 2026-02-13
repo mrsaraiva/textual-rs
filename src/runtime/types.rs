@@ -2,6 +2,7 @@ use crate::css::{StyleRule, StyleSheet};
 use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
+use crate::worker::WorkerRequest;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widgets::{ToastSeverity, border_spacing_from_style};
 use rich_rs::MetaValue;
@@ -246,6 +247,8 @@ pub(crate) struct DispatchOutcome {
     pub(crate) stop_requested: bool,
     pub(crate) messages: Vec<MessageEvent>,
     pub(crate) animation_requests: Vec<AnimationRequest>,
+    /// Worker spawn requests emitted by widgets during this dispatch cycle.
+    pub(crate) worker_requests: Vec<WorkerRequest>,
     /// True when at least one handler called `prevent_default()` on the envelope
     /// during message dispatch, signalling the default action should be skipped.
     ///

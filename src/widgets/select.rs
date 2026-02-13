@@ -10,7 +10,9 @@ use crate::node_id::NodeId;
 use super::helpers::{adjust_line_length_no_bg, empty_classes};
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
-use super::{Widget, WidgetStyles};
+use crate::action::ParsedAction;
+
+use super::{BindingDecl, Widget, WidgetStyles};
 
 /// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
 const SEARCH_RESET_TICKS: u64 = 30;
@@ -365,6 +367,48 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             && tick.saturating_sub(self.search_last_tick) > SEARCH_RESET_TICKS
         {
             self.search_buffer.clear();
+        }
+    }
+
+    fn action_namespace(&self) -> &str {
+        "select"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("enter,space,down,up", "show_overlay", "Show select options"),
+            BindingDecl::new("escape", "dismiss_overlay", "Dismiss select options").hidden(),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if self.disabled {
+            return false;
+        }
+        match action.name.as_str() {
+            "show_overlay" => {
+                if !self.open {
+                    self.set_open(true, ctx);
+                    ctx.set_handled();
+                    true
+                } else {
+                    false
+                }
+            }
+            "dismiss_overlay" => {
+                if self.open {
+                    if self.allow_blank {
+                        self.cursor.clear();
+                        self.list.clear_highlighted();
+                    }
+                    self.set_open(false, ctx);
+                    ctx.set_handled();
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
         }
     }
 
@@ -1104,5 +1148,31 @@ mod tests {
             ("Echo".to_string(), 20),
         ]);
         assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let sel = make_select();
+        let bindings = sel.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "show_overlay"));
+        assert!(bindings.iter().any(|b| b.action == "dismiss_overlay"));
+    }
+
+    #[test]
+    fn execute_action_handles_show_overlay() {
+        use crate::action::ParsedAction;
+        let mut sel = make_select();
+        sel.set_focus(true);
+        sel.on_layout(20, 10);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "show_overlay".to_string(),
+            arguments: vec![],
+        };
+        assert!(!sel.is_open());
+        assert!(sel.execute_action(&action, &mut ctx));
+        assert!(sel.is_open());
     }
 }

@@ -7,8 +7,10 @@ use crate::style::{Color, parse_color_like};
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    ScrollView, Widget, WidgetStyles,
+    BindingDecl, ScrollView, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
 
@@ -917,6 +919,176 @@ impl Widget for DataTable {
         let changed = next != self.hover_coordinate;
         self.hover_coordinate = next;
         changed
+    }
+
+    fn action_namespace(&self) -> &str {
+        "data-table"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("up", "cursor_up", "Move cursor up"),
+            BindingDecl::new("down", "cursor_down", "Move cursor down"),
+            BindingDecl::new("left", "cursor_left", "Move cursor left"),
+            BindingDecl::new("right", "cursor_right", "Move cursor right"),
+            BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
+            BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
+            BindingDecl::new("home", "scroll_home", "Move to start").hidden(),
+            BindingDecl::new("end", "scroll_end", "Move to end").hidden(),
+            BindingDecl::new("ctrl+home", "scroll_top", "Move to first row").hidden(),
+            BindingDecl::new("ctrl+end", "scroll_bottom", "Move to last row").hidden(),
+            BindingDecl::new("enter,space", "select_cursor", "Activate cell"),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        let width = self.content_width as usize;
+        let height = self.content_height as usize;
+        let visible_rows = self.visible_rows_for_viewport(width, height);
+        let mut selection_changed = false;
+        let mut cursor_changed = false;
+
+        let handled = match action.name.as_str() {
+            "cursor_up" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && self.selected > 0
+                {
+                    self.selected -= 1;
+                    selection_changed = true;
+                }
+                true
+            }
+            "cursor_down" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && self.selected + 1 < self.rows.len()
+                {
+                    self.selected += 1;
+                    selection_changed = true;
+                }
+                true
+            }
+            "cursor_left" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && self.cursor_column > 0
+                {
+                    self.cursor_column -= 1;
+                    cursor_changed = true;
+                }
+                true
+            }
+            "cursor_right" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && self.cursor_column + 1 < self.headers.len()
+                {
+                    self.cursor_column += 1;
+                    cursor_changed = true;
+                }
+                true
+            }
+            "scroll_up" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && self.selected > 0
+                {
+                    let step = visible_rows.max(1).min(self.selected);
+                    self.selected -= step;
+                    selection_changed = true;
+                }
+                true
+            }
+            "scroll_down" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && self.selected + 1 < self.rows.len()
+                {
+                    let step = visible_rows
+                        .max(1)
+                        .min(self.rows.len().saturating_sub(1) - self.selected);
+                    self.selected += step;
+                    selection_changed = true;
+                }
+                true
+            }
+            "scroll_home" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && self.cursor_column != 0
+                {
+                    self.cursor_column = 0;
+                    cursor_changed = true;
+                } else if self.horizontal_offset != 0 {
+                    self.horizontal_offset = 0;
+                    ctx.request_repaint();
+                }
+                true
+            }
+            "scroll_end" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && !self.headers.is_empty()
+                {
+                    let col = self.headers.len() - 1;
+                    if self.cursor_column != col {
+                        self.cursor_column = col;
+                        cursor_changed = true;
+                    }
+                } else {
+                    let max_offset = self.scrollable_column_count().saturating_sub(1);
+                    if self.horizontal_offset != max_offset {
+                        self.horizontal_offset = max_offset;
+                        ctx.request_repaint();
+                    }
+                }
+                true
+            }
+            "scroll_top" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && self.selected != 0
+                {
+                    self.selected = 0;
+                    selection_changed = true;
+                }
+                true
+            }
+            "scroll_bottom" => {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Row)
+                    && !self.rows.is_empty()
+                {
+                    let row = self.rows.len() - 1;
+                    if self.selected != row {
+                        self.selected = row;
+                        selection_changed = true;
+                    }
+                }
+                true
+            }
+            "select_cursor" => {
+                if !self.rows.is_empty() && !self.headers.is_empty() {
+                    ctx.post_message(Message::DataTableCellActivated {
+                        row: self.selected,
+                        column: self.cursor_column,
+                    });
+                }
+                true
+            }
+            _ => false,
+        };
+
+        if selection_changed {
+            self.ensure_visible(visible_rows);
+        }
+        if cursor_changed {
+            self.ensure_cursor_column_visible(width);
+        }
+        if (selection_changed || cursor_changed)
+            && !self.rows.is_empty()
+            && !self.headers.is_empty()
+        {
+            ctx.post_message(Message::DataTableCursorMoved {
+                row: self.selected,
+                column: self.cursor_column,
+            });
+        }
+        if handled {
+            ctx.set_handled();
+        }
+        handled
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -2053,5 +2225,39 @@ mod tests {
 
         assert!(table.on_mouse_move(10, 3));
         assert!(table.horizontal_offset > 0);
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let table = DataTable::new(
+            vec!["Name".into(), "Value".into()],
+            vec![vec!["Alice".into(), "100".into()]],
+        );
+        let bindings = table.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "cursor_up"));
+        assert!(bindings.iter().any(|b| b.action == "cursor_down"));
+        assert!(bindings.iter().any(|b| b.action == "select_cursor"));
+    }
+
+    #[test]
+    fn execute_action_handles_cursor_down() {
+        use crate::action::ParsedAction;
+        let mut table = DataTable::new(
+            vec!["Name".into(), "Value".into()],
+            vec![
+                vec!["Alice".into(), "100".into()],
+                vec!["Bob".into(), "200".into()],
+            ],
+        );
+        table.set_focus(true);
+        table.on_layout(40, 10);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "cursor_down".to_string(),
+            arguments: vec![],
+        };
+        assert!(table.execute_action(&action, &mut ctx));
     }
 }

@@ -6,8 +6,10 @@ use crate::message::Message;
 
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    ScrollView, Widget, WidgetStyles,
+    BindingDecl, ScrollView, Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
@@ -318,6 +320,67 @@ impl Widget for ListView {
     fn on_layout(&mut self, _width: u16, height: u16) {
         self.viewport_height = usize::from(height).max(1);
         self.ensure_visible();
+    }
+
+    fn action_namespace(&self) -> &str {
+        "list-view"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("up", "cursor_up", "Move cursor up"),
+            BindingDecl::new("down", "cursor_down", "Move cursor down"),
+            BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
+            BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
+            BindingDecl::new("home", "first", "Move to first item").hidden(),
+            BindingDecl::new("end", "last", "Move to last item").hidden(),
+            BindingDecl::new("enter", "select_cursor", "Select item"),
+        ]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "cursor_up" => {
+                self.move_selection(-1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_down" => {
+                self.move_selection(1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_up" => {
+                self.move_selection(-(self.page_step() as isize), ctx);
+                ctx.set_handled();
+                true
+            }
+            "scroll_down" => {
+                self.move_selection(self.page_step() as isize, ctx);
+                ctx.set_handled();
+                true
+            }
+            "first" => {
+                if let Some(first) = self.first_selectable() {
+                    self.select_index(first, ctx);
+                }
+                ctx.set_handled();
+                true
+            }
+            "last" => {
+                if let Some(last) = self.last_selectable() {
+                    self.select_index(last, ctx);
+                }
+                ctx.set_handled();
+                true
+            }
+            "select_cursor" => {
+                self.emit_item_activated(self.selected, ctx);
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -634,5 +697,30 @@ mod tests {
 
         assert_eq!(list.hovered_index, Some(1));
         assert!(down_ctx.repaint_requested());
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let list = ListView::new(vec!["A".into(), "B".into()]);
+        let bindings = list.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "cursor_up"));
+        assert!(bindings.iter().any(|b| b.action == "cursor_down"));
+        assert!(bindings.iter().any(|b| b.action == "select_cursor"));
+    }
+
+    #[test]
+    fn execute_action_handles_cursor_down() {
+        use crate::action::ParsedAction;
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        list.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "cursor_down".to_string(),
+            arguments: vec![],
+        };
+        assert!(list.execute_action(&action, &mut ctx));
+        assert_eq!(list.selected(), 1);
     }
 }

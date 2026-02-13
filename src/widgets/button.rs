@@ -6,8 +6,10 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::Message;
 use crate::node_id::NodeId;
 
+use crate::action::ParsedAction;
+
 use super::{
-    Widget, WidgetStyles,
+    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -304,6 +306,35 @@ impl Widget for Button {
         }
     }
 
+    fn action_namespace(&self) -> &str {
+        "button"
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![BindingDecl::new("enter,space", "press", "Press button")]
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if self.disabled {
+            return false;
+        }
+        match action.name.as_str() {
+            "press" => {
+                self.pressed = PressedState::KeyboardPending;
+                debug_message(&format!(
+                    "[button] emit action sender={} label=\"{}\"",
+                    0u64, self.label
+                ));
+                ctx.post_message(Message::ButtonPressed {
+                    description: self.describe(),
+                });
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn on_tick(&mut self, tick: u64) {
         match self.pressed {
             PressedState::KeyboardPending => {
@@ -385,6 +416,33 @@ mod tests {
             &mut ctx,
         );
 
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ButtonPressed { .. }))
+        );
+    }
+
+    #[test]
+    fn bindings_are_declared() {
+        let button = Button::new("Test");
+        let bindings = button.bindings();
+        assert!(!bindings.is_empty());
+        assert!(bindings.iter().any(|b| b.action == "press"));
+    }
+
+    #[test]
+    fn execute_action_handles_press() {
+        let mut button = Button::new("Run");
+        button.set_focus(true);
+        let mut ctx = EventCtx::default();
+        let action = ParsedAction {
+            namespace: None,
+            name: "press".to_string(),
+            arguments: vec![],
+        };
+        assert!(button.execute_action(&action, &mut ctx));
         let messages = ctx.take_messages();
         assert!(
             messages
