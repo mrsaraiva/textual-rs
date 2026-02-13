@@ -6,6 +6,7 @@ use crate::debug::DebugLayout;
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::node_id::{self, NodeId};
+use crate::reactive::ReactiveWidget;
 use crate::style::{Color, Style};
 
 use super::helpers;
@@ -290,6 +291,13 @@ pub trait Widget: Send + Sync {
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    /// Optional hook exposing this widget's reactive dispatch implementation.
+    ///
+    /// Widgets with `ReactiveWidget` implementations should return `Some(self)`
+    /// so the runtime can run queued reactive work in deterministic node order.
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        None
+    }
     /// Optional key-binding hints exposed by this widget.
     ///
     /// Runtime dispatch uses focused-path hints as part of active binding lifecycle updates.

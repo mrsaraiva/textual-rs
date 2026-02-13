@@ -16,6 +16,7 @@ use crate::widgets::{
 
 pub struct Container {
     children: Vec<Box<dyn Widget>>,
+    children_extracted: bool,
     styles: WidgetStyles,
 }
 
@@ -23,6 +24,7 @@ impl Container {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
+            children_extracted: false,
             styles: WidgetStyles::default(),
         }
     }
@@ -54,6 +56,10 @@ impl Container {
     /// Mutable access to the container's children.
     pub fn children_mut(&mut self) -> &mut Vec<Box<dyn Widget>> {
         &mut self.children
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
     }
 
     fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
@@ -120,11 +126,14 @@ impl Container {
 
 impl Widget for Container {
     fn has_focus(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.children.iter().any(|child| child.has_focus())
     }
 
     fn set_focus(&mut self, focused: bool) {
-        if focused {
+        if self.is_tree_mode() || focused {
             return;
         }
         for child in &mut self.children {
@@ -139,12 +148,28 @@ impl Widget for Container {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.children_extracted = true;
         std::mem::take(&mut self.children)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
+
+        if self.is_tree_mode() {
+            // Chrome-only render: produce blank fill for the tree pipeline to
+            // composite children onto.
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..height_limit {
+                out.extend(blank.clone());
+                if row + 1 < height_limit {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
         let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
 
         let mut lines: Vec<Vec<Segment>> = Vec::new();
@@ -254,6 +279,10 @@ impl Widget for Container {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Widget::render(self, console, options);
+        }
+
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
         let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
@@ -332,30 +361,41 @@ impl Widget for Container {
     }
 
     fn on_mount(&mut self) {
-        for child in &mut self.children {
-            child.on_mount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_mount();
+            }
         }
     }
 
     fn on_unmount(&mut self) {
-        for child in &mut self.children {
-            child.on_unmount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_unmount();
+            }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        for child in &mut self.children {
-            child.on_tick(tick);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_tick(tick);
+            }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        for child in &mut self.children {
-            child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_resize(width, height);
+            }
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for child in &mut self.children {
             child.on_event_capture(event, ctx);
             if ctx.handled() {
@@ -365,6 +405,9 @@ impl Widget for Container {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         match event {
             Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
                 if let Event::Action(action) = event {
@@ -435,6 +478,9 @@ impl Widget for Container {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         let hit = self.child_at_y(y);
         let mut changed = false;
         debug_input(&format!(
@@ -469,6 +515,9 @@ impl Widget for Container {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
         }
+        if self.is_tree_mode() {
+            return None;
+        }
         let mut total = 0usize;
         for child in &self.children {
             let meta = css::selector_meta_generic(child.as_ref());
@@ -487,6 +536,9 @@ impl Widget for Container {
     }
 
     fn content_width(&self) -> Option<usize> {
+        if self.is_tree_mode() {
+            return None;
+        }
         let mut widest = 0usize;
         let mut any = false;
         for child in &self.children {
@@ -537,5 +589,58 @@ mod tests {
         assert_eq!(children.len(), 2);
         // After extraction, internal Vec is empty.
         assert!(c.children().is_empty());
+    }
+
+    #[test]
+    fn tree_mode_flag_set_after_extraction() {
+        let mut c = Container::new()
+            .with_child(Label::new("a"))
+            .with_child(Label::new("b"));
+        assert!(!c.is_tree_mode());
+        let _ = c.take_composed_children();
+        assert!(c.is_tree_mode());
+    }
+
+    #[test]
+    fn tree_mode_render_returns_chrome_not_blank() {
+        let mut c = Container::new()
+            .with_child(Label::new("hello"))
+            .with_child(Label::new("world"));
+        let _ = c.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (10, 4);
+        options.max_width = 10;
+        options.max_height = 4;
+        let segments = Widget::render(&c, &console, &options);
+        // Should produce non-empty segments (blank fill chrome).
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn tree_mode_on_event_does_not_panic() {
+        let mut c = Container::new().with_child(Label::new("a"));
+        let _ = c.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        // Key event should not panic even though children are gone.
+        c.on_event(&Event::Action(crate::event::Action::FocusNext), &mut ctx);
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn tree_mode_on_mouse_move_returns_false() {
+        let mut c = Container::new().with_child(Label::new("a"));
+        let _ = c.take_composed_children();
+        assert!(!c.on_mouse_move(0, 0));
+    }
+
+    #[test]
+    fn tree_mode_layout_height_returns_none() {
+        let mut c = Container::new().with_child(Label::new("a"));
+        let _ = c.take_composed_children();
+        // Without fixed constraints, tree mode returns None.
+        assert!(c.layout_height().is_none());
     }
 }

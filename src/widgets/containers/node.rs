@@ -5,7 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::style::Style;
 
 use crate::widgets::{
-    LayoutConstraints, Widget, WidgetStyles,
+    LayoutConstraints, Spacer, Widget, WidgetStyles,
     helpers::{fixed_height_from_constraints, merge_constraints},
 };
 
@@ -14,6 +14,7 @@ pub struct Node {
     style_id: Option<String>,
     classes: Vec<String>,
     styles: WidgetStyles,
+    child_extracted: bool,
 }
 
 impl Node {
@@ -23,6 +24,7 @@ impl Node {
             style_id: None,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
+            child_extracted: false,
         }
     }
 
@@ -42,10 +44,26 @@ impl Node {
         }
         self
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.child_extracted
+    }
 }
 
 impl Widget for Node {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.is_tree_mode() {
+            return Segments::new();
+        }
         self.child.render_styled(console, options)
     }
 
@@ -55,39 +73,59 @@ impl Widget for Node {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Segments::new();
+        }
         self.child.render_styled_with_debug(console, options, debug)
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event(event, ctx);
+        }
     }
 
     fn focusable(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.child.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -114,7 +152,11 @@ impl Widget for Node {
     }
 
     fn style_type(&self) -> &'static str {
-        self.child.style_type()
+        if self.is_tree_mode() {
+            "Node"
+        } else {
+            self.child.style_type()
+        }
     }
 
     fn style_id(&self) -> Option<&str> {
@@ -129,5 +171,53 @@ impl Widget for Node {
 impl Renderable for Node {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_extraction_returns_child() {
+        let mut n = Node::new(Spacer::new(1));
+        let children = n.take_composed_children();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn node_extraction_idempotent() {
+        let mut n = Node::new(Spacer::new(1));
+        let _ = n.take_composed_children();
+        assert!(n.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn node_render_after_extraction() {
+        let mut n = Node::new(Spacer::new(1));
+        let _ = n.take_composed_children();
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 5),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&n, &console, &options);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn node_style_type_after_extraction() {
+        let mut n = Node::new(Spacer::new(1));
+        let _ = n.take_composed_children();
+        assert_eq!(n.style_type(), "Node");
+    }
+
+    #[test]
+    fn node_is_tree_mode_after_extraction() {
+        let mut n = Node::new(Spacer::new(1));
+        assert!(!n.is_tree_mode());
+        let _ = n.take_composed_children();
+        assert!(n.is_tree_mode());
     }
 }

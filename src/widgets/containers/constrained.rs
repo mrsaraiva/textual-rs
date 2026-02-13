@@ -4,12 +4,13 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{LayoutConstraints, Widget, WidgetStyles, helpers::merge_constraints};
+use crate::widgets::{LayoutConstraints, Spacer, Widget, WidgetStyles, helpers::merge_constraints};
 
 pub struct Constrained {
     child: Box<dyn Widget>,
     constraints: LayoutConstraints,
     styles: WidgetStyles,
+    child_extracted: bool,
 }
 
 impl Constrained {
@@ -18,6 +19,7 @@ impl Constrained {
             child: Box::new(child),
             constraints: LayoutConstraints::default(),
             styles: WidgetStyles::default(),
+            child_extracted: false,
         }
     }
 
@@ -40,10 +42,26 @@ impl Constrained {
         self.constraints = self.constraints.max_height(value);
         self
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.child_extracted
+    }
 }
 
 impl Widget for Constrained {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.is_tree_mode() {
+            return Segments::new();
+        }
         self.child.render_styled(console, options)
     }
 
@@ -53,47 +71,71 @@ impl Widget for Constrained {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Segments::new();
+        }
         self.child.render_styled_with_debug(console, options, debug)
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.child.on_layout(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_layout(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event(event, ctx);
+        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        self.child.on_message(message, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_message(message, ctx);
+        }
     }
 
     fn focusable(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.child.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -122,5 +164,46 @@ impl Widget for Constrained {
 impl Renderable for Constrained {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constrained_extraction_returns_child() {
+        let mut c = Constrained::new(Spacer::new(1));
+        let children = c.take_composed_children();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn constrained_extraction_idempotent() {
+        let mut c = Constrained::new(Spacer::new(1));
+        let _ = c.take_composed_children();
+        assert!(c.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn constrained_render_after_extraction() {
+        let mut c = Constrained::new(Spacer::new(1));
+        let _ = c.take_composed_children();
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 5),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&c, &console, &options);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn constrained_is_tree_mode_after_extraction() {
+        let mut c = Constrained::new(Spacer::new(1));
+        assert!(!c.is_tree_mode());
+        let _ = c.take_composed_children();
+        assert!(c.is_tree_mode());
     }
 }

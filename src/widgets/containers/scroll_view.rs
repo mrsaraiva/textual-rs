@@ -400,18 +400,133 @@ impl Widget for ScrollView {
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(viewport_height, Ordering::Relaxed);
         if self.is_tree_mode() {
-            self.viewport_height
-                .store(viewport_height, Ordering::Relaxed);
-            self.viewport_width.store(width, Ordering::Relaxed);
-            self.content_height
-                .store(viewport_height, Ordering::Relaxed);
-            self.content_width.store(width, Ordering::Relaxed);
+            // Do NOT overwrite content_height/content_width — preserve values
+            // set by the tree layout system so scrollbars reflect real content.
 
-            let blank = vec![Segment::new(" ".repeat(width))];
+            let (overflow_x, overflow_y) = {
+                let meta = crate::css::selector_meta_generic(self);
+                let style = crate::css::resolve_style(self, &meta);
+                let fallback = style.overflow.unwrap_or(crate::style::Overflow::Auto);
+                (
+                    style.overflow_x.unwrap_or(fallback),
+                    style.overflow_y.unwrap_or(fallback),
+                )
+            };
+            let allow_scrollbars_h = !matches!(overflow_x, crate::style::Overflow::Hidden);
+            let allow_scrollbars_v = !matches!(overflow_y, crate::style::Overflow::Hidden);
+
+            let content_h = self.content_height.load(Ordering::Relaxed);
+            let content_w = self.content_width.load(Ordering::Relaxed);
+
+            // Iterative scrollbar resolution (matches non-tree path logic).
+            const V_SCROLLBAR_SIZE: usize = 2;
+            const H_SCROLLBAR_SIZE: usize = 1;
+            let mut show_v = false;
+            let mut show_h = false;
+            let mut content_viewport_w = width;
+            let mut content_viewport_h = viewport_height;
+            for _ in 0..3 {
+                let vp_w = width
+                    .saturating_sub(if show_v {
+                        V_SCROLLBAR_SIZE.min(width.saturating_sub(1))
+                    } else {
+                        0
+                    })
+                    .max(1);
+                let vp_h = viewport_height
+                    .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                    .max(1);
+                let next_show_v = allow_scrollbars_v && content_h > vp_h;
+                let next_show_h = allow_scrollbars_h && content_w > vp_w;
+                content_viewport_w = vp_w;
+                content_viewport_h = vp_h;
+                if next_show_v == show_v && next_show_h == show_h {
+                    break;
+                }
+                show_v = next_show_v;
+                show_h = next_show_h;
+            }
+
+            // Store reduced viewport dimensions (matching non-tree path).
+            self.viewport_height
+                .store(content_viewport_h, Ordering::Relaxed);
+            self.viewport_width
+                .store(content_viewport_w, Ordering::Relaxed);
+
+            // Background fill for viewport area.
+            let mut slice: Vec<Vec<Segment>> = (0..content_viewport_h)
+                .map(|_| vec![Segment::new(" ".repeat(content_viewport_w))])
+                .collect();
+
+            let (track_style, thumb_style, thumb_active_style) = Self::line_scrollbar_styles();
+            let corner_style = Self::scrollbar_corner_style();
+            let v_scrollbar_size = if show_v {
+                width.saturating_sub(content_viewport_w)
+            } else {
+                0
+            };
+            if show_v {
+                let track_len = content_viewport_h.max(1);
+                let offset = self
+                    .render_offset_y
+                    .clamp(0.0, self.max_offset() as f32)
+                    .round() as usize;
+                let (thumb_start, thumb_len) =
+                    Self::line_scrollbar_thumb(track_len, content_h, content_viewport_h, offset);
+                for (row, line) in slice.iter_mut().enumerate() {
+                    let in_track = row < track_len;
+                    let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
+                        if self.drag_v.is_some() {
+                            thumb_active_style
+                        } else {
+                            thumb_style
+                        }
+                    } else {
+                        track_style
+                    };
+                    for _ in 0..v_scrollbar_size.max(1) {
+                        line.push(Segment::styled(" ".to_string(), style));
+                    }
+                }
+            }
+            if show_h {
+                let offset_x = self
+                    .render_offset_x
+                    .clamp(0.0, self.max_offset_x() as f32)
+                    .round() as usize;
+                let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
+                    content_viewport_w,
+                    content_w,
+                    content_viewport_w,
+                    offset_x,
+                );
+                let mut row = Vec::new();
+                for col in 0..content_viewport_w {
+                    let style = if col >= thumb_start && col < thumb_start + thumb_len {
+                        if self.drag_h.is_some() {
+                            thumb_active_style
+                        } else {
+                            thumb_style
+                        }
+                    } else {
+                        track_style
+                    };
+                    row.push(Segment::styled(" ".to_string(), style));
+                }
+                if show_v {
+                    for _ in 0..v_scrollbar_size.max(1) {
+                        row.push(Segment::styled(" ".to_string(), corner_style));
+                    }
+                }
+                slice.push(row);
+            }
+
+            slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+            let line_count = slice.len();
             let mut out = Segments::new();
-            for row in 0..viewport_height {
-                out.extend(blank.clone());
-                if row + 1 < viewport_height {
+            for (idx, line) in slice.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
                     out.push(Segment::line());
                 }
             }
@@ -1318,6 +1433,106 @@ mod tests {
         assert!(
             !ctx.handled(),
             "MouseDown with foreign NodeId must skip scrollbar logic"
+        );
+    }
+
+    #[test]
+    fn tree_mode_render_produces_chrome_not_blank() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        // Extract child to enter tree mode.
+        let children = sv.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert!(sv.is_tree_mode());
+
+        // Simulate content larger than viewport so scrollbar appears.
+        sv.content_height.store(100, Ordering::Relaxed);
+        sv.content_width.store(10, Ordering::Relaxed);
+
+        let console = Console::default();
+        let mut opts = ConsoleOptions::default();
+        opts.size = (20, 10);
+        opts.max_width = 20;
+        opts.max_height = 10;
+
+        let segments = Widget::render(&sv, &console, &opts);
+        let lines = Segment::split_and_crop_lines(segments, 20, None, true, false);
+        assert_eq!(
+            lines.len(),
+            10,
+            "tree-mode render must produce viewport-height lines"
+        );
+        // At least one line should have more than one segment (scrollbar chrome).
+        let has_styled = lines.iter().any(|line| line.len() > 1);
+        assert!(
+            has_styled,
+            "tree-mode render should include scrollbar chrome"
+        );
+    }
+
+    #[test]
+    fn tree_mode_scroll_offset_and_clip() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        sv.offset_x = 5;
+        sv.offset_y = 10;
+        let _ = sv.take_composed_children();
+        assert!(sv.is_tree_mode());
+
+        assert_eq!(sv.scroll_offset(), (5, 10));
+        assert!(sv.clips_descendants_to_content());
+    }
+
+    #[test]
+    fn tree_mode_scroll_actions_still_work() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        let _ = sv.take_composed_children();
+        assert!(sv.is_tree_mode());
+
+        // Set content larger than viewport.
+        sv.content_height.store(100, Ordering::Relaxed);
+        sv.viewport_height.store(10, Ordering::Relaxed);
+
+        let mut ctx = EventCtx::default();
+        let event = Event::Action(Action::ScrollDown);
+        sv.on_event(&event, &mut ctx);
+        assert!(
+            ctx.handled(),
+            "ScrollDown action should be handled in tree mode"
+        );
+        assert!(sv.offset_y > 0, "offset_y should increase after ScrollDown");
+
+        let mut ctx2 = EventCtx::default();
+        let event2 = Event::Action(Action::ScrollHome);
+        sv.on_event(&event2, &mut ctx2);
+        assert!(ctx2.handled(), "ScrollHome should be handled in tree mode");
+        assert_eq!(sv.offset_y, 0, "offset_y should be 0 after ScrollHome");
+    }
+
+    #[test]
+    fn tree_mode_preserves_content_dimensions() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        // Pre-set content dimensions as if tree layout had done so.
+        sv.content_height.store(200, Ordering::Relaxed);
+        sv.content_width.store(50, Ordering::Relaxed);
+
+        let _ = sv.take_composed_children();
+
+        let console = Console::default();
+        let mut opts = ConsoleOptions::default();
+        opts.size = (20, 10);
+        opts.max_width = 20;
+        opts.max_height = 10;
+
+        let _ = Widget::render(&sv, &console, &opts);
+        // render() must NOT overwrite content dimensions to viewport values.
+        assert_eq!(
+            sv.content_height.load(Ordering::Relaxed),
+            200,
+            "content_height must be preserved in tree-mode render"
+        );
+        assert_eq!(
+            sv.content_width.load(Ordering::Relaxed),
+            50,
+            "content_width must be preserved in tree-mode render"
         );
     }
 }

@@ -5,7 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    Widget, WidgetStyles,
+    Spacer, Widget, WidgetStyles,
     helpers::{apply_debug_box, fixed_height_from_constraints},
 };
 
@@ -14,6 +14,7 @@ pub struct Frame {
     padding: usize,
     border: bool,
     styles: WidgetStyles,
+    child_extracted: bool,
 }
 
 impl Frame {
@@ -23,6 +24,7 @@ impl Frame {
             padding: 1,
             border: true,
             styles: WidgetStyles::default(),
+            child_extracted: false,
         }
     }
 
@@ -35,10 +37,78 @@ impl Frame {
         self.border = border;
         self
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.child_extracted
+    }
 }
 
 impl Widget for Frame {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.is_tree_mode() {
+            // Tree-mode: render border chrome only, with blank content inside.
+            // The tree pipeline renders children separately.
+            let border_width: usize = if self.border { 1 } else { 0 };
+            let total_padding = self.padding * 2;
+            let width = options.size.0.max(1);
+            let height = options.size.1.max(1);
+            let inner_width = width
+                .saturating_sub(border_width * 2 + total_padding)
+                .max(1);
+            let inner_total = inner_width + total_padding;
+            let content_height = height.saturating_sub(border_width * 2).max(1);
+
+            let mut out = Segments::new();
+            if self.border {
+                let b = rich_rs::r#box::SQUARE;
+                let top = format!(
+                    "{}{}{}",
+                    b.top_left,
+                    std::iter::repeat(b.top)
+                        .take(inner_total)
+                        .collect::<String>(),
+                    b.top_right
+                );
+                out.push(Segment::new(top));
+                out.push(Segment::line());
+                for idx in 0..content_height {
+                    out.push(Segment::new(b.mid_left.to_string()));
+                    out.push(Segment::new(" ".repeat(inner_total)));
+                    out.push(Segment::new(b.mid_right.to_string()));
+                    if idx + 1 < content_height {
+                        out.push(Segment::line());
+                    }
+                }
+                out.push(Segment::line());
+                let bottom = format!(
+                    "{}{}{}",
+                    b.bottom_left,
+                    std::iter::repeat(b.bottom)
+                        .take(inner_total)
+                        .collect::<String>(),
+                    b.bottom_right
+                );
+                out.push(Segment::new(bottom));
+            } else {
+                for idx in 0..height {
+                    out.push(Segment::new(" ".repeat(width)));
+                    if idx + 1 < height {
+                        out.push(Segment::line());
+                    }
+                }
+            }
+            return out;
+        }
+
         let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding * 2;
 
@@ -169,22 +239,33 @@ impl Widget for Frame {
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
+        if self.is_tree_mode() {
+            return;
+        }
         let border_width: usize = if self.border { 1 } else { 0 };
         let total_padding = self.padding.saturating_mul(2);
         let inner_width = usize::from(width)
@@ -198,19 +279,27 @@ impl Widget for Frame {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event(event, ctx);
+        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        self.child.on_message(message, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_message(message, ctx);
+        }
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -231,16 +320,76 @@ impl Widget for Frame {
     }
 
     fn focusable(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.child.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 }
 
 impl Renderable for Frame {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_extraction_returns_child() {
+        let mut frame = Frame::new(Spacer::new(1));
+        let children = frame.take_composed_children();
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn frame_extraction_idempotent() {
+        let mut frame = Frame::new(Spacer::new(1));
+        let _ = frame.take_composed_children();
+        assert!(frame.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn frame_render_after_extraction_with_border() {
+        let mut frame = Frame::new(Spacer::new(1));
+        let _ = frame.take_composed_children();
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 5),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&frame, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn frame_render_after_extraction_no_border() {
+        let mut frame = Frame::new(Spacer::new(1)).border(false);
+        let _ = frame.take_composed_children();
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 5),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&frame, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn frame_is_tree_mode_after_extraction() {
+        let mut frame = Frame::new(Spacer::new(1));
+        assert!(!frame.is_tree_mode());
+        let _ = frame.take_composed_children();
+        assert!(frame.is_tree_mode());
     }
 }

@@ -19,6 +19,7 @@ use crate::style::{Dock as StyleDock, Margin, Scalar};
 
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
+    children_extracted: bool,
     align: RowAlign,
     last_layout_width: u16,
     styles: WidgetStyles,
@@ -28,6 +29,7 @@ impl Row {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
+            children_extracted: false,
             align: RowAlign::Top,
             last_layout_width: 0,
             styles: WidgetStyles::default(),
@@ -66,6 +68,10 @@ impl Row {
     /// Mutable access to the row's children.
     pub fn children_mut(&mut self) -> &mut Vec<Box<dyn Widget>> {
         &mut self.children
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
     }
 
     fn child_at_x(&self, x: u16) -> Option<(usize, u16)> {
@@ -141,12 +147,25 @@ impl Widget for Row {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.children_extracted = true;
         std::mem::take(&mut self.children)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
+
+        if self.is_tree_mode() {
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..height_limit {
+                out.extend(blank.clone());
+                if row + 1 < height_limit {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
 
         let count = self.children.len().max(1);
         let mut fixed_widths: Vec<Option<usize>> = vec![None; count];
@@ -378,6 +397,10 @@ impl Widget for Row {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Widget::render(self, console, options);
+        }
+
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
 
@@ -576,38 +599,51 @@ impl Widget for Row {
     }
 
     fn on_mount(&mut self) {
-        for child in &mut self.children {
-            child.on_mount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_mount();
+            }
         }
     }
 
     fn on_unmount(&mut self) {
-        for child in &mut self.children {
-            child.on_unmount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_unmount();
+            }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        for child in &mut self.children {
-            child.on_tick(tick);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_tick(tick);
+            }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.last_layout_width = width;
-        for child in &mut self.children {
-            child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_resize(width, height);
+            }
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_layout_width = width;
-        for child in &mut self.children {
-            child.on_layout(width, height);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_layout(width, height);
+            }
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for child in &mut self.children {
             child.on_event_capture(event, ctx);
             if ctx.handled() {
@@ -617,6 +653,9 @@ impl Widget for Row {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         match event {
             Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
                 if let Event::Action(action) = event {
@@ -687,6 +726,9 @@ impl Widget for Row {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         let hit = self.child_at_x(x);
         let mut changed = false;
         debug_input(&format!(
@@ -741,6 +783,7 @@ pub struct DockItem {
 
 pub struct Dock {
     items: Vec<DockItem>,
+    items_extracted: bool,
     fixed_height: Option<usize>,
     focused: bool,
     last_layout_width: AtomicUsize,
@@ -752,6 +795,7 @@ impl Dock {
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
+            items_extracted: false,
             fixed_height: None,
             focused: false,
             last_layout_width: AtomicUsize::new(1),
@@ -808,6 +852,10 @@ impl Dock {
             child: Box::new(child),
         });
         self
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.items_extracted
     }
 
     fn focus_child(&mut self, index: usize) -> bool {
@@ -976,6 +1024,7 @@ impl Widget for Dock {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.items_extracted = true;
         let mut children = Vec::with_capacity(self.items.len());
         for mut item in std::mem::take(&mut self.items) {
             Self::apply_item_layout_hints(&mut item);
@@ -985,6 +1034,9 @@ impl Widget for Dock {
     }
 
     fn focusable(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.items
             .iter()
             .any(|item| item.child.focusable() && !item.child.is_disabled())
@@ -992,9 +1044,11 @@ impl Widget for Dock {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if !focused {
-            for item in &mut self.items {
-                item.child.set_focus(false);
+        if self.is_tree_mode() || !focused {
+            if !focused && !self.is_tree_mode() {
+                for item in &mut self.items {
+                    item.child.set_focus(false);
+                }
             }
             return;
         }
@@ -1011,6 +1065,9 @@ impl Widget for Dock {
     }
 
     fn has_focus(&self) -> bool {
+        if self.is_tree_mode() {
+            return self.focused;
+        }
         self.focused || self.items.iter().any(|item| item.child.has_focus())
     }
 
@@ -1021,6 +1078,21 @@ impl Widget for Dock {
             self.fixed_height.unwrap_or_else(|| options.size.1.max(1)),
             Ordering::Relaxed,
         );
+
+        if self.is_tree_mode() {
+            let width = options.size.0.max(1);
+            let height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..height {
+                out.extend(blank.clone());
+                if row + 1 < height {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
         let mut remaining_width = options.size.0.max(1);
         let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
 
@@ -1242,6 +1314,9 @@ impl Widget for Dock {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         match event {
             Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
                 if let Event::Action(action) = event
@@ -1327,6 +1402,9 @@ impl Widget for Dock {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         let mut changed = false;
         let hit = self
             .child_at_xy(x, y)
@@ -1363,6 +1441,10 @@ impl Widget for Dock {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Widget::render(self, console, options);
+        }
+
         let mut remaining_width = options.size.0.max(1);
         let mut remaining_height = self.fixed_height.unwrap_or_else(|| options.size.1.max(1));
 
@@ -1649,30 +1731,41 @@ impl Widget for Dock {
     }
 
     fn on_mount(&mut self) {
-        for item in &mut self.items {
-            item.child.on_mount();
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_mount();
+            }
         }
     }
 
     fn on_unmount(&mut self) {
-        for item in &mut self.items {
-            item.child.on_unmount();
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_unmount();
+            }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        for item in &mut self.items {
-            item.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_tick(tick);
+            }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        for item in &mut self.items {
-            item.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_resize(width, height);
+            }
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for item in &mut self.items {
             item.child.on_event_capture(event, ctx);
             if ctx.handled() {
@@ -1699,6 +1792,7 @@ pub struct Grid {
     rows: usize,
     cols: usize,
     cells: Vec<Option<Box<dyn Widget>>>,
+    cells_extracted: bool,
     row_gaps: usize,
     col_gaps: usize,
     row_sizes: Option<Vec<usize>>,
@@ -1714,6 +1808,7 @@ impl Grid {
             rows,
             cols,
             cells: (0..rows * cols).map(|_| None).collect(),
+            cells_extracted: false,
             row_gaps: 0,
             col_gaps: 0,
             row_sizes: None,
@@ -1758,12 +1853,40 @@ impl Grid {
         }
         self
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.cells_extracted
+    }
 }
 
 impl Widget for Grid {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.cells_extracted = true;
+        self.cells
+            .iter_mut()
+            .filter_map(|cell| cell.take())
+            .collect()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+
+        if self.is_tree_mode() {
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..height {
+                out.extend(blank.clone());
+                if row + 1 < height {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
 
         let total_col_gaps = self.col_gaps.saturating_mul(self.cols.saturating_sub(1));
         let total_row_gaps = self.row_gaps.saturating_mul(self.rows.saturating_sub(1));
@@ -1894,6 +2017,10 @@ impl Widget for Grid {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Widget::render(self, console, options);
+        }
+
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
 
@@ -2034,38 +2161,49 @@ impl Widget for Grid {
     }
 
     fn on_mount(&mut self) {
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_mount();
+        if !self.is_tree_mode() {
+            for cell in &mut self.cells {
+                if let Some(child) = cell {
+                    child.on_mount();
+                }
             }
         }
     }
 
     fn on_unmount(&mut self) {
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_unmount();
+        if !self.is_tree_mode() {
+            for cell in &mut self.cells {
+                if let Some(child) = cell {
+                    child.on_unmount();
+                }
             }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_tick(tick);
+        if !self.is_tree_mode() {
+            for cell in &mut self.cells {
+                if let Some(child) = cell {
+                    child.on_tick(tick);
+                }
             }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            for cell in &mut self.cells {
+                if let Some(child) = cell {
+                    child.on_resize(width, height);
+                }
             }
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for cell in &mut self.cells {
             if let Some(child) = cell {
                 child.on_event_capture(event, ctx);
@@ -2077,6 +2215,9 @@ impl Widget for Grid {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for cell in &mut self.cells {
             if let Some(child) = cell {
                 child.on_event(event, ctx);
@@ -2121,5 +2262,135 @@ mod tests {
         let children = r.take_composed_children();
         assert_eq!(children.len(), 2);
         assert!(r.children().is_empty());
+    }
+
+    // ── Row tree-mode regression tests ──────────────────────────────
+
+    #[test]
+    fn row_tree_mode_flag_set_after_extraction() {
+        let mut r = Row::new()
+            .with_child(Label::new("a"))
+            .with_child(Label::new("b"));
+        assert!(!r.is_tree_mode());
+        let _ = r.take_composed_children();
+        assert!(r.is_tree_mode());
+    }
+
+    #[test]
+    fn row_tree_mode_render_returns_chrome() {
+        let mut r = Row::new().with_child(Label::new("hello"));
+        let _ = r.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (10, 3);
+        options.max_width = 10;
+        options.max_height = 3;
+        let segments = Widget::render(&r, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn row_tree_mode_on_event_does_not_panic() {
+        let mut r = Row::new().with_child(Label::new("a"));
+        let _ = r.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        r.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn row_tree_mode_mouse_move_returns_false() {
+        let mut r = Row::new().with_child(Label::new("a"));
+        let _ = r.take_composed_children();
+        assert!(!r.on_mouse_move(0, 0));
+    }
+
+    // ── Dock tree-mode regression tests ─────────────────────────────
+
+    #[test]
+    fn dock_tree_mode_flag_set_after_extraction() {
+        let mut d = Dock::new()
+            .push_top(Some(1), Label::new("header"))
+            .push_fill(Label::new("body"));
+        assert!(!d.is_tree_mode());
+        let children = d.take_composed_children();
+        assert_eq!(children.len(), 2);
+        assert!(d.is_tree_mode());
+    }
+
+    #[test]
+    fn dock_tree_mode_render_returns_chrome() {
+        let mut d = Dock::new()
+            .push_top(Some(1), Label::new("header"))
+            .push_fill(Label::new("body"));
+        let _ = d.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (20, 10);
+        options.max_width = 20;
+        options.max_height = 10;
+        let segments = Widget::render(&d, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn dock_tree_mode_on_event_does_not_panic() {
+        let mut d = Dock::new().push_fill(Label::new("body"));
+        let _ = d.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        d.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn dock_tree_mode_mouse_move_returns_false() {
+        let mut d = Dock::new().push_fill(Label::new("body"));
+        let _ = d.take_composed_children();
+        assert!(!d.on_mouse_move(0, 0));
+    }
+
+    // ── Grid tree-mode regression tests ─────────────────────────────
+
+    #[test]
+    fn grid_tree_mode_flag_set_after_extraction() {
+        let mut g = Grid::new(2, 2)
+            .with_cell(0, 0, Label::new("a"))
+            .with_cell(0, 1, Label::new("b"))
+            .with_cell(1, 0, Label::new("c"));
+        assert!(!g.is_tree_mode());
+        let children = g.take_composed_children();
+        assert_eq!(children.len(), 3);
+        assert!(g.is_tree_mode());
+    }
+
+    #[test]
+    fn grid_tree_mode_render_returns_chrome() {
+        let mut g =
+            Grid::new(1, 2)
+                .with_cell(0, 0, Label::new("a"))
+                .with_cell(0, 1, Label::new("b"));
+        let _ = g.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (10, 3);
+        options.max_width = 10;
+        options.max_height = 3;
+        let segments = Widget::render(&g, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn grid_tree_mode_on_event_does_not_panic() {
+        let mut g = Grid::new(1, 1).with_cell(0, 0, Label::new("a"));
+        let _ = g.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        g.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        assert!(!ctx.handled());
     }
 }

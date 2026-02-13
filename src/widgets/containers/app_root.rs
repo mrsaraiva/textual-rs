@@ -16,6 +16,7 @@ use crate::widgets::{
 
 pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
+    children_extracted: bool,
     focused: Option<NodeId>,
     styles: WidgetStyles,
     last_layout_height: u16,
@@ -28,6 +29,7 @@ impl AppRoot {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
+            children_extracted: false,
             focused: None,
             styles: WidgetStyles::default(),
             last_layout_height: 0,
@@ -51,6 +53,10 @@ impl AppRoot {
 
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
     }
 
     fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
@@ -142,12 +148,26 @@ impl Widget for AppRoot {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.children_extracted = true;
         std::mem::take(&mut self.children)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
+
+        if self.is_tree_mode() {
+            let blank = vec![Segment::new(" ".repeat(width))];
+            let mut out = Segments::new();
+            for row in 0..height_limit {
+                out.extend(blank.clone());
+                if row + 1 < height_limit {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
         let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
 
         let mut lines: Vec<Vec<Segment>> = Vec::new();
@@ -238,6 +258,10 @@ impl Widget for AppRoot {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
+        if self.is_tree_mode() {
+            return Widget::render(self, console, options);
+        }
+
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
         let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
@@ -338,37 +362,50 @@ impl Widget for AppRoot {
     }
 
     fn on_mount(&mut self) {
-        for child in &mut self.children {
-            child.on_mount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_mount();
+            }
         }
     }
 
     fn on_unmount(&mut self) {
-        for child in &mut self.children {
-            child.on_unmount();
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_unmount();
+            }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        for child in &mut self.children {
-            child.on_tick(tick);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_tick(tick);
+            }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        for child in &mut self.children {
-            child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_resize(width, height);
+            }
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_layout_height = height.max(1);
-        for child in &mut self.children {
-            child.on_layout(width, height);
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_layout(width, height);
+            }
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         for child in &mut self.children {
             child.on_event_capture(event, ctx);
             if ctx.handled() {
@@ -378,9 +415,10 @@ impl Widget for AppRoot {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
         if matches!(event, Event::MouseUp(..) | Event::AppFocus(..)) {
-            // Mouse release is a global state transition (e.g. clearing `:active`).
-            // Broadcast it to all children regardless of focus or handled state.
             for child in &mut self.children {
                 child.on_event(event, ctx);
             }
@@ -399,6 +437,9 @@ impl Widget for AppRoot {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         let hit = self.child_at_y(y);
         debug_input(&format!(
             "[hover][approot] move x={} y={} hit={:?}",
@@ -429,6 +470,9 @@ impl Widget for AppRoot {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
         }
+        if self.is_tree_mode() {
+            return None;
+        }
         let mut total = 0usize;
         for child in &self.children {
             let meta = css::selector_meta_generic(child.as_ref());
@@ -447,6 +491,9 @@ impl Widget for AppRoot {
     }
 
     fn content_width(&self) -> Option<usize> {
+        if self.is_tree_mode() {
+            return None;
+        }
         let mut widest = 0usize;
         let mut any = false;
         for child in &self.children {
@@ -681,5 +728,49 @@ mod focus_tests {
         root.on_layout(80, 24);
         assert!(root.on_mouse_move(7, 19));
         assert_eq!(observed_y.load(Ordering::Relaxed), 19);
+    }
+
+    #[test]
+    fn app_root_tree_mode_flag_set_after_extraction() {
+        let mut root = AppRoot::new()
+            .with_child(Button::new("a"))
+            .with_child(Button::new("b"));
+        assert!(!root.is_tree_mode());
+        let children = root.take_composed_children();
+        assert_eq!(children.len(), 2);
+        assert!(root.is_tree_mode());
+    }
+
+    #[test]
+    fn app_root_tree_mode_render_returns_chrome() {
+        let mut root = AppRoot::new().with_child(Button::new("ok"));
+        let _ = root.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (10, 4);
+        options.max_width = 10;
+        options.max_height = 4;
+        let segments = Widget::render(&root, &console, &options);
+        assert!(!segments.is_empty());
+    }
+
+    #[test]
+    fn app_root_tree_mode_on_event_does_not_panic() {
+        let mut root = AppRoot::new().with_child(Button::new("ok"));
+        let _ = root.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        // In tree mode, events are a no-op — not handled.
+        assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn app_root_tree_mode_mouse_move_returns_false() {
+        let mut root = AppRoot::new().with_child(Button::new("ok"));
+        let _ = root.take_composed_children();
+        root.on_layout(80, 24);
+        assert!(!root.on_mouse_move(5, 5));
     }
 }

@@ -7,7 +7,7 @@ use crate::render::{Cell, FrameBuffer};
 
 use crate::node_id::NodeId;
 use crate::widgets::{
-    Widget, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
+    Spacer, Widget, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
 };
 
 pub struct Overlay {
@@ -17,6 +17,7 @@ pub struct Overlay {
     trap_base_events: bool,
     dismiss_on_escape: bool,
     styles: WidgetStyles,
+    children_extracted: bool,
 }
 
 impl Overlay {
@@ -28,6 +29,7 @@ impl Overlay {
             trap_base_events: true,
             dismiss_on_escape: true,
             styles: WidgetStyles::default(),
+            children_extracted: false,
         }
     }
 
@@ -116,6 +118,9 @@ impl Overlay {
             return;
         }
         self.visible = visible;
+        // TODO: In tree mode, visibility changes should propagate to the modal
+        // child's display state via the tree arena. For now, we keep the local
+        // flag and post the message so the rest of the system can react.
         ctx.post_message(Message::OverlayVisibilityChanged(
             OverlayVisibilityChanged {
                 overlay: self.node_id(),
@@ -147,10 +152,28 @@ impl Overlay {
     fn modal_contains(&mut self, _target: NodeId) -> bool {
         true
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
+    }
 }
 
 impl Widget for Overlay {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        let base = std::mem::replace(&mut self.base, Box::new(Spacer::new(1)));
+        let modal = std::mem::replace(&mut self.modal, Box::new(Spacer::new(1)));
+        vec![base, modal]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.is_tree_mode() {
+            // Tree-mode: Overlay has no chrome of its own; return empty.
+            return Segments::new();
+        }
         if !self.visible {
             return self.base.render_styled(console, options);
         }
@@ -162,31 +185,45 @@ impl Widget for Overlay {
     }
 
     fn on_mount(&mut self) {
-        self.base.on_mount();
-        self.modal.on_mount();
+        if !self.is_tree_mode() {
+            self.base.on_mount();
+            self.modal.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.base.on_unmount();
-        self.modal.on_unmount();
+        if !self.is_tree_mode() {
+            self.base.on_unmount();
+            self.modal.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.base.on_tick(tick);
-        self.modal.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.base.on_tick(tick);
+            self.modal.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.base.on_resize(width, height);
-        self.modal.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.base.on_resize(width, height);
+            self.modal.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.base.on_layout(width, height);
-        self.modal.on_layout(width, height);
+        if !self.is_tree_mode() {
+            self.base.on_layout(width, height);
+            self.modal.on_layout(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            // Tree mode: tree handles capture routing to children.
+            return;
+        }
         if !self.visible {
             self.base.on_event_capture(event, ctx);
             return;
@@ -200,6 +237,20 @@ impl Widget for Overlay {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.is_tree_mode() {
+            // Tree mode: handle overlay-specific behavior only.
+            // TODO: Integrate visibility with tree display state for proper modal hiding.
+            if self.dismiss_on_escape
+                && matches!(
+                    event,
+                    Event::Key(key) if key.code == KeyCode::Esc
+                )
+            {
+                self.set_visible(false, ctx);
+                ctx.set_handled();
+            }
+            return;
+        }
         if !self.visible {
             self.base.on_event(event, ctx);
             return;
@@ -228,6 +279,7 @@ impl Widget for Overlay {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        // Overlay-specific message handling (works in both modes).
         match &message.message {
             Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
                 if *overlay == self.node_id() =>
@@ -248,6 +300,11 @@ impl Widget for Overlay {
                 }
             }
             _ => {}
+        }
+
+        // In tree mode, skip child forwarding — the tree handles message routing.
+        if self.is_tree_mode() {
+            return;
         }
 
         self.modal.on_message(message, ctx);
@@ -448,5 +505,95 @@ mod tests {
         overlay.on_message(&msg_event, &mut ctx);
         assert!(!ctx.handled());
         assert!(overlay.is_visible());
+    }
+
+    // --- Tree extraction regression tests ---
+
+    #[test]
+    fn overlay_extraction_returns_both_children() {
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal);
+        let children = overlay.take_composed_children();
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn overlay_extraction_idempotent() {
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal);
+        let _ = overlay.take_composed_children();
+        assert!(overlay.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn overlay_render_after_extraction() {
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal);
+        let _ = overlay.take_composed_children();
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 5),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segments = Widget::render(&overlay, &console, &options);
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn overlay_visibility_after_extraction() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let _ = overlay.take_composed_children();
+        let mut ctx = EventCtx::default();
+
+        // set_visible via message should not panic after extraction
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlaySetVisible(OverlaySetVisible {
+                overlay: id,
+                visible: false,
+            }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(ctx.handled());
+        assert!(!overlay.is_visible());
+    }
+
+    #[test]
+    fn overlay_toggle_after_extraction() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal).visible(true);
+        let _ = overlay.take_composed_children();
+        let mut ctx = EventCtx::default();
+
+        let msg_event = MessageEvent {
+            sender: NodeId::default(),
+            message: Message::OverlayToggle(OverlayToggle { overlay: id }),
+            control: None,
+        };
+        overlay.on_message(&msg_event, &mut ctx);
+        assert!(ctx.handled());
+        assert!(!overlay.is_visible());
+    }
+
+    #[test]
+    fn overlay_is_tree_mode_after_extraction() {
+        let base = crate::prelude::Label::new("base");
+        let modal = crate::prelude::Label::new("modal");
+        let mut overlay = Overlay::new(base, modal);
+        assert!(!overlay.is_tree_mode());
+        let _ = overlay.take_composed_children();
+        assert!(overlay.is_tree_mode());
     }
 }

@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **[wip] Close reactive/runtime integration and worker runtime delivery gaps (P3-20, P5-15, P5-16)**
+  - Wired event-loop reactive phase execution so queued reactive entries dispatch watchers and propagate repaint/layout invalidation in runtime flow.
+  - Added/validated production reactive enqueue path from widget code (`Checkbox`) so runtime queue usage is not test-only.
+  - Wired worker processing into runtime loop: `process_worker_requests()` output now maps to `Message::WorkerStateChanged` and is dispatched through normal message routing.
+  - Replaced placeholder worker behavior with real background execution via spawned worker jobs, non-blocking completion draining, and deterministic terminal state handling (success/error/cancel/exclusive).
+  - Added/expanded runtime tests for reactive event-loop behavior and worker delivery/execution semantics; verified with `cargo test -q --lib`.
+
 - **P1-14 complete: wire tree-based NodeId across all widgets**
   - Added `node_id()` default method to Widget trait, reading from dispatch context so widgets can identify themselves without storing an ID field.
   - Set dispatch context guard in `render_styled_dyn_obj()` so `self.node_id()` works during rendering.

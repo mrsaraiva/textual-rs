@@ -915,6 +915,7 @@ impl Widget for HorizontalGroup {
 
 pub struct VerticalScroll {
     child: Container,
+    children_extracted: bool,
     focused: bool,
     height: Option<usize>,
     offset_y: usize,
@@ -929,6 +930,7 @@ impl VerticalScroll {
     pub fn new() -> Self {
         Self {
             child: Container::new(),
+            children_extracted: false,
             focused: false,
             height: None,
             offset_y: 0,
@@ -974,6 +976,10 @@ impl VerticalScroll {
         self
     }
 
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
+    }
+
     fn max_offset(&self) -> usize {
         let content = self.content_height.load(Ordering::Relaxed);
         let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
@@ -992,6 +998,9 @@ impl VerticalScroll {
     }
 
     fn sync_child_layout(&mut self) {
+        if self.children_extracted {
+            return;
+        }
         let width = self.viewport_width.load(Ordering::Relaxed).max(1) as u16;
         let height = self.viewport_height.load(Ordering::Relaxed).max(1) as u16;
         self.child.on_layout(width, height);
@@ -1004,6 +1013,10 @@ impl Widget for VerticalScroll {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
         self.child.take_composed_children()
     }
 
@@ -1013,7 +1026,9 @@ impl Widget for VerticalScroll {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        self.child.set_focus(focused);
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -1026,6 +1041,56 @@ impl Widget for VerticalScroll {
         self.viewport_width.store(width, Ordering::Relaxed);
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
+
+        if self.is_tree_mode() {
+            // In tree mode, children are managed by the tree. Render scroll
+            // chrome (background + scrollbar) based on stored content dimensions.
+            let content_h = self.content_height.load(Ordering::Relaxed);
+            let show_v = content_h > viewport_height;
+            const V_SCROLLBAR_SIZE: usize = 2;
+            let content_viewport_w = width
+                .saturating_sub(if show_v {
+                    V_SCROLLBAR_SIZE.min(width.saturating_sub(1))
+                } else {
+                    0
+                })
+                .max(1);
+
+            let mut slice: Vec<Vec<Segment>> = (0..viewport_height)
+                .map(|_| vec![Segment::new(" ".repeat(content_viewport_w))])
+                .collect();
+
+            if show_v {
+                let (track_style, thumb_style) = scrollbar_styles();
+                let track_len = viewport_height.max(1);
+                let offset = self.offset_y.min(self.max_offset());
+                let (thumb_start, thumb_len) =
+                    scrollbar_thumb(track_len, content_h, viewport_height, offset);
+                let bar_width = width.saturating_sub(content_viewport_w).max(1);
+                for (row, line) in slice.iter_mut().enumerate() {
+                    let style =
+                        if row < track_len && row >= thumb_start && row < thumb_start + thumb_len {
+                            thumb_style
+                        } else {
+                            track_style
+                        };
+                    for _ in 0..bar_width {
+                        line.push(Segment::styled(" ".to_string(), style));
+                    }
+                }
+            }
+
+            let slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+            let line_count = slice.len();
+            let mut out = Segments::new();
+            for (idx, line) in slice.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
 
         let constraints = self.child.layout_constraints();
         const V_SCROLLBAR_SIZE: usize = 2;
@@ -1146,37 +1211,52 @@ impl Widget for VerticalScroll {
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
         self.viewport_width.store(width as usize, Ordering::Relaxed);
         self.viewport_height
             .store(height as usize, Ordering::Relaxed);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.viewport_width.store(width as usize, Ordering::Relaxed);
         self.viewport_height
             .store(height as usize, Ordering::Relaxed);
-        self.child.on_layout(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_layout(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.sync_child_layout();
+        if !self.is_tree_mode() {
+            self.sync_child_layout();
+        }
+        // Scroll actions are handled regardless of tree mode.
         if let Event::Action(action) = event {
             match action {
                 Action::ScrollHome => {
@@ -1213,6 +1293,10 @@ impl Widget for VerticalScroll {
                 }
                 _ => {}
             }
+        }
+        // In tree mode, do not dispatch events to extracted children.
+        if self.is_tree_mode() {
+            return;
         }
         let child_event = match event {
             Event::MouseDown(mouse) => {
@@ -1270,13 +1354,30 @@ impl Widget for VerticalScroll {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
         self.sync_child_layout();
         let (child_x, child_y) = self.child_coords(x, y);
         self.child.on_mouse_move(child_x, child_y)
     }
 
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset_y)
+    }
+
+    fn clips_descendants_to_content(&self) -> bool {
+        true
+    }
+
     fn layout_height(&self) -> Option<usize> {
-        self.height.or_else(|| self.child.layout_height())
+        self.height.or_else(|| {
+            if self.is_tree_mode() {
+                None
+            } else {
+                self.child.layout_height()
+            }
+        })
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1376,6 +1477,18 @@ impl Widget for ScrollableContainer {
         self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.inner.on_mouse_move(x, y)
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        self.inner.scroll_offset()
+    }
+
+    fn clips_descendants_to_content(&self) -> bool {
+        self.inner.clips_descendants_to_content()
+    }
+
     fn layout_height(&self) -> Option<usize> {
         self.inner.layout_height()
     }
@@ -1391,6 +1504,7 @@ impl Widget for ScrollableContainer {
 
 pub struct HorizontalScroll {
     child: Container,
+    children_extracted: bool,
     focused: bool,
     height: Option<usize>,
     offset_x: usize,
@@ -1404,6 +1518,7 @@ impl HorizontalScroll {
     pub fn new() -> Self {
         Self {
             child: Container::new(),
+            children_extracted: false,
             focused: false,
             height: None,
             offset_x: 0,
@@ -1448,6 +1563,10 @@ impl HorizontalScroll {
         self
     }
 
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
+    }
+
     fn max_offset(&self) -> usize {
         let content = self.content_width.load(Ordering::Relaxed);
         let viewport = self.viewport_width.load(Ordering::Relaxed).max(1);
@@ -1468,6 +1587,10 @@ impl Widget for HorizontalScroll {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
         self.child.take_composed_children()
     }
 
@@ -1477,6 +1600,9 @@ impl Widget for HorizontalScroll {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
+        if !self.is_tree_mode() {
+            self.child.set_focus(focused);
+        }
     }
 
     fn has_focus(&self) -> bool {
@@ -1486,6 +1612,52 @@ impl Widget for HorizontalScroll {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let viewport_width = options.size.0.max(1);
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1)).max(1);
+        self.viewport_width.store(viewport_width, Ordering::Relaxed);
+
+        if self.is_tree_mode() {
+            // In tree mode, children are managed by the tree. Render scroll
+            // chrome (background + scrollbar) based on stored content dimensions.
+            let content_w = self.content_width.load(Ordering::Relaxed);
+            let show_h = content_w > viewport_width;
+            const H_SCROLLBAR_SIZE: usize = 1;
+            let content_viewport_h = viewport_height
+                .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                .max(1);
+
+            let mut slice: Vec<Vec<Segment>> = (0..content_viewport_h)
+                .map(|_| vec![Segment::new(" ".repeat(viewport_width))])
+                .collect();
+
+            if show_h {
+                let (track_style, thumb_style) = scrollbar_styles();
+                let offset = self.offset_x.min(self.max_offset());
+                let (thumb_start, thumb_len) =
+                    scrollbar_thumb(viewport_width, content_w, viewport_width, offset);
+                let mut row = Vec::new();
+                for col in 0..viewport_width {
+                    let style = if col >= thumb_start && col < thumb_start + thumb_len {
+                        thumb_style
+                    } else {
+                        track_style
+                    };
+                    row.push(Segment::styled(" ".to_string(), style));
+                }
+                slice.push(row);
+            }
+
+            let slice =
+                Segment::set_shape(&slice, viewport_width, Some(viewport_height), None, false);
+            let line_count = slice.len();
+            let mut out = Segments::new();
+            for (idx, line) in slice.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
         const H_SCROLLBAR_SIZE: usize = 1;
         let constraints = self.child.layout_constraints();
         let (track_style, thumb_style) = scrollbar_styles();
@@ -1548,7 +1720,6 @@ impl Widget for HorizontalScroll {
             show_h = next_show_h;
         }
 
-        self.viewport_width.store(viewport_width, Ordering::Relaxed);
         self.content_width.store(content_width, Ordering::Relaxed);
 
         let max_offset = content_width.saturating_sub(viewport_width);
@@ -1598,30 +1769,43 @@ impl Widget for HorizontalScroll {
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.child.on_layout(width, height);
+        if !self.is_tree_mode() {
+            self.child.on_layout(width, height);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        // Scroll actions are handled regardless of tree mode.
         if let Event::Action(action) = event {
             match action {
                 Action::ScrollHome => {
@@ -1659,6 +1843,10 @@ impl Widget for HorizontalScroll {
                 _ => {}
             }
         }
+        // In tree mode, do not dispatch events to extracted children.
+        if self.is_tree_mode() {
+            return;
+        }
         self.child.on_event(event, ctx);
     }
 
@@ -1675,8 +1863,29 @@ impl Widget for HorizontalScroll {
         }
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
+        self.child.on_mouse_move(x, y)
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (self.offset_x, 0)
+    }
+
+    fn clips_descendants_to_content(&self) -> bool {
+        true
+    }
+
     fn layout_height(&self) -> Option<usize> {
-        self.height.or_else(|| self.child.layout_height())
+        self.height.or_else(|| {
+            if self.is_tree_mode() {
+                None
+            } else {
+                self.child.layout_height()
+            }
+        })
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1785,5 +1994,161 @@ impl Widget for ItemGrid {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         self.inner.styles_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::{Action, EventCtx};
+    use crate::prelude::Label;
+    use rich_rs::{Console, ConsoleOptions, Segment};
+    use std::sync::atomic::Ordering;
+
+    // ─── VerticalScroll ──────────────────────────────────────────────
+
+    #[test]
+    fn vscroll_tree_mode_render_produces_output() {
+        let mut vs = VerticalScroll::new()
+            .with_child(Label::new("a"))
+            .with_child(Label::new("b"));
+        let children = vs.take_composed_children();
+        assert!(children.len() >= 2);
+        assert!(vs.is_tree_mode());
+
+        // Simulate content taller than viewport so scrollbar appears.
+        vs.content_height.store(100, Ordering::Relaxed);
+
+        let console = Console::default();
+        let mut opts = ConsoleOptions::default();
+        opts.size = (20, 10);
+        opts.max_width = 20;
+        opts.max_height = 10;
+
+        let segments = Widget::render(&vs, &console, &opts);
+        let lines = Segment::split_and_crop_lines(segments, 20, None, true, false);
+        assert_eq!(
+            lines.len(),
+            10,
+            "tree-mode render must produce viewport-height lines"
+        );
+        let has_styled = lines.iter().any(|line| line.len() > 1);
+        assert!(
+            has_styled,
+            "tree-mode render should include scrollbar chrome"
+        );
+    }
+
+    #[test]
+    fn vscroll_scroll_offset_and_clip() {
+        let mut vs = VerticalScroll::new().with_child(Label::new("a"));
+        vs.offset_y = 7;
+        let _ = vs.take_composed_children();
+        assert!(vs.is_tree_mode());
+
+        assert_eq!(vs.scroll_offset(), (0, 7));
+        assert!(vs.clips_descendants_to_content());
+    }
+
+    #[test]
+    fn vscroll_tree_mode_scroll_actions() {
+        let mut vs = VerticalScroll::new().with_child(Label::new("a"));
+        let _ = vs.take_composed_children();
+        vs.content_height.store(100, Ordering::Relaxed);
+        vs.viewport_height.store(10, Ordering::Relaxed);
+
+        let mut ctx = EventCtx::default();
+        vs.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        assert!(ctx.handled());
+        assert!(vs.offset_y > 0, "ScrollDown should increase offset_y");
+
+        let mut ctx2 = EventCtx::default();
+        vs.on_event(&Event::Action(Action::ScrollHome), &mut ctx2);
+        assert!(ctx2.handled());
+        assert_eq!(vs.offset_y, 0, "ScrollHome should reset offset_y");
+    }
+
+    #[test]
+    fn vscroll_take_composed_children_idempotent() {
+        let mut vs = VerticalScroll::new().with_child(Label::new("a"));
+        let first = vs.take_composed_children();
+        assert_eq!(first.len(), 1);
+        let second = vs.take_composed_children();
+        assert!(second.is_empty(), "second extraction must return empty");
+    }
+
+    // ─── HorizontalScroll ────────────────────────────────────────────
+
+    #[test]
+    fn hscroll_tree_mode_render_produces_output() {
+        let mut hs = HorizontalScroll::new().with_child(Label::new("wide content here"));
+        let children = hs.take_composed_children();
+        assert!(!children.is_empty());
+        assert!(hs.is_tree_mode());
+
+        // Simulate content wider than viewport so scrollbar appears.
+        hs.content_width.store(100, Ordering::Relaxed);
+
+        let console = Console::default();
+        let mut opts = ConsoleOptions::default();
+        opts.size = (20, 10);
+        opts.max_width = 20;
+        opts.max_height = 10;
+
+        let segments = Widget::render(&hs, &console, &opts);
+        let lines = Segment::split_and_crop_lines(segments, 20, None, true, false);
+        assert_eq!(
+            lines.len(),
+            10,
+            "tree-mode render must produce viewport-height lines"
+        );
+    }
+
+    #[test]
+    fn hscroll_scroll_offset_and_clip() {
+        let mut hs = HorizontalScroll::new().with_child(Label::new("a"));
+        hs.offset_x = 3;
+        let _ = hs.take_composed_children();
+        assert!(hs.is_tree_mode());
+
+        assert_eq!(hs.scroll_offset(), (3, 0));
+        assert!(hs.clips_descendants_to_content());
+    }
+
+    #[test]
+    fn hscroll_tree_mode_scroll_actions() {
+        let mut hs = HorizontalScroll::new().with_child(Label::new("a"));
+        let _ = hs.take_composed_children();
+        hs.content_width.store(100, Ordering::Relaxed);
+        hs.viewport_width.store(20, Ordering::Relaxed);
+
+        let mut ctx = EventCtx::default();
+        hs.on_event(&Event::Action(Action::ScrollRight), &mut ctx);
+        assert!(ctx.handled());
+        assert!(hs.offset_x > 0, "ScrollRight should increase offset_x");
+
+        let mut ctx2 = EventCtx::default();
+        hs.on_event(&Event::Action(Action::ScrollHome), &mut ctx2);
+        assert!(ctx2.handled());
+        assert_eq!(hs.offset_x, 0, "ScrollHome should reset offset_x");
+    }
+
+    #[test]
+    fn hscroll_take_composed_children_idempotent() {
+        let mut hs = HorizontalScroll::new().with_child(Label::new("a"));
+        let first = hs.take_composed_children();
+        assert_eq!(first.len(), 1);
+        let second = hs.take_composed_children();
+        assert!(second.is_empty(), "second extraction must return empty");
+    }
+
+    // ─── ScrollableContainer ─────────────────────────────────────────
+
+    #[test]
+    fn scrollable_container_forwards_scroll_offset() {
+        let mut sc = ScrollableContainer::new().with_child(Label::new("a"));
+        let _ = sc.take_composed_children();
+        assert_eq!(sc.scroll_offset(), (0, 0));
+        assert!(sc.clips_descendants_to_content());
     }
 }
