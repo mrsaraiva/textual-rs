@@ -56,7 +56,12 @@ impl TextualApp for InputValidationApp {
         Ok(())
     }
 
-    fn on_input_changed(&mut self, _value: &str, validation: &ValidationResult, ctx: &mut EventCtx) {
+    fn on_input_changed(
+        &mut self,
+        _value: &str,
+        validation: &ValidationResult,
+        ctx: &mut EventCtx,
+    ) {
         let next = if validation.is_valid {
             Vec::new()
         } else {

@@ -7,7 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
-### 2026-02-17
+### 2026-02-14
+- **feat(runtime): app-level `on_key` hook and CSS selector query API**
+  - Added `TextualApp::on_key()` capture-phase hook for app-level key interception (mirrors Python Textual's app-level key handling). Wired through `TextualAppAdapter::on_event_capture` and tree-mode `dispatch_event_auto`.
+  - Added `App::query()`, `query_one()`, `with_widget_mut()`, `with_query_one_mut()` for CSS-selector-based widget tree queries and scoped mutation.
+  - Tree-mode `dispatch_event_auto` now runs root key capture before tree dispatch and root action fallback after unhandled tree dispatch.
+  - Examples `keys.rs` and `rich_log.rs` rewritten to use `on_key` hook with `Arc<Mutex<RichLog>>` shared state, eliminating widget-level key interception wrappers.
+  - Added regression tests for all new APIs (key hook capture/passthrough, tree dispatch integration, query/query_one delegation, with_query_one_mut mutation).
+
+### 2026-02-14
 - **feat(widgets): TabbedContent tree-mode parity — child extraction, action routing, binding hints**
   - TabbedContent now supports tree-mode child extraction for runtime-managed widget trees, with `show_tab` action routing, initial tab selection, and keyboard/mouse activation.
   - Added `dispatch_event_broadcast_tree()` for runtime-global events (binding-hint payload changes) so non-focused widgets like Footer receive notifications.

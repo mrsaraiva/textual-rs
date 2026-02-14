@@ -7,6 +7,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
+use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
@@ -63,6 +64,12 @@ pub trait TextualApp: Send + 'static {
 
     /// App-level action hook. Called after widget dispatch if the event was not handled.
     fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {}
+
+    /// App-level key hook.
+    ///
+    /// Called during capture phase before child widgets, allowing global key
+    /// interception akin to Python Textual's app-level key handling.
+    fn on_key(&mut self, _key: &KeyEventData, _ctx: &mut EventCtx) {}
 
     /// App-level message hook. Called after widget message dispatch if not handled.
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
@@ -317,6 +324,15 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::Key(key) = event {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_key(key, ctx);
+            if ctx.handled() {
+                return;
+            }
+        }
         self.child.on_event_capture(event, ctx);
     }
 
@@ -546,7 +562,9 @@ pub fn run_sync_snapshot<T: TextualApp>(definition: T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keys::KeyEventData;
     use crate::node_id::node_id_from_ffi;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -694,6 +712,46 @@ mod tests {
     impl Widget for NoopWidget {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
+        }
+    }
+
+    struct CaptureProbe {
+        capture_hits: Arc<AtomicUsize>,
+    }
+
+    impl CaptureProbe {
+        fn new(capture_hits: Arc<AtomicUsize>) -> Self {
+            Self { capture_hits }
+        }
+    }
+
+    impl Widget for CaptureProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_event_capture(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            if matches!(event, Event::Key(_)) {
+                self.capture_hits.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    struct KeyHookApp {
+        key_hits: Arc<AtomicUsize>,
+        handle_key: bool,
+    }
+
+    impl TextualApp for KeyHookApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn on_key(&mut self, _key: &KeyEventData, ctx: &mut EventCtx) {
+            self.key_hits.fetch_add(1, Ordering::SeqCst);
+            if self.handle_key {
+                ctx.set_handled();
+            }
         }
     }
 
@@ -954,5 +1012,53 @@ mod tests {
                 visible: false,
             }) if overlay == first
         ));
+    }
+
+    #[test]
+    fn on_key_hook_runs_before_child_capture_and_can_handle() {
+        let key_hits = Arc::new(AtomicUsize::new(0));
+        let capture_hits = Arc::new(AtomicUsize::new(0));
+        let app = Arc::new(Mutex::new(KeyHookApp {
+            key_hits: key_hits.clone(),
+            handle_key: true,
+        }));
+        let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
+        let mut ctx = EventCtx::default();
+
+        adapter.on_event_capture(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert_eq!(key_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(capture_hits.load(Ordering::SeqCst), 0);
+        assert!(ctx.handled());
+    }
+
+    #[test]
+    fn on_key_hook_passthrough_allows_child_capture() {
+        let key_hits = Arc::new(AtomicUsize::new(0));
+        let capture_hits = Arc::new(AtomicUsize::new(0));
+        let app = Arc::new(Mutex::new(KeyHookApp {
+            key_hits: key_hits.clone(),
+            handle_key: false,
+        }));
+        let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
+        let mut ctx = EventCtx::default();
+
+        adapter.on_event_capture(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert_eq!(key_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(capture_hits.load(Ordering::SeqCst), 1);
+        assert!(!ctx.handled());
     }
 }

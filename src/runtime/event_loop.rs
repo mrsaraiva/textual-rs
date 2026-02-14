@@ -308,9 +308,7 @@ fn sync_widget_controlled_child_display_tree(tree: &mut crate::widget_tree::Widg
     for (node_id, display) in updates {
         let before = tree.is_displayed(node_id);
         tree.set_runtime_display(node_id, display);
-        if !display
-            && let Some(node) = tree.get_mut(node_id)
-        {
+        if !display && let Some(node) = tree.get_mut(node_id) {
             node.widget.set_focus(false);
         }
         if before != tree.is_displayed(node_id) {
@@ -2524,8 +2522,75 @@ impl App {
     /// Dispatch an event via tree mode, or root-only mode when no tree exists.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
+            // In tree mode, the root widget (e.g. TextualAppAdapter) is not mounted
+            // in the arena, so app-level hooks on root would otherwise be skipped.
+            // Run key capture on root first, then route through tree.
+            let mut root_capture_ctx = EventCtx::default();
+            if matches!(&event, Event::Key(..)) {
+                root.on_event_capture(&event, &mut root_capture_ctx);
+                if root_capture_ctx.handled() {
+                    return DispatchOutcome {
+                        handled: root_capture_ctx.handled(),
+                        repaint_requested: root_capture_ctx.repaint_requested(),
+                        invalidation: root_capture_ctx.invalidation(),
+                        stop_requested: root_capture_ctx.stop_requested(),
+                        messages: root_capture_ctx.take_messages(),
+                        animation_requests: root_capture_ctx.take_animation_requests(),
+                        worker_requests: root_capture_ctx.take_worker_requests(),
+                        default_prevented: false,
+                    };
+                }
+            }
+
             let focused = focused_node_id_tree(tree);
-            dispatch_event_tree(tree, focused, &event)
+            let mut outcome = dispatch_event_tree(tree, focused, &event);
+
+            // Merge root key-capture side effects (if any) while preserving
+            // ordering: root-capture emissions happen before tree dispatch.
+            if matches!(&event, Event::Key(..)) {
+                outcome.handled |= root_capture_ctx.handled();
+                outcome.repaint_requested |= root_capture_ctx.repaint_requested();
+                outcome.invalidation.merge(root_capture_ctx.invalidation());
+                outcome.stop_requested |= root_capture_ctx.stop_requested();
+
+                let mut root_messages = root_capture_ctx.take_messages();
+                if !root_messages.is_empty() {
+                    root_messages.extend(outcome.messages);
+                    outcome.messages = root_messages;
+                }
+
+                let mut root_animation_requests = root_capture_ctx.take_animation_requests();
+                if !root_animation_requests.is_empty() {
+                    root_animation_requests.extend(outcome.animation_requests);
+                    outcome.animation_requests = root_animation_requests;
+                }
+
+                let mut root_worker_requests = root_capture_ctx.take_worker_requests();
+                if !root_worker_requests.is_empty() {
+                    root_worker_requests.extend(outcome.worker_requests);
+                    outcome.worker_requests = root_worker_requests;
+                }
+            }
+
+            // Preserve adapter-style app action fallback in tree mode:
+            // run root.on_event only when tree dispatch didn't handle Action.
+            if !outcome.handled && matches!(&event, Event::Action(..)) {
+                let mut root_action_ctx = EventCtx::default();
+                root.on_event(&event, &mut root_action_ctx);
+                outcome.handled |= root_action_ctx.handled();
+                outcome.repaint_requested |= root_action_ctx.repaint_requested();
+                outcome.invalidation.merge(root_action_ctx.invalidation());
+                outcome.stop_requested |= root_action_ctx.stop_requested();
+                outcome.messages.extend(root_action_ctx.take_messages());
+                outcome
+                    .animation_requests
+                    .extend(root_action_ctx.take_animation_requests());
+                outcome
+                    .worker_requests
+                    .extend(root_action_ctx.take_worker_requests());
+            }
+
+            outcome
         } else {
             dispatch_event(root, event)
         }
@@ -2742,6 +2807,7 @@ mod tests {
     };
     use crate::css::StyleSheet;
     use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
+    use crate::keys::KeyEventData;
     use crate::message::{Message, MessageEvent};
     use crate::node_id::{NodeId, node_id_from_ffi};
     use crate::reactive::{
@@ -2750,6 +2816,7 @@ mod tests {
     };
     use crate::style::{Offset, OffsetValue, PropertyTransition, Style, TransitionTiming};
     use crate::widgets::{AppRoot, Widget};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
     use std::sync::{
@@ -2775,6 +2842,55 @@ mod tests {
         }
     }
 
+    struct RootHookProbe {
+        key_hits: Arc<AtomicUsize>,
+        action_hits: Arc<AtomicUsize>,
+        handle_key: bool,
+    }
+
+    impl Widget for RootHookProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if matches!(event, Event::Key(..)) {
+                self.key_hits.fetch_add(1, Ordering::SeqCst);
+                if self.handle_key {
+                    ctx.set_handled();
+                }
+            }
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if matches!(event, Event::Action(..)) {
+                self.action_hits.fetch_add(1, Ordering::SeqCst);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    struct TreeEventProbe {
+        focused: bool,
+        capture_hits: Arc<AtomicUsize>,
+    }
+
+    impl Widget for TreeEventProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn on_event_capture(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            if matches!(event, Event::Key(..)) {
+                self.capture_hits.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
     #[test]
     fn binding_hints_dispatch_when_hint_payload_changes() {
         let last_hints = vec![BindingHint::new("tab", "next")];
@@ -2791,6 +2907,117 @@ mod tests {
             &current_hints,
             &current_sources,
         ));
+    }
+
+    #[test]
+    fn dispatch_event_auto_tree_runs_root_key_capture_and_tree_dispatch() {
+        let root_key_hits = Arc::new(AtomicUsize::new(0));
+        let root_action_hits = Arc::new(AtomicUsize::new(0));
+        let tree_root_capture_hits = Arc::new(AtomicUsize::new(0));
+        let tree_focused_capture_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let tree_root = tree.set_root(Box::new(TreeEventProbe {
+            focused: false,
+            capture_hits: Arc::clone(&tree_root_capture_hits),
+        }));
+        tree.mount(
+            tree_root,
+            Box::new(TreeEventProbe {
+                focused: true,
+                capture_hits: Arc::clone(&tree_focused_capture_hits),
+            }),
+        );
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = RootHookProbe {
+            key_hits: Arc::clone(&root_key_hits),
+            action_hits: Arc::clone(&root_action_hits),
+            handle_key: false,
+        };
+
+        let outcome = app.dispatch_event_auto(
+            &mut runtime_root,
+            Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))),
+        );
+
+        assert_eq!(root_key_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(tree_root_capture_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(tree_focused_capture_hits.load(Ordering::SeqCst), 1);
+        assert!(!outcome.handled);
+        assert_eq!(root_action_hits.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dispatch_event_auto_tree_root_key_handle_short_circuits_tree_dispatch() {
+        let root_key_hits = Arc::new(AtomicUsize::new(0));
+        let root_action_hits = Arc::new(AtomicUsize::new(0));
+        let tree_root_capture_hits = Arc::new(AtomicUsize::new(0));
+        let tree_focused_capture_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let tree_root = tree.set_root(Box::new(TreeEventProbe {
+            focused: false,
+            capture_hits: Arc::clone(&tree_root_capture_hits),
+        }));
+        tree.mount(
+            tree_root,
+            Box::new(TreeEventProbe {
+                focused: true,
+                capture_hits: Arc::clone(&tree_focused_capture_hits),
+            }),
+        );
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = RootHookProbe {
+            key_hits: Arc::clone(&root_key_hits),
+            action_hits: Arc::clone(&root_action_hits),
+            handle_key: true,
+        };
+
+        let outcome = app.dispatch_event_auto(
+            &mut runtime_root,
+            Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::NONE,
+            ))),
+        );
+
+        assert_eq!(root_key_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(tree_root_capture_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(tree_focused_capture_hits.load(Ordering::SeqCst), 0);
+        assert!(outcome.handled);
+        assert_eq!(root_action_hits.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dispatch_event_auto_tree_runs_root_action_fallback_when_unhandled() {
+        let root_key_hits = Arc::new(AtomicUsize::new(0));
+        let root_action_hits = Arc::new(AtomicUsize::new(0));
+        let tree_capture_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        tree.set_root(Box::new(TreeEventProbe {
+            focused: true,
+            capture_hits: Arc::clone(&tree_capture_hits),
+        }));
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = RootHookProbe {
+            key_hits: Arc::clone(&root_key_hits),
+            action_hits: Arc::clone(&root_action_hits),
+            handle_key: false,
+        };
+
+        let outcome = app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::HelpQuit));
+
+        assert_eq!(root_action_hits.load(Ordering::SeqCst), 1);
+        assert!(outcome.handled);
+        assert_eq!(root_key_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(tree_capture_hits.load(Ordering::SeqCst), 0);
     }
 
     #[test]

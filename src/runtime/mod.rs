@@ -30,7 +30,7 @@ use crate::node_id::node_id_to_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
 use crate::style::Theme;
-use crate::widget_tree::WidgetTree;
+use crate::widget_tree::{QueryError, WidgetTree};
 use crate::widgets::{ToastSeverity, Widget};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -206,6 +206,63 @@ impl App {
     /// Return current runtime pseudo-class flags (`inline`, `ansi`, `nocolor`).
     pub fn css_runtime_pseudos(&self) -> (bool, bool, bool) {
         (self.app_inline, self.app_ansi, self.app_nocolor)
+    }
+
+    /// Query nodes in the active arena tree using a CSS selector.
+    ///
+    /// Returns matching `NodeId`s in tree traversal order.
+    pub fn query(&self, selector: &str) -> std::result::Result<Vec<NodeId>, QueryError> {
+        match self.widget_tree.as_ref() {
+            Some(tree) => tree.query(selector),
+            None => {
+                // Preserve selector validation semantics even when no tree exists.
+                if crate::css::parse_selector_list(selector).is_empty() {
+                    Err(QueryError::ParseError(format!(
+                        "invalid selector: {selector}"
+                    )))
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+
+    /// Query exactly one node in the active arena tree.
+    pub fn query_one(&self, selector: &str) -> std::result::Result<NodeId, QueryError> {
+        match self.widget_tree.as_ref() {
+            Some(tree) => tree.query_one(selector),
+            None => {
+                if crate::css::parse_selector_list(selector).is_empty() {
+                    Err(QueryError::ParseError(format!(
+                        "invalid selector: {selector}"
+                    )))
+                } else {
+                    Err(QueryError::NoMatch)
+                }
+            }
+        }
+    }
+
+    /// Borrow a widget mutably by node id for a scoped update.
+    pub fn with_widget_mut<R>(
+        &mut self,
+        node_id: NodeId,
+        f: impl FnOnce(&mut dyn Widget) -> R,
+    ) -> Option<R> {
+        self.widget_tree
+            .as_mut()?
+            .get_mut(node_id)
+            .map(|node| f(node.widget.as_mut()))
+    }
+
+    /// Query one widget by selector and borrow it mutably for a scoped update.
+    pub fn with_query_one_mut<R>(
+        &mut self,
+        selector: &str,
+        f: impl FnOnce(&mut dyn Widget) -> R,
+    ) -> std::result::Result<R, QueryError> {
+        let node_id = self.query_one(selector)?;
+        self.with_widget_mut(node_id, f).ok_or(QueryError::NoMatch)
     }
 
     /// Build the arena-based widget tree by extracting children from the root widget.
@@ -1204,7 +1261,8 @@ impl Widget for TreeStubWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets::{AppRoot, Label};
+    use crate::widget_tree::QueryError;
+    use crate::widgets::{AppRoot, Button, Label};
 
     #[test]
     fn choose_deeper_target_prefers_tree_descendant_over_frame_ancestor() {
@@ -1258,5 +1316,52 @@ mod tests {
 
         assert!(hit_test_contains_point(&hit_test, target, 5, 5));
         assert!(!hit_test_contains_point(&hit_test, target, 11, 5));
+    }
+
+    #[test]
+    fn app_query_and_query_one_delegate_to_tree_selectors() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let primary = tree.mount(root, Box::new(Button::new("primary")));
+        let _secondary = tree.mount(root, Box::new(Button::new("secondary")));
+        tree.add_class(primary, "primary");
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let all_buttons = app.query("Button").expect("selector should parse");
+        assert_eq!(all_buttons.len(), 2);
+        let selected = app.query_one(".primary").expect("exact selector match");
+        assert_eq!(selected, primary);
+    }
+
+    #[test]
+    fn app_query_methods_validate_selectors_without_tree() {
+        let app = App::new().expect("app should initialize");
+
+        assert!(matches!(app.query(""), Err(QueryError::ParseError(_))));
+        assert!(matches!(app.query_one(""), Err(QueryError::ParseError(_))));
+        assert!(matches!(app.query_one("Button"), Err(QueryError::NoMatch)));
+    }
+
+    #[test]
+    fn app_with_query_one_mut_updates_widget_state() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let target = tree.mount(root, Box::new(Button::new("focus me")));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.with_query_one_mut("Button", |widget| widget.set_focus(true))
+            .expect("target should exist");
+
+        let focused = app
+            .widget_tree
+            .as_ref()
+            .and_then(|tree| tree.get(target))
+            .map(|node| node.widget.has_focus())
+            .unwrap_or(false);
+        assert!(focused);
     }
 }
