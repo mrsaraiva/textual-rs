@@ -118,9 +118,8 @@ impl Overlay {
             return;
         }
         self.visible = visible;
-        // TODO: In tree mode, visibility changes should propagate to the modal
-        // child's display state via the tree arena. For now, we keep the local
-        // flag and post the message so the rest of the system can react.
+        // Runtime consumes OverlayVisibilityChanged and toggles modal subtree
+        // `display` in tree mode.
         ctx.post_message(Message::OverlayVisibilityChanged(
             OverlayVisibilityChanged {
                 overlay: self.node_id(),
@@ -239,7 +238,6 @@ impl Widget for Overlay {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if self.is_tree_mode() {
             // Tree mode: handle overlay-specific behavior only.
-            // TODO: Integrate visibility with tree display state for proper modal hiding.
             if self.dismiss_on_escape
                 && matches!(
                     event,

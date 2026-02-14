@@ -257,6 +257,30 @@ fn collect_clipboard_runtime_messages_with_backend(
 struct RuntimeMessagePass {
     deliver: Vec<MessageEvent>,
     generated: Vec<MessageEvent>,
+    repaint_requested: bool,
+    invalidation: crate::event::InvalidationFlags,
+}
+
+fn set_overlay_modal_display_tree(
+    tree: &mut crate::widget_tree::WidgetTree,
+    overlay: NodeId,
+    visible: bool,
+) -> bool {
+    let modal_root = match tree.children(overlay).get(1).copied() {
+        Some(id) => id,
+        None => return false,
+    };
+    let node_ids = tree.walk_depth_first(modal_root);
+    let mut changed = false;
+    for node_id in node_ids {
+        if let Some(node) = tree.get_mut(node_id)
+            && node.display != visible
+        {
+            node.display = visible;
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> RuntimeMessagePass {
@@ -294,6 +318,19 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
                 if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
                     pass.generated.push(cancelled);
                 }
+            }
+            Message::OverlayVisibilityChanged(crate::message::OverlayVisibilityChanged {
+                overlay,
+                visible,
+            }) => {
+                if let Some(tree) = app.widget_tree.as_mut()
+                    && set_overlay_modal_display_tree(tree, overlay, visible)
+                {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+                pass.deliver.push(event);
             }
             _ => pass.deliver.push(event),
         }
@@ -946,6 +983,8 @@ impl App {
         let mut queue = initial;
         loop {
             let pass = split_runtime_control_messages(self, queue);
+            aggregate.repaint_requested |= pass.repaint_requested;
+            aggregate.invalidation.merge(pass.invalidation);
             let mut runtime_messages =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
             runtime_messages.extend(pass.generated);
@@ -2641,8 +2680,8 @@ mod tests {
     use super::{
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
         collect_stylesheet_affected_widgets_root, focused_help_message,
-        should_dispatch_binding_hints, should_dispatch_focused_help,
-        transition_requests_for_style_change,
+        set_overlay_modal_display_tree, should_dispatch_binding_hints,
+        should_dispatch_focused_help, transition_requests_for_style_change,
     };
     use crate::css::StyleSheet;
     use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
@@ -3007,6 +3046,52 @@ mod tests {
 
         assert!(!affected_active.is_empty());
         assert!(affected_inactive.is_empty());
+    }
+
+    #[test]
+    fn overlay_visibility_hides_modal_subtree_display_in_tree_mode() {
+        let root_node = StyleNode::new("Container").with_child(
+            StyleNode::new("Overlay")
+                .with_child(StyleNode::new("Base"))
+                .with_child(StyleNode::new("Modal").with_child(StyleNode::new("ModalBody"))),
+        );
+        let (mut tree, root_id) = build_tree_from_style_node(root_node);
+        let overlay_id = tree.children(root_id)[0];
+        let base_id = tree.children(overlay_id)[0];
+        let modal_id = tree.children(overlay_id)[1];
+        let modal_body_id = tree.children(modal_id)[0];
+
+        assert!(set_overlay_modal_display_tree(&mut tree, overlay_id, false));
+        assert!(
+            tree.get(base_id).unwrap().display,
+            "base child stays displayed"
+        );
+        assert!(!tree.get(modal_id).unwrap().display, "modal root hidden");
+        assert!(
+            !tree.get(modal_body_id).unwrap().display,
+            "modal descendants hidden"
+        );
+    }
+
+    #[test]
+    fn overlay_visibility_show_restores_modal_subtree_display_in_tree_mode() {
+        let root_node = StyleNode::new("Container").with_child(
+            StyleNode::new("Overlay")
+                .with_child(StyleNode::new("Base"))
+                .with_child(StyleNode::new("Modal").with_child(StyleNode::new("ModalBody"))),
+        );
+        let (mut tree, root_id) = build_tree_from_style_node(root_node);
+        let overlay_id = tree.children(root_id)[0];
+        let modal_id = tree.children(overlay_id)[1];
+        let modal_body_id = tree.children(modal_id)[0];
+
+        assert!(set_overlay_modal_display_tree(&mut tree, overlay_id, false));
+        assert!(set_overlay_modal_display_tree(&mut tree, overlay_id, true));
+        assert!(tree.get(modal_id).unwrap().display, "modal root shown");
+        assert!(
+            tree.get(modal_body_id).unwrap().display,
+            "modal descendants shown"
+        );
     }
 
     #[test]

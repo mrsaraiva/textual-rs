@@ -40,6 +40,15 @@ until the API stabilizes.
   - Added runtime unit coverage in `src/runtime/event_loop.rs`:
     - `p2g36_runtime_transition_dispatch_matches_changed_properties`
     - `p2g36_runtime_transition_dispatch_handles_css_hyphen_names`
+- **fix(overlay/tree): wire OverlayVisibilityChanged to modal subtree display state**
+  - Runtime now consumes `OverlayVisibilityChanged` control messages and toggles the overlay modal subtree `display` flag in tree mode, while leaving the base child displayed.
+  - Tree-mode overlay hide/show now triggers layout/content invalidation and repaint through runtime message handling.
+  - Added runtime tests:
+    - `overlay_visibility_hides_modal_subtree_display_in_tree_mode`
+    - `overlay_visibility_show_restores_modal_subtree_display_in_tree_mode`
+  - Removed stale parity/deferred comments:
+    - old `DEFERRED(parity)` note in `tests/container_parity.rs`
+    - outdated tree-mode TODO comments in `src/widgets/containers/overlay.rs`
 - **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
   - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
   - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.
