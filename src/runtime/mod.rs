@@ -1624,6 +1624,29 @@ mod tests {
     use crate::widget_tree::QueryError;
     use crate::widgets::{AppRoot, Button, Label};
     use rich_rs::Segments;
+    use rich_rs::{Console, ConsoleOptions};
+
+    struct StatusProbe {
+        text: String,
+    }
+
+    impl StatusProbe {
+        fn new() -> Self {
+            Self {
+                text: String::new(),
+            }
+        }
+    }
+
+    impl Widget for StatusProbe {
+        fn style_type(&self) -> &'static str {
+            "StatusLine"
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
 
     #[test]
     fn choose_deeper_target_prefers_tree_descendant_over_frame_ancestor() {
@@ -1748,6 +1771,37 @@ mod tests {
             .unwrap_or((false, false));
         assert!(focused);
         assert!(hovered);
+    }
+
+    #[test]
+    fn app_with_query_one_mut_as_updates_typed_widget_by_selector() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root, Box::new(StatusProbe::new()));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let value = app
+            .with_query_one_mut_as::<StatusProbe, _>("StatusLine", |status| {
+                status.text = "updated".to_string();
+                status.text.clone()
+            })
+            .expect("typed selector mutation should succeed");
+        assert_eq!(value, "updated");
+    }
+
+    #[test]
+    fn app_with_query_one_mut_as_returns_no_match_for_type_mismatch() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root, Box::new(StatusProbe::new()));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let result = app.with_query_one_mut_as::<Button, _>("StatusLine", |_| ());
+        assert_eq!(result, Err(QueryError::NoMatch));
     }
 
     #[test]
