@@ -110,8 +110,16 @@ pub(crate) fn color_from_simple(color: rich_rs::SimpleColor) -> Color {
 }
 
 pub fn parse_color_like(value: &str) -> Option<Color> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("transparent") {
+        return Some(Color::rgba(0, 0, 0, 0));
+    }
+    if let Some(color) = parse_textual_ansi_color_name(value) {
+        return Some(color);
+    }
+
     // Fast path: try rich-rs simple color parsing.
-    if let Some(color) = Color::parse(value.trim()) {
+    if let Some(color) = Color::parse(value) {
         return Some(color);
     }
     // Token / variable syntax: `$name` and `$name-lighten-1` / `$name-darken-2`.
@@ -121,6 +129,30 @@ pub fn parse_color_like(value: &str) -> Option<Color> {
         }
     }
     None
+}
+
+fn parse_textual_ansi_color_name(value: &str) -> Option<Color> {
+    match value.to_ascii_lowercase().as_str() {
+        // Textual uses ansi_default to mean terminal default; in composition terms this is transparent.
+        "ansi_default" => Some(Color::rgba(0, 0, 0, 0)),
+        "ansi_black" => Some(Color::rgb(0x00, 0x00, 0x00)),
+        "ansi_red" => Some(Color::rgb(0x80, 0x00, 0x00)),
+        "ansi_green" => Some(Color::rgb(0x00, 0x80, 0x00)),
+        "ansi_yellow" => Some(Color::rgb(0x80, 0x80, 0x00)),
+        "ansi_blue" => Some(Color::rgb(0x00, 0x00, 0x80)),
+        "ansi_magenta" => Some(Color::rgb(0x80, 0x00, 0x80)),
+        "ansi_cyan" => Some(Color::rgb(0x00, 0x80, 0x80)),
+        "ansi_white" => Some(Color::rgb(0xc0, 0xc0, 0xc0)),
+        "ansi_bright_black" => Some(Color::rgb(0x80, 0x80, 0x80)),
+        "ansi_bright_red" => Some(Color::rgb(0xff, 0x00, 0x00)),
+        "ansi_bright_green" => Some(Color::rgb(0x00, 0xff, 0x00)),
+        "ansi_bright_yellow" => Some(Color::rgb(0xff, 0xff, 0x00)),
+        "ansi_bright_blue" => Some(Color::rgb(0x00, 0x00, 0xff)),
+        "ansi_bright_magenta" => Some(Color::rgb(0xff, 0x00, 0xff)),
+        "ansi_bright_cyan" => Some(Color::rgb(0x00, 0xff, 0xff)),
+        "ansi_bright_white" => Some(Color::rgb(0xff, 0xff, 0xff)),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
