@@ -1,159 +1,86 @@
 use textual::compose;
 use textual::prelude::*;
 
-struct TickLabel {
-    tick: u64,
-}
+const EVENTS_MD: &str = r#"## Recent Events
 
-impl TickLabel {
-    fn new() -> Self {
-        Self { tick: 0 }
-    }
-}
+| Time  | Event            | Status  |
+|-------|------------------|---------|
+| 14:23 | Deploy v2.1.0    | Success |
+| 14:15 | Health check     | OK      |
+| 14:02 | Config reload    | Success |
+| 13:58 | Backup started   | Running |
+"#;
 
-impl Widget for TickLabel {
-    fn on_tick(&mut self, tick: u64) {
-        self.tick = tick;
-    }
+struct MissionControl;
 
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
-        Label::new(format!("tick: {}", self.tick)).render(console, options)
-    }
-}
-
-struct MountedLabel {
-    mounted: bool,
-}
-
-impl MountedLabel {
-    fn new() -> Self {
-        Self { mounted: false }
-    }
-}
-
-impl Widget for MountedLabel {
-    fn on_mount(&mut self) {
-        self.mounted = true;
-    }
-
-    fn on_unmount(&mut self) {
-        self.mounted = false;
-    }
-
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
-        Label::new(format!("mounted: {}", self.mounted)).render(console, options)
-    }
-}
-
-struct SizeLabel;
-
-impl SizeLabel {
-    fn new() -> Self {
-        Self
-    }
-}
-
-impl Widget for SizeLabel {
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
-        Label::new(format!("size: {}x{}", options.size.0, options.size.1)).render(console, options)
-    }
-}
-
-struct HelloApp;
-
-impl TextualApp for HelloApp {
+impl TextualApp for MissionControl {
     fn compose(&mut self) -> AppRoot {
-        let mut grid = Grid::new(2, 2);
-        grid.set(0, 0, Label::new("g(0,0)"));
-        grid.set(0, 1, Label::new("g(0,1)"));
-        grid.set(1, 0, Label::new("g(1,0)"));
-        grid.set(1, 1, Label::new("g(1,1)"));
+        // -- Sidebar: System Metrics ------------------------------------------
+        let cpu_data = vec![
+            45.0, 52.0, 48.0, 67.0, 72.0, 58.0, 63.0, 55.0, 70.0, 61.0, 49.0, 75.0, 68.0, 53.0,
+            60.0,
+        ];
 
-        let controls = Constrained::new(
-            Panel::new(Container::new().with_compose(compose![
-                    Constrained::new(ListView::new(vec![
-                        "item one".to_string(),
-                        "item two".to_string(),
-                        "item three".to_string(),
-                    ]))
-                    .min_height(3)
-                    .max_height(3),
-                    Spacer::new(1),
-                    Frame::new(Button::new("Toggle me with Enter/Space")).padding(1),
-                ]))
-            .title("Controls")
-            .padding(1),
-        );
+        let mut disk_bar = ProgressBar::new(Some(100.0));
+        disk_bar.advance(73.0);
 
-        AppRoot::new().with_child(
-            ScrollView::new(AppRoot::new().with_compose(compose![
-                    Label::new("textual-rs demo (widget tree + layout)"),
-                    SizeLabel::new(),
-                    Row::new().with_compose(compose![
-                        Label::new("row: left"),
-                        Label::new("row: right"),
-                    ]),
-                    Dock::new()
-                        .height(5)
-                        .push_top(Some(1), Label::new("dock: top"))
-                        .push_bottom(Some(1), Label::new("dock: bottom"))
-                        .push_left(6, Label::new("dock L"))
-                        .push_right(6, Label::new("dock R"))
-                        .push_fill(Label::new("dock center")),
-                    ScrollView::new(grid).height(4),
-                    Node::new(controls).class("panel").class("controls"),
-                    DataTable::new(
-                        vec!["Name".into(), "Value".into()],
-                        vec![
-                            vec!["Alpha".into(), "1".into()],
-                            vec!["Beta".into(), "2".into()],
-                            vec!["Gamma".into(), "3".into()],
-                        ],
-                    ),
-                    Tree::new(vec![
-                        TreeNode::new("Root")
-                            .with_child(TreeNode::new("Child A"))
-                            .with_child(
-                                TreeNode::new("Child B")
-                                    .expanded(false)
-                                    .with_child(TreeNode::new("Leaf")),
-                            ),
-                        TreeNode::new("Other"),
-                    ]),
-                    Tabs::new()
-                        .with_tab("One", Label::new("first tab"))
-                        .with_tab("Two", Label::new("second tab")),
-                    Markdown::new("# Demo\n\n- Alpha\n- Beta\n\n`inline`"),
-                    Overlay::new(
-                        Label::new("overlay base"),
-                        Frame::new(Label::new("overlay modal")).padding(1),
-                    ),
-                    Input::new().with_placeholder("type here..."),
-                    Checkbox::new("accept terms"),
-                    TickLabel::new(),
-                    MountedLabel::new(),
-                    Spacer::new(1),
-                    Label::new("press ctrl+q to quit"),
-                ]))
-            .scroll_step(2)
-            .scroll_step_x(4),
+        let mut proc_table = DataTable::empty();
+        proc_table.add_columns(["PID", "Name", "CPU%", "Mem"]);
+        proc_table.add_rows([
+            &["1842", "rustc", "24.3", "512M"],
+            &["3201", "cargo", "18.7", "256M"],
+            &["1024", "tmux", "2.1", "48M"],
+            &["2048", "nvim", "5.4", "128M"],
+            &["4096", "zsh", "0.3", "32M"],
+        ]);
+
+        let sidebar = Node::new(Container::new().with_compose(compose![
+            Static::new("System Metrics").class("section-title"),
+            Sparkline::new(cpu_data),
+            Static::new("Disk Usage").class("section-title"),
+            disk_bar,
+            Rule::horizontal(),
+            ScrollView::new(proc_table),
+        ]))
+        .class("sidebar");
+
+        // -- Right column: Tabbed Content -------------------------------------
+        let events_pane = TabPane::new("Events", Markdown::new(EVENTS_MD)).id("events");
+
+        let config_pane = TabPane::new(
+            "Config",
+            Node::new(Container::new().with_compose(compose![
+                Input::new().with_placeholder("Hostname"),
+                Checkbox::new("Enable notifications"),
+                Static::new("Dark mode"),
+                Switch::new(false),
+                Button::primary("Apply"),
+            ]))
+            .class("config-form"),
         )
+        .id("config");
+
+        let tabs = TabbedContent::new()
+            .with_pane(events_pane)
+            .with_pane(config_pane);
+
+        let body = Horizontal::new().with_compose(compose![sidebar, tabs]);
+
+        AppRoot::new()
+            .with_child(Header::new().title("Mission Control — textual-rs"))
+            .with_child(Footer::new())
+            .with_child(body)
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some("demo.css")
+        Some("examples/hello.tcss")
+    }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("e", "show_tab('events')", "Events"),
+            BindingDecl::new("c", "show_tab('config')", "Config"),
+        ]
     }
 }
 
@@ -161,5 +88,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync(HelloApp)
+    run_sync(MissionControl)
 }

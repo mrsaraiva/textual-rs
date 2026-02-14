@@ -352,10 +352,10 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
             let style = resolve_style(node.widget.as_ref(), &meta);
             (style.display, style.visibility)
         };
-        // Apply display: when CSS says Display::None, set node.display = false.
-        // Otherwise (Block or unset) leave it true.
+        // Apply CSS display state. Runtime-controlled display (for example
+        // tab switching) is merged in WidgetTree as `effective = css && runtime`.
         let display_bool = !matches!(display_val, Some(Display::None));
-        tree.set_display(node_id, display_bool);
+        tree.set_css_display(node_id, display_bool);
 
         // Apply visibility.
         let vis = visibility_val.unwrap_or(Visibility::Visible);

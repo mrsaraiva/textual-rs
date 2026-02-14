@@ -124,8 +124,12 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
     let focused_underline_bg = parse_color_like("$surface-lighten-1")
         .expect("focused underline background")
         .to_simple_opaque();
+    let active_underline_fg = parse_color_like("$block-cursor-background")
+        .expect("active underline foreground")
+        .to_simple_opaque();
     assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
+    assert_eq!(active_underline_style.color, Some(active_underline_fg));
 }
 
 #[test]

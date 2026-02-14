@@ -507,12 +507,31 @@ pub fn resolve_layout(
         return;
     }
 
+    // Widgets may reserve internal chrome before child layout (for example
+    // tab bars). Convert that chrome into an inset child-available region.
+    let child_available = if let Some(node_ref) = tree.get(node) {
+        let (top, right, bottom, left) = node_ref.widget.tree_child_content_inset();
+        let x = available.x.saturating_add(left);
+        let y = available.y.saturating_add(top);
+        let horizontal = left.saturating_add(right);
+        let vertical = top.saturating_add(bottom);
+        let width = available.width.saturating_sub(horizontal);
+        let height = available.height.saturating_sub(vertical);
+        Region::new(x, y, width, height)
+    } else {
+        available
+    };
+
     // Separate children into categories: split, docked, absolute, and flow.
     let mut split = Vec::new();
     let mut docked = Vec::new();
     let mut absolute = Vec::new();
     let mut flow = Vec::new();
     for &child in &children {
+        // Runtime/widget-driven hidden nodes should not participate in layout.
+        if tree.get(child).map(|n| !n.display).unwrap_or(true) {
+            continue;
+        }
         let child_style = get_node_style(tree, child);
         if child_style.display == Some(crate::style::Display::None) {
             continue;
@@ -530,9 +549,9 @@ pub fn resolve_layout(
 
     // Arrange split children first → reduced available region.
     let after_split = if split.is_empty() {
-        available
+        child_available
     } else {
-        arrange_split(tree, &split, available, viewport)
+        arrange_split(tree, &split, child_available, viewport)
     };
 
     // Arrange docked children → further reduced available region.
@@ -563,7 +582,7 @@ pub fn resolve_layout(
 
     // Place absolute children on top of the original available region (P2-24).
     if !absolute.is_empty() {
-        layout_absolute(tree, &absolute, available, viewport);
+        layout_absolute(tree, &absolute, child_available, viewport);
     }
 
     // Recurse into all laid-out descendants so every node receives

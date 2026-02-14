@@ -103,8 +103,12 @@ pub struct WidgetNode {
     pub(crate) children: Vec<NodeId>,
     /// Dynamic CSS classes (F14).
     pub(crate) classes: HashSet<String>,
-    /// Visibility toggle (F15). When `false`, excluded from layout + render.
+    /// Effective visibility toggle used by layout/render (`css_display && runtime_display`).
     pub(crate) display: bool,
+    /// Display state derived from CSS (`display:none`).
+    pub(crate) css_display: bool,
+    /// Display state controlled by runtime/widget logic (for example tab switching).
+    pub(crate) runtime_display: bool,
     /// CSS visibility state. When `Hidden`, the node still participates in
     /// layout but is not rendered (preserves space).
     pub(crate) visibility: Visibility,
@@ -124,6 +128,8 @@ impl WidgetNode {
             children: Vec::new(),
             classes: HashSet::new(),
             display: true,
+            css_display: true,
+            runtime_display: true,
             visibility: Visibility::Visible,
             mounted: false,
             layout_rect: Rect::ZERO,
@@ -447,12 +453,35 @@ impl WidgetTree {
 
     // -- Display toggle (P1-10) ---------------------------------------------
 
-    /// Set the display visibility of a node. When `false`, the node (and
-    /// descendants) should be excluded from layout and render.
-    pub fn set_display(&mut self, node: NodeId, visible: bool) {
+    fn recompute_display(node: &mut WidgetNode) {
+        node.display = node.css_display && node.runtime_display;
+    }
+
+    /// Set runtime-controlled display visibility for a node.
+    ///
+    /// This is used by widget/runtime logic (for example tab switching).
+    pub fn set_runtime_display(&mut self, node: NodeId, visible: bool) {
         if let Some(n) = self.arena.get_mut(node) {
-            n.display = visible;
+            n.runtime_display = visible;
+            Self::recompute_display(n);
         }
+    }
+
+    /// Set CSS-controlled display visibility for a node.
+    ///
+    /// This is fed from resolved CSS `display` (`none` => false).
+    pub fn set_css_display(&mut self, node: NodeId, visible: bool) {
+        if let Some(n) = self.arena.get_mut(node) {
+            n.css_display = visible;
+            Self::recompute_display(n);
+        }
+    }
+
+    /// Backwards-compatible alias for runtime-controlled display visibility.
+    ///
+    /// Prefer [`set_runtime_display`] for new code.
+    pub fn set_display(&mut self, node: NodeId, visible: bool) {
+        self.set_runtime_display(node, visible);
     }
 
     /// Whether a node is displayed (default: `true`).
@@ -1066,6 +1095,27 @@ mod tests {
 
         tree.set_display(root, true);
         assert!(tree.is_displayed(root));
+    }
+
+    #[test]
+    fn effective_display_merges_css_and_runtime_flags() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+
+        tree.set_runtime_display(root, false);
+        assert!(!tree.is_displayed(root));
+
+        // CSS visibility can't force a runtime-hidden node visible.
+        tree.set_css_display(root, true);
+        assert!(!tree.is_displayed(root));
+
+        // Re-enabling runtime display restores effective visibility.
+        tree.set_runtime_display(root, true);
+        assert!(tree.is_displayed(root));
+
+        // CSS display:none still wins.
+        tree.set_css_display(root, false);
+        assert!(!tree.is_displayed(root));
     }
 
     #[test]

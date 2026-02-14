@@ -45,6 +45,10 @@ Tabs {
     width: 100%;
     height: 2;
 
+    & > .tabs--underline {
+        color: $foreground 30%;
+    }
+
     & > #tabs-scroll {
         overflow: hidden;
     }
@@ -61,10 +65,6 @@ Tabs {
     }
 
     &:focus {
-        & .underline--bar {
-            bg: $foreground 30%;
-        }
-
         & .-active {
             text-style: $block-cursor-text-style;
             color: $block-cursor-foreground;
@@ -87,7 +87,7 @@ Tabs {
             }
         }
 
-        & .underline--bar {
+        & > .tabs--underline {
             color: ansi_bright_blue;
             bg: ansi_default;
         }
@@ -108,8 +108,13 @@ Tabs {
         bg: $surface-lighten-1;
     }
 
+    & > .tabs--underline.-active {
+        color: $block-cursor-background;
+    }
+
     & > .tabs--underline.-active.-focus {
         bg: $surface-lighten-1;
+        color: $block-cursor-background;
     }
 }
 
@@ -124,6 +129,10 @@ TabbedContent {
         dock: top;
     }
 
+    & > .tabbed-content--underline {
+        color: $foreground 30%;
+    }
+
     & > .tabbed-content--tab.-active.-focus {
         text-style: $block-cursor-text-style;
         color: $block-cursor-foreground;
@@ -134,8 +143,13 @@ TabbedContent {
         bg: $surface-lighten-1;
     }
 
+    & > .tabbed-content--underline.-active {
+        color: $block-cursor-background;
+    }
+
     & > .tabbed-content--underline.-active.-focus {
         bg: $surface-lighten-1;
+        color: $block-cursor-background;
     }
 }
 "#;

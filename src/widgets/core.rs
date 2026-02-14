@@ -290,9 +290,25 @@ pub trait Widget: Send + Sync {
     fn on_unmount(&mut self) {}
     fn on_tick(&mut self, _tick: u64) {}
     fn on_resize(&mut self, _width: u16, _height: u16) {}
+    fn on_layout(&mut self, _width: u16, _height: u16) {}
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    /// Optional visibility override for tree child nodes by child index.
+    ///
+    /// Tree mode can query this every frame and mirror it to child node
+    /// `display` flags. Returning `None` leaves display unchanged.
+    fn child_display_for_tree(&self, _child_index: usize) -> Option<bool> {
+        None
+    }
+    /// Extra insets reserved by this widget before laying out tree children.
+    ///
+    /// Return `(top, right, bottom, left)` in cells. This is useful for
+    /// widgets that draw internal chrome (for example tab bars) and need
+    /// their children to start within the remaining content area.
+    fn tree_child_content_inset(&self) -> (u16, u16, u16, u16) {
+        (0, 0, 0, 0)
+    }
     /// Optional hook exposing this widget's reactive dispatch implementation.
     ///
     /// Widgets with `ReactiveWidget` implementations should return `Some(self)`
@@ -357,7 +373,6 @@ pub trait Widget: Send + Sync {
     ///
     /// Coordinates for mouse events (`MouseDownEvent` / `MouseUpEvent` / `on_mouse_move`) are
     /// relative to this content box.
-    fn on_layout(&mut self, _width: u16, _height: u16) {}
     fn focusable(&self) -> bool {
         false
     }

@@ -23,14 +23,12 @@ Pretty {
 "#;
 
 struct InputValidationApp {
-    failures: Arc<Mutex<Vec<String>>>,
     pretty_str: Arc<Mutex<String>>,
 }
 
 impl InputValidationApp {
     fn new() -> Self {
         Self {
-            failures: Arc::new(Mutex::new(Vec::new())),
             pretty_str: Arc::new(Mutex::new(format!("{:?}", Vec::<String>::new()))),
         }
     }
@@ -58,13 +56,12 @@ impl TextualApp for InputValidationApp {
         Ok(())
     }
 
-    fn on_input_changed(&mut self, value: &str, validation: &ValidationResult, ctx: &mut EventCtx) {
-        let next = if value.trim().is_empty() || validation.is_valid {
+    fn on_input_changed(&mut self, _value: &str, validation: &ValidationResult, ctx: &mut EventCtx) {
+        let next = if validation.is_valid {
             Vec::new()
         } else {
             validation.failure_descriptions.clone()
         };
-        *self.failures.lock().unwrap_or_else(|e| e.into_inner()) = next.clone();
         *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
         ctx.request_repaint();
     }
@@ -85,10 +82,6 @@ struct Palindrome;
 
 impl Validator for Palindrome {
     fn validate(&self, value: &str) -> ValidationResult {
-        let value = value.trim();
-        if value.is_empty() {
-            return ValidationResult::failure("Value is required.");
-        }
         if is_palindrome(value) {
             ValidationResult::success()
         } else {

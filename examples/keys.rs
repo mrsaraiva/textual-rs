@@ -1,7 +1,10 @@
 //! Key / mouse diagnostics harness.
 //!
-//! Python parity target for this demo is the Textual "keys" preview layout:
-//! top title bar, instruction panel, scrolling log body, and bottom action bar.
+//! Python parity target: Textual "keys" preview layout with title bar,
+//! instruction panel, scrolling log body, and bottom action bar.
+//!
+//! Uses a thin `KeyLog` wrapper around `RichLog` to intercept key events
+//! (no app-level `on_key` hook exists yet in the framework).
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Segment, Style as RichStyle};
@@ -66,27 +69,23 @@ impl KeyLog {
 }
 
 impl Widget for KeyLog {
-    fn focusable(&self) -> bool {
-        self.log.focusable()
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.log.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.log.has_focus()
-    }
-
     fn style_type(&self) -> &'static str {
         "KeyLog"
     }
-
+    fn focusable(&self) -> bool {
+        self.log.focusable()
+    }
+    fn set_focus(&mut self, focused: bool) {
+        self.log.set_focus(focused);
+    }
+    fn has_focus(&self) -> bool {
+        self.log.has_focus()
+    }
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::Key(key) => {
                 let key_name = key.name();
-                self.write_key_line(&key_name, key.character, key.is_printable);
+                self.write_key_line(key_name, key.character, key.is_printable);
                 if !matches!(key.modifiers, KeyModifiers::NONE) {
                     self.write_line(format!("  modifiers={:?}", key.modifiers));
                 }
@@ -107,24 +106,22 @@ impl Widget for KeyLog {
                 {
                     self.write_line(String::new());
                 }
-
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             Event::AppFocus(focused) => {
-                self.write_line(format!("AppFocus: {}", focused));
+                self.write_line(format!("AppFocus: {focused}"));
                 self.write_line("");
                 ctx.request_repaint();
             }
             Event::Resize(w, h) => {
-                self.write_line(format!("Resize: {}x{}", w, h));
+                self.write_line(format!("Resize: {w}x{h}"));
                 self.write_line("");
                 ctx.request_repaint();
             }
             _ => self.log.on_event(event, ctx),
         }
     }
-
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::ClearRequested(_) = &message.message {
             self.clear();
@@ -134,7 +131,15 @@ impl Widget for KeyLog {
         }
         self.log.on_message(message, ctx);
     }
-
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.log.on_event_capture(event, ctx);
+    }
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+        self.log.on_mouse_scroll(dx, dy, ctx);
+    }
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.log.on_mouse_move(x, y)
+    }
     fn render(
         &self,
         console: &rich_rs::Console,
@@ -142,43 +147,18 @@ impl Widget for KeyLog {
     ) -> rich_rs::Segments {
         self.log.render(console, options)
     }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.log.on_event_capture(event, ctx);
-    }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.log.on_mouse_scroll(delta_x, delta_y, ctx);
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.log.on_mouse_move(x, y)
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
         self.log.styles()
     }
-
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         self.log.styles_mut()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        self.log.style_classes()
     }
 }
 
 struct KeysApp;
 
-impl KeysApp {
-    fn new() -> Self {
-        Self
-    }
-}
-
 impl TextualApp for KeysApp {
     fn compose(&mut self) -> AppRoot {
-        let key_log = KeyLog::new();
         preview_root_with_top_bottom(
             Some("Textual Keys"),
             Some(4),
@@ -200,7 +180,7 @@ impl TextualApp for KeysApp {
             ))
             .min_height(4)
             .max_height(4),
-            key_log,
+            KeyLog::new(),
             Some(3),
             Constrained::new(
                 Row::new()
@@ -243,5 +223,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync(KeysApp::new())
+    run_sync(KeysApp)
 }

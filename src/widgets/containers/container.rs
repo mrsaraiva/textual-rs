@@ -392,6 +392,14 @@ impl Widget for Container {
         }
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_layout(width, height);
+            }
+        }
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         if self.is_tree_mode() {
             return;
@@ -573,6 +581,29 @@ impl Renderable for Container {
 mod tests {
     use super::*;
     use crate::prelude::Label;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct LayoutProbe {
+        layout_hits: Arc<AtomicUsize>,
+    }
+
+    impl LayoutProbe {
+        fn new(layout_hits: Arc<AtomicUsize>) -> Self {
+            Self { layout_hits }
+        }
+    }
+
+    impl Widget for LayoutProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_layout(&mut self, _width: u16, _height: u16) {
+            self.layout_hits.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     #[test]
     fn compose_returns_empty() {
@@ -634,6 +665,17 @@ mod tests {
         let mut c = Container::new().with_child(Label::new("a"));
         let _ = c.take_composed_children();
         assert!(!c.on_mouse_move(0, 0));
+    }
+
+    #[test]
+    fn non_tree_on_layout_forwards_to_children() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let probe = LayoutProbe::new(hits.clone());
+        let mut c = Container::new().with_child(probe);
+
+        c.on_layout(50, 10);
+
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
     }
 
     #[test]

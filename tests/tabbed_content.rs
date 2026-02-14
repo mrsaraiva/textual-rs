@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::action::ParsedAction;
 use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
@@ -129,8 +130,12 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
     let focused_underline_bg = parse_color_like("$surface-lighten-1")
         .expect("focused underline background")
         .to_simple_opaque();
+    let active_underline_fg = parse_color_like("$block-cursor-background")
+        .expect("active underline foreground")
+        .to_simple_opaque();
     assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
+    assert_eq!(active_underline_style.color, Some(active_underline_fg));
 }
 
 #[test]
@@ -209,4 +214,21 @@ fn tabbed_content_mouse_click_disabled_pane_tab_does_not_activate() {
     );
     assert!(!ctx.handled());
     assert_eq!(tabs.active_id(), Some("one"));
+}
+
+#[test]
+fn tabbed_content_show_tab_action_switches_active_pane() {
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+    let action = ParsedAction {
+        namespace: None,
+        name: "show_tab".to_string(),
+        arguments: vec!["two".to_string()],
+    };
+    let mut ctx = EventCtx::default();
+    assert!(tabs.execute_action(&action, &mut ctx));
+    assert!(ctx.handled());
+    assert!(ctx.repaint_requested());
+    assert_eq!(tabs.active_id(), Some("two"));
 }

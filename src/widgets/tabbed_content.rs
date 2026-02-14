@@ -1,3 +1,4 @@
+use crate::action::{ActionDecl, ParsedAction};
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use std::time::Duration;
@@ -10,7 +11,7 @@ use crate::message::*;
 use crate::style::TransitionTiming;
 
 use super::{
-    Widget, WidgetStyles,
+    Spacer, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
@@ -47,6 +48,7 @@ impl TabPane {
 
 pub struct TabbedContent {
     panes: Vec<TabPane>,
+    children_extracted: bool,
     active: Option<usize>,
     initial: Option<String>,
     focused: bool,
@@ -71,6 +73,7 @@ impl TabbedContent {
     pub fn new() -> Self {
         Self {
             panes: Vec::new(),
+            children_extracted: false,
             active: None,
             initial: None,
             focused: false,
@@ -85,6 +88,10 @@ impl TabbedContent {
             focused_classes: vec!["tabbed-content".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
+    }
+
+    fn is_tree_mode(&self) -> bool {
+        self.children_extracted
     }
 
     pub fn initial(mut self, pane_id: impl Into<String>) -> Self {
@@ -122,12 +129,16 @@ impl TabbedContent {
     }
 
     pub fn set_active_id(&mut self, pane_id: &str) -> bool {
+        self.activate_by_id(pane_id, None)
+    }
+
+    fn activate_by_id(&mut self, pane_id: &str, ctx: Option<&mut EventCtx>) -> bool {
         let target = self
             .panes
             .iter()
             .position(|pane| pane.pane_id.as_deref() == Some(pane_id));
         if let Some(index) = target {
-            return self.activate(index, None);
+            return self.activate(index, ctx);
         }
         false
     }
@@ -294,11 +305,15 @@ impl TabbedContent {
         }
         let previous_active = self.active;
         if Some(next) != self.active {
-            if let Some(prev) = previous_active.and_then(|idx| self.panes.get_mut(idx)) {
+            if !self.is_tree_mode()
+                && let Some(prev) = previous_active.and_then(|idx| self.panes.get_mut(idx))
+            {
                 prev.child.set_focus(false);
             }
             self.active = Some(next);
-            if let Some(pane) = self.panes.get_mut(next) {
+            if !self.is_tree_mode()
+                && let Some(pane) = self.panes.get_mut(next)
+            {
                 pane.child.set_focus(self.focused);
                 if let Some((width, height)) = self.last_size {
                     let content_height = height.saturating_sub(self.tab_row_height as u16);
@@ -380,7 +395,9 @@ impl TabbedContent {
     }
 
     fn clear_active(&mut self) {
-        if let Some(active) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(active) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
             active.child.set_focus(false);
         }
         self.active = None;
@@ -646,13 +663,51 @@ impl TabbedContent {
 }
 
 impl Widget for TabbedContent {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.children_extracted = true;
+        self.panes
+            .iter_mut()
+            .map(|pane| std::mem::replace(&mut pane.child, Box::new(Spacer::new(1))))
+            .collect()
+    }
+
+    fn action_namespace(&self) -> &str {
+        "tabbed_content"
+    }
+
+    fn action_registry(&self) -> &[ActionDecl] {
+        const ACTIONS: &[ActionDecl] = &[ActionDecl {
+            name: "show_tab",
+            namespace: "tabbed_content",
+            description: "Switch to a tab by ID",
+            default_binding: None,
+        }];
+        ACTIONS
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if action.name != "show_tab" {
+            return false;
+        }
+        let Some(tab_id) = action.arguments.first() else {
+            return false;
+        };
+        if !self.activate_by_id(tab_id, Some(ctx)) {
+            return false;
+        }
+        ctx.set_handled();
+        true
+    }
+
     fn focusable(&self) -> bool {
         true
     }
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
             pane.child.set_focus(focused);
         }
     }
@@ -677,8 +732,10 @@ impl Widget for TabbedContent {
         if let Some(initial) = self.initial.clone() {
             let _ = self.set_active_id(&initial);
         }
-        for pane in &mut self.panes {
-            pane.child.on_mount();
+        if !self.is_tree_mode() {
+            for pane in &mut self.panes {
+                pane.child.on_mount();
+            }
         }
         self.sync_underline_to_active();
     }
@@ -688,21 +745,27 @@ impl Widget for TabbedContent {
         self.hovered = false;
         self.hovered_tab = None;
         self.last_size = None;
-        for pane in &mut self.panes {
-            pane.child.set_focus(false);
-            pane.child.on_unmount();
+        if !self.is_tree_mode() {
+            for pane in &mut self.panes {
+                pane.child.set_focus(false);
+                pane.child.on_unmount();
+            }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
             pane.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.last_size = Some((width, height));
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
             pane.child
                 .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
         }
@@ -717,14 +780,21 @@ impl Widget for TabbedContent {
         } else {
             self.layout_width = next_layout_width;
         }
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
             pane.child
                 .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
+            let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                crate::node_id::NodeId::default(),
+            );
             pane.child.on_event_capture(event, ctx);
         }
     }
@@ -752,6 +822,30 @@ impl Widget for TabbedContent {
                 }
             }
         }
+        if let Event::MouseDown(mouse) = event
+            && mouse.target == self.node_id()
+            && mouse.y < self.tab_row_height as u16
+            && let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize)
+            && self.activate(index, Some(ctx))
+        {
+            ctx.set_handled();
+            return;
+        }
+        if !self.is_tree_mode()
+            && self
+                .active
+                .and_then(|idx| self.panes.get(idx))
+                .is_some_and(|pane| pane.child.has_focus())
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
+            let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                crate::node_id::NodeId::default(),
+            );
+            pane.child.on_event(event, ctx);
+            if ctx.handled() {
+                return;
+            }
+        }
         if self.focused {
             if let Event::Key(key) = event {
                 match key.code {
@@ -769,25 +863,83 @@ impl Widget for TabbedContent {
                 }
             }
         }
-        if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.node_id() {
-                if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
-                    if self.activate(index, Some(ctx)) {
-                        ctx.set_handled();
-                        return;
-                    }
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
+            match event {
+                Event::MouseDown(mouse) if mouse.y >= self.tab_row_height as u16 => {
+                    let forwarded = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: crate::node_id::NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: mouse.y.saturating_sub(self.tab_row_height as u16),
+                    });
+                    let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                        crate::node_id::NodeId::default(),
+                    );
+                    pane.child.on_event(&forwarded, ctx);
+                }
+                Event::MouseUp(mouse) if mouse.y >= self.tab_row_height as u16 => {
+                    let forwarded = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(crate::node_id::NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: mouse.y.saturating_sub(self.tab_row_height as u16),
+                    });
+                    let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                        crate::node_id::NodeId::default(),
+                    );
+                    pane.child.on_event(&forwarded, ctx);
+                }
+                Event::MouseScroll(mouse) if mouse.y >= self.tab_row_height as u16 => {
+                    let forwarded = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(crate::node_id::NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: mouse.x,
+                        y: mouse.y.saturating_sub(self.tab_row_height as u16),
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                        crate::node_id::NodeId::default(),
+                    );
+                    pane.child.on_event(&forwarded, ctx);
+                }
+                _ => {
+                    let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                        crate::node_id::NodeId::default(),
+                    );
+                    pane.child.on_event(event, ctx)
                 }
             }
-        }
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
-            pane.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx)) {
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
+            let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(
+                crate::node_id::NodeId::default(),
+            );
             pane.child.on_message(message, ctx);
         }
+    }
+
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.is_tree_mode() {
+            return None;
+        }
+        let pane = self.panes.get(child_index)?;
+        Some(!pane.hidden && self.active == Some(child_index))
+    }
+
+    fn tree_child_content_inset(&self) -> (u16, u16, u16, u16) {
+        (self.tab_row_height as u16, 0, 0, 0)
     }
 
     fn binding_hints(&self) -> Vec<BindingHint> {
@@ -798,23 +950,46 @@ impl Widget for TabbedContent {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        let hovered = self.hit_tab(x as usize, y as usize);
-        if hovered != self.hovered_tab {
-            self.hovered_tab = hovered;
-            return true;
+        if y < self.tab_row_height as u16 {
+            let hovered = self.hit_tab(x as usize, y as usize);
+            if hovered != self.hovered_tab {
+                self.hovered_tab = hovered;
+                return true;
+            }
+            return false;
         }
-        false
+
+        let mut changed = false;
+        if self.hovered_tab.take().is_some() {
+            changed = true;
+        }
+        if !self.is_tree_mode()
+            && let Some(pane) = self.active.and_then(|idx| self.panes.get_mut(idx))
+        {
+            changed |= pane
+                .child
+                .on_mouse_move(x, y.saturating_sub(self.tab_row_height as u16));
+        }
+        changed
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+        let child_has_focus = if self.is_tree_mode() {
+            false
+        } else {
+            self.active
+                .and_then(|idx| self.panes.get(idx))
+                .is_some_and(|pane| pane.child.has_focus())
+        };
+        let self_focus_visual = self.focused && !child_has_focus;
         let bar_style = crate::css::resolve_component_style(self, &["tabbed-content--bar"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
         let mut base_underline_classes = vec!["tabbed-content--underline"];
         let mut active_underline_classes = vec!["tabbed-content--underline", "-active"];
-        if self.focused {
+        if self_focus_visual {
             base_underline_classes.push("-focus");
             active_underline_classes.push("-focus");
         }
@@ -841,7 +1016,7 @@ impl Widget for TabbedContent {
                 }
                 if self.active == Some(idx) {
                     classes.push("-active");
-                    if self.focused {
+                    if self_focus_visual {
                         classes.push("-focus");
                     }
                 }
@@ -886,7 +1061,7 @@ impl Widget for TabbedContent {
         }
         let mut lines = vec![header_line, underline_line];
 
-        if height > self.tab_row_height {
+        if !self.is_tree_mode() && height > self.tab_row_height {
             if let Some(pane) = self.active.and_then(|idx| self.panes.get(idx)) {
                 let mut child_options = options.clone();
                 child_options.size = (width, height - self.tab_row_height);
@@ -918,6 +1093,9 @@ impl Widget for TabbedContent {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        if self.is_tree_mode() {
+            return None;
+        }
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
         }
@@ -958,8 +1136,10 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
+    use crate::node_id::{NodeId, node_id_from_ffi};
     use crate::prelude::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
@@ -1007,6 +1187,137 @@ mod tests {
                 .lock()
                 .expect("focus_calls lock")
                 .push(focused);
+        }
+    }
+
+    #[derive(Clone)]
+    struct MouseForwardProbe {
+        y_hits: Arc<AtomicU16>,
+        target_hits: Arc<AtomicUsize>,
+    }
+
+    impl MouseForwardProbe {
+        fn new(y_hits: Arc<AtomicU16>, target_hits: Arc<AtomicUsize>) -> Self {
+            Self {
+                y_hits,
+                target_hits,
+            }
+        }
+    }
+
+    impl Widget for MouseForwardProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            if let Event::MouseDown(mouse) = event {
+                self.y_hits.store(mouse.y, Ordering::Relaxed);
+                if mouse.target == crate::node_id::NodeId::default() {
+                    self.target_hits.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct KeyHandlingProbe {
+        focused: Arc<Mutex<bool>>,
+        key_hits: Arc<AtomicUsize>,
+    }
+
+    impl KeyHandlingProbe {
+        fn new(focused: Arc<Mutex<bool>>, key_hits: Arc<AtomicUsize>) -> Self {
+            Self { focused, key_hits }
+        }
+    }
+
+    impl Widget for KeyHandlingProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn has_focus(&self) -> bool {
+            *self.focused.lock().expect("focused lock")
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            *self.focused.lock().expect("focused lock") = focused;
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if let Event::Key(key) = event
+                && matches!(key.code, KeyCode::Right)
+                && self.has_focus()
+            {
+                self.key_hits.fetch_add(1, Ordering::Relaxed);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct AnimationTargetProbe {
+        focused: Arc<Mutex<bool>>,
+        last_node_id: Arc<Mutex<NodeId>>,
+        animation_value_hits: Arc<AtomicUsize>,
+    }
+
+    impl AnimationTargetProbe {
+        fn new(
+            focused: Arc<Mutex<bool>>,
+            last_node_id: Arc<Mutex<NodeId>>,
+            animation_value_hits: Arc<AtomicUsize>,
+        ) -> Self {
+            Self {
+                focused,
+                last_node_id,
+                animation_value_hits,
+            }
+        }
+    }
+
+    impl Widget for AnimationTargetProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn has_focus(&self) -> bool {
+            *self.focused.lock().expect("focused lock")
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            *self.focused.lock().expect("focused lock") = focused;
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            match event {
+                Event::Key(key) if matches!(key.code, KeyCode::Right) && self.has_focus() => {
+                    let target = self.node_id();
+                    *self.last_node_id.lock().expect("last_node_id lock") = target;
+                    ctx.request_animation(AnimationRequest::new(
+                        target,
+                        "probe.attr.start",
+                        0.0,
+                        1.0,
+                        Duration::from_millis(120),
+                    ));
+                    ctx.request_animation(AnimationRequest::new(
+                        target,
+                        "probe.attr.end",
+                        0.0,
+                        2.0,
+                        Duration::from_millis(120),
+                    ));
+                    ctx.set_handled();
+                }
+                Event::AnimationValue(AnimationValueEvent { attribute, .. })
+                    if attribute == "probe.attr.start" || attribute == "probe.attr.end" =>
+                {
+                    self.animation_value_hits.fetch_add(1, Ordering::Relaxed);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1114,6 +1425,101 @@ mod tests {
     }
 
     #[test]
+    fn mouse_events_forward_with_content_local_y_offset_to_active_pane() {
+        let y_hits = Arc::new(AtomicU16::new(u16::MAX));
+        let target_hits = Arc::new(AtomicUsize::new(0));
+        let probe = MouseForwardProbe::new(y_hits.clone(), target_hits.clone());
+
+        let mut tabs = TabbedContent::new().with_pane(TabPane::new("One", probe).id("one"));
+        tabs.on_layout(40, 8);
+
+        let mut ctx = EventCtx::default();
+        tabs.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: crate::node_id::NodeId::default(),
+                screen_x: 3,
+                screen_y: 3,
+                x: 3,
+                y: 3,
+            }),
+            &mut ctx,
+        );
+
+        assert_eq!(y_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(target_hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn focused_child_handles_keys_before_parent_tab_navigation() {
+        let child_focused = Arc::new(Mutex::new(false));
+        let key_hits = Arc::new(AtomicUsize::new(0));
+        let probe = KeyHandlingProbe::new(child_focused.clone(), key_hits.clone());
+
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", probe).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+        tabs.on_layout(40, 8);
+        tabs.set_focus(true);
+        *child_focused.lock().expect("child_focused lock") = true;
+
+        let mut ctx = EventCtx::default();
+        tabs.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(key_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(tabs.active_id(), Some("one"));
+    }
+
+    #[test]
+    fn forwarded_child_events_isolate_dispatch_recipient_from_parent_node() {
+        let child_focused = Arc::new(Mutex::new(false));
+        let last_node_id = Arc::new(Mutex::new(node_id_from_ffi(u64::MAX)));
+        let animation_value_hits = Arc::new(AtomicUsize::new(0));
+        let probe = AnimationTargetProbe::new(
+            child_focused.clone(),
+            last_node_id.clone(),
+            animation_value_hits.clone(),
+        );
+
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", probe).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+        tabs.on_layout(40, 8);
+        tabs.set_focus(true);
+        *child_focused.lock().expect("child_focused lock") = true;
+
+        let mut ctx = EventCtx::default();
+        {
+            let _dispatch_guard =
+                crate::runtime::dispatch_ctx::set_dispatch_recipient(node_id_from_ffi(7));
+            tabs.on_event(
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Right,
+                    KeyModifiers::NONE,
+                ))),
+                &mut ctx,
+            );
+        }
+
+        assert!(ctx.handled());
+        assert_eq!(
+            crate::node_id::node_id_to_ffi(*last_node_id.lock().expect("last_node_id lock")),
+            crate::node_id::node_id_to_ffi(NodeId::default())
+        );
+        let requests = ctx.take_animation_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|req| req.target == NodeId::default()));
+        assert_eq!(animation_value_hits.load(Ordering::Relaxed), 0);
+        assert_eq!(tabs.active_id(), Some("one"));
+    }
+
+    #[test]
     fn binding_hints_require_more_than_one_switchable_pane() {
         let mut tabs = TabbedContent::new()
             .with_pane(TabPane::new("One", Label::new("first")).id("one"))
@@ -1123,6 +1529,25 @@ mod tests {
         assert!(tabs.hide_pane("three"));
 
         assert!(tabs.binding_hints().is_empty());
+    }
+
+    #[test]
+    fn tree_mode_child_display_reflects_active_and_hidden_panes() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
+            .with_pane(TabPane::new("Three", Label::new("third")).id("three"));
+
+        assert_eq!(tabs.child_display_for_tree(0), None);
+        assert!(tabs.set_active_id("two"));
+        assert!(tabs.hide_pane("three"));
+
+        let extracted = tabs.take_composed_children();
+        assert_eq!(extracted.len(), 3);
+        assert_eq!(tabs.child_display_for_tree(0), Some(false));
+        assert_eq!(tabs.child_display_for_tree(1), Some(true));
+        assert_eq!(tabs.child_display_for_tree(2), Some(false));
+        assert_eq!(tabs.tree_child_content_inset(), (2, 0, 0, 0));
     }
 
     #[test]

@@ -100,7 +100,10 @@ pub fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
     let root = tree.root()?;
     for node_id in tree.walk_depth_first(root) {
         if let Some(node) = tree.get(node_id) {
-            if node.widget.has_focus() {
+            if node.display
+                && node.visibility == crate::style::Visibility::Visible
+                && node.widget.has_focus()
+            {
                 return Some(node_id);
             }
         }
@@ -218,6 +221,38 @@ pub fn dispatch_event_to_target_tree(
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        default_prevented: false,
+    }
+}
+
+/// Dispatch a global event to every node in the tree.
+///
+/// This is used for runtime-global state updates (e.g. binding-hint payload
+/// changes) where non-focused widgets such as `Footer` still need notification.
+pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> DispatchOutcome {
+    let Some(root) = tree.root() else {
+        return DispatchOutcome::default();
+    };
+
+    let mut aggregate = EventCtx::default();
+    for node_id in tree.walk_depth_first(root) {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id);
+        if let Some(node) = tree.get_mut(node_id) {
+            let _dispatch_guard = set_dispatch_recipient(node_id);
+            node.widget.on_event(event, &mut ctx);
+        }
+        aggregate.merge_from(ctx);
+    }
+
+    DispatchOutcome {
+        handled: aggregate.handled(),
+        repaint_requested: aggregate.repaint_requested(),
+        invalidation: aggregate.invalidation(),
+        stop_requested: aggregate.stop_requested(),
+        messages: aggregate.take_messages(),
+        animation_requests: aggregate.take_animation_requests(),
+        worker_requests: aggregate.take_worker_requests(),
         default_prevented: false,
     }
 }
@@ -1217,6 +1252,62 @@ mod message_tests {
             ]
         );
         assert_eq!(sources.len(), 2);
+    }
+
+    struct BindingEventProbe {
+        focused: bool,
+        hits: Arc<AtomicUsize>,
+    }
+
+    impl BindingEventProbe {
+        fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
+            Self { focused, hits }
+        }
+    }
+
+    impl Widget for BindingEventProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+
+        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            if matches!(event, Event::BindingsChanged(..)) {
+                self.hits.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    #[test]
+    fn broadcast_event_reaches_non_focused_siblings() {
+        let focused_hits = Arc::new(AtomicUsize::new(0));
+        let sibling_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let _focused = tree.mount(
+            root_id,
+            Box::new(BindingEventProbe::new(true, focused_hits.clone())),
+        );
+        let _sibling = tree.mount(
+            root_id,
+            Box::new(BindingEventProbe::new(false, sibling_hits.clone())),
+        );
+
+        let _ = dispatch_event_broadcast_tree(
+            &mut tree,
+            &Event::BindingsChanged(vec![BindingHint::new("l", "Leto")]),
+        );
+
+        assert_eq!(focused_hits.load(Ordering::Relaxed), 1);
+        assert_eq!(sibling_hits.load(Ordering::Relaxed), 1);
     }
 }
 

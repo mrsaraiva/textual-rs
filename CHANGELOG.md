@@ -8,6 +8,23 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **feat(widgets): TabbedContent tree-mode parity — child extraction, action routing, binding hints**
+  - TabbedContent now supports tree-mode child extraction for runtime-managed widget trees, with `show_tab` action routing, initial tab selection, and keyboard/mouse activation.
+  - Added `dispatch_event_broadcast_tree()` for runtime-global events (binding-hint payload changes) so non-focused widgets like Footer receive notifications.
+  - Container widget gains `visit_children_mut()` support for tree-mode child extraction.
+  - Widget tree node display/visibility guards on focused-node resolution to skip hidden nodes.
+  - Added TabbedContent + Tabs regression tests.
+- **refactor(examples): rewrite all examples to current APIs + Python Textual parity**
+  - Replaced `hello.rs` kitchen-sink with polished "Mission Control" dashboard showcase (13+ widget types: Header, Footer, Sparkline, ProgressBar, DataTable, TabbedContent, Markdown, Input, Checkbox, Switch, Button, Rule, Static) with new `hello.tcss` stylesheet.
+  - Deleted redundant `buttons_composed_pattern.rs` example.
+  - Cleaned delegation boilerplate in `rich_log.rs` and `keys.rs` (removed unnecessary forwarded methods, fixed `style_type` for CSS matching).
+  - Fixed `input_validation.rs` Palindrome validator to match Python parity (empty string passes).
+  - Cleaned `text_area_custom_language.rs` (eliminated Option+take pattern) and `text_area_extended.rs` (added missing mouse forwarding).
+  - Net reduction of ~340 lines across examples.
+- **docs: update ROADMAP.md and README.md to reflect completed parity work**
+  - ROADMAP: marked CSS defaults parity, TCSS property parity, box-model fixes, render parity, P2 deferred closures, and Phase 9.7 modularization as complete. Updated deferred items table (5→2 remaining). Added completed parity plan references.
+  - README: polished rewrite reflecting 56 widgets, 108 CSS properties, 1,487+ tests, rich-rs as public crate.
+
 - **fix(css/layout): three button parity fixes — disabled dimming, margin collapsing, box-model correctness**
   - Added `:can-focus` pseudo-class support (AST, parser, matcher, resolver, debug) and global `*:disabled:can-focus { opacity: 70%; }` rule matching Python Textual's disabled-widget dimming.
   - Added `Widget::can_focus()` trait method (inherent focus capability, ignoring disabled state) so disabled buttons still match `:can-focus`.

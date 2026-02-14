@@ -1,0 +1,24 @@
+.sidebar {
+    width: 40%;
+    padding: 1 1;
+}
+
+.section-title {
+    background: $panel;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+    margin: 1 0 0 0;
+}
+
+Rule {
+    margin: 1 0;
+}
+
+.config-form {
+    padding: 1 2;
+}
+
+.config-form > * {
+    margin: 1 0 0 0;
+}

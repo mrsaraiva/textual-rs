@@ -1,98 +1,129 @@
-<!--
-This project is intentionally split from rich-rs.
-rich-rs focuses on Rich (rendering + renderables + Live/Progress).
-textual-rs focuses on Textual (reactive TUI framework built on top of rich-rs).
--->
-
 # textual-rs
 
-A Rust implementation of [Textual](https://github.com/Textualize/textual): a **reactive TUI framework** (widget tree, styling, layout, events) for building rich terminal applications.
+A Rust port of [Textual](https://github.com/Textualize/textual) — a **reactive TUI framework** for building rich terminal applications with widgets, CSS styling, layout, and event-driven architecture.
 
-This repository assumes `rich-rs` exists as the underlying rendering engine (segments/styles, tables/panels, Live/Progress, etc.). `textual-rs` provides the **application framework** on top: widgets, layout, events, and reactivity.
+Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering primitives and [`crossterm`](https://crates.io/crates/crossterm) for terminal I/O.
 
-## Goals
+## Features
 
-- Provide a **Textual-like developer experience** in Rust: reactive widgets, composable layouts, and high-quality terminal rendering.
-- Build on `rich-rs` for rendering primitives and terminal controls.
-- Prioritize **correctness and determinism** (screen diffing, stable layouts, predictable event routing).
-- Support real applications (event loop, input handling, focus, scrolling, animations, async tasks).
+- **56 widgets** — buttons, inputs, text areas, data tables, trees, tabs, markdown viewer, select, checkboxes, progress bars, overlays, and more
+- **108 CSS properties** — type/id/class/pseudo-class selectors, descendant/child combinators, nested `&` rules, cascade with specificity and `!important`, theme tokens
+- **Full layout engine** — vertical, horizontal, grid, dock, and absolute positioning with box model (margin, border, padding), scrolling, min/max constraints, fractional/percentage/viewport units
+- **Event system** — capture/bubble phases, focus management, keyboard bindings with action maps, mouse hit-testing, message bus
+- **Reactive runtime** — Tokio-based event loop, reactive state with watchers, workers for background tasks, CSS transitions with easing functions
+- **Hot-reloadable stylesheets** — external `.tcss` files with `App::watch_stylesheet()`
+- **Deterministic rendering** — frame buffer with screen diffing, metadata-safe hit-testing across repaints
+- **1,490 tests** — unit, integration, snapshot (via `insta`), and golden-file coverage
+- **`unsafe` forbidden** — enforced by lint configuration
 
-## Non-goals (initially)
+## Quick start
 
-- 1:1 API compatibility with Python Textual (we may add a compatibility layer later).
-- Replacing the Rust TUI ecosystem; `textual-rs` is intentionally opinionated and framework-oriented.
-- A full “HTML/CSS in the terminal” clone on day one (we’ll grow the styling and layout systems iteratively).
+```bash
+cargo run --example buttons      # Interactive button demo (most comprehensive)
+cargo run --example hello        # Basic hello world app
+cargo run --example data_table   # Data table widget
+cargo run --example input        # Input fields
+cargo run --example text_area_example  # Text editor
+```
 
-## Design sketch (working model)
+## Widget catalog
 
-- **Driver**: terminal backend (input + output + raw mode) based on `crossterm`.
-- **Renderer**: builds a frame (screen buffer) and applies a minimal diff to the terminal (uses `rich-rs` segments/styles/control codes).
-- **App runtime**: event loop + scheduling (timers, animation ticks, background tasks).
-- **Widget tree**: mount/unmount lifecycle, render, layout, focus, scrolling, event routing.
-- **Styles**: CSS-ish rules → computed styles per widget (subset at first).
+**Interactive:** Button, Input, MaskedInput, TextArea, Checkbox, RadioSet, Switch, Select, OptionList, SelectionList, ListView, DataTable, Tree, DirectoryTree, Tabs, TabbedContent, Collapsible, CommandPalette, Link
 
-## Minimal layout support
+**Display:** Label/Static, Text, Markdown, Pretty, Digits, ProgressBar, LoadingIndicator, Sparkline, RichLog, Log, Toast, Rule, Spacer, Placeholder, HelpPanel, KeyPanel
 
-`textual-rs` includes a minimal box model via the `Frame` widget: it wraps a single child
-with padding and an optional border (Unicode box drawing). Basic layout primitives include
-`Container` (vertical), `Row` (horizontal), `Dock` (top/bottom/left/right/fill), and `Grid`
-(fixed rows/cols). `ScrollView` provides MVP vertical scrolling within a fixed height. Use
-`Constrained` (or `LayoutConstraints`) to apply simple min/max sizing hints. Containers clip
-children to the current viewport height (MVP clipping). This is an MVP layout
-primitive, not a full styling system.
+**Containers:** Container, ScrollView, Frame, Panel, Overlay, Constrained, Styled, Node
 
-Current widget catalog (MVP): `Label`, `Button`, `Input`, `Checkbox`, `ListView`, `DataTable`, `Tree`, `Tabs`, `Markdown`, `Panel`, `Spacer`, and `Overlay`.
+## CSS styling
 
-## Styling MVP
+Stylesheets use Textual's TCSS syntax with nested rules:
 
-Inline styling is available via `Style` and the `Styled` wrapper widget. This is a minimal, typed API
-(`fg`, `bg`, `bold`, `dim`, `italic`, `underline`) to enable quick visual iteration before a full
-selector/cascade system lands.
+```css
+Button {
+    width: auto;
+    min-width: 16;
+    line-pad: 1;
+    text-align: center;
+    content-align: center middle;
 
-Selector styling (MVP) is available via `StyleSheet` with `Type`, `Id`, and `Class` selectors.
-Use `Node` to attach ids/classes to existing widgets.
-Minimal stylesheet parsing is available via `StyleSheet::parse`.
-Selectors support grouping with commas and descendant/child combinators.
-Use `App::watch_stylesheet` for basic hot reload.
+    &.-style-flat {
+        text-style: bold;
+        color: auto 90%;
+        background: $surface;
+        border: block $surface;
 
-## Rich-rs integration contract
+        &:hover {
+            background: $primary;
+            border: block $primary;
+        }
+    }
+}
+```
 
-Textual (Python) uses Rich (Python) as a rendering + styling engine. `textual-rs` should treat `rich-rs` the same way.
+Supported selectors: type, `#id`, `.class`, pseudo-classes (`:hover`, `:focus`, `:active`, `:disabled`, `:can-focus`, `:dark`, `:light`, `:even`, `:odd`, `:first-child`, `:last-child`, and more), descendant (` `), child (`>`), grouping (`,`), universal (`*`).
 
-- **No direct ANSI writes:** widgets should render via `rich-rs` types (`Text`, `Segments`, renderables) and let the backend handle ANSI/control emission.
-- **Metadata for event routing:** attach interaction metadata to output via `StyleMeta.meta` using `MetaValue` (structured values), not ad-hoc strings.
-  - Convention: handler keys use Textual-style names like `@click`, `@hover`, `@action`.
-  - Example schema: `meta["@click"] = MetaValue::Tuple([MetaValue::Str("button_id"), ...])` or `MetaValue::Map({ "id": "...", ... })`.
-- **Hyperlinks (OSC 8):** use `StyleMeta.link` (and optional `StyleMeta.link_id`) to generate terminal hyperlinks.
-- **ID strategy (important):**
-  - `rich-rs` maintains a **per-Console registry** for hyperlink ids. If `link_id` is missing, it generates a stable id for a given URL **within that Console**.
-  - Textual-level identity (widgets, nodes, hit-testing) must be **separate** from OSC8 hyperlink ids.
-  - If we later need deterministic ids across runs (e.g. for snapshots/serialization), add an explicit Textual-level deterministic id scheme (e.g. hash-based) rather than relying on OSC8 ids.
+Theme tokens (`$primary`, `$surface`, `$error-darken-2`, etc.) resolve against the active theme and support lighten/darken/muted derivations.
 
-## Repository status
+## Layout
 
-This is an early draft project skeleton: the initial docs and roadmap exist, but implementation will follow once the core milestones are agreed.
+Five layout modes: **vertical**, **horizontal**, **grid**, **dock**, and **absolute**.
+
+Size units: cells (`20`), auto, percentage (`50%`), fractions (`1fr`), viewport (`100vw`, `50vh`).
+
+Box model with margin collapsing, border-box sizing (default, matching Python Textual), padding, and border. Constraints via `min-width`, `max-width`, `min-height`, `max-height`. Overflow handling with scrollbars (`overflow: auto | hidden | scroll`).
+
+## Architecture
+
+```
+Widget tree → rich-rs Segments (with metadata) → FrameBuffer (2D grid) → frame diff → ANSI output
+```
+
+- **Event routing:** capture phase (root → focused) then bubble phase (focused → root)
+- **Style resolution:** CSS cascade with specificity, inheritance, and `!important`
+- **Rendering:** dirty-flag driven — widgets call `ctx.request_repaint()` to trigger re-render
+
+## Build and test
+
+```bash
+cargo build                      # Build library
+cargo test                       # Run all 1,490 tests
+cargo clippy                     # Lint
+cargo fmt                        # Format
+```
+
+## Debugging
+
+Environment variables for targeted instrumentation:
+
+```bash
+TEXTUAL_DEBUG_STYLE_FILE=/tmp/style.log   # Log CSS resolution
+TEXTUAL_DEBUG_LAYOUT_FILE=/tmp/layout.log # Log layout calculations
+TEXTUAL_DEBUG_INPUT_FILE=/tmp/input.log   # Log input events
+TEXTUAL_DEBUG_RENDER_FILE=/tmp/render.log # Log rendering
+TEXTUAL_DEBUG_BORDER_FILE=/tmp/border.log # Log border painting
+TEXTUAL_DEBUG_FOCUS=1                     # Log focus changes to stderr
+```
+
+Filters narrow output: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=error'`
+
+## Python parity
+
+Python Textual is the source of truth for behavior and default styling. The port aligns:
+
+1. **Semantics first** — event/focus/message behavior, layout/box-model rules
+2. **Defaults second** — all 16 widget default CSS files match Python Textual verbatim
+3. **Visuals third** — render-time composition, border painting, opacity blending
+
+Rust idioms are used where appropriate (ownership, type safety, modular boundaries) while preserving behavioral parity.
 
 ## Roadmap
 
-See `ROADMAP.md`.
+See `ROADMAP.md` for detailed phase tracking. Current status:
 
-## Windows border workaround
+- Phases 0–9.6: **Complete** (runtime, widgets, layout, styling, async, animations, debug tooling, input diagnostics, tabbed content parity)
+- Phase 9.7: **Active** (core modularization)
+- v0.2 execution: widget closure, invalidation improvements, broader test coverage
 
-Some terminal/renderer combinations on Windows can mispaint certain decorative border styles.
-`textual-rs` keeps the workaround conservative by default and lets apps opt in explicitly:
+## License
 
-```bash
-TEXTUAL_WINDOWS_SAFE_BORDERS=on cargo run --example buttons
-```
-
-Accepted values are `on|off|auto` (plus boolean aliases like `1/0`, `true/false`).
-Current default is `auto`, which resolves to `off` unless explicitly enabled.
-
-## Open questions (to decide early)
-
-- Runtime: **Tokio** (chosen). We may revisit runtime-agnostic execution later if it becomes a strong requirement.
-- Styling: adopt a small CSS subset immediately, or start with a typed style system and add CSS later?
-- Layout: port Textual’s layout engine vs. implement a simplified initial layout with a migration path?
-- Rendering: do we require a persistent `Screen` buffer + diff from day one? (recommended for correctness/performance)
-- IDs: do we need deterministic (hash-based) ids for persisted state/snapshots, or are stable per-run ids sufficient?
+MIT

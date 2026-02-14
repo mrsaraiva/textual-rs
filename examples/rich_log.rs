@@ -1,3 +1,8 @@
+/// Mirrors Python Textual's `docs/examples/widgets/rich_log.py`.
+///
+/// Uses a thin wrapper around `RichLog` to intercept key events (the framework
+/// does not yet expose an app-level `on_key` hook, so widget-level interception
+/// is the minimum viable approach).
 use rich_rs::{Column, Segment, Style as RichStyle, Syntax, Table};
 use textual::prelude::*;
 
@@ -26,11 +31,12 @@ const SWIM_ROWS: &[&[&str]] = &[
     &["1", "Aleksandr Sadovnikov", "Russia", "51.84"],
 ];
 
-struct RichLogWidget {
+/// Thin wrapper that adds key-event logging to a `RichLog`.
+struct KeyLoggingRichLog {
     log: RichLog,
 }
 
-impl RichLogWidget {
+impl KeyLoggingRichLog {
     fn new() -> Self {
         let mut log = RichLog::new().highlight(true).markup(true).scroll_step(2);
 
@@ -94,61 +100,43 @@ impl RichLogWidget {
     }
 }
 
-impl Widget for RichLogWidget {
+impl Widget for KeyLoggingRichLog {
+    fn style_type(&self) -> &'static str {
+        "RichLog"
+    }
     fn focusable(&self) -> bool {
         self.log.focusable()
     }
-
     fn set_focus(&mut self, focused: bool) {
         self.log.set_focus(focused);
     }
-
     fn has_focus(&self) -> bool {
         self.log.has_focus()
     }
-
-    fn style_type(&self) -> &'static str {
-        "RichLogWidget"
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.log.on_event_capture(event, ctx);
-    }
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::Key(key) = event {
-            self.write_key_line(&key.name(), key.character, key.is_printable);
+            self.write_key_line(key.name(), key.character, key.is_printable);
             ctx.request_repaint();
         }
         self.log.on_event(event, ctx);
     }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.log.on_mouse_scroll(delta_x, delta_y, ctx);
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.log.on_event_capture(event, ctx);
     }
-
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+        self.log.on_mouse_scroll(dx, dy, ctx);
+    }
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         self.log.on_mouse_move(x, y)
     }
-
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
+    fn render(&self, console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {
         self.log.render(console, options)
     }
-
     fn styles(&self) -> Option<&WidgetStyles> {
         self.log.styles()
     }
-
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         self.log.styles_mut()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        self.log.style_classes()
     }
 }
 
@@ -156,7 +144,7 @@ struct RichLogApp;
 
 impl TextualApp for RichLogApp {
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_child(RichLogWidget::new())
+        AppRoot::new().with_child(KeyLoggingRichLog::new())
     }
 }
 

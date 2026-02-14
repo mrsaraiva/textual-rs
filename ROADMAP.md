@@ -1,7 +1,7 @@
 # textual-rs Roadmap
 
-This roadmap defines a **Rust Textual** project built on top of `rich-rs`.
-It is intentionally separate from `rich-rs` (which targets Python Rich parity).
+This roadmap defines a **Rust Textual** project built on top of [`rich-rs`](https://crates.io/crates/rich-rs)
+and [`crossterm`](https://crates.io/crates/crossterm).
 
 The goal here is a framework capable of powering real applications, eventually enabling a practical port of Textual apps to Rust.
 
@@ -113,7 +113,7 @@ Deliverable: ~~focusable button-like widget + key bindings + mouse click.~~ **Do
 
 | Status | Task | Notes |
 |--------|------|-------|
-| Done | Box model | Padding, border (all edges, shorthand, `tall`/`block`/`none`), margin, line-pad |
+| Done | Box model | Padding, border (all edges, shorthand, `tall`/`block`/`none`), margin, line-pad (render-only), border-box default, vertical margin collapsing |
 | Done | Layout primitives | Vertical, Horizontal, Dock, Grid, Row with fixed-width support |
 | Done | Clipping + regions | Render-only visible area + scroll regions |
 | Done | Scroll containers | Vertical + horizontal scrolling (`ScrollView`, `VerticalScroll`) |
@@ -138,7 +138,7 @@ Deliverable: ~~sidebar + main view + footer layout with scrolling content.~~ **D
 | Done | Specificity + cascade | Specificity scoring; rules cascade in declaration order |
 | Done | Stylesheet hot reload | File watch with configurable interval |
 | Done | Theme tokens | `$surface`, `$primary`, lighten/darken/muted derivations aligned with Textual |
-| Done | Built-in widget defaults | Default stylesheet for Button (all variants, all pseudo-states) and VerticalScroll |
+| Done | Built-in widget defaults | All 16 default CSS files match Python Textual DEFAULT_CSS verbatim (DC-00..DC-38/DC-ALL) |
 | Done | Computed styles | Per-widget computed-style cache/tree now memoizes selector/cascade + inline + inheritance across renders; cache keys include ancestor selector stack + parent style and invalidate correctly on style/class/id/pseudo/stylesheet changes, with layout-affecting computed deltas triggering layout application. |
 | Done | Style invalidation | Stylesheet hot-reload now computes changed rules and invalidates matching widgets/selectors (including descendant/child selector matches) with selective region redraw where feasible; falls back to full redraw for layout-affecting or broad changes. |
 
@@ -146,40 +146,49 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 
 ### Known CSS Engine Gaps
 
-Properties/features where the Rust CSS engine diverges from Python Textual due to
-fundamentals-level limitations. These are not bugs in specific widgets or defaults —
-they require engine-level work.
-
 | Gap | Description | Python Textual Behavior | Tracking |
 |-----|-------------|------------------------|----------|
 | `pointer` CSS → runtime wiring | `Pointer` enum + parser exist (P2-02, P2-06), but `pointer_shape_for_hover_tree` uses hardcoded type-name checks instead of reading the CSS property. | `pointer: text` on Input, `pointer: not-allowed` on disabled, etc. | P2-23 |
 
-### TCSS Property Parity Audit (2026-02-14)
+### TCSS Property Parity (Complete)
 
-**P2-24..P2-36 DONE.** 52 new CSS properties added (types, parser, cascade,
+**P2-24..P2-36 DONE.** 52 CSS properties added (types, parser, cascade,
 layout/render/widget wiring, 76 gated tests). Property count: **~108 of ~108.**
+
+**CSS Defaults Parity (Complete).** DC-00 through DC-38/DC-ALL executed — all 16
+default CSS files rewritten to match Python Textual DEFAULT_CSS verbatim with `&`
+nesting syntax, multi-line formatting, and full token/property coverage. DCE-Core
+engine prerequisites (pseudo-classes, color values, text-style parity, markdown
+tokens, tint rendering, auto foreground) landed as prerequisite commits.
+
+**Box-model parity fixes (Complete).** `line-pad` separated from CSS `padding` as a
+render-time-only property (matching Python semantics). Default `box-sizing` changed
+from `content-box` to `border-box` across all layout paths (matching Python Textual).
+Vertical margin collapsing implemented (`max(bottom, top)` instead of additive).
+`:can-focus` pseudo-class + global disabled dimming rule added.
 
 Full property-by-property gap analysis with 8 priority tiers lives in:
 - **Gap details:** `docs/devel/PARITY_ANALYSIS.md` → Appendix D
 - **Action items:** `docs/devel/PARITY_ACTION_PLAN.md` → Pillar 2 (P2-24 through P2-36)
 
-Previously tracked P2-22 (split overflow axes) is **RESOLVED** — separate
-`overflow_x`/`overflow_y` fields with per-axis parser + ScrollView handling.
-
 #### P2 Deferred Items (parsed + cascaded, rendering not yet active)
 
-These properties are fully wired in the style model, parser, and cascade.
-Rendering is blocked on infrastructure that doesn't exist yet. Each has a
-`DEFERRED(P2-XX)` comment in the source with full details.
+Most originally-deferred items have been resolved. Two remain:
 
-| Item | Blocked On | Source Location | Priority |
-|------|-----------|----------------|----------|
-| Border title/subtitle rendering (P2-29) | Widget trait method for title text — currently no way to retrieve title/subtitle strings in the render path | `src/runtime/render.rs:1109` | Medium — needed when border titles are used in widget CSS |
-| `overlay: screen` blend (P2-34) | Two-pass compositor — needs to read underlying frame cells before widget paint, then blend with `screen(a,b) = 1-(1-a)(1-b)` | `src/runtime/render.rs:922` | Low — uncommon compositing mode |
-| Keyline rendering (P2-34) | Layout direction awareness — need horizontal vs vertical direction exposed in tree compositor to determine separator orientation | `src/runtime/render.rs:947` | Medium — needed for grid/container keyline decoration |
-| Full transition dispatch (P2-36) | Per-widget style snapshot diffing — need before/after style comparison, property-level diff, and automatic AnimationRequest generation on class/stylesheet/pseudo changes | `src/runtime/event_loop.rs:1957` | Medium — per-property transition lookup works at widget level (ScrollView uses it), but automatic dispatch on style changes is not yet wired |
-| Scrollbar hover/active sub-part styling (P2-30) | Scrollbar sub-part hit-testing — need to distinguish thumb vs track hover/active states | (not in code — agent report) | Low — basic scrollbar CSS colors are wired |
-| Absolute positioning min/max constraints (P2-24) | Layout solver — absolute children don't currently respect min-width/max-width/min-height/max-height | (not in code — Codex follow-up) | Low — basic absolute positioning works |
+| Item | Blocked On | Priority |
+|------|-----------|----------|
+| Full transition dispatch (P2-36) | Automatic dispatch on class/pseudo/stylesheet changes works for `opacity`, `text_opacity`, `offset_x`, `offset_y`. Remaining animatable properties need wiring as they gain runtime consumption. | Low — core mechanism works, incremental extension |
+| `pointer` CSS → runtime wiring (P2-23) | `pointer_shape_for_hover_tree` reads hardcoded type-name checks instead of CSS property. | Medium — cosmetic only |
+
+#### P2 Previously Deferred, Now Resolved
+
+| Item | Resolution |
+|------|-----------|
+| Border title/subtitle rendering (P2-29) | Widget `border_title()`/`border_subtitle()` hooks + border edge composition wired |
+| `overlay: screen` blend (P2-34) | Two-pass compositor with pre-paint underlay snapshot + per-cell screen blending |
+| Keyline rendering (P2-34) | Vertical/horizontal layout keyline separators with type + color |
+| Scrollbar hover/active sub-part styling (P2-30) | Sub-part hit-testing (thumb vs track) with per-state CSS color consumption |
+| Absolute positioning min/max constraints (P2-24) | `layout_absolute()` now applies min/max width/height constraints |
 
 ---
 
@@ -446,11 +455,9 @@ This phase is intentionally split by ownership boundary:
 
 ---
 
-## Phase 9.7: Core modularization (next priority)
+## Phase 9.7: Core modularization
 
 **Goal:** reduce large monolith modules so parity/fundamentals work can continue safely and faster.
-
-This is a **foundational maintenance phase**, not feature work. It is tracked as the immediate next priority because current monolith hotspots increase regression risk and slow iteration.
 
 Reference plan:
 - `docs/devel/MODULARIZATION_PLAN.md`
@@ -484,7 +491,7 @@ Reference plan:
 ## Execution Plan (v0.2, Single Source of Truth)
 
 ### Recently Closed Streams
-- Widget closure program (Tier A/B/C + primitives + message bus + grapheme) is complete in current scope.  
+- Widget closure program (Tier A/B/C + primitives + message bus + grapheme) is complete in current scope.
   Source of truth remains `docs/devel/WIDGET_PORTING_PLAN.md`.
 - Invalidation model + style invalidation closure: landed.
 - One-shot timers + broader async task runtime closure: landed.
@@ -492,11 +499,18 @@ Reference plan:
 - Rich-rs integration contract closures (hyperlink policy + deterministic widget-id policy decision): landed.
 - Phase 8 compatibility/doc ergonomics closure (including adapter utilities breadth): landed.
 - DevTools panel + external live-inspection plumbing closure: landed.
+- **TCSS Property Parity** (P2-24..P2-36): 52 CSS properties wired, ~108/108 coverage. Landed.
+- **CSS Defaults Parity** (DC-00..DC-38/DC-ALL): all 16 default CSS files rewritten to Python parity with `&` nesting, DCE-Core prerequisites, and 3 new integration test files (~1,700 lines). Landed.
+- **CSS Engine Parity** (DCE-01..DCE-12): pseudo-classes (`:ansi`/`:inline`/`:blur`/`:nocolor`), transparent/ANSI color parsing, text-style negation, markdown tokens, tint rendering, auto foreground. Landed.
+- **Box-model parity**: `line-pad` separated from CSS padding, default `box-sizing` changed to `border-box`, vertical margin collapsing, `:can-focus` pseudo-class + disabled dimming. Landed.
+- **Render parity** (P2 deferred closures): border captions, keylines, `overlay: screen` blending, scrollbar hover/active sub-parts, absolute min/max constraints, `expand` in flow sizing. Landed.
+- **Per-property `transition`** dispatch: runtime auto-emits AnimationRequests on style changes for animatable properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`). Landed.
+- **Phase 9.7 modularization**: runtime, containers, default CSS, and selector engine all decomposed. Landed.
 
-### Active Streams (Open Todo/Partial)
-- **TCSS Property Parity**: 52 missing CSS properties documented in Phase 5 audit (2026-02-13). See "TCSS Property Parity Audit" section under Phase 5 for the full gap table with priority tiers.
-- **P2-23**: `pointer` CSS property parsed but not runtime-wired (hardcoded type-name checks instead).
-- **Per-property `transition`**: Shorthand exists but doesn't support per-property targeting.
+### Open Items
+- **P2-23**: `pointer` CSS property parsed but not runtime-wired (hardcoded type-name checks instead of reading CSS property).
+- **Transition property coverage**: auto-dispatch works for 4 properties; remaining animatable properties need wiring as they gain runtime consumption.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.
+- `docs/devel/CSS_PARITY_PLAN.md` and `docs/devel/PARITY_ACTION_PLAN.md` execution is complete; these docs remain as historical references.

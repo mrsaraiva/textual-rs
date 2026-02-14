@@ -10,7 +10,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
-use crate::widgets::{AppRoot, Spacer, Widget};
+use crate::widgets::{AppRoot, BindingDecl, Spacer, Widget};
 use crate::{App, Result};
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
@@ -48,6 +48,14 @@ pub trait TextualApp: Send + 'static {
     /// Optional runtime configuration hook (key bindings, debug flags, etc.).
     fn configure(&mut self, _app: &mut App) -> Result<()> {
         Ok(())
+    }
+
+    /// Declarative app-level key bindings.
+    ///
+    /// These are attached to the root adapter widget, so they are available
+    /// across the focused path similarly to Python Textual's `App.BINDINGS`.
+    fn bindings(&self) -> Vec<BindingDecl> {
+        Vec::new()
     }
 
     /// Called after widget mount, before entering the event loop.
@@ -254,6 +262,13 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 }
 
 impl<T: TextualApp> Widget for TextualAppAdapter<T> {
+    fn bindings(&self) -> Vec<BindingDecl> {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .bindings()
+    }
+
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         if self.child_extracted {
             return Vec::new();

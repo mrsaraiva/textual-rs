@@ -1920,16 +1920,43 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         let child_id = tree.mount(root, Box::new(Label::new("hidden")));
 
-        // Set display=false on the child.
-        if let Some(node) = tree.get_mut(child_id) {
-            node.display = false;
-        }
+        // Set runtime display=false on the child.
+        tree.set_runtime_display(child_id, false);
 
         let nodes = collect_render_nodes(&tree);
         let child_entry = nodes.iter().find(|(id, _)| *id == child_id);
         assert!(
             matches!(child_entry, Some((_, false))),
             "display:none child should be marked as not rendered"
+        );
+    }
+
+    #[test]
+    fn run_layout_pass_preserves_runtime_hidden_when_css_display_is_visible() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let child_id = tree.mount(root, Box::new(Label::new("hidden by runtime")));
+
+        // Hide via runtime control (not CSS).
+        tree.set_runtime_display(child_id, false);
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            !tree.get(child_id).expect("child exists").display,
+            "runtime-hidden child must stay hidden after CSS display sync"
+        );
+
+        // Re-enable runtime visibility and ensure layout pass can show it again.
+        tree.set_runtime_display(child_id, true);
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            tree.get(child_id).expect("child exists").display,
+            "runtime-visible child should render when CSS display allows it"
         );
     }
 }

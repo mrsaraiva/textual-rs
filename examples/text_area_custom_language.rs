@@ -11,28 +11,16 @@ const JAVA_CODE: &str = r#"class HelloWorld {
 const JAVA_HIGHLIGHTS: &str =
     include_str!("../../textual/docs/examples/widgets/java_highlights.scm");
 
-struct TextAreaCustomLanguageApp {
-    text_area: Option<TextArea>,
-}
-
-impl TextAreaCustomLanguageApp {
-    fn new() -> Result<Self> {
-        let mut text_area = TextArea::code_editor(JAVA_CODE).with_cursor_blink(false);
-        text_area.register_language("java", tree_sitter_java::LANGUAGE.into(), JAVA_HIGHLIGHTS)?;
-        let text_area = text_area.with_language("java");
-        Ok(Self {
-            text_area: Some(text_area),
-        })
-    }
-}
+struct TextAreaCustomLanguageApp;
 
 impl TextualApp for TextAreaCustomLanguageApp {
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_child(
-            self.text_area
-                .take()
-                .unwrap_or_else(|| TextArea::code_editor(JAVA_CODE).with_cursor_blink(false)),
-        )
+        let mut text_area = TextArea::code_editor(JAVA_CODE).with_cursor_blink(false);
+        text_area
+            .register_language("java", tree_sitter_java::LANGUAGE.into(), JAVA_HIGHLIGHTS)
+            .expect("failed to register Java language");
+        let text_area = text_area.with_language("java");
+        AppRoot::new().with_child(text_area)
     }
 }
 
@@ -40,5 +28,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync(TextAreaCustomLanguageApp::new()?)
+    run_sync(TextAreaCustomLanguageApp)
 }

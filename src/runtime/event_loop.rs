@@ -26,10 +26,11 @@ use super::helpers::{
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
-    active_binding_hints_tree, dispatch_event, dispatch_event_to_target_tree, dispatch_event_tree,
-    dispatch_message_queue_tree, dispatch_mouse_scroll, dispatch_mouse_scroll_to_target_tree,
-    dispatch_scroll_action_tree, focused_help_metadata_tree, focused_node_id_tree,
-    is_priority_action, is_scroll_action, match_binding_tree,
+    active_binding_hints_tree, dispatch_event, dispatch_event_broadcast_tree,
+    dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
+    dispatch_mouse_scroll, dispatch_mouse_scroll_to_target_tree, dispatch_scroll_action_tree,
+    focused_help_metadata_tree, focused_node_id_tree, is_priority_action, is_scroll_action,
+    match_binding_tree,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
@@ -273,10 +274,46 @@ fn set_overlay_modal_display_tree(
     let node_ids = tree.walk_depth_first(modal_root);
     let mut changed = false;
     for node_id in node_ids {
-        if let Some(node) = tree.get_mut(node_id)
-            && node.display != visible
+        let before = tree.is_displayed(node_id);
+        tree.set_runtime_display(node_id, visible);
+        if before != tree.is_displayed(node_id) {
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn sync_widget_controlled_child_display_tree(tree: &mut crate::widget_tree::WidgetTree) -> bool {
+    let Some(root) = tree.root() else {
+        return false;
+    };
+
+    let mut updates: Vec<(NodeId, bool)> = Vec::new();
+    for parent_id in tree.walk_depth_first(root) {
+        let child_ids = tree.children(parent_id).to_vec();
+        if child_ids.is_empty() {
+            continue;
+        }
+        let Some(parent) = tree.get(parent_id) else {
+            continue;
+        };
+        for (idx, child_id) in child_ids.into_iter().enumerate() {
+            if let Some(display) = parent.widget.child_display_for_tree(idx) {
+                updates.push((child_id, display));
+            }
+        }
+    }
+
+    let mut changed = false;
+    for (node_id, display) in updates {
+        let before = tree.is_displayed(node_id);
+        tree.set_runtime_display(node_id, display);
+        if !display
+            && let Some(node) = tree.get_mut(node_id)
         {
-            node.display = visible;
+            node.widget.set_focus(false);
+        }
+        if before != tree.is_displayed(node_id) {
             changed = true;
         }
     }
@@ -1082,6 +1119,9 @@ impl App {
         // If children are found (via take_composed_children or compose),
         // tree mode becomes active; otherwise runtime stays in root-only mode.
         self.build_widget_tree(root);
+        if let Some(tree) = self.widget_tree.as_mut() {
+            let _ = sync_widget_controlled_child_display_tree(tree);
+        }
         self.style_snapshot_cache.clear();
 
         // Auto-focus the first focusable widget via the arena tree.
@@ -2012,6 +2052,13 @@ impl App {
 
             self.dispatch_style_transition_requests(root);
 
+            if let Some(tree) = self.widget_tree.as_mut()
+                && sync_widget_controlled_child_display_tree(tree)
+            {
+                pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
+                pending_invalidation.request_full_content();
+            }
+
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
                 let regions = pending_invalidation
                     .content_regions
@@ -2068,6 +2115,12 @@ impl App {
                 }
 
                 let any_active = self.any_widget_active_auto(root);
+                if let Some(tree) = self.widget_tree.as_mut()
+                    && sync_widget_controlled_child_display_tree(tree)
+                {
+                    pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
+                    pending_invalidation.request_full_content();
+                }
                 if pending_invalidation.is_dirty()
                     || self.resized_since_last_render
                     || any_active
@@ -2113,7 +2166,11 @@ impl App {
         }
         self.last_binding_hints = current.clone();
         self.last_binding_hint_sources = current_sources;
-        let outcome = self.dispatch_event_auto(root, Event::BindingsChanged(current));
+        let outcome = if let Some(tree) = self.widget_tree.as_mut() {
+            dispatch_event_broadcast_tree(tree, &Event::BindingsChanged(current))
+        } else {
+            self.dispatch_event_auto(root, Event::BindingsChanged(current))
+        };
         let msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
         let mut invalidation = outcome.invalidation;
         invalidation.merge(msg_outcome.invalidation);

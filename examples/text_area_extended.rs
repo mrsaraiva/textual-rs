@@ -29,20 +29,25 @@ impl Widget for AutoParenEditor {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Event::Key(key) = event {
-            if key.code == crossterm::event::KeyCode::Char('(') && self.child.has_focus() {
-                self.child.insert("()");
-                self.child.move_cursor_relative(-1, 0);
-                ctx.request_repaint();
-                ctx.set_handled();
-                return;
-            }
+        if let Event::Key(key) = event
+            && key.code == crossterm::event::KeyCode::Char('(')
+            && self.child.has_focus()
+        {
+            self.child.insert("()");
+            self.child.move_cursor_relative(-1, 0);
+            ctx.request_repaint();
+            ctx.set_handled();
+            return;
         }
         self.child.on_event(event, ctx);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.child.on_mouse_move(x, y)
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
