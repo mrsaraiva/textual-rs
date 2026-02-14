@@ -99,6 +99,25 @@ impl Link {
     }
 }
 
+/// Apply [`TextStyleFlags`] onto a `rich_rs::Style`.
+fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
+    if flags.bold {
+        *style = style.clone().with_bold(true);
+    }
+    if flags.dim {
+        *style = style.clone().with_dim(true);
+    }
+    if flags.italic {
+        *style = style.clone().with_italic(true);
+    }
+    if flags.underline {
+        *style = style.clone().with_underline(true);
+    }
+    if flags.reverse {
+        style.reverse = Some(true);
+    }
+}
+
 impl Widget for Link {
     fn focusable(&self) -> bool {
         true
@@ -169,13 +188,42 @@ impl Widget for Link {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let line = rich_rs::set_cell_size(&self.text, width);
+
+        // Start with component-resolved base style.
+        let mut style = crate::css::resolve_component_style(self, &["link"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+
+        // Overlay CSS link styling properties (P2-32).
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+
+        if self.hovered {
+            // Hover state: use hover variants, falling back to normal variants.
+            if let Some(color) = resolved.link_color_hover.or(resolved.link_color) {
+                style = style.with_color(color.to_simple_opaque());
+            }
+            if let Some(bg) = resolved.link_background_hover.or(resolved.link_background) {
+                style = style.with_bgcolor(bg.to_simple_opaque());
+            }
+            if let Some(flags) = resolved.link_style_hover.or(resolved.link_style) {
+                apply_text_style_flags(&mut style, &flags);
+            }
+        } else {
+            // Normal state.
+            if let Some(color) = resolved.link_color {
+                style = style.with_color(color.to_simple_opaque());
+            }
+            if let Some(bg) = resolved.link_background {
+                style = style.with_bgcolor(bg.to_simple_opaque());
+            }
+            if let Some(flags) = resolved.link_style {
+                apply_text_style_flags(&mut style, &flags);
+            }
+        }
+
         let mut out = Segments::new();
-        let mut segment = Segment::styled(
-            line,
-            crate::css::resolve_component_style(self, &["link"])
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new),
-        );
+        let mut segment = Segment::styled(line, style);
         if !self.url.is_empty() {
             // Hyperlink policy: set URL only and rely on rich-rs per-Console link-id registry.
             segment.meta = Some(StyleMeta::with_link(self.url.clone()));

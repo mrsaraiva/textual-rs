@@ -9,7 +9,11 @@ mod timers;
 mod types;
 
 // Public re-exports for integration testing via `textual::runtime::*`.
-pub use render::{render_tree_to_frame, run_layout_pass};
+pub use render::{
+    apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
+    resolve_axis_constrain, run_layout_pass, text_overflow_mode,
+};
+pub use event_loop::resolve_transition_for_property;
 pub use routing::{dispatch_event_tree, dispatch_event_to_target_tree, focused_node_id_tree};
 pub use types::DispatchOutcome;
 
@@ -841,7 +845,15 @@ impl App {
         let frame_target = self.widget_at(x, y);
         if let Some(tree) = self.widget_tree.as_ref() {
             let tree_target = widget_at_tree_layout(tree, x, y);
-            let chosen = choose_deeper_target(tree, frame_target, tree_target);
+            let chosen_raw = choose_deeper_target(tree, frame_target, tree_target);
+            // Guard tree-only fallback with frame geometry presence to avoid
+            // startup false positives from coarse layout-only hits.
+            let chosen = match (frame_target, chosen_raw) {
+                (None, Some(tree_hit)) if !hit_test_contains_point(&self.hit_test, tree_hit, x, y) => {
+                    None
+                }
+                _ => chosen_raw,
+            };
             if frame_target != tree_target {
                 debug_input(&format!(
                     "[hover] widget_at mismatch x={} y={} frame={} tree={} chosen={}",
@@ -1017,7 +1029,9 @@ fn choose_deeper_target(
             } else if is_ancestor_or_self(tree, tree_hit, frame) {
                 Some(frame)
             } else {
-                Some(tree_hit)
+                // If frame/tree disagree and neither is ancestor of the other,
+                // trust the frame hit: it reflects actual painted cell metadata.
+                Some(frame)
             }
         }
         (Some(frame), Some(_)) => Some(frame),
@@ -1025,6 +1039,12 @@ fn choose_deeper_target(
         (None, Some(tree_hit)) => Some(tree_hit),
         (None, None) => None,
     }
+}
+
+fn hit_test_contains_point(hit_test: &HitTestMap, target: NodeId, x: u16, y: u16) -> bool {
+    hit_test
+        .rect(target)
+        .is_some_and(|r| x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1)
 }
 
 fn debug_target_label(tree: &WidgetTree, id: Option<NodeId>) -> String {
@@ -1175,5 +1195,37 @@ mod tests {
 
         let chosen = choose_deeper_target(&tree, Some(frame_target), Some(tree_target));
         assert_eq!(chosen, Some(frame_target));
+    }
+
+    #[test]
+    fn choose_deeper_target_prefers_frame_when_targets_are_unrelated() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let frame_target = tree.mount(root, Box::new(Label::new("left")));
+        let tree_target = tree.mount(root, Box::new(Label::new("right")));
+
+        let chosen = choose_deeper_target(&tree, Some(frame_target), Some(tree_target));
+        assert_eq!(chosen, Some(frame_target));
+    }
+
+    #[test]
+    fn hit_test_contains_point_requires_frame_rect_for_tree_fallback() {
+        let mut hit_test = HitTestMap::default();
+        let target = node_id_from_ffi(42);
+
+        assert!(!hit_test_contains_point(&hit_test, target, 5, 5));
+
+        hit_test.bounds.insert(
+            target,
+            crate::runtime::types::Rect {
+                x0: 4,
+                y0: 4,
+                x1: 10,
+                y1: 10,
+            },
+        );
+
+        assert!(hit_test_contains_point(&hit_test, target, 5, 5));
+        assert!(!hit_test_contains_point(&hit_test, target, 11, 5));
     }
 }

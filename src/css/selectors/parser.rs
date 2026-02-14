@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use crate::style::{
-    Align, BorderEdge, BorderType, Constrain, ContentAlign, Display, Dock, HorizontalAlign, Layout,
-    Margin, Offset, Overflow, Pointer, Scalar, Style, StyleProperty, TextAlign, Tint,
-    TransitionTiming, VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
+    Align, BorderEdge, BorderType, BoxSizing, Constrain, ContentAlign, Display, Dock, Hatch,
+    HorizontalAlign, Keyline, KeylineType, Layout, Margin, Offset, Overflow, OverlayMode, Pointer,
+    Position, PropertyTransition, Scalar, ScrollbarGutter, ScrollbarVisibility, Split, Style,
+    StyleProperty, TextAlign, TextOverflow, TextStyleFlags, TextWrap, Tint, TransitionTiming,
+    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -275,6 +277,64 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
         "layers" => &[StyleProperty::Layers],
         "constrain" => &[StyleProperty::Constrain],
         "pointer" => &[StyleProperty::Pointer],
+        // --- P2 CSS gap properties ---
+        "position" => &[StyleProperty::Position],
+        "box-sizing" => &[StyleProperty::BoxSizing],
+        "split" => &[StyleProperty::Split],
+        "padding-top" => &[StyleProperty::PaddingTop],
+        "padding-right" => &[StyleProperty::PaddingRight],
+        "padding-bottom" => &[StyleProperty::PaddingBottom],
+        "padding-left" => &[StyleProperty::PaddingLeft],
+        "margin-top" => &[StyleProperty::MarginTop],
+        "margin-right" => &[StyleProperty::MarginRight],
+        "margin-bottom" => &[StyleProperty::MarginBottom],
+        "margin-left" => &[StyleProperty::MarginLeft],
+        "outline" => &[
+            StyleProperty::OutlineTop,
+            StyleProperty::OutlineRight,
+            StyleProperty::OutlineBottom,
+            StyleProperty::OutlineLeft,
+        ],
+        "outline-top" => &[StyleProperty::OutlineTop],
+        "outline-right" => &[StyleProperty::OutlineRight],
+        "outline-bottom" => &[StyleProperty::OutlineBottom],
+        "outline-left" => &[StyleProperty::OutlineLeft],
+        "border-title-align" => &[StyleProperty::BorderTitleAlign],
+        "border-subtitle-align" => &[StyleProperty::BorderSubtitleAlign],
+        "border-title-color" => &[StyleProperty::BorderTitleColor],
+        "border-title-background" => &[StyleProperty::BorderTitleBackground],
+        "border-title-style" => &[StyleProperty::BorderTitleStyle],
+        "border-subtitle-color" => &[StyleProperty::BorderSubtitleColor],
+        "border-subtitle-background" => &[StyleProperty::BorderSubtitleBackground],
+        "border-subtitle-style" => &[StyleProperty::BorderSubtitleStyle],
+        "scrollbar-color" => &[StyleProperty::ScrollbarColor],
+        "scrollbar-color-hover" => &[StyleProperty::ScrollbarColorHover],
+        "scrollbar-color-active" => &[StyleProperty::ScrollbarColorActive],
+        "scrollbar-background" => &[StyleProperty::ScrollbarBackground],
+        "scrollbar-background-hover" => &[StyleProperty::ScrollbarBackgroundHover],
+        "scrollbar-background-active" => &[StyleProperty::ScrollbarBackgroundActive],
+        "scrollbar-corner-color" => &[StyleProperty::ScrollbarCornerColor],
+        "scrollbar-gutter" => &[StyleProperty::ScrollbarGutter],
+        "scrollbar-size" => &[StyleProperty::ScrollbarSize],
+        "scrollbar-size-horizontal" => &[StyleProperty::ScrollbarSizeHorizontal],
+        "scrollbar-size-vertical" => &[StyleProperty::ScrollbarSizeVertical],
+        "scrollbar-visibility" => &[StyleProperty::ScrollbarVisibility],
+        "text-wrap" => &[StyleProperty::TextWrapProp],
+        "text-overflow" => &[StyleProperty::TextOverflowProp],
+        "link-color" => &[StyleProperty::LinkColor],
+        "link-background" => &[StyleProperty::LinkBackground],
+        "link-style" => &[StyleProperty::LinkStyleProp],
+        "link-color-hover" => &[StyleProperty::LinkColorHover],
+        "link-background-hover" => &[StyleProperty::LinkBackgroundHover],
+        "link-style-hover" => &[StyleProperty::LinkStyleHover],
+        "row-span" => &[StyleProperty::RowSpan],
+        "column-span" => &[StyleProperty::ColumnSpan],
+        "hatch" => &[StyleProperty::HatchProp],
+        "overlay" => &[StyleProperty::OverlayProp],
+        "keyline" => &[StyleProperty::KeylineProp],
+        "constrain-x" => &[StyleProperty::ConstrainX],
+        "constrain-y" => &[StyleProperty::ConstrainY],
+        "expand" => &[StyleProperty::ExpandProp],
         _ => &[],
     }
 }
@@ -461,24 +521,66 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "transition" => {
                 // Shorthand: only mark sub-properties that are actually set.
                 handled_importance = true;
-                if let Some((duration, delay, timing)) = parse_transition_shorthand(value) {
-                    if let Some(duration) = duration {
-                        style = style.transition_duration(duration);
-                        if is_important {
-                            style.importance.set(StyleProperty::TransitionDuration);
+                // P2-36: parse per-property transitions (comma-separated).
+                let items: Vec<&str> = value.split(',').collect();
+                let mut per_property = Vec::new();
+                for (idx, item) in items.iter().enumerate() {
+                    let item = item.trim();
+                    if item.is_empty() { continue; }
+                    // Try to extract a property name (first non-duration/non-timing token).
+                    let mut prop_name: Option<String> = None;
+                    let mut dur: Option<std::time::Duration> = None;
+                    let mut del: Option<std::time::Duration> = None;
+                    let mut tim: Option<TransitionTiming> = None;
+                    for token in item.split_whitespace() {
+                        if dur.is_none() {
+                            if let Some(d) = parse_duration(token) { dur = Some(d); continue; }
+                        } else if del.is_none() {
+                            if let Some(d) = parse_duration(token) { del = Some(d); continue; }
+                        }
+                        if tim.is_none() {
+                            if let Some(t) = parse_transition_timing(token) { tim = Some(t); continue; }
+                        }
+                        if prop_name.is_none() {
+                            prop_name = Some(token.to_string());
                         }
                     }
-                    if let Some(delay) = delay {
-                        style = style.transition_delay(delay);
-                        if is_important {
-                            style.importance.set(StyleProperty::TransitionDelay);
+                    let duration = dur.unwrap_or(std::time::Duration::from_millis(250));
+                    let timing = tim.unwrap_or(TransitionTiming::Linear);
+                    let delay = del.unwrap_or(std::time::Duration::ZERO);
+                    if let Some(name) = prop_name {
+                        per_property.push(PropertyTransition {
+                            property: name,
+                            duration, timing, delay,
+                        });
+                    }
+                    // First item: set global transition fields only for values
+                    // explicitly present in the declaration (backward compat).
+                    if idx == 0 {
+                        if let Some(d) = dur {
+                            style = style.transition_duration(d);
+                            if is_important {
+                                style.importance.set(StyleProperty::TransitionDuration);
+                            }
+                        }
+                        if let Some(d) = del {
+                            style = style.transition_delay(d);
+                            if is_important {
+                                style.importance.set(StyleProperty::TransitionDelay);
+                            }
+                        }
+                        if let Some(t) = tim {
+                            style = style.transition_timing(t);
+                            if is_important {
+                                style.importance.set(StyleProperty::TransitionTiming);
+                            }
                         }
                     }
-                    if let Some(timing) = timing {
-                        style = style.transition_timing(timing);
-                        if is_important {
-                            style.importance.set(StyleProperty::TransitionTiming);
-                        }
+                }
+                if !per_property.is_empty() {
+                    style.transitions = Some(per_property);
+                    if is_important {
+                        style.importance.set(StyleProperty::TransitionsProp);
                     }
                 }
             }
@@ -712,6 +814,310 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     _ => None,
                 };
             }
+            // --- P2 CSS gap properties (P2-24..P2-36) ---
+            "position" => {
+                style.position = match value.trim().to_lowercase().as_str() {
+                    "relative" => Some(Position::Relative),
+                    "absolute" => Some(Position::Absolute),
+                    _ => None,
+                };
+            }
+            "box-sizing" => {
+                style.box_sizing = match value.trim().to_lowercase().as_str() {
+                    "content-box" => Some(BoxSizing::ContentBox),
+                    "border-box" => Some(BoxSizing::BorderBox),
+                    _ => None,
+                };
+            }
+            "split" => {
+                style.split = match value.trim().to_lowercase().as_str() {
+                    "top" => Some(Split::Top),
+                    "right" => Some(Split::Right),
+                    "bottom" => Some(Split::Bottom),
+                    "left" => Some(Split::Left),
+                    _ => None,
+                };
+            }
+            // P2-27: individual spacing sides (stored as per-side fields, not on aggregate)
+            "padding-top" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.padding_top = Some(v);
+                }
+            }
+            "padding-right" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.padding_right = Some(v);
+                }
+            }
+            "padding-bottom" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.padding_bottom = Some(v);
+                }
+            }
+            "padding-left" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.padding_left = Some(v);
+                }
+            }
+            "margin-top" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.margin_top = Some(v);
+                }
+            }
+            "margin-right" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.margin_right = Some(v);
+                }
+            }
+            "margin-bottom" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.margin_bottom = Some(v);
+                }
+            }
+            "margin-left" => {
+                if let Ok(v) = value.trim().parse::<u16>() {
+                    style.margin_left = Some(v);
+                }
+            }
+            // P2-28: outline
+            "outline" => {
+                if let Some(edges) = parse_border_shorthand(value) {
+                    style.outline_top = edges.0;
+                    style.outline_right = edges.1;
+                    style.outline_bottom = edges.2;
+                    style.outline_left = edges.3;
+                }
+            }
+            "outline-top" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.outline_top = edge;
+                }
+            }
+            "outline-right" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.outline_right = edge;
+                }
+            }
+            "outline-bottom" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.outline_bottom = edge;
+                }
+            }
+            "outline-left" => {
+                if let Some(edge) = parse_border_edge(value) {
+                    style.outline_left = edge;
+                }
+            }
+            // P2-29: border title/subtitle styling
+            "border-title-align" => {
+                style.border_title_align = parse_horizontal_align(value);
+            }
+            "border-subtitle-align" => {
+                style.border_subtitle_align = parse_horizontal_align(value);
+            }
+            "border-title-color" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.border_title_color = Some(color);
+                }
+            }
+            "border-title-background" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.border_title_background = Some(color);
+                }
+            }
+            "border-title-style" => {
+                style.border_title_style = parse_text_style_flags(value);
+            }
+            "border-subtitle-color" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.border_subtitle_color = Some(color);
+                }
+            }
+            "border-subtitle-background" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.border_subtitle_background = Some(color);
+                }
+            }
+            "border-subtitle-style" => {
+                style.border_subtitle_style = parse_text_style_flags(value);
+            }
+            // P2-30: scrollbar CSS
+            "scrollbar-color" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_color = Some(color);
+                }
+            }
+            "scrollbar-color-hover" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_color_hover = Some(color);
+                }
+            }
+            "scrollbar-color-active" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_color_active = Some(color);
+                }
+            }
+            "scrollbar-background" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_background = Some(color);
+                }
+            }
+            "scrollbar-background-hover" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_background_hover = Some(color);
+                }
+            }
+            "scrollbar-background-active" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_background_active = Some(color);
+                }
+            }
+            "scrollbar-corner-color" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.scrollbar_corner_color = Some(color);
+                }
+            }
+            "scrollbar-gutter" => {
+                style.scrollbar_gutter = match value.trim().to_lowercase().as_str() {
+                    "auto" => Some(ScrollbarGutter::Auto),
+                    "stable" => Some(ScrollbarGutter::Stable),
+                    _ => None,
+                };
+            }
+            "scrollbar-size" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.scrollbar_size = Some(n);
+                }
+            }
+            "scrollbar-size-horizontal" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.scrollbar_size_horizontal = Some(n);
+                }
+            }
+            "scrollbar-size-vertical" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.scrollbar_size_vertical = Some(n);
+                }
+            }
+            "scrollbar-visibility" => {
+                style.scrollbar_visibility = match value.trim().to_lowercase().as_str() {
+                    "auto" => Some(ScrollbarVisibility::Auto),
+                    "hidden" => Some(ScrollbarVisibility::Hidden),
+                    "visible" => Some(ScrollbarVisibility::Visible),
+                    _ => None,
+                };
+            }
+            // P2-31: text-wrap, text-overflow
+            "text-wrap" => {
+                style.text_wrap = match value.trim().to_lowercase().as_str() {
+                    "wrap" => Some(TextWrap::Wrap),
+                    "nowrap" | "no-wrap" => Some(TextWrap::NoWrap),
+                    _ => None,
+                };
+            }
+            "text-overflow" => {
+                style.text_overflow = match value.trim().to_lowercase().as_str() {
+                    "clip" => Some(TextOverflow::Clip),
+                    "fold" => Some(TextOverflow::Fold),
+                    "ellipsis" => Some(TextOverflow::Ellipsis),
+                    _ => None,
+                };
+            }
+            // P2-32: link styling
+            "link-color" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.link_color = Some(color);
+                }
+            }
+            "link-background" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.link_background = Some(color);
+                }
+            }
+            "link-style" => {
+                style.link_style = parse_text_style_flags(value);
+            }
+            "link-color-hover" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.link_color_hover = Some(color);
+                }
+            }
+            "link-background-hover" => {
+                if let Some(color) = parse_color_like(value) {
+                    style.link_background_hover = Some(color);
+                }
+            }
+            "link-style-hover" => {
+                style.link_style_hover = parse_text_style_flags(value);
+            }
+            // P2-33: grid child placement
+            "row-span" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.row_span = Some(n);
+                }
+            }
+            "column-span" => {
+                if let Ok(n) = value.trim().parse::<u16>() {
+                    style.column_span = Some(n);
+                }
+            }
+            // P2-34: hatch, overlay, keyline
+            "hatch" => {
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let ch = parts[0].chars().next();
+                    // Remaining tokens form the color value.
+                    let color_str = parts[1..].join(" ");
+                    if let (Some(character), Some(color)) = (ch, parse_color_like(&color_str)) {
+                        style.hatch = Some(Hatch { character, color });
+                    }
+                }
+            }
+            "overlay" => {
+                style.overlay = match value.trim().to_lowercase().as_str() {
+                    "none" => Some(OverlayMode::None),
+                    "screen" => Some(OverlayMode::Screen),
+                    _ => None,
+                };
+            }
+            "keyline" => {
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let keyline_type = match parts[0].to_lowercase().as_str() {
+                        "none" => Some(KeylineType::None),
+                        "thin" => Some(KeylineType::Thin),
+                        "heavy" => Some(KeylineType::Heavy),
+                        "double" => Some(KeylineType::Double),
+                        _ => None,
+                    };
+                    let color_str = parts[1..].join(" ");
+                    if let (Some(kt), Some(color)) = (keyline_type, parse_color_like(&color_str)) {
+                        style.keyline = Some(Keyline { keyline_type: kt, color });
+                    }
+                }
+            }
+            // P2-35: constrain-x, constrain-y, expand
+            "constrain-x" => {
+                style.constrain_x = match value.trim().to_lowercase().as_str() {
+                    "none" => Some(Constrain::None),
+                    "inside" => Some(Constrain::Inside),
+                    "inflect" => Some(Constrain::Inflect),
+                    _ => None,
+                };
+            }
+            "constrain-y" => {
+                style.constrain_y = match value.trim().to_lowercase().as_str() {
+                    "none" => Some(Constrain::None),
+                    "inside" => Some(Constrain::Inside),
+                    "inflect" => Some(Constrain::Inflect),
+                    _ => None,
+                };
+            }
+            "expand" => {
+                if let Some(val) = parse_bool(value) {
+                    style.expand = Some(val);
+                }
+            }
             _ => {}
         }
         // For non-shorthand properties, apply importance generically.
@@ -874,6 +1280,8 @@ fn parse_opacity_percent(value: &str) -> Option<u8> {
     Some((value * 100.0).round().clamp(0.0, 100.0) as u8)
 }
 
+/// Parse a single transition shorthand item (backward-compat helper).
+#[allow(dead_code)]
 pub(super) fn parse_transition_shorthand(
     value: &str,
 ) -> Option<(Option<Duration>, Option<Duration>, Option<TransitionTiming>)> {
@@ -1058,6 +1466,27 @@ fn parse_offset(value: &str) -> Option<Offset> {
     let x = parts[0].trim().parse::<i16>().ok()?;
     let y = parts[1].trim().parse::<i16>().ok()?;
     Some(Offset { x, y })
+}
+
+fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
+    let mut flags = TextStyleFlags::default();
+    let mut any = false;
+    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        match token.to_lowercase().as_str() {
+            "bold" => { flags.bold = true; any = true; }
+            "dim" => { flags.dim = true; any = true; }
+            "italic" => { flags.italic = true; any = true; }
+            "underline" => { flags.underline = true; any = true; }
+            "reverse" => { flags.reverse = true; any = true; }
+            "none" => { return Some(TextStyleFlags::default()); }
+            _ => {}
+        }
+    }
+    if any { Some(flags) } else { None }
 }
 
 pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {

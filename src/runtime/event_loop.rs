@@ -1,8 +1,9 @@
 use crate::css::{set_app_active, set_style_context};
 use crate::debug::{debug_input, debug_render};
 use crate::event::{
-    Action, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx, FocusEvent,
-    MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent, UnmountEvent,
+    Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx,
+    FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
+    UnmountEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
@@ -118,6 +119,34 @@ fn worker_state_runtime_messages(
             }
         })
         .collect()
+}
+
+/// Coalesce consecutive mouse-motion events into the most recent position.
+///
+/// This prevents hover processing backlog when the pointer moves quickly:
+/// we process the latest cursor location and preserve the first non-motion
+/// event for normal handling in the next loop step.
+fn coalesce_mouse_motion_events(
+    mut mouse: crossterm::event::MouseEvent,
+    pending_event: &mut Option<CrosstermEvent>,
+) -> crate::Result<crossterm::event::MouseEvent> {
+    loop {
+        if !event::poll(Duration::ZERO)? {
+            break;
+        }
+        match event::read()? {
+            CrosstermEvent::Mouse(next)
+                if matches!(next.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) =>
+            {
+                mouse = next;
+            }
+            other => {
+                *pending_event = Some(other);
+                break;
+            }
+        }
+    }
+    Ok(mouse)
 }
 
 fn collect_clipboard_runtime_messages(
@@ -437,6 +466,58 @@ fn collect_stylesheet_affected_widgets_tree(
     let mut out = affected.into_iter().collect::<Vec<_>>();
     out.sort_by_key(|id| node_id_to_ffi(*id));
     out
+}
+
+/// Resolve per-property transition parameters from a CSS [`Style`].
+///
+/// Checks the `transitions` vec first for a matching property name (or `"all"`).
+/// Falls back to the generic `transition-duration / delay / timing` properties.
+///
+/// Returns `(duration, delay, ease)` if a transition should be applied;
+/// `None` if the resolved duration is zero or absent.
+pub fn resolve_transition_for_property(
+    style: &crate::style::Style,
+    property: &str,
+) -> Option<(Duration, Duration, AnimationEase)> {
+    // Per-property transitions take priority (P2-36).
+    if let Some(ref transitions) = style.transitions {
+        // Prefer a specific property match over the "all" wildcard.
+        if let Some(pt) = transitions
+            .iter()
+            .find(|t| t.property == property)
+            .or_else(|| transitions.iter().find(|t| t.property == "all"))
+        {
+            if pt.duration.is_zero() {
+                return None;
+            }
+            let ease = transition_timing_to_ease(pt.timing);
+            return Some((pt.duration, pt.delay, ease));
+        }
+    }
+
+    // Fall back to generic transition properties.
+    let duration = style.transition_duration?;
+    if duration.is_zero() {
+        return None;
+    }
+    let delay = style.transition_delay.unwrap_or(Duration::ZERO);
+    let ease = style
+        .transition_timing
+        .map(transition_timing_to_ease)
+        .unwrap_or(AnimationEase::OutCubic);
+    Some((duration, delay, ease))
+}
+
+fn transition_timing_to_ease(
+    timing: crate::style::TransitionTiming,
+) -> AnimationEase {
+    match timing {
+        crate::style::TransitionTiming::Linear => AnimationEase::Linear,
+        crate::style::TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+        crate::style::TransitionTiming::OutCubic => AnimationEase::OutCubic,
+        crate::style::TransitionTiming::Round => AnimationEase::Round,
+        crate::style::TransitionTiming::None => AnimationEase::None,
+    }
 }
 
 fn sanitize_snapshot_field(value: &str) -> String {
@@ -909,6 +990,7 @@ impl App {
             self.widget_tree.as_ref().and_then(focused_node_id_tree);
 
         let mut last_render = Instant::now();
+        let mut pending_input_event: Option<CrosstermEvent> = None;
 
         'event_loop: loop {
             if self.apply_devtools_commands(root, &mut pending_invalidation) {
@@ -932,12 +1014,20 @@ impl App {
                 .next_timeout(now)
                 .map(|timer_timeout| timeout.min(timer_timeout))
                 .unwrap_or(timeout);
-            if event::poll(timeout)? {
+            let input_event = if let Some(pending) = pending_input_event.take() {
+                Some(pending)
+            } else if event::poll(timeout)? {
+                Some(event::read()?)
+            } else {
+                None
+            };
+
+            if let Some(input_event) = input_event {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
                 let _guard = set_style_context(sheet);
-                match event::read()? {
+                match input_event {
                     CrosstermEvent::Key(key) => {
                         debug_input(&format!(
                             "[input] key code={:?} mods={:?} kind={:?}",
@@ -1152,7 +1242,15 @@ impl App {
                             }
                         }
                     }
-                    CrosstermEvent::Mouse(mouse) => match mouse.kind {
+                    CrosstermEvent::Mouse(mouse) => {
+                        let mouse =
+                            if matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_))
+                            {
+                                coalesce_mouse_motion_events(mouse, &mut pending_input_event)?
+                            } else {
+                                mouse
+                            };
+                        match mouse.kind {
                         MouseEventKind::Moved | MouseEventKind::Drag(_) => {
                             let before = self.hovered;
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
@@ -1425,7 +1523,8 @@ impl App {
                                 break 'event_loop;
                             }
                         }
-                    },
+                        }
+                    }
                     CrosstermEvent::Resize(_, _) => {
                         let size = self.driver.size();
                         debug_render(&format!("[event] Resize({}x{})", size.width, size.height));
@@ -1854,6 +1953,26 @@ impl App {
             pending.request_widget_rect(&self.hit_test, id);
         }
     }
+
+    // DEFERRED(P2-36): Full style-change-triggered transition dispatch.
+    //
+    // When a widget's CSS properties change (class toggle, stylesheet reload,
+    // pseudo-class state change), the runtime should compare old/new style
+    // values for each property. If the widget's `transitions` CSS declaration
+    // covers that property, create an AnimationRequest to smoothly transition
+    // between the old and new values.
+    //
+    // Required infrastructure:
+    //  1. Per-widget style snapshot caching (before/after change).
+    //  2. Property-level diff between two Style instances.
+    //  3. Lookup into PropertyTransition vec for each changed property.
+    //  4. AnimationRequest generation for each matched property.
+    //  5. Integration into absorb_stylesheet_reload / class-change dispatch.
+    //
+    // Currently, per-property transition lookup is wired at the widget level
+    // (e.g. ScrollView::animation_params_for_property) for explicit animation
+    // requests. The full automatic dispatch is deferred until the
+    // style-snapshot infrastructure exists.
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         let updates = self.animator.step(Instant::now(), self.animation_level);

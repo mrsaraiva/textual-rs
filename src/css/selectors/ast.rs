@@ -119,7 +119,7 @@ impl StyleSheet {
         self.add_rule(StyleSelector::default().class(class), style);
     }
 
-    pub(crate) fn rules(&self) -> &[StyleRule] {
+    pub fn rules(&self) -> &[StyleRule] {
         &self.rules
     }
 }
@@ -129,7 +129,7 @@ impl StyleRule {
         &self.selector_chain
     }
 
-    pub(crate) fn style(&self) -> Style {
+    pub fn style(&self) -> Style {
         self.style.clone()
     }
 }

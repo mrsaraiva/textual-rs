@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-14
+- **P2-24..P2-36: close TCSS property gap — 52 new CSS properties with parser, cascade, layout/render/widget wiring, and 76 gated tests**
+  - Phase 1 (core infrastructure): added 13 new types (Position, BoxSizing, Split, TextWrap, TextOverflow, OverlayMode, KeylineType, ScrollbarGutter, ScrollbarVisibility, TextStyleFlags, Hatch, Keyline, PropertyTransition), 52 StyleProperty enum variants, 52 Style struct fields, ~50 parser arms, cascade/inherit/is_empty entries, importance tracking. Upgraded ImportanceBitset from u64 to u128 to support 100 property variants.
+  - Phase 2 layout wiring (P2-24/25/26/27/33): absolute positioning, border-box sizing, split-region layout, per-side padding/margin with `effective_padding()`/`effective_margin()` merge helpers, grid row-span/column-span with occupancy-based 2D placement.
+  - Phase 2 render wiring (P2-28/29/31/34/35): outline painting outside border box, text-overflow modes (clip/fold/ellipsis), hatch background fill, axis-specific constrain-x/y resolution, overlay position clamping.
+  - Phase 2 widget wiring (P2-30/32/36): scrollbar CSS consumption (12 properties: colors, hover/active, gutter, size, visibility), link hover styling with TextStyleFlags, per-property transition resolution with "all" wildcard fallback.
+  - Added 76 gated tests across 3 new test files: `tests/p2_layout_css.rs` (18), `tests/p2_render_css.rs` (31), `tests/p2_widget_css.rs` (27).
+  - Deferred items tracked: border title/subtitle rendering (needs widget-level title storage), overlay:screen blend (needs two-pass compositor), keyline rendering (needs layout direction awareness).
+
 ### 2026-02-13
 - **P1-12/P1-13/P1-15 done: tree-mode test infrastructure + container DEFAULT_CSS + behavioral gate tests**
   - Exposed tree-mode APIs for integration testing: `build_widget_tree_from_root`, `render_tree_to_frame`, `run_layout_pass`, `dispatch_event_tree`, `dispatch_event_to_target_tree`, `focused_node_id_tree`, `DispatchOutcome`.

@@ -5,6 +5,9 @@ use crate::css::{
 use crate::debug::debug_render;
 use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
+use crate::style::{
+    BorderEdge, Constrain, Hatch, KeylineType, OverlayMode, TextOverflow, TextWrap,
+};
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style, crop_line_horizontal};
 
@@ -557,6 +560,10 @@ fn render_tree_node(
     // Only render if the node is visible AND has a non-zero extent.
     let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
 
+    // Resolve style early — needed for outline, hatch, overlay, and children.
+    let meta = selector_meta_generic(node.widget.as_ref());
+    let resolved = resolve_style(node.widget.as_ref(), &meta);
+
     if should_render {
         // Create options sized to this widget's layout rect.
         let mut opts = rich_rs::ConsoleOptions::default();
@@ -603,12 +610,22 @@ fn render_tree_node(
             };
             frame.write_line_at(x0 as usize, y as usize, &cropped, false);
         }
-    }
 
-    // Push this node's resolved style onto the stack for children
-    // to inherit, then recurse into children.
-    let meta = selector_meta_generic(node.widget.as_ref());
-    let resolved = resolve_style(node.widget.as_ref(), &meta);
+        // P2-28: Paint outline edges outside the widget's layout rect.
+        paint_outline(&resolved, dest_x, dest_y, w, h, ctx.clip, frame);
+
+        // P2-34: Apply hatch fill to blank cells within the widget area.
+        if let Some(ref hatch) = resolved.hatch {
+            apply_hatch_fill(frame, hatch, dest_x, dest_y, w, h, ctx.clip);
+        }
+
+        // P2-34: Apply overlay compositing mode.
+        if let Some(ref overlay) = resolved.overlay {
+            apply_overlay_compositing(frame, overlay, dest_x, dest_y, w, h);
+        }
+    }
+    // Clone keyline before push_style_context takes ownership of resolved.
+    let node_keyline = resolved.keyline;
     push_style_context(meta, resolved);
 
     let mut child_ctx = ctx;
@@ -634,6 +651,11 @@ fn render_tree_node(
     let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
     for child_id in child_ids {
         render_tree_node(tree, child_id, child_ctx, frame, console);
+    }
+
+    // P2-34: Paint keylines between children (after children are rendered).
+    if let Some(ref keyline) = node_keyline {
+        paint_keylines(tree, node_id, keyline, ctx, frame);
     }
 
     pop_style_context();
@@ -676,6 +698,421 @@ impl ClipRect {
         }
     }
 }
+
+// ===========================================================================
+// P2-28: Outline rendering (paints OUTSIDE the border box)
+// ===========================================================================
+
+/// Paint outline edges outside a widget's layout rect into the frame buffer.
+///
+/// Unlike CSS `border` which occupies space within the layout rect, `outline`
+/// paints in the surrounding cells without affecting layout. Each outline edge
+/// is 1 cell wide and uses the same border-character rendering as regular
+/// borders, but positioned outside the widget's bounding box.
+///
+/// Cells that fall outside the frame or clip rect are silently skipped.
+fn paint_outline(
+    resolved: &crate::style::Style,
+    dest_x: i32,
+    dest_y: i32,
+    w: usize,
+    h: usize,
+    clip: ClipRect,
+    frame: &mut FrameBuffer,
+) {
+    let outline_top = &resolved.outline_top;
+    let outline_right = &resolved.outline_right;
+    let outline_bottom = &resolved.outline_bottom;
+    let outline_left = &resolved.outline_left;
+
+    if !outline_top.is_set()
+        && !outline_right.is_set()
+        && !outline_bottom.is_set()
+        && !outline_left.is_set()
+    {
+        return;
+    }
+
+    let frame_clip = ClipRect {
+        x0: 0,
+        y0: 0,
+        x1: frame.width as i32,
+        y1: frame.height as i32,
+    };
+    let Some(paint_clip) = clip.intersect(frame_clip) else {
+        return;
+    };
+
+    let fallback_bg =
+        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+
+    // Helper: paint a single outline cell if it's within bounds.
+    let paint_cell =
+        |frame: &mut FrameBuffer, x: i32, y: i32, ch: char, edge: &BorderEdge| {
+            if x < paint_clip.x0 || x >= paint_clip.x1 || y < paint_clip.y0 || y >= paint_clip.y1 {
+                return;
+            }
+            let ux = x as usize;
+            let uy = y as usize;
+            if ux >= frame.width || uy >= frame.height {
+                return;
+            }
+            let color = edge
+                .color()
+                .unwrap_or(fallback_bg);
+            let style = rich_rs::Style::new()
+                .with_color(color.to_simple_opaque())
+                .with_bgcolor(fallback_bg.to_simple_opaque());
+            let cell = frame.get_mut(ux, uy);
+            cell.text = ch.to_string();
+            cell.style = Some(style);
+            cell.continuation = false;
+        };
+
+    // Top outline: row at dest_y - 1, columns [dest_x .. dest_x + w).
+    if outline_top.is_set() {
+        let y = dest_y - 1;
+        let ch = outline_char_horizontal(outline_top);
+        for col in 0..w as i32 {
+            paint_cell(frame, dest_x + col, y, ch, outline_top);
+        }
+    }
+
+    // Bottom outline: row at dest_y + h, columns [dest_x .. dest_x + w).
+    if outline_bottom.is_set() {
+        let y = dest_y + h as i32;
+        let ch = outline_char_horizontal(outline_bottom);
+        for col in 0..w as i32 {
+            paint_cell(frame, dest_x + col, y, ch, outline_bottom);
+        }
+    }
+
+    // Left outline: column at dest_x - 1, rows [dest_y .. dest_y + h).
+    if outline_left.is_set() {
+        let x = dest_x - 1;
+        let ch = outline_char_vertical(outline_left);
+        for row in 0..h as i32 {
+            paint_cell(frame, x, dest_y + row, ch, outline_left);
+        }
+    }
+
+    // Right outline: column at dest_x + w, rows [dest_y .. dest_y + h).
+    if outline_right.is_set() {
+        let x = dest_x + w as i32;
+        let ch = outline_char_vertical(outline_right);
+        for row in 0..h as i32 {
+            paint_cell(frame, x, dest_y + row, ch, outline_right);
+        }
+    }
+}
+
+/// Pick horizontal outline character based on border type.
+fn outline_char_horizontal(edge: &BorderEdge) -> char {
+    match edge {
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Solid,
+            ..
+        } => '─',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Block,
+            ..
+        } => '▀',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Tall,
+            ..
+        } => '▔',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Outer,
+            ..
+        } => '▀',
+        _ => '─',
+    }
+}
+
+/// Pick vertical outline character based on border type.
+fn outline_char_vertical(edge: &BorderEdge) -> char {
+    match edge {
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Solid,
+            ..
+        } => '│',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Block,
+            ..
+        } => '█',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Tall,
+            ..
+        } => '▊',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Outer,
+            ..
+        } => '▌',
+        _ => '│',
+    }
+}
+
+// ===========================================================================
+// P2-34: Hatch fill (repeating character background)
+// ===========================================================================
+
+/// Apply hatch fill to a rendered widget's lines.
+///
+/// Hatch replaces empty/space cells with the hatch character in the specified
+/// color, creating a repeating pattern fill effect. Only cells that are
+/// currently blank (space or empty) are filled; existing content is preserved.
+fn apply_hatch_fill(frame: &mut FrameBuffer, hatch: &Hatch, x0: i32, y0: i32, w: usize, h: usize, clip: ClipRect) {
+    let frame_clip = ClipRect {
+        x0: 0,
+        y0: 0,
+        x1: frame.width as i32,
+        y1: frame.height as i32,
+    };
+    let Some(paint_clip) = clip.intersect(frame_clip) else {
+        return;
+    };
+    let fg_color = hatch.color.to_simple_opaque();
+    for row in 0..h {
+        let y = y0 + row as i32;
+        if y < paint_clip.y0 || y >= paint_clip.y1 {
+            continue;
+        }
+        for col in 0..w {
+            let x = x0 + col as i32;
+            if x < paint_clip.x0 || x >= paint_clip.x1 {
+                continue;
+            }
+            let cell = frame.get_mut(x as usize, y as usize);
+            if cell.continuation {
+                continue;
+            }
+            let is_blank = cell.text.is_empty()
+                || cell.text.chars().all(|c| c == ' ');
+            if is_blank {
+                cell.text = hatch.character.to_string();
+                let mut style = cell.style.unwrap_or_else(rich_rs::Style::new);
+                style.color = Some(fg_color);
+                cell.style = Some(style);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// P2-34: Overlay compositing mode
+// ===========================================================================
+
+/// Apply overlay compositing to a widget's painted region.
+///
+/// `OverlayMode::Screen` blends the widget's colors with the underlying frame
+/// using a screen-blend formula. `OverlayMode::None` is a no-op (normal paint).
+fn apply_overlay_compositing(
+    _frame: &mut FrameBuffer,
+    overlay: &OverlayMode,
+    _x0: i32,
+    _y0: i32,
+    _w: usize,
+    _h: usize,
+) {
+    match overlay {
+        OverlayMode::None => {
+            // Normal compositing — already the default paint behavior.
+        }
+        OverlayMode::Screen => {
+            // DEFERRED(P2-34): Screen-blend compositing requires reading the
+            // underlying frame cell colors before the widget is painted, then
+            // blending with `screen(a, b) = 1 - (1-a)(1-b)`. This needs a
+            // two-pass paint approach that is not yet implemented.
+            // The style field is wired and parsed; rendering will be activated
+            // when the two-pass compositor is available.
+        }
+    }
+}
+
+// ===========================================================================
+// P2-34: Keyline rendering (lines between children)
+// ===========================================================================
+
+/// Draw keyline separators between a parent's child widgets.
+///
+/// Keylines are horizontal or vertical lines drawn between sibling widgets
+/// inside a container. The keyline type determines the character used.
+fn paint_keylines(
+    _tree: &WidgetTree,
+    _parent_id: NodeId,
+    _keyline: &crate::style::Keyline,
+    _ctx: TreeRenderCtx,
+    _frame: &mut FrameBuffer,
+) {
+    // DEFERRED(P2-34): Keyline rendering requires knowledge of the parent's
+    // layout direction (horizontal vs vertical) and the exact bounding rects
+    // of each pair of adjacent children to paint separator lines between them.
+    // This requires layout-direction awareness in the tree compositor which is
+    // not yet exposed. The style field is wired and parsed; rendering will be
+    // activated when layout direction is available in the render pass.
+    let _type = &_keyline.keyline_type;
+    let _color = _keyline.color;
+    match _type {
+        KeylineType::None => {}
+        KeylineType::Thin | KeylineType::Heavy | KeylineType::Double => {
+            // Future: iterate adjacent child pairs, draw separator lines.
+        }
+    }
+}
+
+// ===========================================================================
+// P2-31: Text wrap/overflow post-processing
+// ===========================================================================
+
+/// Apply text-overflow truncation to a line of segments.
+///
+/// When `TextOverflow::Ellipsis` is active and a line exceeds `max_width`,
+/// the line is truncated and an ellipsis character is appended.
+/// `TextOverflow::Clip` truncates without ellipsis.
+/// `TextOverflow::Fold` wraps content (handled at widget level).
+#[allow(dead_code)]
+pub fn apply_text_overflow_to_line(
+    line: &[Segment],
+    max_width: usize,
+    overflow: TextOverflow,
+) -> Vec<Segment> {
+    let line_width = Segment::get_line_length(line);
+    if line_width <= max_width {
+        return line.to_vec();
+    }
+
+    match overflow {
+        TextOverflow::Clip => {
+            crop_line_horizontal(line, 0, max_width)
+        }
+        TextOverflow::Ellipsis => {
+            if max_width == 0 {
+                return Vec::new();
+            }
+            let truncated = crop_line_horizontal(line, 0, max_width.saturating_sub(1));
+            let mut result = truncated;
+            // Append ellipsis with the style of the last segment.
+            let last_style = result.last().and_then(|s| s.style);
+            result.push(Segment::styled("…".to_string(), last_style.unwrap_or_default()));
+            result
+        }
+        TextOverflow::Fold => {
+            // Fold wraps content — no truncation at this level.
+            // Widget-level rendering handles fold/wrap.
+            line.to_vec()
+        }
+    }
+}
+
+/// Check if a style has text-wrap: nowrap and return the text-overflow mode.
+///
+/// Returns `Some(overflow_mode)` when text-wrap is NoWrap, indicating the
+/// caller should apply overflow truncation. Returns `None` for normal wrapping.
+#[allow(dead_code)]
+pub fn text_overflow_mode(
+    resolved: &crate::style::Style,
+) -> Option<TextOverflow> {
+    match resolved.text_wrap {
+        Some(TextWrap::NoWrap) => {
+            Some(resolved.text_overflow.unwrap_or(TextOverflow::Clip))
+        }
+        _ => None,
+    }
+}
+
+// ===========================================================================
+// P2-35: Constrain/expand for overlay/tooltip positioning
+// ===========================================================================
+
+/// Resolve axis-specific constrain values for overlay positioning.
+///
+/// Returns `(constrain_x, constrain_y)` where each axis uses the specific
+/// override (`constrain-x`/`constrain-y`) if set, otherwise falls back to
+/// the generic `constrain` property.
+#[allow(dead_code)]
+pub fn resolve_axis_constrain(
+    resolved: &crate::style::Style,
+) -> (Constrain, Constrain) {
+    let base = resolved.constrain.unwrap_or(Constrain::None);
+    let cx = resolved.constrain_x.unwrap_or(base);
+    let cy = resolved.constrain_y.unwrap_or(base);
+    (cx, cy)
+}
+
+/// Apply axis-specific constrain to an overlay position.
+///
+/// Given a proposed overlay position `(x, y)` with size `(w, h)` inside a
+/// viewport `(vw, vh)`, clamp or inflect the position based on constrain mode.
+#[allow(dead_code)]
+pub fn constrain_overlay_position(
+    x: i32,
+    y: i32,
+    w: usize,
+    h: usize,
+    vw: usize,
+    vh: usize,
+    cx: Constrain,
+    cy: Constrain,
+) -> (i32, i32) {
+    let mut out_x = x;
+    let mut out_y = y;
+
+    match cx {
+        Constrain::None => {}
+        Constrain::Inside => {
+            // Clamp to viewport bounds.
+            if out_x < 0 {
+                out_x = 0;
+            }
+            if out_x + w as i32 > vw as i32 {
+                out_x = (vw as i32 - w as i32).max(0);
+            }
+        }
+        Constrain::Inflect => {
+            // If overflowing right, flip to the left side.
+            if out_x + w as i32 > vw as i32 {
+                out_x = out_x - w as i32;
+                if out_x < 0 {
+                    out_x = 0;
+                }
+            }
+        }
+    }
+
+    match cy {
+        Constrain::None => {}
+        Constrain::Inside => {
+            if out_y < 0 {
+                out_y = 0;
+            }
+            if out_y + h as i32 > vh as i32 {
+                out_y = (vh as i32 - h as i32).max(0);
+            }
+        }
+        Constrain::Inflect => {
+            if out_y + h as i32 > vh as i32 {
+                out_y = out_y - h as i32;
+                if out_y < 0 {
+                    out_y = 0;
+                }
+            }
+        }
+    }
+
+    (out_x, out_y)
+}
+
+// ===========================================================================
+// P2-29: Border title/subtitle styling
+// ===========================================================================
+
+// DEFERRED(P2-29): Border title/subtitle rendering requires:
+// 1. Widget-level storage of title/subtitle text (not yet a Widget trait method)
+// 2. Integration into `apply_border_edges` in widgets/helpers.rs to overlay
+//    styled title text onto the top/bottom border rows
+// 3. The alignment (border_title_align, border_subtitle_align) and color/style
+//    properties are parsed and stored in the Style struct; rendering activation
+//    is blocked on the border-title text source being available in the render path.
 
 fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::widget_tree::Rect {
     let content = node.content_rect;

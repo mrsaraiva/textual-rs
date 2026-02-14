@@ -7,7 +7,7 @@ use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{TransitionTiming, parse_color_like};
+use crate::style::{ScrollbarGutter, ScrollbarVisibility, TransitionTiming, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
@@ -124,6 +124,14 @@ impl ScrollView {
         self.offset_x
     }
 
+    /// Set the virtual content dimensions (for testing / programmatic use).
+    pub fn set_virtual_content_size(&self, width: usize, height: usize) {
+        self.content_width
+            .store(width, std::sync::atomic::Ordering::Relaxed);
+        self.content_height
+            .store(height, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub(crate) fn line_max_offset(content_len: usize, viewport_len: usize) -> usize {
         content_len.saturating_sub(viewport_len.max(1))
     }
@@ -234,15 +242,6 @@ impl ScrollView {
         (track_style, thumb_style, thumb_active_style)
     }
 
-    pub(crate) fn scrollbar_corner_style() -> rich_rs::Style {
-        let corner_bg = parse_color_like("$scrollbar-corner-color")
-            .or_else(|| parse_color_like("$scrollbar-background"))
-            .or_else(|| parse_color_like("$background-darken-1"))
-            .or_else(|| parse_color_like("$surface-darken-1"))
-            .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30));
-        rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque())
-    }
-
     fn max_offset(&self) -> usize {
         Self::line_max_offset(
             self.content_height.load(Ordering::Relaxed),
@@ -270,20 +269,6 @@ impl ScrollView {
         self.render_offset_x = self.render_offset_x.clamp(0.0, max_x as f32);
     }
 
-    fn scroll_animation_params(&self) -> Option<(Duration, Duration, AnimationEase)> {
-        let style = crate::css::resolve_component_style(self, &["scrollview--content"]);
-        let duration = style.transition_duration?;
-        if duration.is_zero() {
-            return None;
-        }
-        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
-        let ease = style
-            .transition_timing
-            .map(Self::transition_timing_to_animation_ease)
-            .unwrap_or(AnimationEase::OutCubic);
-        Some((duration, delay, ease))
-    }
-
     fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
         match timing {
             TransitionTiming::Linear => AnimationEase::Linear,
@@ -299,7 +284,7 @@ impl ScrollView {
             self.render_offset_y = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) = self.scroll_animation_params() {
+        if let Some((duration, delay, ease)) = self.animation_params_for_property(Self::OFFSET_Y_ATTR) {
             self.render_offset_y = from as f32;
             ctx.request_animation(
                 AnimationRequest::new(
@@ -324,7 +309,7 @@ impl ScrollView {
             self.render_offset_x = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) = self.scroll_animation_params() {
+        if let Some((duration, delay, ease)) = self.animation_params_for_property(Self::OFFSET_X_ATTR) {
             self.render_offset_x = from as f32;
             ctx.request_animation(
                 AnimationRequest::new(
@@ -363,6 +348,137 @@ impl ScrollView {
     fn is_tree_mode(&self) -> bool {
         self.child_extracted
     }
+
+    /// Resolve all scrollbar-related CSS properties for a single render pass.
+    ///
+    /// CSS fields take priority; falls back to theme tokens matching the
+    /// existing `line_scrollbar_styles()` defaults.
+    fn resolve_scrollbar_css(&self) -> ResolvedScrollbar {
+        let meta = crate::css::selector_meta_generic(self);
+        let style = crate::css::resolve_style(self, &meta);
+        let fallback_overflow = style.overflow.unwrap_or(crate::style::Overflow::Auto);
+
+        // Track background: CSS → theme token.
+        let track_bg = style
+            .scrollbar_background
+            .unwrap_or_else(|| {
+                parse_color_like("$scrollbar-background")
+                    .or_else(|| parse_color_like("$background-darken-1"))
+                    .or_else(|| parse_color_like("$surface-darken-1"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
+            });
+
+        // Thumb idle: CSS scrollbar_color → $scrollbar token.
+        let thumb_bg = style
+            .scrollbar_color
+            .unwrap_or_else(|| {
+                parse_color_like("$scrollbar")
+                    .or_else(|| parse_color_like("$primary-muted"))
+                    .or_else(|| parse_color_like("$primary"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255))
+            });
+
+        // Thumb active: CSS scrollbar_color_active → $scrollbar-active token.
+        let thumb_active_bg = style
+            .scrollbar_color_active
+            .unwrap_or_else(|| {
+                parse_color_like("$scrollbar-active")
+                    .or_else(|| parse_color_like("$primary"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212))
+            });
+
+        // Corner color.
+        let corner_bg = style
+            .scrollbar_corner_color
+            .unwrap_or_else(|| {
+                parse_color_like("$scrollbar-corner-color")
+                    .or_else(|| parse_color_like("$scrollbar-background"))
+                    .or_else(|| parse_color_like("$background-darken-1"))
+                    .or_else(|| parse_color_like("$surface-darken-1"))
+                    .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
+            });
+
+        // Scrollbar sizes: per-axis CSS → shorthand CSS → defaults (2 vertical, 1 horizontal).
+        let v_size = style
+            .scrollbar_size_vertical
+            .or(style.scrollbar_size)
+            .map(|s| s as usize)
+            .unwrap_or(2);
+        let h_size = style
+            .scrollbar_size_horizontal
+            .or(style.scrollbar_size)
+            .map(|s| s as usize)
+            .unwrap_or(1);
+
+        ResolvedScrollbar {
+            overflow_x: style.overflow_x.unwrap_or(fallback_overflow),
+            overflow_y: style.overflow_y.unwrap_or(fallback_overflow),
+            track_style: rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque()),
+            thumb_style: rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque()),
+            thumb_active_style: rich_rs::Style::new()
+                .with_bgcolor(thumb_active_bg.to_simple_opaque()),
+            corner_style: rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque()),
+            v_size,
+            h_size,
+            visibility: style
+                .scrollbar_visibility
+                .unwrap_or(ScrollbarVisibility::Auto),
+            gutter: style.scrollbar_gutter.unwrap_or(ScrollbarGutter::Auto),
+        }
+    }
+
+    /// Look up per-property transition parameters for a given attribute name.
+    ///
+    /// Checks the `transitions` CSS vec first; falls back to the generic
+    /// `transition-duration/delay/timing` properties.
+    fn animation_params_for_property(
+        &self,
+        property: &str,
+    ) -> Option<(Duration, Duration, AnimationEase)> {
+        let style = crate::css::resolve_component_style(self, &["scrollview--content"]);
+
+        // Per-property transitions take priority (P2-36).
+        if let Some(ref transitions) = style.transitions {
+            // Prefer a specific property match over the "all" wildcard.
+            if let Some(pt) = transitions
+                .iter()
+                .find(|t| t.property == property)
+                .or_else(|| transitions.iter().find(|t| t.property == "all"))
+            {
+                if pt.duration.is_zero() {
+                    return None;
+                }
+                let ease = Self::transition_timing_to_animation_ease(pt.timing);
+                return Some((pt.duration, pt.delay, ease));
+            }
+        }
+
+        // Fall back to generic transition properties.
+        let duration = style.transition_duration?;
+        if duration.is_zero() {
+            return None;
+        }
+        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::OutCubic);
+        Some((duration, delay, ease))
+    }
+}
+
+/// CSS-resolved scrollbar configuration for a single render pass.
+struct ResolvedScrollbar {
+    overflow_x: crate::style::Overflow,
+    overflow_y: crate::style::Overflow,
+    track_style: rich_rs::Style,
+    thumb_style: rich_rs::Style,
+    thumb_active_style: rich_rs::Style,
+    corner_style: rich_rs::Style,
+    v_size: usize,
+    h_size: usize,
+    visibility: ScrollbarVisibility,
+    gutter: ScrollbarGutter,
 }
 
 impl Widget for ScrollView {
@@ -399,45 +515,48 @@ impl Widget for ScrollView {
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(viewport_height, Ordering::Relaxed);
+
+        // Resolve CSS scrollbar config once for both tree-mode and non-tree-mode paths.
+        let sb = self.resolve_scrollbar_css();
+
         if self.is_tree_mode() {
             // Do NOT overwrite content_height/content_width — preserve values
             // set by the tree layout system so scrollbars reflect real content.
 
-            let (overflow_x, overflow_y) = {
-                let meta = crate::css::selector_meta_generic(self);
-                let style = crate::css::resolve_style(self, &meta);
-                let fallback = style.overflow.unwrap_or(crate::style::Overflow::Auto);
-                (
-                    style.overflow_x.unwrap_or(fallback),
-                    style.overflow_y.unwrap_or(fallback),
-                )
-            };
-            let allow_scrollbars_h = !matches!(overflow_x, crate::style::Overflow::Hidden);
-            let allow_scrollbars_v = !matches!(overflow_y, crate::style::Overflow::Hidden);
+            let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+                && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
+            let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+                && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
 
             let content_h = self.content_height.load(Ordering::Relaxed);
             let content_w = self.content_width.load(Ordering::Relaxed);
 
-            // Iterative scrollbar resolution (matches non-tree path logic).
-            const V_SCROLLBAR_SIZE: usize = 2;
-            const H_SCROLLBAR_SIZE: usize = 1;
+            // Iterative scrollbar resolution using CSS-resolved sizes.
+            let v_scrollbar_size = sb.v_size;
+            let h_scrollbar_size = sb.h_size;
+            let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
+            let force_visible = matches!(sb.visibility, ScrollbarVisibility::Visible);
             let mut show_v = false;
             let mut show_h = false;
             let mut content_viewport_w = width;
             let mut content_viewport_h = viewport_height;
             for _ in 0..3 {
+                let reserve_v = show_v || force_gutter;
+                let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
                 let vp_w = width
-                    .saturating_sub(if show_v {
-                        V_SCROLLBAR_SIZE.min(width.saturating_sub(1))
+                    .saturating_sub(if reserve_v {
+                        v_scrollbar_size.min(width.saturating_sub(1))
                     } else {
                         0
                     })
                     .max(1);
                 let vp_h = viewport_height
-                    .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                    .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
                     .max(1);
-                let next_show_v = allow_scrollbars_v && content_h > vp_h;
-                let next_show_h = allow_scrollbars_h && content_w > vp_w;
+                let next_show_v =
+                    allow_scrollbars_v && (content_h > vp_h || force_visible);
+                let next_show_h =
+                    allow_scrollbars_h && (content_w > vp_w || force_visible);
                 content_viewport_w = vp_w;
                 content_viewport_h = vp_h;
                 if next_show_v == show_v && next_show_h == show_h {
@@ -458,8 +577,10 @@ impl Widget for ScrollView {
                 .map(|_| vec![Segment::new(" ".repeat(content_viewport_w))])
                 .collect();
 
-            let (track_style, thumb_style, thumb_active_style) = Self::line_scrollbar_styles();
-            let corner_style = Self::scrollbar_corner_style();
+            let track_style = sb.track_style;
+            let thumb_style = sb.thumb_style;
+            let thumb_active_style = sb.thumb_active_style;
+            let corner_style = sb.corner_style;
             let v_scrollbar_size = if show_v {
                 width.saturating_sub(content_viewport_w)
             } else {
@@ -538,25 +659,17 @@ impl Widget for ScrollView {
                 0u64, width, viewport_height, self.offset_x, self.offset_y
             ));
         }
-        // Read the resolved CSS overflow properties (per-axis).
-        // - Auto (default): show scrollbars when content exceeds viewport.
-        // - Hidden: clip content, never show scrollbars.
-        // - Scroll: always show scrollbar track (even when content fits).
-        let (overflow_x, overflow_y) = {
-            let meta = crate::css::selector_meta_generic(self);
-            let style = crate::css::resolve_style(self, &meta);
-            let fallback = style.overflow.unwrap_or(crate::style::Overflow::Auto);
-            (
-                style.overflow_x.unwrap_or(fallback),
-                style.overflow_y.unwrap_or(fallback),
-            )
-        };
-        let allow_scrollbars_h = !matches!(overflow_x, crate::style::Overflow::Hidden);
-        let allow_scrollbars_v = !matches!(overflow_y, crate::style::Overflow::Hidden);
+        // Use resolved CSS scrollbar config (already computed above).
+        let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+            && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
+        let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+            && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
 
         let constraints = self.child.layout_constraints();
-        const V_SCROLLBAR_SIZE: usize = 2;
-        const H_SCROLLBAR_SIZE: usize = 1;
+        let v_scrollbar_size = sb.v_size;
+        let h_scrollbar_size = sb.h_size;
+        let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
+        let force_visible = matches!(sb.visibility, ScrollbarVisibility::Visible);
         let mut show_v = false;
         let mut show_h = false;
         let mut content_viewport_w = width;
@@ -566,15 +679,17 @@ impl Widget for ScrollView {
         let mut content_height = viewport_height;
 
         for _ in 0..3 {
+            let reserve_v = show_v || force_gutter;
+            let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
             let viewport_w = width
-                .saturating_sub(if show_v {
-                    V_SCROLLBAR_SIZE.min(width.saturating_sub(1))
+                .saturating_sub(if reserve_v {
+                    v_scrollbar_size.min(width.saturating_sub(1))
                 } else {
                     0
                 })
                 .max(1);
             let viewport_h = viewport_height
-                .saturating_sub(if show_h { H_SCROLLBAR_SIZE } else { 0 })
+                .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
                 .max(1);
 
             let target_height = self
@@ -627,8 +742,10 @@ impl Widget for ScrollView {
                 .max()
                 .unwrap_or(viewport_w)
                 .max(viewport_w);
-            let next_show_v = allow_scrollbars_v && candidate_height > viewport_h;
-            let next_show_h = allow_scrollbars_h && candidate_width > viewport_w;
+            let next_show_v =
+                allow_scrollbars_v && (candidate_height > viewport_h || force_visible);
+            let next_show_h =
+                allow_scrollbars_h && (candidate_width > viewport_w || force_visible);
 
             lines = candidate;
             content_width = candidate_width;
@@ -672,8 +789,10 @@ impl Widget for ScrollView {
             false,
         );
 
-        let (track_style, thumb_style, thumb_active_style) = Self::line_scrollbar_styles();
-        let corner_style = Self::scrollbar_corner_style();
+        let track_style = sb.track_style;
+        let thumb_style = sb.thumb_style;
+        let thumb_active_style = sb.thumb_active_style;
+        let corner_style = sb.corner_style;
         let v_scrollbar_size = if show_v {
             width.saturating_sub(content_viewport_w)
         } else {

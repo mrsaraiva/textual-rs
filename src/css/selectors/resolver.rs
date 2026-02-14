@@ -264,6 +264,31 @@ fn layout_fields_equal(a: &Style, b: &Style) -> bool {
         && a.grid_gutter_vertical == b.grid_gutter_vertical
         && a.layer == b.layer
         && a.layers == b.layers
+        // P2 CSS gap layout-affecting fields
+        && a.position == b.position
+        && a.box_sizing == b.box_sizing
+        && a.split == b.split
+        && a.outline_top == b.outline_top
+        && a.outline_right == b.outline_right
+        && a.outline_bottom == b.outline_bottom
+        && a.outline_left == b.outline_left
+        && a.row_span == b.row_span
+        && a.column_span == b.column_span
+        && a.padding_top == b.padding_top
+        && a.padding_right == b.padding_right
+        && a.padding_bottom == b.padding_bottom
+        && a.padding_left == b.padding_left
+        && a.margin_top == b.margin_top
+        && a.margin_right == b.margin_right
+        && a.margin_bottom == b.margin_bottom
+        && a.margin_left == b.margin_left
+        && a.scrollbar_size == b.scrollbar_size
+        && a.scrollbar_size_horizontal == b.scrollbar_size_horizontal
+        && a.scrollbar_size_vertical == b.scrollbar_size_vertical
+        && a.scrollbar_visibility == b.scrollbar_visibility
+        && a.constrain_x == b.constrain_x
+        && a.constrain_y == b.constrain_y
+        && a.expand == b.expand
 }
 
 pub(crate) fn begin_style_render_pass() {

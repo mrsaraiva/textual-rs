@@ -9,7 +9,9 @@
 //! - Top-level dispatch ([`resolve_layout`])
 
 use crate::node_id::NodeId;
-use crate::style::{Dock, Layout, Scalar, Spacing, Style, resolve_scalar};
+use crate::style::{
+    BoxSizing, Dock, Layout, Offset, Position, Scalar, Spacing, Split, Style, resolve_scalar,
+};
 use crate::widget_tree::{Rect, WidgetTree};
 
 /// Extract border spacing (top, bottom, left, right) from a style.
@@ -60,6 +62,41 @@ impl Region {
             y0: self.y,
             x1: self.x.saturating_add(self.width),
             y1: self.y.saturating_add(self.height),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CarveDir: shared direction for dock and split edge-carving
+// ---------------------------------------------------------------------------
+
+/// Direction for edge-carving layout (shared by dock and split).
+#[derive(Clone, Copy)]
+enum CarveDir {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl From<Dock> for CarveDir {
+    fn from(d: Dock) -> Self {
+        match d {
+            Dock::Top => CarveDir::Top,
+            Dock::Right => CarveDir::Right,
+            Dock::Bottom => CarveDir::Bottom,
+            Dock::Left => CarveDir::Left,
+        }
+    }
+}
+
+impl From<Split> for CarveDir {
+    fn from(s: Split) -> Self {
+        match s {
+            Split::Top => CarveDir::Top,
+            Split::Right => CarveDir::Right,
+            Split::Bottom => CarveDir::Bottom,
+            Split::Left => CarveDir::Left,
         }
     }
 }
@@ -229,6 +266,8 @@ struct ChildSpec {
     max_width_cells: Option<u16>,
     /// Max height in cells (None = unconstrained).
     max_height_cells: Option<u16>,
+    /// Box-sizing model (P2-25).
+    box_sizing: BoxSizing,
 }
 
 /// Vertical chrome = margin.top + border_top + padding.top + padding.bottom + border_bottom + margin.bottom.
@@ -262,16 +301,26 @@ fn extract_child_spec(
     parent_height: u16,
     viewport: (u16, u16),
 ) -> ChildSpec {
-    let margin = style.margin.unwrap_or_default();
-    let padding = style.padding.unwrap_or_default();
+    let margin = style.effective_margin();
+    let padding = style.effective_padding();
     let (bt, bb, bl, br) = border_spacing(style);
     let border_top = bt as u16;
     let border_bottom = bb as u16;
     let border_left = bl as u16;
     let border_right = br as u16;
 
-    let v_chrome = vertical_chrome(&margin, &padding, border_top, border_bottom);
-    let h_chrome = horizontal_chrome(&margin, &padding, border_left, border_right);
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+
+    // For border-box, width/height already include padding+border.
+    // Edge chrome should only add margin.
+    let (v_chrome, h_chrome) = if box_sizing == BoxSizing::BorderBox {
+        (margin.top + margin.bottom, margin.left + margin.right)
+    } else {
+        (
+            vertical_chrome(&margin, &padding, border_top, border_bottom),
+            horizontal_chrome(&margin, &padding, border_left, border_right),
+        )
+    };
 
     // Resolve min sizes to cells.
     let min_h_cells = style
@@ -323,6 +372,7 @@ fn extract_child_spec(
         border_left,
         max_width_cells: max_w_cells,
         max_height_cells: max_h_cells,
+        box_sizing,
     }
 }
 
@@ -394,26 +444,39 @@ pub fn resolve_layout(
         return;
     }
 
-    // Separate docked vs flow children.
+    // Separate children into categories: split, docked, absolute, and flow.
+    let mut split = Vec::new();
     let mut docked = Vec::new();
+    let mut absolute = Vec::new();
     let mut flow = Vec::new();
     for &child in &children {
         let child_style = get_node_style(tree, child);
         if child_style.display == Some(crate::style::Display::None) {
             continue;
         }
-        if child_style.dock.is_some() {
+        if child_style.split.is_some() {
+            split.push(child);
+        } else if child_style.dock.is_some() {
             docked.push(child);
+        } else if child_style.position == Some(Position::Absolute) {
+            absolute.push(child);
         } else {
             flow.push(child);
         }
     }
 
-    // Arrange docked children → reduced available region.
-    let inner = if docked.is_empty() {
+    // Arrange split children first → reduced available region.
+    let after_split = if split.is_empty() {
         available
     } else {
-        arrange_dock(tree, &docked, available, viewport)
+        arrange_split(tree, &split, available, viewport)
+    };
+
+    // Arrange docked children → further reduced available region.
+    let inner = if docked.is_empty() {
+        after_split
+    } else {
+        arrange_dock(tree, &docked, after_split, viewport)
     };
 
     // Dispatch flow children to the appropriate layout.
@@ -433,6 +496,11 @@ pub fn resolve_layout(
                 }
             }
         }
+    }
+
+    // Place absolute children on top of the original available region (P2-24).
+    if !absolute.is_empty() {
+        layout_absolute(tree, &absolute, available, viewport);
     }
 
     // Recurse into all laid-out descendants so every node receives
@@ -495,27 +563,41 @@ pub fn layout_vertical(
         // Layout rect excludes margin.
         let layout_x = available.x.saturating_add(spec.margin.left);
         let layout_y = y.saturating_add(spec.margin.top);
-        let layout_w = available
+        let mut layout_w = available
             .width
             .saturating_sub(spec.margin.left + spec.margin.right);
         let layout_h = total_h.saturating_sub(spec.margin.top + spec.margin.bottom);
 
-        // Apply max-width constraint.
+        // Apply explicit width constraint (P2-25: width_edge.size includes chrome).
+        if let Some(edge_w) = spec.width_edge.size {
+            let explicit_w = edge_w.saturating_sub(spec.margin.left + spec.margin.right);
+            layout_w = layout_w.min(explicit_w);
+        }
+
+        // Apply max-width constraint (border-box: value already includes chrome).
         let layout_w = if let Some(max_w) = spec.max_width_cells {
-            let max_w_with_chrome = max_w.saturating_add(
-                spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
-            );
-            layout_w.min(max_w_with_chrome)
+            let max_w_outer = if spec.box_sizing == BoxSizing::BorderBox {
+                max_w
+            } else {
+                max_w.saturating_add(
+                    spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
+                )
+            };
+            layout_w.min(max_w_outer)
         } else {
             layout_w
         };
 
-        // Apply max-height constraint.
+        // Apply max-height constraint (border-box: value already includes chrome).
         let layout_h = if let Some(max_h) = spec.max_height_cells {
-            let max_h_with_chrome = max_h.saturating_add(
-                spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
-            );
-            layout_h.min(max_h_with_chrome)
+            let max_h_outer = if spec.box_sizing == BoxSizing::BorderBox {
+                max_h
+            } else {
+                max_h.saturating_add(
+                    spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
+                )
+            };
+            layout_h.min(max_h_outer)
         } else {
             layout_h
         };
@@ -581,24 +663,38 @@ pub fn layout_horizontal(
         let layout_x = x.saturating_add(spec.margin.left);
         let layout_y = available.y.saturating_add(spec.margin.top);
         let layout_w = total_w.saturating_sub(spec.margin.left + spec.margin.right);
-        let layout_h = available
+        let mut layout_h = available
             .height
             .saturating_sub(spec.margin.top + spec.margin.bottom);
 
-        // Apply max constraints.
+        // Apply explicit height constraint (P2-25: height_edge.size includes chrome).
+        if let Some(edge_h) = spec.height_edge.size {
+            let explicit_h = edge_h.saturating_sub(spec.margin.top + spec.margin.bottom);
+            layout_h = layout_h.min(explicit_h);
+        }
+
+        // Apply max constraints (border-box: value already includes chrome).
         let layout_w = if let Some(max_w) = spec.max_width_cells {
-            let max_w_with_chrome = max_w.saturating_add(
-                spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
-            );
-            layout_w.min(max_w_with_chrome)
+            let max_w_outer = if spec.box_sizing == BoxSizing::BorderBox {
+                max_w
+            } else {
+                max_w.saturating_add(
+                    spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
+                )
+            };
+            layout_w.min(max_w_outer)
         } else {
             layout_w
         };
         let layout_h = if let Some(max_h) = spec.max_height_cells {
-            let max_h_with_chrome = max_h.saturating_add(
-                spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
-            );
-            layout_h.min(max_h_with_chrome)
+            let max_h_outer = if spec.box_sizing == BoxSizing::BorderBox {
+                max_h
+            } else {
+                max_h.saturating_add(
+                    spec.border_top + spec.border_bottom + spec.padding.top + spec.padding.bottom,
+                )
+            };
+            layout_h.min(max_h_outer)
         } else {
             layout_h
         };
@@ -679,6 +775,76 @@ fn build_grid_track_edges(
         .collect()
 }
 
+/// Compute the number of grid rows needed when children have column/row spans.
+///
+/// Simulates placement on a growable occupancy grid and returns the total
+/// row count required.
+fn compute_rows_with_spans(tree: &WidgetTree, children: &[NodeId], num_cols: usize) -> usize {
+    let mut max_row_end = 0usize;
+    let mut occupied: Vec<Vec<bool>> = Vec::new();
+
+    for &child in children {
+        let style = get_node_style(tree, child);
+        let cs = (style.column_span.unwrap_or(1).max(1) as usize).min(num_cols);
+        let rs = style.row_span.unwrap_or(1).max(1) as usize;
+
+        let (start_col, start_row) = find_next_grid_slot(&occupied, cs, rs, num_cols);
+
+        // Ensure rows exist in the occupancy grid.
+        while occupied.len() < start_row + rs {
+            occupied.push(vec![false; num_cols]);
+        }
+
+        // Mark occupied cells.
+        for r in start_row..start_row + rs {
+            for c in start_col..start_col + cs {
+                occupied[r][c] = true;
+            }
+        }
+
+        max_row_end = max_row_end.max(start_row + rs);
+    }
+
+    max_row_end.max(1)
+}
+
+/// Find the next available (col, row) position that can fit the given span.
+fn find_next_grid_slot(
+    occupied: &[Vec<bool>],
+    col_span: usize,
+    row_span: usize,
+    num_cols: usize,
+) -> (usize, usize) {
+    // Guard: if span exceeds columns (or is zero), place at origin to avoid infinite loop.
+    if col_span == 0 || row_span == 0 || col_span > num_cols {
+        return (0, 0);
+    }
+
+    let mut row = 0usize;
+    let mut col = 0usize;
+
+    loop {
+        if col + col_span > num_cols {
+            col = 0;
+            row += 1;
+            continue;
+        }
+
+        let fits = (row..row + row_span).all(|r| {
+            if r >= occupied.len() {
+                return true; // unallocated row → available
+            }
+            (col..col + col_span).all(|c| !occupied[r][c])
+        });
+
+        if fits {
+            return (col, row);
+        }
+
+        col += 1;
+    }
+}
+
 /// Lay out children in a 2D grid.
 ///
 /// Grid tracks (columns and rows) are resolved independently using
@@ -687,6 +853,7 @@ fn build_grid_track_edges(
 ///
 /// Children are placed left-to-right, top-to-bottom (row-major order).
 /// If there are more children than cells, additional rows are created.
+/// Supports `row-span` / `column-span` (P2-33) via occupancy-based placement.
 ///
 /// Reference: Python Textual's `layouts/grid.py`.
 pub fn layout_grid(
@@ -705,11 +872,25 @@ pub fn layout_grid(
     let gutter_h = parent_style.grid_gutter_horizontal.unwrap_or(0);
     let gutter_v = parent_style.grid_gutter_vertical.unwrap_or(0);
 
+    // Check whether any child uses spans (enables occupancy-based placement).
+    let any_spans = children.iter().any(|&c| {
+        let s = get_node_style(tree, c);
+        s.column_span.unwrap_or(1) > 1 || s.row_span.unwrap_or(1) > 1
+    });
+
     // Row count: auto-detect from children, ensure enough rows for all.
     let min_rows = (children.len() + num_cols - 1) / num_cols;
-    let num_rows = match parent_style.grid_size_rows {
-        Some(r) => (r.max(1) as usize).max(min_rows),
-        None => min_rows,
+    let num_rows = if any_spans {
+        let span_rows = compute_rows_with_spans(tree, children, num_cols);
+        match parent_style.grid_size_rows {
+            Some(r) => span_rows.max(r.max(1) as usize),
+            None => span_rows,
+        }
+    } else {
+        match parent_style.grid_size_rows {
+            Some(r) => (r.max(1) as usize).max(min_rows),
+            None => min_rows,
+        }
     };
 
     // --- Resolve column widths ---
@@ -768,21 +949,59 @@ pub fn layout_grid(
         }
     }
 
-    // --- Place children into cells ---
-    for (i, &child) in children.iter().enumerate() {
-        let col = i % num_cols;
-        let row = i / num_cols;
+    // --- Place children into cells (occupancy-based when spans exist) ---
+    let mut occupied = vec![vec![false; num_cols]; num_rows];
+    let mut next_row = 0usize;
+    let mut next_col = 0usize;
 
-        let cell_x = col_offsets[col];
-        let cell_y = row_offsets[row];
-        let cell_w = col_widths[col];
-        let cell_h = row_heights[row];
+    for &child in children.iter() {
+        let style = get_node_style(tree, child);
+        let col_span = (style.column_span.unwrap_or(1).max(1) as usize).min(num_cols);
+        let row_span = (style.row_span.unwrap_or(1).max(1) as usize).min(num_rows);
+
+        // Find next available cell for this child.
+        let (start_col, start_row) = if any_spans {
+            let pos = find_next_grid_slot(&occupied, col_span, row_span, num_cols);
+            next_row = pos.1;
+            next_col = pos.0;
+            pos
+        } else {
+            let c = next_col;
+            let r = next_row;
+            next_col += 1;
+            if next_col >= num_cols {
+                next_col = 0;
+                next_row += 1;
+            }
+            (c, r)
+        };
+
+        if start_row >= num_rows {
+            break; // No space left in the grid.
+        }
+
+        // Mark occupied cells.
+        let end_col = (start_col + col_span).min(num_cols);
+        let end_row = (start_row + row_span).min(num_rows);
+        for r in start_row..end_row {
+            for c in start_col..end_col {
+                occupied[r][c] = true;
+            }
+        }
+
+        // Compute spanned cell area (includes inter-span gutters).
+        let cell_x = col_offsets[start_col];
+        let cell_y = row_offsets[start_row];
+        let last_col = end_col - 1;
+        let last_row = end_row - 1;
+        let cell_w = (col_offsets[last_col] + col_widths[last_col]).saturating_sub(cell_x);
+        let cell_h = (row_offsets[last_row] + row_heights[last_row]).saturating_sub(cell_y);
 
         // Child style for chrome.
-        let style = get_node_style(tree, child);
-        let margin = style.margin.unwrap_or_default();
-        let padding = style.padding.unwrap_or_default();
+        let margin = style.effective_margin();
+        let padding = style.effective_padding();
         let (bt, bb, bl, br) = border_spacing(&style);
+        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
 
         // Layout rect: cell + available offset, margin inset.
         let layout_x = available
@@ -799,26 +1018,42 @@ pub fn layout_grid(
         // Apply max-width constraint.
         if let Some(ref s) = style.max_width {
             let max_w = resolve_scalar_to_cells(s, available.width, viewport.0);
-            let max_w_chrome = max_w.saturating_add(bl + br + padding.left + padding.right);
-            layout_w = layout_w.min(max_w_chrome);
+            let max_w_outer = if box_sizing == BoxSizing::BorderBox {
+                max_w
+            } else {
+                max_w.saturating_add(bl + br + padding.left + padding.right)
+            };
+            layout_w = layout_w.min(max_w_outer);
         }
         // Apply min-width constraint.
         if let Some(ref s) = style.min_width {
             let min_w = resolve_scalar_to_cells(s, available.width, viewport.0);
-            let min_w_chrome = min_w.saturating_add(bl + br + padding.left + padding.right);
-            layout_w = layout_w.max(min_w_chrome);
+            let min_w_outer = if box_sizing == BoxSizing::BorderBox {
+                min_w
+            } else {
+                min_w.saturating_add(bl + br + padding.left + padding.right)
+            };
+            layout_w = layout_w.max(min_w_outer);
         }
         // Apply max-height constraint.
         if let Some(ref s) = style.max_height {
             let max_h = resolve_scalar_to_cells(s, available.height, viewport.1);
-            let max_h_chrome = max_h.saturating_add(bt + bb + padding.top + padding.bottom);
-            layout_h = layout_h.min(max_h_chrome);
+            let max_h_outer = if box_sizing == BoxSizing::BorderBox {
+                max_h
+            } else {
+                max_h.saturating_add(bt + bb + padding.top + padding.bottom)
+            };
+            layout_h = layout_h.min(max_h_outer);
         }
         // Apply min-height constraint.
         if let Some(ref s) = style.min_height {
             let min_h = resolve_scalar_to_cells(s, available.height, viewport.1);
-            let min_h_chrome = min_h.saturating_add(bt + bb + padding.top + padding.bottom);
-            layout_h = layout_h.max(min_h_chrome);
+            let min_h_outer = if box_sizing == BoxSizing::BorderBox {
+                min_h
+            } else {
+                min_h.saturating_add(bt + bb + padding.top + padding.bottom)
+            };
+            layout_h = layout_h.max(min_h_outer);
         }
 
         // Content rect: inner area after border + padding.
@@ -831,6 +1066,118 @@ pub fn layout_grid(
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
             node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Edge-carving: shared by dock (P2-12) and split (P2-26)
+// ---------------------------------------------------------------------------
+
+/// Position a single edge-carving child and shrink the available bounds.
+///
+/// Used by both dock and split layout: the child's size is resolved from its
+/// style, then it is placed along the specified edge, and the bounds (x0/y0/x1/y1)
+/// are reduced by the child's outer size.
+fn carve_edge(
+    tree: &mut WidgetTree,
+    child: NodeId,
+    direction: CarveDir,
+    x0: &mut u16,
+    y0: &mut u16,
+    x1: &mut u16,
+    y1: &mut u16,
+    viewport: (u16, u16),
+) {
+    let style = get_node_style(tree, child);
+    let margin = style.effective_margin();
+    let padding = style.effective_padding();
+    let (bt, bb, bl, br) = border_spacing(&style);
+    let border_top = bt as u16;
+    let border_bottom = bb as u16;
+    let border_left = bl as u16;
+    let border_right = br as u16;
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+
+    let current_w = x1.saturating_sub(*x0);
+    let current_h = y1.saturating_sub(*y0);
+
+    // Resolve child's content size from its style.
+    let height_is_explicit = style.height.is_some();
+    let width_is_explicit = style.width.is_some();
+
+    let child_h = match style.height.as_ref() {
+        Some(s) => resolve_scalar_to_cells(s, current_h, viewport.1),
+        None => 1, // auto → 1 row for dock/split children
+    };
+    let child_w = match style.width.as_ref() {
+        Some(s) => resolve_scalar_to_cells(s, current_w, viewport.0),
+        None => current_w, // auto → full available width for dock/split children
+    };
+
+    let chrome_h = border_top + border_bottom + padding.top + padding.bottom;
+    let chrome_w = border_left + border_right + padding.left + padding.right;
+
+    // For border-box with explicit size, the specified value already includes
+    // padding+border. Only add margin for the outer dimension.
+    let outer_h = if box_sizing == BoxSizing::BorderBox && height_is_explicit {
+        child_h.saturating_add(margin.top + margin.bottom)
+    } else {
+        child_h
+            .saturating_add(chrome_h)
+            .saturating_add(margin.top + margin.bottom)
+    };
+    let outer_w = if box_sizing == BoxSizing::BorderBox && width_is_explicit {
+        child_w.saturating_add(margin.left + margin.right)
+    } else {
+        child_w
+            .saturating_add(chrome_w)
+            .saturating_add(margin.left + margin.right)
+    };
+
+    let (layout_x, layout_y, layout_w, layout_h) = match direction {
+        CarveDir::Top => {
+            let lx = x0.saturating_add(margin.left);
+            let ly = y0.saturating_add(margin.top);
+            let lw = current_w.saturating_sub(margin.left + margin.right);
+            let lh = outer_h.saturating_sub(margin.top + margin.bottom);
+            *y0 = y0.saturating_add(outer_h);
+            (lx, ly, lw, lh)
+        }
+        CarveDir::Bottom => {
+            let lx = x0.saturating_add(margin.left);
+            let ly = y1.saturating_sub(outer_h).saturating_add(margin.top);
+            let lw = current_w.saturating_sub(margin.left + margin.right);
+            let lh = outer_h.saturating_sub(margin.top + margin.bottom);
+            *y1 = y1.saturating_sub(outer_h);
+            (lx, ly, lw, lh)
+        }
+        CarveDir::Left => {
+            let lx = x0.saturating_add(margin.left);
+            let ly = y0.saturating_add(margin.top);
+            let lw = outer_w.saturating_sub(margin.left + margin.right);
+            let lh = current_h.saturating_sub(margin.top + margin.bottom);
+            *x0 = x0.saturating_add(outer_w);
+            (lx, ly, lw, lh)
+        }
+        CarveDir::Right => {
+            let lx = x1.saturating_sub(outer_w).saturating_add(margin.left);
+            let ly = y0.saturating_add(margin.top);
+            let lw = outer_w.saturating_sub(margin.left + margin.right);
+            let lh = current_h.saturating_sub(margin.top + margin.bottom);
+            *x1 = x1.saturating_sub(outer_w);
+            (lx, ly, lw, lh)
+        }
+    };
+
+    // Content rect.
+    let content_x = layout_x.saturating_add(border_left + padding.left);
+    let content_y = layout_y.saturating_add(border_top + padding.top);
+    let content_w = layout_w.saturating_sub(chrome_w);
+    let content_h = layout_h.saturating_sub(chrome_h);
+
+    if let Some(node) = tree.get_mut(child) {
+        node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
+        node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
     }
 }
 
@@ -861,75 +1208,131 @@ pub fn arrange_dock(
             Some(d) => d,
             None => continue,
         };
+        carve_edge(
+            tree,
+            child,
+            CarveDir::from(dock),
+            &mut x0,
+            &mut y0,
+            &mut x1,
+            &mut y1,
+            viewport,
+        );
+    }
 
-        let margin = style.margin.unwrap_or_default();
-        let padding = style.padding.unwrap_or_default();
+    Region::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+}
+
+// ---------------------------------------------------------------------------
+// Split layout (P2-26)
+// ---------------------------------------------------------------------------
+
+/// Position split children, carving space from the available region.
+///
+/// Split is processed before dock in `resolve_layout`. It divides the
+/// parent into persistent regions along the specified edge (top/right/bottom/left).
+/// Semantically similar to dock but used for screen-level partitioning.
+fn arrange_split(
+    tree: &mut WidgetTree,
+    split_children: &[NodeId],
+    available: Region,
+    viewport: (u16, u16),
+) -> Region {
+    let mut x0 = available.x;
+    let mut y0 = available.y;
+    let mut x1 = available.x.saturating_add(available.width);
+    let mut y1 = available.y.saturating_add(available.height);
+
+    for &child in split_children {
+        let style = get_node_style(tree, child);
+        let split = match style.split {
+            Some(s) => s,
+            None => continue,
+        };
+        carve_edge(
+            tree,
+            child,
+            CarveDir::from(split),
+            &mut x0,
+            &mut y0,
+            &mut x1,
+            &mut y1,
+            viewport,
+        );
+    }
+
+    Region::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+}
+
+// ---------------------------------------------------------------------------
+// Absolute positioning (P2-24)
+// ---------------------------------------------------------------------------
+
+/// Position absolutely-positioned children.
+///
+/// Absolute children are removed from normal flow. They are placed relative to
+/// the parent's available region, using their specified width/height (or full
+/// available if auto) plus any `offset` displacement.
+fn layout_absolute(
+    tree: &mut WidgetTree,
+    children: &[NodeId],
+    available: Region,
+    viewport: (u16, u16),
+) {
+    for &child in children {
+        let style = get_node_style(tree, child);
+        let margin = style.effective_margin();
+        let padding = style.effective_padding();
         let (bt, bb, bl, br) = border_spacing(&style);
-        let border_top = bt as u16;
-        let border_bottom = bb as u16;
-        let border_left = bl as u16;
-        let border_right = br as u16;
+        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
 
-        let current_w = x1.saturating_sub(x0);
-        let current_h = y1.saturating_sub(y0);
+        let chrome_w = bl + br + padding.left + padding.right;
+        let chrome_h = bt + bb + padding.top + padding.bottom;
 
-        // Resolve dock child's size from its style.
-        let child_h = match style.height.as_ref() {
-            Some(s) => resolve_scalar_to_cells(s, current_h, viewport.1),
-            None => 1, // auto → 1 row for dock children
+        let height_is_explicit = style.height.is_some();
+        let width_is_explicit = style.width.is_some();
+
+        // Resolve width/height (default to full available minus margin).
+        let layout_w = match style.width.as_ref() {
+            Some(s) => {
+                let content_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+                if box_sizing == BoxSizing::BorderBox && width_is_explicit {
+                    content_w
+                } else {
+                    content_w.saturating_add(chrome_w)
+                }
+            }
+            None => available.width.saturating_sub(margin.left + margin.right),
         };
-        let child_w = match style.width.as_ref() {
-            Some(s) => resolve_scalar_to_cells(s, current_w, viewport.0),
-            None => current_w, // auto → full available width for dock children
-        };
-
-        let chrome_h = border_top + border_bottom + padding.top + padding.bottom;
-        let chrome_w = border_left + border_right + padding.left + padding.right;
-        let outer_h = child_h
-            .saturating_add(chrome_h)
-            .saturating_add(margin.top + margin.bottom);
-        let outer_w = child_w
-            .saturating_add(chrome_w)
-            .saturating_add(margin.left + margin.right);
-
-        let (layout_x, layout_y, layout_w, layout_h) = match dock {
-            Dock::Top => {
-                let lx = x0.saturating_add(margin.left);
-                let ly = y0.saturating_add(margin.top);
-                let lw = current_w.saturating_sub(margin.left + margin.right);
-                let lh = outer_h.saturating_sub(margin.top + margin.bottom);
-                y0 = y0.saturating_add(outer_h);
-                (lx, ly, lw, lh)
+        let layout_h = match style.height.as_ref() {
+            Some(s) => {
+                let content_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+                if box_sizing == BoxSizing::BorderBox && height_is_explicit {
+                    content_h
+                } else {
+                    content_h.saturating_add(chrome_h)
+                }
             }
-            Dock::Bottom => {
-                let lx = x0.saturating_add(margin.left);
-                let ly = y1.saturating_sub(outer_h).saturating_add(margin.top);
-                let lw = current_w.saturating_sub(margin.left + margin.right);
-                let lh = outer_h.saturating_sub(margin.top + margin.bottom);
-                y1 = y1.saturating_sub(outer_h);
-                (lx, ly, lw, lh)
-            }
-            Dock::Left => {
-                let lx = x0.saturating_add(margin.left);
-                let ly = y0.saturating_add(margin.top);
-                let lw = outer_w.saturating_sub(margin.left + margin.right);
-                let lh = current_h.saturating_sub(margin.top + margin.bottom);
-                x0 = x0.saturating_add(outer_w);
-                (lx, ly, lw, lh)
-            }
-            Dock::Right => {
-                let lx = x1.saturating_sub(outer_w).saturating_add(margin.left);
-                let ly = y0.saturating_add(margin.top);
-                let lw = outer_w.saturating_sub(margin.left + margin.right);
-                let lh = current_h.saturating_sub(margin.top + margin.bottom);
-                x1 = x1.saturating_sub(outer_w);
-                (lx, ly, lw, lh)
-            }
+            None => available.height.saturating_sub(margin.top + margin.bottom),
         };
 
-        // Content rect.
-        let content_x = layout_x.saturating_add(border_left + padding.left);
-        let content_y = layout_y.saturating_add(border_top + padding.top);
+        // Position: at parent origin + margin + offset.
+        let offset = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+        let base_x = available.x.saturating_add(margin.left);
+        let base_y = available.y.saturating_add(margin.top);
+        let layout_x = if offset.x >= 0 {
+            base_x.saturating_add(offset.x as u16)
+        } else {
+            base_x.saturating_sub(offset.x.unsigned_abs())
+        };
+        let layout_y = if offset.y >= 0 {
+            base_y.saturating_add(offset.y as u16)
+        } else {
+            base_y.saturating_sub(offset.y.unsigned_abs())
+        };
+
+        let content_x = layout_x.saturating_add(bl + padding.left);
+        let content_y = layout_y.saturating_add(bt + padding.top);
         let content_w = layout_w.saturating_sub(chrome_w);
         let content_h = layout_h.saturating_sub(chrome_h);
 
@@ -938,9 +1341,6 @@ pub fn arrange_dock(
             node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
     }
-
-    // Return the reduced available region.
-    Region::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
 }
 
 /// Place a Dock fill child into the remaining region.
@@ -949,7 +1349,7 @@ pub fn arrange_dock(
 /// consumes all space left after docking.
 fn layout_dock_fill(tree: &mut WidgetTree, child: NodeId, inner: Region) {
     let style = get_node_style(tree, child);
-    let padding = style.padding.unwrap_or_default();
+    let padding = style.effective_padding();
     let (bt, bb, bl, br) = border_spacing(&style);
 
     let border_top = bt as u16;
@@ -969,6 +1369,36 @@ fn layout_dock_fill(tree: &mut WidgetTree, child: NodeId, inner: Region) {
         node.layout_rect = inner.to_rect();
         node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Layout inspection (public API for testing)
+// ---------------------------------------------------------------------------
+
+/// Return the layout and content rects for a tree node.
+///
+/// Returns `Some((layout: (x0,y0,x1,y1), content: (x0,y0,x1,y1)))`,
+/// or `None` if the node doesn't exist.
+pub fn inspect_node_rects(
+    tree: &WidgetTree,
+    node: NodeId,
+) -> Option<((u16, u16, u16, u16), (u16, u16, u16, u16))> {
+    tree.get(node).map(|n| {
+        (
+            (
+                n.layout_rect.x0,
+                n.layout_rect.y0,
+                n.layout_rect.x1,
+                n.layout_rect.y1,
+            ),
+            (
+                n.content_rect.x0,
+                n.content_rect.y0,
+                n.content_rect.x1,
+                n.content_rect.y1,
+            ),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------

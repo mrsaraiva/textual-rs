@@ -702,6 +702,104 @@ pub enum Constrain {
 }
 
 // ---------------------------------------------------------------------------
+// P2 CSS gap types: position, box-sizing, split, text-wrap, etc.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Position {
+    Relative,
+    Absolute,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoxSizing {
+    ContentBox,
+    BorderBox,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Split {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextWrap {
+    Wrap,
+    NoWrap,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextOverflow {
+    Clip,
+    Fold,
+    Ellipsis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayMode {
+    None,
+    Screen,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeylineType {
+    None,
+    Thin,
+    Heavy,
+    Double,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollbarGutter {
+    Auto,
+    Stable,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollbarVisibility {
+    Auto,
+    Hidden,
+    Visible,
+}
+
+/// Text style flags for compound text-style properties
+/// (border-title-style, link-style, etc.).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextStyleFlags {
+    pub bold: bool,
+    pub dim: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub reverse: bool,
+}
+
+/// Hatch fill pattern: a character repeated as background fill with a color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hatch {
+    pub character: char,
+    pub color: Color,
+}
+
+/// Keyline border drawn between child widgets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Keyline {
+    pub keyline_type: KeylineType,
+    pub color: Color,
+}
+
+/// Per-property transition declaration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropertyTransition {
+    pub property: String,
+    pub duration: Duration,
+    pub timing: TransitionTiming,
+    pub delay: Duration,
+}
+
+// ---------------------------------------------------------------------------
 // Border types (unchanged)
 // ---------------------------------------------------------------------------
 
@@ -827,20 +925,73 @@ pub enum StyleProperty {
     Constrain = 45,
     OverflowX = 46,
     OverflowY = 47,
+    // --- P2 CSS gap properties (P2-24..P2-36) ---
+    Position = 48,
+    BoxSizing = 49,
+    Split = 50,
+    PaddingTop = 51,
+    PaddingRight = 52,
+    PaddingBottom = 53,
+    PaddingLeft = 54,
+    MarginTop = 55,
+    MarginRight = 56,
+    MarginBottom = 57,
+    MarginLeft = 58,
+    OutlineTop = 59,
+    OutlineRight = 60,
+    OutlineBottom = 61,
+    OutlineLeft = 62,
+    BorderTitleAlign = 63,
+    BorderSubtitleAlign = 64,
+    BorderTitleColor = 65,
+    BorderTitleBackground = 66,
+    BorderTitleStyle = 67,
+    BorderSubtitleColor = 68,
+    BorderSubtitleBackground = 69,
+    BorderSubtitleStyle = 70,
+    ScrollbarColor = 71,
+    ScrollbarColorHover = 72,
+    ScrollbarColorActive = 73,
+    ScrollbarBackground = 74,
+    ScrollbarBackgroundHover = 75,
+    ScrollbarBackgroundActive = 76,
+    ScrollbarCornerColor = 77,
+    ScrollbarGutter = 78,
+    ScrollbarSize = 79,
+    ScrollbarSizeHorizontal = 80,
+    ScrollbarSizeVertical = 81,
+    ScrollbarVisibility = 82,
+    TextWrapProp = 83,
+    TextOverflowProp = 84,
+    LinkColor = 85,
+    LinkBackground = 86,
+    LinkStyleProp = 87,
+    LinkColorHover = 88,
+    LinkBackgroundHover = 89,
+    LinkStyleHover = 90,
+    RowSpan = 91,
+    ColumnSpan = 92,
+    HatchProp = 93,
+    OverlayProp = 94,
+    KeylineProp = 95,
+    ConstrainX = 96,
+    ConstrainY = 97,
+    ExpandProp = 98,
+    TransitionsProp = 99,
 }
 
 /// Bitset tracking which [`Style`] properties carry `!important`.
 ///
 /// Each bit corresponds to a [`StyleProperty`] variant's discriminant.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub struct ImportanceBitset(u64);
+pub struct ImportanceBitset(u128);
 
 impl std::fmt::Debug for ImportanceBitset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 == 0 {
             write!(f, "ImportanceBitset(0)")
         } else {
-            write!(f, "ImportanceBitset({:#018x})", self.0)
+            write!(f, "ImportanceBitset({:#034x})", self.0)
         }
     }
 }
@@ -851,11 +1002,11 @@ impl ImportanceBitset {
     }
 
     pub fn set(&mut self, prop: StyleProperty) {
-        self.0 |= 1u64 << (prop as u8);
+        self.0 |= 1u128 << (prop as u8);
     }
 
     pub fn get(&self, prop: StyleProperty) -> bool {
-        (self.0 & (1u64 << (prop as u8))) != 0
+        (self.0 & (1u128 << (prop as u8))) != 0
     }
 
     pub fn is_empty(&self) -> bool {
@@ -938,6 +1089,84 @@ pub struct Style {
     pub transition_duration: Option<Duration>,
     pub transition_delay: Option<Duration>,
     pub transition_timing: Option<TransitionTiming>,
+
+    // --- P2 CSS gap properties (P2-24..P2-36) ---
+
+    // P2-24: position
+    pub position: Option<Position>,
+    // P2-25: box-sizing
+    pub box_sizing: Option<BoxSizing>,
+    // P2-26: split
+    pub split: Option<Split>,
+
+    // P2-27: per-side spacing overrides (take priority over shorthand padding/margin)
+    pub padding_top: Option<u16>,
+    pub padding_right: Option<u16>,
+    pub padding_bottom: Option<u16>,
+    pub padding_left: Option<u16>,
+    pub margin_top: Option<u16>,
+    pub margin_right: Option<u16>,
+    pub margin_bottom: Option<u16>,
+    pub margin_left: Option<u16>,
+
+    // P2-28: outline
+    pub outline_top: BorderEdge,
+    pub outline_right: BorderEdge,
+    pub outline_bottom: BorderEdge,
+    pub outline_left: BorderEdge,
+
+    // P2-29: border title/subtitle styling
+    pub border_title_align: Option<HorizontalAlign>,
+    pub border_subtitle_align: Option<HorizontalAlign>,
+    pub border_title_color: Option<Color>,
+    pub border_title_background: Option<Color>,
+    pub border_title_style: Option<TextStyleFlags>,
+    pub border_subtitle_color: Option<Color>,
+    pub border_subtitle_background: Option<Color>,
+    pub border_subtitle_style: Option<TextStyleFlags>,
+
+    // P2-30: scrollbar CSS
+    pub scrollbar_color: Option<Color>,
+    pub scrollbar_color_hover: Option<Color>,
+    pub scrollbar_color_active: Option<Color>,
+    pub scrollbar_background: Option<Color>,
+    pub scrollbar_background_hover: Option<Color>,
+    pub scrollbar_background_active: Option<Color>,
+    pub scrollbar_corner_color: Option<Color>,
+    pub scrollbar_gutter: Option<ScrollbarGutter>,
+    pub scrollbar_size: Option<u16>,
+    pub scrollbar_size_horizontal: Option<u16>,
+    pub scrollbar_size_vertical: Option<u16>,
+    pub scrollbar_visibility: Option<ScrollbarVisibility>,
+
+    // P2-31: text-wrap, text-overflow
+    pub text_wrap: Option<TextWrap>,
+    pub text_overflow: Option<TextOverflow>,
+
+    // P2-32: link styling
+    pub link_color: Option<Color>,
+    pub link_background: Option<Color>,
+    pub link_style: Option<TextStyleFlags>,
+    pub link_color_hover: Option<Color>,
+    pub link_background_hover: Option<Color>,
+    pub link_style_hover: Option<TextStyleFlags>,
+
+    // P2-33: grid child placement
+    pub row_span: Option<u16>,
+    pub column_span: Option<u16>,
+
+    // P2-34: hatch, overlay, keyline
+    pub hatch: Option<Hatch>,
+    pub overlay: Option<OverlayMode>,
+    pub keyline: Option<Keyline>,
+
+    // P2-35: constrain-x, constrain-y, expand
+    pub constrain_x: Option<Constrain>,
+    pub constrain_y: Option<Constrain>,
+    pub expand: Option<bool>,
+
+    // P2-36: per-property transitions
+    pub transitions: Option<Vec<PropertyTransition>>,
 
     // --- Importance tracking ---
     pub importance: ImportanceBitset,
@@ -1210,6 +1439,34 @@ impl Style {
         self
     }
 
+    // --- Per-side spacing synthesis (P2-27) ---
+
+    /// Compute effective padding by merging the shorthand `padding` with per-side
+    /// overrides (`padding_top`, `padding_right`, etc.). Per-side values take
+    /// priority over the corresponding side of the shorthand.
+    pub fn effective_padding(&self) -> Spacing {
+        let base = self.padding.unwrap_or_default();
+        Spacing {
+            top: self.padding_top.unwrap_or(base.top),
+            right: self.padding_right.unwrap_or(base.right),
+            bottom: self.padding_bottom.unwrap_or(base.bottom),
+            left: self.padding_left.unwrap_or(base.left),
+        }
+    }
+
+    /// Compute effective margin by merging the shorthand `margin` with per-side
+    /// overrides (`margin_top`, `margin_right`, etc.). Per-side values take
+    /// priority over the corresponding side of the shorthand.
+    pub fn effective_margin(&self) -> Spacing {
+        let base = self.margin.unwrap_or_default();
+        Spacing {
+            top: self.margin_top.unwrap_or(base.top),
+            right: self.margin_right.unwrap_or(base.right),
+            bottom: self.margin_bottom.unwrap_or(base.bottom),
+            left: self.margin_left.unwrap_or(base.left),
+        }
+    }
+
     // --- Cascade: `other` overrides `self` for any field that is `Some`,
     //     unless `self` has `!important` and `other` does not. ---
 
@@ -1383,6 +1640,59 @@ impl Style {
                 transition_timing,
                 StyleProperty::TransitionTiming
             ),
+            // --- P2 CSS gap cascade ---
+            position: cascade_field!(self, other, imp, position, StyleProperty::Position),
+            box_sizing: cascade_field!(self, other, imp, box_sizing, StyleProperty::BoxSizing),
+            split: cascade_field!(self, other, imp, split, StyleProperty::Split),
+            padding_top: cascade_field!(self, other, imp, padding_top, StyleProperty::PaddingTop),
+            padding_right: cascade_field!(self, other, imp, padding_right, StyleProperty::PaddingRight),
+            padding_bottom: cascade_field!(self, other, imp, padding_bottom, StyleProperty::PaddingBottom),
+            padding_left: cascade_field!(self, other, imp, padding_left, StyleProperty::PaddingLeft),
+            margin_top: cascade_field!(self, other, imp, margin_top, StyleProperty::MarginTop),
+            margin_right: cascade_field!(self, other, imp, margin_right, StyleProperty::MarginRight),
+            margin_bottom: cascade_field!(self, other, imp, margin_bottom, StyleProperty::MarginBottom),
+            margin_left: cascade_field!(self, other, imp, margin_left, StyleProperty::MarginLeft),
+            outline_top: cascade_border_field!(self, other, imp, outline_top, StyleProperty::OutlineTop),
+            outline_right: cascade_border_field!(self, other, imp, outline_right, StyleProperty::OutlineRight),
+            outline_bottom: cascade_border_field!(self, other, imp, outline_bottom, StyleProperty::OutlineBottom),
+            outline_left: cascade_border_field!(self, other, imp, outline_left, StyleProperty::OutlineLeft),
+            border_title_align: cascade_field!(self, other, imp, border_title_align, StyleProperty::BorderTitleAlign),
+            border_subtitle_align: cascade_field!(self, other, imp, border_subtitle_align, StyleProperty::BorderSubtitleAlign),
+            border_title_color: cascade_field!(self, other, imp, border_title_color, StyleProperty::BorderTitleColor),
+            border_title_background: cascade_field!(self, other, imp, border_title_background, StyleProperty::BorderTitleBackground),
+            border_title_style: cascade_field!(self, other, imp, border_title_style, StyleProperty::BorderTitleStyle),
+            border_subtitle_color: cascade_field!(self, other, imp, border_subtitle_color, StyleProperty::BorderSubtitleColor),
+            border_subtitle_background: cascade_field!(self, other, imp, border_subtitle_background, StyleProperty::BorderSubtitleBackground),
+            border_subtitle_style: cascade_field!(self, other, imp, border_subtitle_style, StyleProperty::BorderSubtitleStyle),
+            scrollbar_color: cascade_field!(self, other, imp, scrollbar_color, StyleProperty::ScrollbarColor),
+            scrollbar_color_hover: cascade_field!(self, other, imp, scrollbar_color_hover, StyleProperty::ScrollbarColorHover),
+            scrollbar_color_active: cascade_field!(self, other, imp, scrollbar_color_active, StyleProperty::ScrollbarColorActive),
+            scrollbar_background: cascade_field!(self, other, imp, scrollbar_background, StyleProperty::ScrollbarBackground),
+            scrollbar_background_hover: cascade_field!(self, other, imp, scrollbar_background_hover, StyleProperty::ScrollbarBackgroundHover),
+            scrollbar_background_active: cascade_field!(self, other, imp, scrollbar_background_active, StyleProperty::ScrollbarBackgroundActive),
+            scrollbar_corner_color: cascade_field!(self, other, imp, scrollbar_corner_color, StyleProperty::ScrollbarCornerColor),
+            scrollbar_gutter: cascade_field!(self, other, imp, scrollbar_gutter, StyleProperty::ScrollbarGutter),
+            scrollbar_size: cascade_field!(self, other, imp, scrollbar_size, StyleProperty::ScrollbarSize),
+            scrollbar_size_horizontal: cascade_field!(self, other, imp, scrollbar_size_horizontal, StyleProperty::ScrollbarSizeHorizontal),
+            scrollbar_size_vertical: cascade_field!(self, other, imp, scrollbar_size_vertical, StyleProperty::ScrollbarSizeVertical),
+            scrollbar_visibility: cascade_field!(self, other, imp, scrollbar_visibility, StyleProperty::ScrollbarVisibility),
+            text_wrap: cascade_field!(self, other, imp, text_wrap, StyleProperty::TextWrapProp),
+            text_overflow: cascade_field!(self, other, imp, text_overflow, StyleProperty::TextOverflowProp),
+            link_color: cascade_field!(self, other, imp, link_color, StyleProperty::LinkColor),
+            link_background: cascade_field!(self, other, imp, link_background, StyleProperty::LinkBackground),
+            link_style: cascade_field!(self, other, imp, link_style, StyleProperty::LinkStyleProp),
+            link_color_hover: cascade_field!(self, other, imp, link_color_hover, StyleProperty::LinkColorHover),
+            link_background_hover: cascade_field!(self, other, imp, link_background_hover, StyleProperty::LinkBackgroundHover),
+            link_style_hover: cascade_field!(self, other, imp, link_style_hover, StyleProperty::LinkStyleHover),
+            row_span: cascade_field!(self, other, imp, row_span, StyleProperty::RowSpan),
+            column_span: cascade_field!(self, other, imp, column_span, StyleProperty::ColumnSpan),
+            hatch: cascade_field!(self, other, imp, hatch, StyleProperty::HatchProp),
+            overlay: cascade_field!(self, other, imp, overlay, StyleProperty::OverlayProp),
+            keyline: cascade_field!(self, other, imp, keyline, StyleProperty::KeylineProp),
+            constrain_x: cascade_field!(self, other, imp, constrain_x, StyleProperty::ConstrainX),
+            constrain_y: cascade_field!(self, other, imp, constrain_y, StyleProperty::ConstrainY),
+            expand: cascade_field!(self, other, imp, expand, StyleProperty::ExpandProp),
+            transitions: cascade_field!(self, other, imp, transitions, StyleProperty::TransitionsProp),
             importance: imp,
         }
     }
@@ -1462,6 +1772,62 @@ impl Style {
             transition_duration: self.transition_duration,
             transition_delay: self.transition_delay,
             transition_timing: self.transition_timing,
+            // --- P2 CSS gap fields: none are inherited (layout/render properties) ---
+            position: self.position,
+            box_sizing: self.box_sizing,
+            split: self.split,
+            padding_top: self.padding_top,
+            padding_right: self.padding_right,
+            padding_bottom: self.padding_bottom,
+            padding_left: self.padding_left,
+            margin_top: self.margin_top,
+            margin_right: self.margin_right,
+            margin_bottom: self.margin_bottom,
+            margin_left: self.margin_left,
+            outline_top: self.outline_top,
+            outline_right: self.outline_right,
+            outline_bottom: self.outline_bottom,
+            outline_left: self.outline_left,
+            border_title_align: self.border_title_align,
+            border_subtitle_align: self.border_subtitle_align,
+            border_title_color: self.border_title_color,
+            border_title_background: self.border_title_background,
+            border_title_style: self.border_title_style,
+            border_subtitle_color: self.border_subtitle_color,
+            border_subtitle_background: self.border_subtitle_background,
+            border_subtitle_style: self.border_subtitle_style,
+            scrollbar_color: self.scrollbar_color,
+            scrollbar_color_hover: self.scrollbar_color_hover,
+            scrollbar_color_active: self.scrollbar_color_active,
+            scrollbar_background: self.scrollbar_background,
+            scrollbar_background_hover: self.scrollbar_background_hover,
+            scrollbar_background_active: self.scrollbar_background_active,
+            scrollbar_corner_color: self.scrollbar_corner_color,
+            scrollbar_gutter: self.scrollbar_gutter,
+            scrollbar_size: self.scrollbar_size,
+            scrollbar_size_horizontal: self.scrollbar_size_horizontal,
+            scrollbar_size_vertical: self.scrollbar_size_vertical,
+            scrollbar_visibility: self.scrollbar_visibility,
+            // text_wrap IS inherited (like text-align in CSS).
+            text_wrap: self.text_wrap.or(parent.text_wrap),
+            // text_overflow IS inherited.
+            text_overflow: self.text_overflow.or(parent.text_overflow),
+            // link styling IS inherited (children see parent link colors).
+            link_color: self.link_color.or(parent.link_color),
+            link_background: self.link_background.or(parent.link_background),
+            link_style: self.link_style.or(parent.link_style),
+            link_color_hover: self.link_color_hover.or(parent.link_color_hover),
+            link_background_hover: self.link_background_hover.or(parent.link_background_hover),
+            link_style_hover: self.link_style_hover.or(parent.link_style_hover),
+            row_span: self.row_span,
+            column_span: self.column_span,
+            hatch: self.hatch,
+            overlay: self.overlay,
+            keyline: self.keyline,
+            constrain_x: self.constrain_x,
+            constrain_y: self.constrain_y,
+            expand: self.expand,
+            transitions: self.transitions.clone(),
             // Importance is not inherited — it only applies during cascade.
             importance: ImportanceBitset::new(),
         }
@@ -1590,6 +1956,59 @@ impl Style {
             && self.transition_duration.is_none()
             && self.transition_delay.is_none()
             && self.transition_timing.is_none()
+            // --- P2 CSS gap fields ---
+            && self.position.is_none()
+            && self.box_sizing.is_none()
+            && self.split.is_none()
+            && self.padding_top.is_none()
+            && self.padding_right.is_none()
+            && self.padding_bottom.is_none()
+            && self.padding_left.is_none()
+            && self.margin_top.is_none()
+            && self.margin_right.is_none()
+            && self.margin_bottom.is_none()
+            && self.margin_left.is_none()
+            && self.outline_top == BorderEdge::Unset
+            && self.outline_right == BorderEdge::Unset
+            && self.outline_bottom == BorderEdge::Unset
+            && self.outline_left == BorderEdge::Unset
+            && self.border_title_align.is_none()
+            && self.border_subtitle_align.is_none()
+            && self.border_title_color.is_none()
+            && self.border_title_background.is_none()
+            && self.border_title_style.is_none()
+            && self.border_subtitle_color.is_none()
+            && self.border_subtitle_background.is_none()
+            && self.border_subtitle_style.is_none()
+            && self.scrollbar_color.is_none()
+            && self.scrollbar_color_hover.is_none()
+            && self.scrollbar_color_active.is_none()
+            && self.scrollbar_background.is_none()
+            && self.scrollbar_background_hover.is_none()
+            && self.scrollbar_background_active.is_none()
+            && self.scrollbar_corner_color.is_none()
+            && self.scrollbar_gutter.is_none()
+            && self.scrollbar_size.is_none()
+            && self.scrollbar_size_horizontal.is_none()
+            && self.scrollbar_size_vertical.is_none()
+            && self.scrollbar_visibility.is_none()
+            && self.text_wrap.is_none()
+            && self.text_overflow.is_none()
+            && self.link_color.is_none()
+            && self.link_background.is_none()
+            && self.link_style.is_none()
+            && self.link_color_hover.is_none()
+            && self.link_background_hover.is_none()
+            && self.link_style_hover.is_none()
+            && self.row_span.is_none()
+            && self.column_span.is_none()
+            && self.hatch.is_none()
+            && self.overlay.is_none()
+            && self.keyline.is_none()
+            && self.constrain_x.is_none()
+            && self.constrain_y.is_none()
+            && self.expand.is_none()
+            && self.transitions.is_none()
     }
 }
 
