@@ -19,6 +19,7 @@ use textual::style::{
 
 #[test]
 fn p2g30_scrollbar_color_parses() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-color: #ff0000; }"#;
     let sheet = StyleSheet::parse(css);
     let rules = sheet.rules();
@@ -33,6 +34,7 @@ fn p2g30_scrollbar_color_parses() {
 
 #[test]
 fn p2g30_scrollbar_background_parses() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-background: #112233; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -44,6 +46,7 @@ fn p2g30_scrollbar_background_parses() {
 
 #[test]
 fn p2g30_scrollbar_hover_active_colors() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"
         ScrollView {
             scrollbar-color-hover: #aabbcc;
@@ -74,6 +77,7 @@ fn p2g30_scrollbar_hover_active_colors() {
 
 #[test]
 fn p2g30_scrollbar_corner_color() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-corner-color: #abcdef; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -85,6 +89,7 @@ fn p2g30_scrollbar_corner_color() {
 
 #[test]
 fn p2g30_scrollbar_gutter_stable() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-gutter: stable; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -93,6 +98,7 @@ fn p2g30_scrollbar_gutter_stable() {
 
 #[test]
 fn p2g30_scrollbar_gutter_auto() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-gutter: auto; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -101,6 +107,7 @@ fn p2g30_scrollbar_gutter_auto() {
 
 #[test]
 fn p2g30_scrollbar_size_shorthand() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-size: 3; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -109,6 +116,7 @@ fn p2g30_scrollbar_size_shorthand() {
 
 #[test]
 fn p2g30_scrollbar_size_per_axis() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"
         ScrollView {
             scrollbar-size-horizontal: 2;
@@ -123,6 +131,7 @@ fn p2g30_scrollbar_size_per_axis() {
 
 #[test]
 fn p2g30_scrollbar_visibility_hidden() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-visibility: hidden; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -134,6 +143,7 @@ fn p2g30_scrollbar_visibility_hidden() {
 
 #[test]
 fn p2g30_scrollbar_visibility_visible() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-visibility: visible; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -145,6 +155,7 @@ fn p2g30_scrollbar_visibility_visible() {
 
 #[test]
 fn p2g30_scrollbar_visibility_auto() {
+    // NOTE: parse-only — verifies CSS parser, not runtime scrollbar rendering.
     let css = r#"ScrollView { scrollbar-visibility: auto; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -221,6 +232,7 @@ fn p2g30_scroll_view_visibility_hidden_no_scrollbar() {
 
 #[test]
 fn p2g32_link_color_parses() {
+    // NOTE: parse-only — verifies CSS parser, not runtime link rendering.
     let css = r#"Link { link-color: #ff0000; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -233,6 +245,7 @@ fn p2g32_link_color_parses() {
 
 #[test]
 fn p2g32_link_background_parses() {
+    // NOTE: parse-only — verifies CSS parser, not runtime link rendering.
     let css = r#"Link { link-background: #00ff00; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -244,6 +257,7 @@ fn p2g32_link_background_parses() {
 
 #[test]
 fn p2g32_link_style_parses() {
+    // NOTE: parse-only — verifies CSS parser, not runtime link rendering.
     let css = r#"Link { link-style: bold underline; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -255,6 +269,7 @@ fn p2g32_link_style_parses() {
 
 #[test]
 fn p2g32_link_hover_variants_parse() {
+    // NOTE: parse-only — verifies CSS parser, not runtime link rendering.
     let css = r#"
         Link {
             link-color-hover: #aabb00;
@@ -380,6 +395,7 @@ fn p2g32_link_normal_does_not_use_hover_css() {
 
 #[test]
 fn p2g36_transition_shorthand_parses_single_property() {
+    // NOTE: parse-only — verifies CSS parser, not runtime transition behavior.
     let css = r#"ScrollView { transition: offset_y 500ms linear; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -393,6 +409,7 @@ fn p2g36_transition_shorthand_parses_single_property() {
 
 #[test]
 fn p2g36_transition_shorthand_parses_multi_property() {
+    // NOTE: parse-only — verifies CSS parser, not runtime transition behavior.
     let css = r#"
         ScrollView {
             transition: opacity 300ms linear 100ms, background 200ms;
@@ -417,6 +434,7 @@ fn p2g36_transition_shorthand_parses_multi_property() {
 
 #[test]
 fn p2g36_transition_also_sets_generic_fields_from_first_item() {
+    // NOTE: parse-only — verifies CSS parser, not runtime transition behavior.
     let css = r#"ScrollView { transition: offset_y 400ms in_out_cubic 50ms; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
@@ -511,5 +529,51 @@ fn p2g36_resolve_transition_no_transitions_no_generic() {
     assert!(
         textual::runtime::resolve_transition_for_property(&style, "anything").is_none(),
         "empty style should return None"
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// P2-32 behavioral: disabled link ignores hover styling
+// ───────────────────────────────────────────────────────────────────────
+
+#[test]
+fn p2_32_disabled_link_ignores_hover_style() {
+    // A disabled link that is also hovered should use normal link-color,
+    // NOT link-color-hover. This matches Python Textual behavior.
+    let css = r#"
+        Link {
+            link-color: #aaaaaa;
+            link-color-hover: #ff0000;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let mut link = Link::new("hello").with_url("https://example.com").with_disabled(true);
+    link.set_hovered(true);
+
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (10, 1);
+    opts.max_width = 10;
+    opts.max_height = 1;
+
+    let segments = Widget::render(&link, &console, &opts);
+    let first = segments
+        .iter()
+        .find(|s| s.control.is_none())
+        .expect("text segment");
+    let style = first.style.expect("style should be set");
+    let grey = Color::parse("#aaaaaa").unwrap();
+    let red = Color::parse("#ff0000").unwrap();
+    assert_eq!(
+        style.color,
+        Some(grey.to_simple_opaque()),
+        "disabled+hovered link should use normal link-color, not hover"
+    );
+    assert_ne!(
+        style.color,
+        Some(red.to_simple_opaque()),
+        "disabled link should NOT use link-color-hover"
     );
 }

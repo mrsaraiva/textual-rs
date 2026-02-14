@@ -629,3 +629,108 @@ fn p2g33_no_span_preserves_existing_behavior() {
     assert_layout(&tree, c, 0, 25, 40, 50);
     assert_layout(&tree, d, 40, 25, 80, 50);
 }
+
+// =========================================================================
+// P2-33 behavioral: span exceeding grid is clamped
+// =========================================================================
+
+#[test]
+fn p2_33_span_exceeding_grid_is_clamped() {
+    // A child with column-span: 4 in a 2-column grid should be clamped to 2.
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed("Container"));
+    let wide = tree.mount(
+        root,
+        TestWidget::boxed_with_style("Wide", {
+            let mut s = Style::new();
+            s.column_span = Some(4); // exceeds grid columns
+            s
+        }),
+    );
+    let normal = tree.mount(root, TestWidget::boxed("Normal"));
+
+    let parent_style = {
+        let mut s = Style::new();
+        s.layout = Some(Layout::Grid);
+        s.grid_size_columns = Some(2);
+        s
+    };
+
+    textual::layout::layout_grid(
+        &mut tree,
+        &[wide, normal],
+        Region::new(0, 0, 80, 60),
+        (80, 60),
+        &parent_style,
+    );
+
+    // Wide should be clamped to 2 columns (full width = 80), not crash or overflow.
+    let (wide_l, _) = inspect_node_rects(&tree, wide).unwrap();
+    let wide_w = wide_l.2 - wide_l.0;
+    assert_eq!(
+        wide_w, 80,
+        "column-span: 4 should be clamped to grid width (2 cols = 80)"
+    );
+}
+
+// =========================================================================
+// P2-33 behavioral: overlapping spans use occupancy grid
+// =========================================================================
+
+#[test]
+fn p2_33_overlapping_spans_use_occupancy() {
+    // Two children each with column-span: 2 in a 3-column grid.
+    // The first takes cols 0-1 in row 0. The second can't fit in row 0
+    // (only col 2 is free, needs 2), so it wraps to row 1.
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed("Container"));
+    let a = tree.mount(
+        root,
+        TestWidget::boxed_with_style("A", {
+            let mut s = Style::new();
+            s.column_span = Some(2);
+            s
+        }),
+    );
+    let b = tree.mount(
+        root,
+        TestWidget::boxed_with_style("B", {
+            let mut s = Style::new();
+            s.column_span = Some(2);
+            s
+        }),
+    );
+
+    let parent_style = {
+        let mut s = Style::new();
+        s.layout = Some(Layout::Grid);
+        s.grid_size_columns = Some(3);
+        s
+    };
+
+    textual::layout::layout_grid(
+        &mut tree,
+        &[a, b],
+        Region::new(0, 0, 90, 60),
+        (90, 60),
+        &parent_style,
+    );
+
+    // A spans cols 0-1 in row 0: width = 60 (2 * 30).
+    let (a_l, _) = inspect_node_rects(&tree, a).unwrap();
+    let a_w = a_l.2 - a_l.0;
+    assert_eq!(a_w, 60, "A should span 2 columns");
+    assert_eq!(a_l.1, 0, "A should be in row 0");
+
+    // B needs 2 columns but row 0 only has 1 free (col 2).
+    // Occupancy grid should push B to row 1.
+    let (b_l, _) = inspect_node_rects(&tree, b).unwrap();
+    assert!(
+        b_l.1 > a_l.1,
+        "B should be in a later row than A (occupancy prevents overlap): B.y0={} A.y0={}",
+        b_l.1,
+        a_l.1
+    );
+    let b_w = b_l.2 - b_l.0;
+    assert_eq!(b_w, 60, "B should also span 2 columns");
+}

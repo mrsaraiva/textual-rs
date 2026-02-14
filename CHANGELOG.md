@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-15
+- **Fix text overflow pipeline + P2 behavioral gate tests**
+  - Fix: `split_and_crop_lines` was pre-cropping lines before `apply_text_overflow_to_line` could apply ellipsis/clip, making the text overflow wiring dead code. Now defers cropping when `text-wrap: nowrap` with an overflow mode is active.
+  - Fix: Link widget disabled-state now correctly ignores hover styling (matches Python Textual).
+  - Added 7 behavioral tests for P2-28 (outline render), P2-31 (text overflow pipeline), P2-32 (disabled link), P2-33 (grid span clamping/occupancy), P2-34 (hatch fill).
+
+- **Framework fixes: layout intrinsic width, border composition, dock sizing, tooltip per-axis constrain**
+  - Layout: `width: auto` now uses widget `content_width()` when available instead of expanding to full parent width.
+  - Layout: style resolution now pushes ancestor context so CSS descendant/child combinators (`Horizontal > VerticalScroll`) affect width/height distribution.
+  - Fix: `apply_border_edges` now properly constrains interior height by accounting for border rows, preventing content from overflowing into border area.
+  - Fix: Dock explicit size hints now use `box-sizing: border-box` so band sizes include chrome.
+  - Tooltip overlay positioning now supports independent `constrain-x`/`constrain-y` axis overrides.
+  - ScrollView: transition parameter resolution delegated to shared `resolve_transition_for_property()` helper.
+
 ### 2026-02-14
 - **Fix hit-target overshoot from `height:auto` in vertical flow + add opt-in hit probe instrumentation**
   - Layout: `height: auto` now uses widget intrinsic `layout_height()` when available (instead of flexible `1fr` allocation), which fixes oversized interactive rects and prevents vertical containers from expanding beyond intended CSS sizing.

@@ -2,7 +2,7 @@ use crate::css::{
     begin_style_render_pass, pop_style_context, push_style_context, resolve_style,
     selector_meta_generic, set_app_active, set_style_context, take_layout_affected_style_changes,
 };
-use crate::debug::debug_render;
+use crate::debug::{debug_layout, debug_render};
 use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::style::{
@@ -578,8 +578,34 @@ fn render_tree_node(
             .widget
             .render_styled_dyn_obj(console, &opts, None, node_id);
 
-        // Split into lines and paint at the layout position.
-        let lines = rich_rs::Segment::split_and_crop_lines(segments, w, None, true, false);
+        // P2-31: When text-wrap is nowrap with an overflow mode, don't pre-crop
+        // lines so that apply_text_overflow_to_line can handle truncation with
+        // the correct mode (ellipsis/clip). Otherwise, split_and_crop_lines
+        // would already crop to `w`, making the overflow step a no-op.
+        let overflow_mode = text_overflow_mode(&resolved);
+        let crop_width = if overflow_mode.is_some() {
+            // Use the natural segment width so lines aren't pre-cropped.
+            let natural: usize = segments
+                .iter()
+                .filter(|s| s.control.is_none())
+                .map(|s| s.cell_len())
+                .sum();
+            natural.max(w)
+        } else {
+            w
+        };
+        let lines =
+            rich_rs::Segment::split_and_crop_lines(segments, crop_width, None, true, false);
+
+        let lines = if let Some(overflow) = overflow_mode {
+            lines
+                .into_iter()
+                .map(|line| apply_text_overflow_to_line(&line, w, overflow))
+                .collect()
+        } else {
+            lines
+        };
+
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
         let frame_clip = ClipRect::for_frame(frame);
@@ -970,7 +996,6 @@ fn paint_keylines(
 /// the line is truncated and an ellipsis character is appended.
 /// `TextOverflow::Clip` truncates without ellipsis.
 /// `TextOverflow::Fold` wraps content (handled at widget level).
-#[allow(dead_code)]
 pub fn apply_text_overflow_to_line(
     line: &[Segment],
     max_width: usize,
@@ -1008,7 +1033,6 @@ pub fn apply_text_overflow_to_line(
 ///
 /// Returns `Some(overflow_mode)` when text-wrap is NoWrap, indicating the
 /// caller should apply overflow truncation. Returns `None` for normal wrapping.
-#[allow(dead_code)]
 pub fn text_overflow_mode(
     resolved: &crate::style::Style,
 ) -> Option<TextOverflow> {
@@ -1029,7 +1053,6 @@ pub fn text_overflow_mode(
 /// Returns `(constrain_x, constrain_y)` where each axis uses the specific
 /// override (`constrain-x`/`constrain-y`) if set, otherwise falls back to
 /// the generic `constrain` property.
-#[allow(dead_code)]
 pub fn resolve_axis_constrain(
     resolved: &crate::style::Style,
 ) -> (Constrain, Constrain) {
@@ -1043,7 +1066,6 @@ pub fn resolve_axis_constrain(
 ///
 /// Given a proposed overlay position `(x, y)` with size `(w, h)` inside a
 /// viewport `(vw, vh)`, clamp or inflect the position based on constrain mode.
-#[allow(dead_code)]
 pub fn constrain_overlay_position(
     x: i32,
     y: i32,
@@ -1228,6 +1250,43 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
 
     // Resolve children's layout rects.
     crate::layout::resolve_layout(tree, root_id, available, viewport);
+
+    // Optional per-node rect trace for layout debugging.
+    if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+        let walk = tree.walk_depth_first(root_id);
+        debug_layout(&format!(
+            "[layout_tree] viewport={}x{} nodes={}",
+            viewport.0,
+            viewport.1,
+            walk.len()
+        ));
+        for node_id in walk {
+            let Some(node) = tree.get(node_id) else {
+                continue;
+            };
+            let lr = node.layout_rect;
+            let cr = node.content_rect;
+            debug_layout(&format!(
+                "[layout_tree] id={} type={} display={} visibility={:?} lr=({},{}..{},{} w={} h={}) cr=({},{}..{},{} w={} h={})",
+                crate::node_id::node_id_to_ffi(node_id),
+                node.widget.style_type(),
+                node.display,
+                node.visibility,
+                lr.x0,
+                lr.y0,
+                lr.x1,
+                lr.y1,
+                lr.x1.saturating_sub(lr.x0),
+                lr.y1.saturating_sub(lr.y0),
+                cr.x0,
+                cr.y0,
+                cr.x1,
+                cr.y1,
+                cr.x1.saturating_sub(cr.x0),
+                cr.y1.saturating_sub(cr.y0),
+            ));
+        }
+    }
 }
 
 /// Walk visible nodes in depth-first order and collect render metadata.

@@ -25,6 +25,7 @@ pub struct Link {
     focused: bool,
     hovered: bool,
     pressed: bool,
+    disabled: bool,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -41,6 +42,7 @@ impl Link {
             focused: false,
             hovered: false,
             pressed: false,
+            disabled: false,
             classes: vec!["link".to_string()],
             focused_classes: vec!["link".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
@@ -82,6 +84,16 @@ impl Link {
     pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
+    }
+
+    /// Builder-style disabled setter.
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    pub fn set_disabled(&mut self, disabled: bool) {
+        self.disabled = disabled;
     }
 
     fn activate(&mut self, ctx: &mut EventCtx) {
@@ -137,6 +149,10 @@ impl Widget for Link {
 
     fn set_hovered(&mut self, hovered: bool) {
         self.hovered = hovered;
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
     }
 
     fn is_active(&self) -> bool {
@@ -198,8 +214,9 @@ impl Widget for Link {
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
 
-        if self.hovered {
+        if !self.disabled && self.hovered {
             // Hover state: use hover variants, falling back to normal variants.
+            // Disabled links ignore hover styling (matches Python Textual).
             if let Some(color) = resolved.link_color_hover.or(resolved.link_color) {
                 style = style.with_color(color.to_simple_opaque());
             }
@@ -210,7 +227,7 @@ impl Widget for Link {
                 apply_text_style_flags(&mut style, &flags);
             }
         } else {
-            // Normal state.
+            // Normal state (also used for disabled links).
             if let Some(color) = resolved.link_color {
                 style = style.with_color(color.to_simple_opaque());
             }

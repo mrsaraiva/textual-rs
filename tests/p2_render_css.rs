@@ -3,7 +3,7 @@
 //! These tests verify that render/visual CSS properties (P2-28/29/31/34/35)
 //! are correctly parsed, resolved, and wired into the rendering pipeline.
 
-use rich_rs::Console;
+use rich_rs::{Console, ConsoleOptions};
 use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -34,7 +34,7 @@ fn tree_render(
 
 #[test]
 fn p2g28_outline_style_fields_wired() {
-    // Verify Style struct has outline fields with correct types.
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     use textual::style::{BorderEdge, BorderType, Color};
 
     let mut style = textual::style::Style::new();
@@ -69,7 +69,7 @@ fn p2g28_outline_style_fields_wired() {
 
 #[test]
 fn p2g28_outline_css_parses_all_edges() {
-    // Parse `outline: solid red` via CSS parser and verify all 4 edges.
+    // NOTE: parse-only — verifies CSS parser, not runtime outline rendering.
     let css = "Label { outline: solid red; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -88,7 +88,7 @@ fn p2g28_outline_css_parses_all_edges() {
 
 #[test]
 fn p2g28_outline_per_side_css_parses() {
-    // Parse per-side outline CSS properties.
+    // NOTE: parse-only — verifies CSS parser, not runtime outline rendering.
     let css = "Label { outline-top: solid green; outline-bottom: solid blue; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -134,6 +134,7 @@ fn p2g28_outline_does_not_affect_layout_rect() {
 
 #[test]
 fn p2g29_border_title_align_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.border_title_align = Some(HorizontalAlign::Center);
     style.border_subtitle_align = Some(HorizontalAlign::Right);
@@ -144,6 +145,7 @@ fn p2g29_border_title_align_style_fields() {
 
 #[test]
 fn p2g29_border_title_color_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     use textual::style::Color;
 
     let mut style = textual::style::Style::new();
@@ -163,6 +165,7 @@ fn p2g29_border_title_color_style_fields() {
 
 #[test]
 fn p2g29_border_title_style_flags() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     use textual::style::TextStyleFlags;
 
     let flags = TextStyleFlags {
@@ -183,7 +186,7 @@ fn p2g29_border_title_style_flags() {
 
 #[test]
 fn p2g29_border_title_css_parse_roundtrip() {
-    // Parse border-title-align and verify it exercises the parser path.
+    // NOTE: parse-only — verifies CSS parser, not runtime border title rendering.
     let css = "Label { border-title-align: center; border-subtitle-align: right; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -197,6 +200,7 @@ fn p2g29_border_title_css_parse_roundtrip() {
 
 #[test]
 fn p2g29_border_title_color_css_parse_roundtrip() {
+    // NOTE: parse-only — verifies CSS parser, not runtime border title rendering.
     let css =
         "Label { border-title-color: red; border-title-background: blue; border-title-style: bold italic; }";
     let sheet = StyleSheet::parse(css);
@@ -215,6 +219,7 @@ fn p2g29_border_title_color_css_parse_roundtrip() {
 
 #[test]
 fn p2g31_text_wrap_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.text_wrap = Some(TextWrap::Wrap);
     assert_eq!(style.text_wrap, Some(TextWrap::Wrap));
@@ -225,6 +230,7 @@ fn p2g31_text_wrap_style_fields() {
 
 #[test]
 fn p2g31_text_overflow_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.text_overflow = Some(TextOverflow::Clip);
     assert_eq!(style.text_overflow, Some(TextOverflow::Clip));
@@ -238,6 +244,7 @@ fn p2g31_text_overflow_style_fields() {
 
 #[test]
 fn p2g31_text_wrap_css_parse_roundtrip() {
+    // NOTE: parse-only — verifies CSS parser, not runtime text wrapping behavior.
     let css = "Label { text-wrap: nowrap; text-overflow: ellipsis; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -325,6 +332,7 @@ fn p2g31_text_overflow_mode_function() {
 
 #[test]
 fn p2g34_hatch_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     use textual::style::{Color, Hatch};
 
     let hatch = Hatch {
@@ -341,6 +349,7 @@ fn p2g34_hatch_style_fields() {
 
 #[test]
 fn p2g34_overlay_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.overlay = Some(OverlayMode::None);
     assert_eq!(style.overlay, Some(OverlayMode::None));
@@ -351,6 +360,7 @@ fn p2g34_overlay_style_fields() {
 
 #[test]
 fn p2g34_keyline_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     use textual::style::{Color, Keyline};
 
     let keyline = Keyline {
@@ -367,6 +377,7 @@ fn p2g34_keyline_style_fields() {
 
 #[test]
 fn p2g34_hatch_css_parse_renders_without_crash() {
+    // NOTE: parse-only — verifies CSS parser + no-crash, not runtime hatch rendering.
     let css = r#"Container { hatch: cross #ff0000; }"#;
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -380,6 +391,7 @@ fn p2g34_hatch_css_parse_renders_without_crash() {
 
 #[test]
 fn p2g34_overlay_screen_renders_without_crash() {
+    // NOTE: parse-only — verifies CSS parser + no-crash, not runtime overlay compositing.
     let css = "Label { overlay: screen; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -393,6 +405,7 @@ fn p2g34_overlay_screen_renders_without_crash() {
 
 #[test]
 fn p2g34_keyline_css_parse_renders_without_crash() {
+    // NOTE: parse-only — verifies CSS parser + no-crash, not runtime keyline painting.
     let css = "Container { keyline: thin red; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -409,6 +422,7 @@ fn p2g34_keyline_css_parse_renders_without_crash() {
 
 #[test]
 fn p2g34_keyline_heavy_css_parse() {
+    // NOTE: parse-only — verifies CSS parser + no-crash, not runtime keyline painting.
     let css = "Container { keyline: heavy green; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -426,6 +440,7 @@ fn p2g34_keyline_heavy_css_parse() {
 
 #[test]
 fn p2g35_constrain_x_y_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.constrain_x = Some(Constrain::Inflect);
     style.constrain_y = Some(Constrain::Inside);
@@ -436,6 +451,7 @@ fn p2g35_constrain_x_y_style_fields() {
 
 #[test]
 fn p2g35_expand_style_fields() {
+    // NOTE: parse-only — verifies Style struct fields, not runtime behavior.
     let mut style = textual::style::Style::new();
     style.expand = Some(true);
     assert_eq!(style.expand, Some(true));
@@ -446,6 +462,7 @@ fn p2g35_expand_style_fields() {
 
 #[test]
 fn p2g35_constrain_x_y_css_parse_roundtrip() {
+    // NOTE: parse-only — verifies CSS parser, not runtime constrain behavior.
     let css = "Label { constrain-x: inflect; constrain-y: inside; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -459,6 +476,7 @@ fn p2g35_constrain_x_y_css_parse_roundtrip() {
 
 #[test]
 fn p2g35_expand_css_parse_roundtrip() {
+    // NOTE: parse-only — verifies CSS parser, not runtime expand behavior.
     let css = "Label { expand: true; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
@@ -558,4 +576,188 @@ fn p2g35_constrain_none_does_not_clamp() {
     );
     assert_eq!(x, 90, "x should be unchanged");
     assert_eq!(y, 22, "y should be unchanged");
+}
+
+// ===========================================================================
+// P2-28 behavioral: outline paints outside border box
+// ===========================================================================
+
+#[test]
+fn p2_28_outline_paints_outside_border_box() {
+    // Outline should paint characters in cells OUTSIDE the widget's border box.
+    // Uses inline styles (tree pipeline overwrites CSS context with defaults).
+    // Inner Container with padding insets the Label so outline has room on all sides.
+    use textual::style::{BorderEdge, BorderType, Color, Spacing};
+
+    let red = Color::parse("red").unwrap();
+    let outline_edge = BorderEdge::Edge {
+        border_type: BorderType::Solid,
+        color: red,
+    };
+
+    let mut label = Label::new("hi");
+    label.styles_mut().unwrap().style.outline_top = outline_edge;
+    label.styles_mut().unwrap().style.outline_bottom = outline_edge;
+    label.styles_mut().unwrap().style.outline_left = outline_edge;
+    label.styles_mut().unwrap().style.outline_right = outline_edge;
+
+    // Nested: outer Container (root, no style) > inner Container (padding 3) > Label.
+    let mut inner = Container::new().with_child(label);
+    inner.styles_mut().unwrap().style.padding = Some(Spacing::all(3));
+    let mut root = Container::new().with_child(inner);
+
+    let (_tree, frame, _lines) = tree_render(&mut root, 20, 8);
+
+    // Inner Container fills viewport (20x8), Label is inset by padding 3.
+    // Label "hi" has content_width=2, so layout rect is at approximately (3, 3) with w=2, h=1.
+    // Outline paints OUTSIDE the 2x1 label rect:
+    //   Top:    row 2, cols 3..5 → '─'
+    //   Bottom: row 4, cols 3..5 → '─'
+    //   Left:   col 2, row 3 → '│'
+    //   Right:  col 5, row 3 → '│'
+    let top_cell = frame.get(3, 2);
+    assert_eq!(top_cell.text, "─", "top outline at (3,2)");
+    let bottom_cell = frame.get(3, 4);
+    assert_eq!(bottom_cell.text, "─", "bottom outline at (3,4)");
+    let left_cell = frame.get(2, 3);
+    assert_eq!(left_cell.text, "│", "left outline at (2,3)");
+    let right_cell = frame.get(5, 3);
+    assert_eq!(right_cell.text, "│", "right outline at (5,3)");
+
+    // Label text is inside (at outline-inner positions).
+    assert_eq!(frame.get(3, 3).text, "h", "label text at (3,3)");
+    assert_eq!(frame.get(4, 3).text, "i", "label text at (4,3)");
+}
+
+#[test]
+fn p2_28_outline_clipped_at_viewport_edge() {
+    // Outline edges beyond viewport bounds are silently clipped (no panic).
+    // Label at viewport edge: top/left outlines clipped, bottom/right visible.
+    use textual::style::{BorderEdge, BorderType, Color};
+
+    let red = Color::parse("red").unwrap();
+    let outline_edge = BorderEdge::Edge {
+        border_type: BorderType::Solid,
+        color: red,
+    };
+
+    let mut label = Label::new("edge");
+    label.styles_mut().unwrap().style.outline_top = outline_edge;
+    label.styles_mut().unwrap().style.outline_bottom = outline_edge;
+    label.styles_mut().unwrap().style.outline_left = outline_edge;
+    label.styles_mut().unwrap().style.outline_right = outline_edge;
+
+    let mut root = Container::new().with_child(label);
+    let (_tree, frame, _lines) = tree_render(&mut root, 10, 3);
+
+    // Label "edge" has content_width=4, so layout rect is (0, 0, 4, 1).
+    // Top: row -1 (clipped), Left: col -1 (clipped).
+    // Bottom: row 1, cols 0..4 → '─'
+    // Right: col 4, row 0 → '│'
+    assert_eq!(frame.get(0, 1).text, "─", "bottom outline at (0,1)");
+    assert_eq!(frame.get(3, 1).text, "─", "bottom outline at (3,1)");
+    assert_eq!(frame.get(4, 0).text, "│", "right outline at (4,0)");
+
+    // Label text intact.
+    assert_eq!(frame.get(0, 0).text, "e", "label text at (0,0)");
+}
+
+// ===========================================================================
+// P2-34 behavioral: hatch fills blank cells with pattern character
+// ===========================================================================
+
+#[test]
+fn p2_34_hatch_fills_blank_cells_with_pattern() {
+    // Hatch replaces blank cells with hatch character; preserves existing text.
+    // Label text is exactly 10 chars so layout gives it width 10 (matching
+    // content_width). First char is 'X', rest are spaces — hatch fills spaces.
+    use textual::style::{Color, Hatch};
+
+    let mut label = Label::new("X         "); // 10 chars: 'X' + 9 spaces
+    label.styles_mut().unwrap().style.hatch = Some(Hatch {
+        character: '+',
+        color: Color::parse("#ff0000").unwrap(),
+    });
+
+    let mut root = Container::new().with_child(label);
+    let (_tree, frame, _lines) = tree_render(&mut root, 20, 3);
+
+    // Label layout rect is 10 wide (content_width = 10).
+    // Cell 0: "X" (not blank, preserved). Cells 1..10: " " (blank, hatched).
+    assert_eq!(frame.get(0, 0).text, "X", "text cell should be preserved");
+    assert_eq!(frame.get(1, 0).text, "+", "blank cell should be hatched");
+    assert_eq!(frame.get(5, 0).text, "+", "blank cell should be hatched");
+    assert_eq!(frame.get(9, 0).text, "+", "blank cell should be hatched");
+}
+
+// ===========================================================================
+// P2-31 behavioral: narrow-width text overflow through full pipeline
+// ===========================================================================
+
+/// A test widget that intentionally renders a line wider than its layout rect,
+/// to exercise the tree-level text-overflow truncation wiring.
+struct WideRenderWidget {
+    text: String,
+    styles: WidgetStyles,
+}
+
+impl WideRenderWidget {
+    fn new(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for WideRenderWidget {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+        // Intentionally ignore options.size — produce a full-width line.
+        let mut out = rich_rs::Segments::new();
+        out.push(rich_rs::Segment::new(self.text.clone()));
+        out
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        // Report narrow content width so layout constrains us,
+        // but render() produces the full text anyway.
+        Some(8)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "WideRenderWidget"
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[test]
+fn p2_31_nowrap_ellipsis_narrow_pipeline() {
+    // Verify tree-level text-overflow truncation wiring.
+    // Uses a custom widget that renders text wider than its layout rect.
+    let mut widget = WideRenderWidget::new("abcdefghijklmnop"); // 16 chars
+    widget.styles.style.text_wrap = Some(TextWrap::NoWrap);
+    widget.styles.style.text_overflow = Some(TextOverflow::Ellipsis);
+
+    let mut root = Container::new().with_child(widget);
+    let (_tree, _frame, lines) = tree_render(&mut root, 20, 3);
+
+    // Layout gives the widget width=8 (from content_width), but render
+    // produces 16 chars. Tree-level text overflow should truncate with ellipsis.
+    let first_line = &lines[0];
+    assert!(
+        first_line.contains('…'),
+        "tree-level text overflow should produce ellipsis: {first_line:?}"
+    );
+    assert!(
+        rich_rs::cell_len(first_line.trim_end()) <= 8,
+        "truncated output should fit within 8 columns: {first_line:?} (width={})",
+        rich_rs::cell_len(first_line.trim_end())
+    );
 }
