@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use crate::style::{
-    parse_auto_color_like, parse_color_like, Align, BorderEdge, BorderType, BoxSizing, Constrain,
-    ContentAlign, Display, Dock, Hatch, HorizontalAlign, Keyline, KeylineType, Layout, Margin,
-    Offset, Overflow, OverlayMode, Pointer, Position, PropertyTransition, Scalar, ScrollbarGutter,
-    ScrollbarVisibility, Split, Style, StyleProperty, TextAlign, TextOverflow, TextStyleFlags,
-    TextWrap, Tint, TransitionTiming, VerticalAlign, Visibility,
+    Align, BorderEdge, BorderType, BoxSizing, Constrain, ContentAlign, Display, Dock, Hatch,
+    HorizontalAlign, Keyline, KeylineType, Layout, Margin, Offset, Overflow, OverlayMode, Pointer,
+    Position, PropertyTransition, Scalar, ScrollbarGutter, ScrollbarVisibility, Split, Style,
+    StyleProperty, TextAlign, TextOverflow, TextStyleFlags, TextWrap, Tint, TransitionTiming,
+    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -372,11 +372,15 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
             match name.as_str() {
                 "disabled" => Some(PseudoClass::Disabled),
                 "focus" | "focused" => Some(PseudoClass::Focus),
+                "blur" => Some(PseudoClass::Blur),
                 "focus-within" | "focus_within" => Some(PseudoClass::FocusWithin),
                 "hover" => Some(PseudoClass::Hover),
                 "active" => Some(PseudoClass::Active),
                 "dark" => Some(PseudoClass::Dark),
                 "light" => Some(PseudoClass::Light),
+                "inline" => Some(PseudoClass::Inline),
+                "ansi" => Some(PseudoClass::Ansi),
+                "nocolor" => Some(PseudoClass::NoColor),
                 "even" => Some(PseudoClass::Even),
                 "odd" => Some(PseudoClass::Odd),
                 "first-child" | "first_child" => Some(PseudoClass::FirstChild),
@@ -656,14 +660,19 @@ pub(super) fn parse_style_body(body: &str) -> Style {
         let mut handled_importance = false;
         match key.as_str() {
             "fg" | "color" => {
-                if let Some(auto) = parse_auto_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.fg = None;
+                    style.fg_auto = None;
+                } else if let Some(auto) = parse_auto_color_like(value) {
                     style = style.fg_auto(auto);
                 } else if let Some(color) = parse_color_like(value) {
                     style = style.fg(color);
                 }
             }
             "bg" | "background" => {
-                if let Some(color) = parse_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.bg = None;
+                } else if let Some(color) = parse_color_like(value) {
                     style = style.bg(color);
                 }
             }
@@ -774,45 +783,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "text-style" => {
                 // Shorthand: only mark sub-properties that are actually set.
                 handled_importance = true;
-                for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
-                    let token = token.trim();
-                    if token.is_empty() {
-                        continue;
-                    }
-                    match token {
-                        "bold" => {
-                            style = style.bold(true);
-                            if is_important {
-                                style.importance.set(StyleProperty::Bold);
-                            }
-                        }
-                        "dim" => {
-                            style = style.dim(true);
-                            if is_important {
-                                style.importance.set(StyleProperty::Dim);
-                            }
-                        }
-                        "italic" => {
-                            style = style.italic(true);
-                            if is_important {
-                                style.importance.set(StyleProperty::Italic);
-                            }
-                        }
-                        "underline" => {
-                            style = style.underline(true);
-                            if is_important {
-                                style.importance.set(StyleProperty::Underline);
-                            }
-                        }
-                        "reverse" | "$button-focus-text-style" => {
-                            style = style.reverse(true);
-                            if is_important {
-                                style.importance.set(StyleProperty::Reverse);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                parse_text_style_shorthand_into_style(&mut style, value, is_important);
             }
             "line-pad" => {
                 if let Ok(value) = value.parse() {
@@ -1339,12 +1310,16 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             }
             // P2-32: link styling
             "link-color" => {
-                if let Some(color) = parse_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.link_color = None;
+                } else if let Some(color) = parse_color_like(value) {
                     style.link_color = Some(color);
                 }
             }
             "link-background" => {
-                if let Some(color) = parse_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.link_background = None;
+                } else if let Some(color) = parse_color_like(value) {
                     style.link_background = Some(color);
                 }
             }
@@ -1352,12 +1327,16 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 style.link_style = parse_text_style_flags(value);
             }
             "link-color-hover" => {
-                if let Some(color) = parse_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.link_color_hover = None;
+                } else if let Some(color) = parse_color_like(value) {
                     style.link_color_hover = Some(color);
                 }
             }
             "link-background-hover" => {
-                if let Some(color) = parse_color_like(value) {
+                if value.eq_ignore_ascii_case("initial") {
+                    style.link_background_hover = None;
+                } else if let Some(color) = parse_color_like(value) {
                     style.link_background_hover = Some(color);
                 }
             }
@@ -1820,10 +1799,88 @@ fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
             _ => {}
         }
     }
-    if any {
-        Some(flags)
-    } else {
-        None
+    if any { Some(flags) } else { None }
+}
+
+fn parse_text_style_shorthand_into_style(style: &mut Style, value: &str, is_important: bool) {
+    let mut pending_not = false;
+    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+        let token = token.trim().to_ascii_lowercase();
+        if token.is_empty() {
+            continue;
+        }
+        if token == "not" {
+            pending_not = true;
+            continue;
+        }
+        if token == "none" {
+            // Keep existing behavior: `none` in `text-style` does not force bool fields.
+            pending_not = false;
+            continue;
+        }
+        if let Some(flags) = expand_text_style_token_to_flags(token.as_str()) {
+            let value = !pending_not;
+            for flag in flags {
+                apply_text_style_flag(style, flag, value, is_important);
+            }
+        }
+        pending_not = false;
+    }
+}
+
+fn apply_text_style_flag(style: &mut Style, flag: &str, value: bool, is_important: bool) {
+    match flag {
+        "bold" => {
+            style.bold = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Bold);
+            }
+        }
+        "dim" => {
+            style.dim = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Dim);
+            }
+        }
+        "italic" => {
+            style.italic = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Italic);
+            }
+        }
+        "underline" => {
+            style.underline = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Underline);
+            }
+        }
+        "reverse" => {
+            style.reverse = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Reverse);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn expand_text_style_token_to_flags(token: &str) -> Option<&'static [&'static str]> {
+    match token {
+        "bold" => Some(&["bold"]),
+        "dim" => Some(&["dim"]),
+        "italic" => Some(&["italic"]),
+        "underline" => Some(&["underline"]),
+        "reverse" => Some(&["reverse"]),
+        // Textual design defaults:
+        // - button-focus-text-style -> "b reverse" (bold + reverse)
+        // - block-cursor-text-style -> "bold"
+        // - block-cursor-blurred-text-style -> "none"
+        // - input-cursor-text-style -> "none"
+        "$button-focus-text-style" => Some(&["bold", "reverse"]),
+        "$block-cursor-text-style" => Some(&["bold"]),
+        "$block-cursor-blurred-text-style" => Some(&[]),
+        "$input-cursor-text-style" => Some(&[]),
+        _ => None,
     }
 }
 
@@ -2020,6 +2077,21 @@ mod tests {
         assert!(chain.parts[1].pseudos().is_empty());
     }
 
+    #[test]
+    fn parse_app_runtime_bridge_pseudos() {
+        let chain = parse_selector_chain("App:blur:inline:ansi:nocolor").expect("should parse");
+        assert_eq!(chain.parts.len(), 1);
+        assert_eq!(
+            chain.parts[0].pseudos(),
+            &[
+                PseudoClass::Blur,
+                PseudoClass::Inline,
+                PseudoClass::Ansi,
+                PseudoClass::NoColor
+            ]
+        );
+    }
+
     // -- !important parsing -----------------------------------------------
 
     #[test]
@@ -2102,6 +2174,61 @@ mod tests {
         assert!(!style.importance.get(StyleProperty::Dim));
         assert!(!style.importance.get(StyleProperty::Underline));
         assert!(!style.importance.get(StyleProperty::Reverse));
+    }
+
+    #[test]
+    fn parse_text_style_not_flag_sets_explicit_false() {
+        let style = parse_style_body("text-style: not reverse;");
+        assert_eq!(style.reverse, Some(false));
+    }
+
+    #[test]
+    fn parse_text_style_mixed_positive_and_not() {
+        let style = parse_style_body("text-style: bold not underline;");
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.underline, Some(false));
+    }
+
+    #[test]
+    fn parse_text_style_multiple_flags_with_not() {
+        let style = parse_style_body("text-style: bold italic not dim;");
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.italic, Some(true));
+        assert_eq!(style.dim, Some(false));
+    }
+
+    #[test]
+    fn parse_text_style_none_keeps_existing_behavior() {
+        let style = parse_style_body("text-style: none;");
+        assert_eq!(style.bold, None);
+        assert_eq!(style.dim, None);
+        assert_eq!(style.italic, None);
+        assert_eq!(style.underline, None);
+        assert_eq!(style.reverse, None);
+    }
+
+    #[test]
+    fn parse_text_style_token_refs_map_to_default_flags() {
+        let style = parse_style_body("text-style: $button-focus-text-style;");
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.reverse, Some(true));
+
+        let style = parse_style_body("text-style: $block-cursor-text-style;");
+        assert_eq!(style.bold, Some(true));
+
+        let style = parse_style_body("text-style: $block-cursor-blurred-text-style;");
+        assert_eq!(style.bold, None);
+        assert_eq!(style.dim, None);
+        assert_eq!(style.italic, None);
+        assert_eq!(style.underline, None);
+        assert_eq!(style.reverse, None);
+
+        let style = parse_style_body("text-style: $input-cursor-text-style;");
+        assert_eq!(style.bold, None);
+        assert_eq!(style.dim, None);
+        assert_eq!(style.italic, None);
+        assert_eq!(style.underline, None);
+        assert_eq!(style.reverse, None);
     }
 
     #[test]

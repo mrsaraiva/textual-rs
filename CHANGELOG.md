@@ -17,6 +17,13 @@ until the API stabilizes.
   - Added 3 unit tests (nested `&`/descendant, cartesian expansion, `@`-rule issue) and 3 integration tests (`tests/style_nested.rs`).
 
 ### 2026-02-15
+- **feat(css/selectors): add Textual-aligned pseudo-classes `:blur`, `:inline`, `:ansi`, `:nocolor`**
+  - Parser: recognizes new pseudo-classes in selector chains.
+  - Matcher: `:blur` now matches when not focused (`!focused`), and runtime bridge pseudos match selector state flags.
+  - Resolver: selector state now populates `inline/ansi/nocolor` from env bridges (`TEXTUAL_APP_INLINE=1`, `TEXTUAL_APP_ANSI=1`, `TEXTUAL_APP_NOCOLOR=1`) for generic and component selector metadata.
+  - Debug output/filtering now includes all new pseudos (`selector_chain_string`, `style_debug_meta_label`, `pseudo=` filter support).
+  - Added parser, matching, and debug-string coverage tests for the new pseudo-classes.
+
 - **Fix text overflow pipeline + P2 behavioral gate tests**
   - Fix: `split_and_crop_lines` was pre-cropping lines before `apply_text_overflow_to_line` could apply ellipsis/clip, making the text overflow wiring dead code. Now defers cropping when `text-wrap: nowrap` with an overflow mode is active.
   - Fix: Link widget disabled-state now correctly ignores hover styling (matches Python Textual).

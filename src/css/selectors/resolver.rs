@@ -11,6 +11,18 @@ use super::context::{
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
 
+fn env_flag(name: &str) -> bool {
+    matches!(std::env::var(name).ok().as_deref(), Some("1"))
+}
+
+fn app_runtime_bridge_states() -> (bool, bool, bool) {
+    (
+        env_flag("TEXTUAL_APP_INLINE"),
+        env_flag("TEXTUAL_APP_ANSI"),
+        env_flag("TEXTUAL_APP_NOCOLOR"),
+    )
+}
+
 /// Derive a cache key from a widget reference.
 ///
 /// Uses the data pointer of the widget reference as a unique identifier.
@@ -68,6 +80,7 @@ impl StyleSheet {
 }
 
 pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
+    let (inline, ansi, nocolor) = app_runtime_bridge_states();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
         id: widget.style_id().map(|value| value.to_string()),
@@ -77,6 +90,9 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            inline,
+            ansi,
+            nocolor,
             ..Default::default()
         },
     }
@@ -95,6 +111,7 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
     widget: &T,
     classes: &[&str],
 ) -> SelectorMeta {
+    let (inline, ansi, nocolor) = app_runtime_bridge_states();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
         id: None,
@@ -104,6 +121,9 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            inline,
+            ansi,
+            nocolor,
             ..SelectorStates::default()
         },
     }
@@ -114,6 +134,7 @@ pub(crate) fn selector_meta_component_for_with_id<T: Widget + ?Sized>(
     id: Option<&str>,
     classes: &[&str],
 ) -> SelectorMeta {
+    let (inline, ansi, nocolor) = app_runtime_bridge_states();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
         id: id.map(str::to_string),
@@ -123,6 +144,9 @@ pub(crate) fn selector_meta_component_for_with_id<T: Widget + ?Sized>(
             focused: widget.has_focus() && app_is_active(),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            inline,
+            ansi,
+            nocolor,
             ..SelectorStates::default()
         },
     }

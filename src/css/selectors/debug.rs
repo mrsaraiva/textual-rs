@@ -29,11 +29,15 @@ pub(super) fn selector_chain_string(chain: &SelectorChain) -> String {
             match pseudo {
                 PseudoClass::Disabled => out.push_str("disabled"),
                 PseudoClass::Focus => out.push_str("focus"),
+                PseudoClass::Blur => out.push_str("blur"),
                 PseudoClass::FocusWithin => out.push_str("focus-within"),
                 PseudoClass::Hover => out.push_str("hover"),
                 PseudoClass::Active => out.push_str("active"),
                 PseudoClass::Dark => out.push_str("dark"),
                 PseudoClass::Light => out.push_str("light"),
+                PseudoClass::Inline => out.push_str("inline"),
+                PseudoClass::Ansi => out.push_str("ansi"),
+                PseudoClass::NoColor => out.push_str("nocolor"),
                 PseudoClass::Even => out.push_str("even"),
                 PseudoClass::Odd => out.push_str("odd"),
                 PseudoClass::FirstChild => out.push_str("first-child"),
@@ -86,11 +90,15 @@ pub(super) fn style_debug_matches(meta: &SelectorMeta) -> bool {
             return match value.trim().to_ascii_lowercase().as_str() {
                 "disabled" => meta.states.disabled,
                 "focus" | "focused" => meta.states.focused,
+                "blur" => !meta.states.focused,
                 "focus-within" | "focus_within" => meta.states.focus_within,
                 "hover" | "hovered" => meta.states.hovered,
                 "active" => meta.states.active,
                 "dark" => meta.states.dark,
                 "light" => !meta.states.dark,
+                "inline" => meta.states.inline,
+                "ansi" => meta.states.ansi,
+                "nocolor" => meta.states.nocolor,
                 "even" => meta.states.child_index.map_or(false, |i| i % 2 == 0),
                 "odd" => meta.states.child_index.map_or(false, |i| i % 2 == 1),
                 "first-child" | "first_child" => meta.states.child_index == Some(0),
@@ -120,6 +128,8 @@ pub(super) fn style_debug_meta_label(meta: &SelectorMeta) -> String {
     }
     if meta.states.focused {
         label.push_str(":focus");
+    } else {
+        label.push_str(":blur");
     }
     if meta.states.focus_within {
         label.push_str(":focus-within");
@@ -133,10 +143,64 @@ pub(super) fn style_debug_meta_label(meta: &SelectorMeta) -> String {
     if meta.states.dark {
         label.push_str(":dark");
     }
+    if meta.states.inline {
+        label.push_str(":inline");
+    }
+    if meta.states.ansi {
+        label.push_str(":ansi");
+    }
+    if meta.states.nocolor {
+        label.push_str(":nocolor");
+    }
     if let Some(idx) = meta.states.child_index {
         label.push_str(&format!(":child({})", idx));
     }
     label
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::css::selectors::ast::{SelectorStates, StyleSelector};
+
+    #[test]
+    fn selector_chain_string_renders_new_pseudos() {
+        let chain = SelectorChain {
+            parts: vec![
+                StyleSelector::new("App")
+                    .pseudo(PseudoClass::Blur)
+                    .pseudo(PseudoClass::Inline)
+                    .pseudo(PseudoClass::Ansi)
+                    .pseudo(PseudoClass::NoColor),
+            ],
+            combinators: Vec::new(),
+        };
+        assert_eq!(
+            selector_chain_string(&chain),
+            "App:blur:inline:ansi:nocolor"
+        );
+    }
+
+    #[test]
+    fn style_debug_meta_label_includes_new_active_states_and_blur() {
+        let meta = SelectorMeta {
+            type_name: "App".to_string(),
+            id: None,
+            classes: Vec::new(),
+            states: SelectorStates {
+                focused: false,
+                inline: true,
+                ansi: true,
+                nocolor: true,
+                ..Default::default()
+            },
+        };
+        let label = style_debug_meta_label(&meta);
+        assert!(label.contains(":blur"));
+        assert!(label.contains(":inline"));
+        assert!(label.contains(":ansi"));
+        assert!(label.contains(":nocolor"));
+    }
 }
 
 pub(super) fn style_debug_summary(style: &Style) -> String {

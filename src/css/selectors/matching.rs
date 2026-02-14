@@ -27,11 +27,15 @@ impl StyleSelector {
                 let ok = match pseudo {
                     super::ast::PseudoClass::Disabled => meta.states.disabled,
                     super::ast::PseudoClass::Focus => meta.states.focused,
+                    super::ast::PseudoClass::Blur => !meta.states.focused,
                     super::ast::PseudoClass::FocusWithin => meta.states.focus_within,
                     super::ast::PseudoClass::Hover => meta.states.hovered,
                     super::ast::PseudoClass::Active => meta.states.active,
                     super::ast::PseudoClass::Dark => meta.states.dark,
                     super::ast::PseudoClass::Light => !meta.states.dark,
+                    super::ast::PseudoClass::Inline => meta.states.inline,
+                    super::ast::PseudoClass::Ansi => meta.states.ansi,
+                    super::ast::PseudoClass::NoColor => meta.states.nocolor,
                     super::ast::PseudoClass::Even => {
                         meta.states.child_index.map_or(false, |i| i % 2 == 0)
                     }
@@ -167,6 +171,55 @@ mod tests {
             ..Default::default()
         });
         assert!(!selector.matches(&meta));
+    }
+
+    #[test]
+    fn blur_matches_when_not_focused() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::Blur);
+        assert!(selector.matches(&meta_with_states(SelectorStates::default())));
+        assert!(!selector.matches(&meta_with_states(SelectorStates {
+            focused: true,
+            ..Default::default()
+        })));
+    }
+
+    #[test]
+    fn inline_matches_only_when_inline_state_true() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::Inline);
+        assert!(!selector.matches(&meta_with_states(SelectorStates {
+            inline: false,
+            ..Default::default()
+        })));
+        assert!(selector.matches(&meta_with_states(SelectorStates {
+            inline: true,
+            ..Default::default()
+        })));
+    }
+
+    #[test]
+    fn ansi_matches_only_when_ansi_state_true() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::Ansi);
+        assert!(!selector.matches(&meta_with_states(SelectorStates {
+            ansi: false,
+            ..Default::default()
+        })));
+        assert!(selector.matches(&meta_with_states(SelectorStates {
+            ansi: true,
+            ..Default::default()
+        })));
+    }
+
+    #[test]
+    fn nocolor_matches_only_when_nocolor_state_true() {
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::NoColor);
+        assert!(!selector.matches(&meta_with_states(SelectorStates {
+            nocolor: false,
+            ..Default::default()
+        })));
+        assert!(selector.matches(&meta_with_states(SelectorStates {
+            nocolor: true,
+            ..Default::default()
+        })));
     }
 
     #[test]
@@ -323,12 +376,20 @@ mod tests {
         let even = StyleSelector::new("Widget").pseudo(PseudoClass::Even);
         let first = StyleSelector::new("Widget").pseudo(PseudoClass::FirstChild);
         let last = StyleSelector::new("Widget").pseudo(PseudoClass::LastChild);
+        let blur = StyleSelector::new("Widget").pseudo(PseudoClass::Blur);
+        let inline = StyleSelector::new("Widget").pseudo(PseudoClass::Inline);
+        let ansi = StyleSelector::new("Widget").pseudo(PseudoClass::Ansi);
+        let nocolor = StyleSelector::new("Widget").pseudo(PseudoClass::NoColor);
 
         let base = existing.specificity();
         assert_eq!(dark.specificity(), base);
         assert_eq!(even.specificity(), base);
         assert_eq!(first.specificity(), base);
         assert_eq!(last.specificity(), base);
+        assert_eq!(blur.specificity(), base);
+        assert_eq!(inline.specificity(), base);
+        assert_eq!(ansi.specificity(), base);
+        assert_eq!(nocolor.specificity(), base);
 
         // Two pseudos should have double the pseudo weight
         let two = StyleSelector::new("Widget")
