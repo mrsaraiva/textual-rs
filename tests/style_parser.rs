@@ -63,3 +63,42 @@ Label { bg: rgba(255,0,0,0.5); }
     let expected = Color::rgba(255, 0, 0, 128).flatten_over(base);
     assert_eq!(style.bgcolor, Some(expected.to_simple_opaque()));
 }
+
+#[test]
+fn stylesheet_parser_text_style_tokens_and_not_semantics() {
+    let css = r#"
+Label {
+    text-style: $button-focus-text-style not underline;
+}
+Input {
+    text-style: $input-cursor-text-style;
+}
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let rules = sheet.rules();
+    assert_eq!(rules.len(), 1);
+
+    let label_style = &rules[0].style();
+    assert_eq!(label_style.bold, Some(true));
+    assert_eq!(label_style.reverse, Some(true));
+    assert_eq!(label_style.underline, Some(false));
+}
+
+#[test]
+fn parse_color_like_supports_transparent_and_ansi_names() {
+    use textual::style::parse_color_like;
+
+    assert_eq!(
+        parse_color_like("transparent"),
+        Some(Color::rgba(0, 0, 0, 0))
+    );
+    assert_eq!(
+        parse_color_like("ansi_default"),
+        Some(Color::rgba(0, 0, 0, 0))
+    );
+    assert_eq!(parse_color_like("ansi_black"), Some(Color::rgb(0, 0, 0)));
+    assert_eq!(
+        parse_color_like("ansi_bright_white"),
+        Some(Color::rgb(255, 255, 255))
+    );
+}

@@ -9,9 +9,7 @@ use std::time::Duration;
 use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::prelude::*;
-use textual::style::{
-    PropertyTransition, ScrollbarGutter, ScrollbarVisibility, TransitionTiming,
-};
+use textual::style::{PropertyTransition, ScrollbarGutter, ScrollbarVisibility, TransitionTiming};
 
 // ───────────────────────────────────────────────────────────────────────
 // P2G-30  Scrollbar CSS
@@ -181,8 +179,7 @@ fn p2g30_scroll_view_render_with_css_scrollbar_size() {
     opts.max_height = 10;
 
     let segments = Widget::render(&sv, &console, &opts);
-    let lines =
-        rich_rs::Segment::split_and_crop_lines(segments, 30, None, true, false);
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, 30, None, true, false);
     // The scrollbar should be present (content > viewport).
     assert_eq!(lines.len(), 10);
     // With scrollbar-size-vertical: 3, the content viewport should be 30-3=27 wide
@@ -212,8 +209,7 @@ fn p2g30_scroll_view_visibility_hidden_no_scrollbar() {
     opts.max_height = 10;
 
     let segments = Widget::render(&sv, &console, &opts);
-    let lines =
-        rich_rs::Segment::split_and_crop_lines(segments, 20, None, true, false);
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, 20, None, true, false);
     // With visibility: hidden, no scrollbar should appear.
     // All lines should be single segments (space fills, no scrollbar chrome).
     for (i, line) in lines.iter().enumerate() {
@@ -291,6 +287,59 @@ fn p2g32_link_hover_variants_parse() {
         .link_style_hover
         .expect("link_style_hover should be set");
     assert!(flags.italic, "hover italic flag should be set");
+}
+
+#[test]
+fn p2g32_link_background_initial_clears_property() {
+    let css = r#"
+        Link {
+            link-background: #00ff00;
+            link-background: initial;
+            link-background-hover: #00aabb;
+            link-background-hover: initial;
+            link-style: bold;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let style = &sheet.rules()[0].style();
+    assert_eq!(
+        style.link_background, None,
+        "link-background: initial should clear value"
+    );
+    assert_eq!(
+        style.link_background_hover, None,
+        "link-background-hover: initial should clear value"
+    );
+}
+
+#[test]
+fn p2g32_color_initial_clears_fg_bg_and_link_colors() {
+    let css = r#"
+        Link {
+            color: #010203;
+            color: initial;
+            background: #040506;
+            background: initial;
+            link-color: #070809;
+            link-color: initial;
+            link-color-hover: #0a0b0c;
+            link-color-hover: initial;
+            link-style: underline;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let style = &sheet.rules()[0].style();
+    assert_eq!(style.fg, None, "color: initial should clear fg");
+    assert_eq!(style.fg_auto, None, "color: initial should clear fg_auto");
+    assert_eq!(style.bg, None, "background: initial should clear bg");
+    assert_eq!(
+        style.link_color, None,
+        "link-color: initial should clear value"
+    );
+    assert_eq!(
+        style.link_color_hover, None,
+        "link-color-hover: initial should clear value"
+    );
 }
 
 #[test]
@@ -399,7 +448,10 @@ fn p2g36_transition_shorthand_parses_single_property() {
     let css = r#"ScrollView { transition: offset_y 500ms linear; }"#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
-    let transitions = style.transitions.as_ref().expect("transitions should be set");
+    let transitions = style
+        .transitions
+        .as_ref()
+        .expect("transitions should be set");
     assert_eq!(transitions.len(), 1);
     assert_eq!(transitions[0].property, "offset_y");
     assert_eq!(transitions[0].duration, Duration::from_millis(500));
@@ -417,8 +469,15 @@ fn p2g36_transition_shorthand_parses_multi_property() {
     "#;
     let sheet = StyleSheet::parse(css);
     let style = &sheet.rules()[0].style();
-    let transitions = style.transitions.as_ref().expect("transitions should be set");
-    assert_eq!(transitions.len(), 2, "should parse 2 per-property transitions");
+    let transitions = style
+        .transitions
+        .as_ref()
+        .expect("transitions should be set");
+    assert_eq!(
+        transitions.len(),
+        2,
+        "should parse 2 per-property transitions"
+    );
 
     // First: opacity 300ms linear 100ms
     assert_eq!(transitions[0].property, "opacity");
@@ -441,10 +500,7 @@ fn p2g36_transition_also_sets_generic_fields_from_first_item() {
     // Generic transition fields should match the first item.
     assert_eq!(style.transition_duration, Some(Duration::from_millis(400)));
     assert_eq!(style.transition_delay, Some(Duration::from_millis(50)));
-    assert_eq!(
-        style.transition_timing,
-        Some(TransitionTiming::InOutCubic)
-    );
+    assert_eq!(style.transition_timing, Some(TransitionTiming::InOutCubic));
 }
 
 #[test]
@@ -533,6 +589,54 @@ fn p2g36_resolve_transition_no_transitions_no_generic() {
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// DCE-08 / DCE-09  text-style negation + token refs
+// ───────────────────────────────────────────────────────────────────────
+
+#[test]
+fn dce08_text_style_not_examples_parse() {
+    let css = r#"
+        Label.a { text-style: not reverse; }
+        Label.b { text-style: bold not underline; }
+        Label.c { text-style: bold italic not dim; }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let rules = sheet.rules();
+    assert_eq!(rules.len(), 3);
+
+    let style_a = &rules[0].style();
+    assert_eq!(style_a.reverse, Some(false));
+
+    let style_b = &rules[1].style();
+    assert_eq!(style_b.bold, Some(true));
+    assert_eq!(style_b.underline, Some(false));
+
+    let style_c = &rules[2].style();
+    assert_eq!(style_c.bold, Some(true));
+    assert_eq!(style_c.italic, Some(true));
+    assert_eq!(style_c.dim, Some(false));
+}
+
+#[test]
+fn dce09_text_style_token_refs_parse() {
+    let css = r#"
+        Label.a { text-style: $button-focus-text-style; }
+        Label.b { text-style: $block-cursor-text-style; }
+        Label.c { text-style: $block-cursor-blurred-text-style; }
+        Label.d { text-style: $input-cursor-text-style; }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let rules = sheet.rules();
+    assert_eq!(rules.len(), 2);
+
+    let style_a = &rules[0].style();
+    assert_eq!(style_a.bold, Some(true));
+    assert_eq!(style_a.reverse, Some(true));
+
+    let style_b = &rules[1].style();
+    assert_eq!(style_b.bold, Some(true));
+}
+
+// ───────────────────────────────────────────────────────────────────────
 // P2-32 behavioral: disabled link ignores hover styling
 // ───────────────────────────────────────────────────────────────────────
 
@@ -549,7 +653,9 @@ fn p2_32_disabled_link_ignores_hover_style() {
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
 
-    let mut link = Link::new("hello").with_url("https://example.com").with_disabled(true);
+    let mut link = Link::new("hello")
+        .with_url("https://example.com")
+        .with_disabled(true);
     link.set_hovered(true);
 
     let console = Console::new();
