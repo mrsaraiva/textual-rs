@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use crate::style::{
     Align, BorderEdge, BorderType, BoxSizing, Constrain, ContentAlign, Display, Dock, Hatch,
-    HorizontalAlign, Keyline, KeylineType, Layout, Margin, Offset, Overflow, OverlayMode, Pointer,
-    Position, PropertyTransition, Scalar, ScrollbarGutter, ScrollbarVisibility, Split, Style,
-    StyleProperty, TextAlign, TextOverflow, TextStyleFlags, TextWrap, Tint, TransitionTiming,
-    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
-    resolve_text_style_token_flags,
+    HorizontalAlign, Keyline, KeylineType, Layout, Margin, Offset, OffsetValue, Overflow,
+    OverlayMode, Pointer, Position, PropertyTransition, Scalar, ScrollbarGutter,
+    ScrollbarVisibility, Split, Style, StyleProperty, TextAlign, TextOverflow, TextStyleFlags,
+    TextWrap, Tint, TransitionTiming, VerticalAlign, Visibility, parse_auto_color_like,
+    parse_color_like, resolve_text_style_token_flags,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -645,6 +645,220 @@ fn importance_properties_for_key(key: &str) -> &'static [StyleProperty] {
     }
 }
 
+/// Reset any `Option<T>` CSS property to `None` (the `initial` keyword).
+/// Returns `true` if the property was recognized and reset.
+fn apply_initial(style: &mut Style, key: &str, is_important: bool) -> bool {
+    macro_rules! reset {
+        ($field:ident, $prop:expr) => {{
+            style.$field = None;
+            if is_important {
+                style.importance.set($prop);
+            }
+            true
+        }};
+    }
+    macro_rules! reset_border {
+        ($field:ident, $prop:expr) => {{
+            style.$field = BorderEdge::Unset;
+            if is_important {
+                style.importance.set($prop);
+            }
+            true
+        }};
+    }
+    match key {
+        // --- Colors (already handled inline, but included for completeness) ---
+        "fg" | "color" => {
+            style.fg = None;
+            style.fg_auto = None;
+            if is_important {
+                style.importance.set(StyleProperty::Fg);
+            }
+            true
+        }
+        "bg" | "background" => reset!(bg, StyleProperty::Bg),
+        // --- Scalars ---
+        "width" => reset!(width, StyleProperty::Width),
+        "height" => reset!(height, StyleProperty::Height),
+        "min-width" => reset!(min_width, StyleProperty::MinWidth),
+        "max-width" => reset!(max_width, StyleProperty::MaxWidth),
+        "min-height" => reset!(min_height, StyleProperty::MinHeight),
+        "max-height" => reset!(max_height, StyleProperty::MaxHeight),
+        // --- Spacing ---
+        "padding" => reset!(padding, StyleProperty::Padding),
+        "margin" => reset!(margin, StyleProperty::Margin),
+        "padding-top" => reset!(padding_top, StyleProperty::PaddingTop),
+        "padding-right" => reset!(padding_right, StyleProperty::PaddingRight),
+        "padding-bottom" => reset!(padding_bottom, StyleProperty::PaddingBottom),
+        "padding-left" => reset!(padding_left, StyleProperty::PaddingLeft),
+        "margin-top" => reset!(margin_top, StyleProperty::MarginTop),
+        "margin-right" => reset!(margin_right, StyleProperty::MarginRight),
+        "margin-bottom" => reset!(margin_bottom, StyleProperty::MarginBottom),
+        "margin-left" => reset!(margin_left, StyleProperty::MarginLeft),
+        // --- Layout / display ---
+        "layout" => reset!(layout, StyleProperty::Layout),
+        "display" => reset!(display, StyleProperty::Display),
+        "visibility" => reset!(visibility, StyleProperty::Visibility),
+        "overflow" => {
+            style.overflow = None;
+            style.overflow_x = None;
+            style.overflow_y = None;
+            if is_important {
+                style.importance.set(StyleProperty::Overflow);
+                style.importance.set(StyleProperty::OverflowX);
+                style.importance.set(StyleProperty::OverflowY);
+            }
+            true
+        }
+        "overflow-x" => reset!(overflow_x, StyleProperty::OverflowX),
+        "overflow-y" => reset!(overflow_y, StyleProperty::OverflowY),
+        "dock" => reset!(dock, StyleProperty::Dock),
+        "position" => reset!(position, StyleProperty::Position),
+        "box-sizing" => reset!(box_sizing, StyleProperty::BoxSizing),
+        "split" => reset!(split, StyleProperty::Split),
+        // --- Alignment / offset ---
+        "text-align" => reset!(text_align, StyleProperty::TextAlign),
+        "content-align" => reset!(content_align, StyleProperty::ContentAlign),
+        "align" => reset!(align, StyleProperty::Align),
+        "offset" => reset!(offset, StyleProperty::Offset),
+        "pointer" => reset!(pointer, StyleProperty::Pointer),
+        // --- Constrain ---
+        "constrain" => {
+            style.constrain = None;
+            style.constrain_x = None;
+            style.constrain_y = None;
+            if is_important {
+                style.importance.set(StyleProperty::Constrain);
+                style.importance.set(StyleProperty::ConstrainX);
+                style.importance.set(StyleProperty::ConstrainY);
+            }
+            true
+        }
+        "constrain-x" => reset!(constrain_x, StyleProperty::ConstrainX),
+        "constrain-y" => reset!(constrain_y, StyleProperty::ConstrainY),
+        // --- Text style flags ---
+        "bold" => reset!(bold, StyleProperty::Bold),
+        "dim" => reset!(dim, StyleProperty::Dim),
+        "italic" => reset!(italic, StyleProperty::Italic),
+        "underline" => reset!(underline, StyleProperty::Underline),
+        "reverse" => reset!(reverse, StyleProperty::Reverse),
+        "strike" | "strikethrough" => reset!(strike, StyleProperty::Strike),
+        "text-opacity" => reset!(text_opacity, StyleProperty::TextOpacity),
+        "opacity" => reset!(opacity, StyleProperty::Opacity),
+        // --- Tint ---
+        "tint" => reset!(tint, StyleProperty::Tint),
+        "background-tint" => reset!(background_tint, StyleProperty::BackgroundTint),
+        // --- Border title/subtitle ---
+        "border-title-align" => reset!(border_title_align, StyleProperty::BorderTitleAlign),
+        "border-subtitle-align" => {
+            reset!(border_subtitle_align, StyleProperty::BorderSubtitleAlign)
+        }
+        "border-title-color" => reset!(border_title_color, StyleProperty::BorderTitleColor),
+        "border-title-background" => {
+            reset!(border_title_background, StyleProperty::BorderTitleBackground)
+        }
+        "border-title-style" => reset!(border_title_style, StyleProperty::BorderTitleStyle),
+        "border-subtitle-color" => {
+            reset!(border_subtitle_color, StyleProperty::BorderSubtitleColor)
+        }
+        "border-subtitle-background" => {
+            reset!(
+                border_subtitle_background,
+                StyleProperty::BorderSubtitleBackground
+            )
+        }
+        "border-subtitle-style" => {
+            reset!(border_subtitle_style, StyleProperty::BorderSubtitleStyle)
+        }
+        // --- Border edges ---
+        "border-top" => reset_border!(border_top, StyleProperty::BorderTop),
+        "border-right" => reset_border!(border_right, StyleProperty::BorderRight),
+        "border-bottom" => reset_border!(border_bottom, StyleProperty::BorderBottom),
+        "border-left" => reset_border!(border_left, StyleProperty::BorderLeft),
+        // --- Outline edges ---
+        "outline-top" => reset_border!(outline_top, StyleProperty::OutlineTop),
+        "outline-right" => reset_border!(outline_right, StyleProperty::OutlineRight),
+        "outline-bottom" => reset_border!(outline_bottom, StyleProperty::OutlineBottom),
+        "outline-left" => reset_border!(outline_left, StyleProperty::OutlineLeft),
+        // --- Scrollbar ---
+        "scrollbar-color" => reset!(scrollbar_color, StyleProperty::ScrollbarColor),
+        "scrollbar-color-hover" => {
+            reset!(scrollbar_color_hover, StyleProperty::ScrollbarColorHover)
+        }
+        "scrollbar-color-active" => {
+            reset!(scrollbar_color_active, StyleProperty::ScrollbarColorActive)
+        }
+        "scrollbar-background" => {
+            reset!(scrollbar_background, StyleProperty::ScrollbarBackground)
+        }
+        "scrollbar-background-hover" => {
+            reset!(
+                scrollbar_background_hover,
+                StyleProperty::ScrollbarBackgroundHover
+            )
+        }
+        "scrollbar-background-active" => {
+            reset!(
+                scrollbar_background_active,
+                StyleProperty::ScrollbarBackgroundActive
+            )
+        }
+        "scrollbar-corner-color" => {
+            reset!(scrollbar_corner_color, StyleProperty::ScrollbarCornerColor)
+        }
+        "scrollbar-gutter" => reset!(scrollbar_gutter, StyleProperty::ScrollbarGutter),
+        "scrollbar-size" => reset!(scrollbar_size, StyleProperty::ScrollbarSize),
+        "scrollbar-size-horizontal" => {
+            reset!(
+                scrollbar_size_horizontal,
+                StyleProperty::ScrollbarSizeHorizontal
+            )
+        }
+        "scrollbar-size-vertical" => {
+            reset!(scrollbar_size_vertical, StyleProperty::ScrollbarSizeVertical)
+        }
+        "scrollbar-visibility" => {
+            reset!(scrollbar_visibility, StyleProperty::ScrollbarVisibility)
+        }
+        // --- Text wrap / overflow ---
+        "text-wrap" => reset!(text_wrap, StyleProperty::TextWrapProp),
+        "text-overflow" => reset!(text_overflow, StyleProperty::TextOverflowProp),
+        // --- Link styling ---
+        "link-color" => reset!(link_color, StyleProperty::LinkColor),
+        "link-background" => reset!(link_background, StyleProperty::LinkBackground),
+        "link-style" => reset!(link_style, StyleProperty::LinkStyleProp),
+        "link-color-hover" => reset!(link_color_hover, StyleProperty::LinkColorHover),
+        "link-background-hover" => {
+            reset!(link_background_hover, StyleProperty::LinkBackgroundHover)
+        }
+        "link-style-hover" => reset!(link_style_hover, StyleProperty::LinkStyleHover),
+        // --- Grid ---
+        "grid-size-columns" => reset!(grid_size_columns, StyleProperty::GridSizeColumns),
+        "grid-size-rows" => reset!(grid_size_rows, StyleProperty::GridSizeRows),
+        "grid-columns" => reset!(grid_columns, StyleProperty::GridColumns),
+        "grid-rows" => reset!(grid_rows, StyleProperty::GridRows),
+        "grid-gutter-horizontal" => {
+            reset!(grid_gutter_horizontal, StyleProperty::GridGutterHorizontal)
+        }
+        "grid-gutter-vertical" => {
+            reset!(grid_gutter_vertical, StyleProperty::GridGutterVertical)
+        }
+        // --- Grid child placement ---
+        "row-span" => reset!(row_span, StyleProperty::RowSpan),
+        "column-span" => reset!(column_span, StyleProperty::ColumnSpan),
+        // --- Advanced ---
+        "hatch" => reset!(hatch, StyleProperty::HatchProp),
+        "overlay" => reset!(overlay, StyleProperty::OverlayProp),
+        "keyline" => reset!(keyline, StyleProperty::KeylineProp),
+        "expand" => reset!(expand, StyleProperty::ExpandProp),
+        "layer" => reset!(layer, StyleProperty::Layer),
+        "layers" => reset!(layers, StyleProperty::Layers),
+        // --- Transitions ---
+        "transitions" | "transition" => reset!(transitions, StyleProperty::TransitionsProp),
+        _ => false,
+    }
+}
+
 pub(super) fn parse_style_body(body: &str) -> Style {
     let mut style = Style::new();
     for decl in body.split(';') {
@@ -656,24 +870,33 @@ pub(super) fn parse_style_body(body: &str) -> Style {
         let key = parts.next().unwrap_or("").trim().to_lowercase();
         let raw_value = parts.next().unwrap_or("").trim();
         let (value, is_important) = strip_important(raw_value);
+        // Universal `initial` keyword support: reset any property to None.
+        if value.eq_ignore_ascii_case("initial")
+            && apply_initial(&mut style, key.as_str(), is_important)
+        {
+            continue;
+        }
         // Track whether this arm handles importance itself (for shorthands
         // like `text-style` and `transition` that set multiple sub-properties).
         let mut handled_importance = false;
         match key.as_str() {
             "fg" | "color" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.fg = None;
-                    style.fg_auto = None;
-                } else if let Some(auto) = parse_auto_color_like(value) {
+                if let Some(auto) = parse_auto_color_like(value) {
                     style = style.fg_auto(auto);
-                } else if let Some(color) = parse_color_like(value) {
+                } else if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style = style.fg(color);
                 }
             }
             "bg" | "background" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.bg = None;
-                } else if let Some(color) = parse_color_like(value) {
+                if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style = style.bg(color);
                 }
             }
@@ -722,10 +945,20 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 style.visibility = parse_visibility(value);
             }
             "overflow" => {
-                let v = parse_overflow(value);
-                style.overflow = v;
-                style.overflow_x = v;
-                style.overflow_y = v;
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                match tokens.len() {
+                    1 => {
+                        let v = parse_overflow(tokens[0]);
+                        style.overflow = v;
+                        style.overflow_x = v;
+                        style.overflow_y = v;
+                    }
+                    2 => {
+                        style.overflow_x = parse_overflow(tokens[0]);
+                        style.overflow_y = parse_overflow(tokens[1]);
+                    }
+                    _ => {}
+                }
             }
             "overflow-x" => {
                 style.overflow_x = parse_overflow(value);
@@ -759,6 +992,14 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "underline" => {
                 if let Some(val) = parse_bool(value) {
                     style = style.underline(val);
+                }
+            }
+            "strike" | "strikethrough" => {
+                if let Some(val) = parse_bool(value) {
+                    style.strike = Some(val);
+                    if is_important {
+                        style.importance.set(StyleProperty::Strike);
+                    }
                 }
             }
             "tint" => {
@@ -1072,24 +1313,38 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             "offset-x" => {
-                if let Ok(x) = value.trim().parse::<i16>() {
-                    let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+                if let Some(x) = parse_offset_value(value.trim()) {
+                    let existing = style.offset.unwrap_or_default();
                     style.offset = Some(Offset { x, y: existing.y });
                 }
             }
             "offset-y" => {
-                if let Ok(y) = value.trim().parse::<i16>() {
-                    let existing = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+                if let Some(y) = parse_offset_value(value.trim()) {
+                    let existing = style.offset.unwrap_or_default();
                     style.offset = Some(Offset { x: existing.x, y });
                 }
             }
             "constrain" => {
-                style.constrain = match value.trim().to_lowercase().as_str() {
+                let parse_constrain = |t: &str| match t.to_lowercase().as_str() {
                     "none" => Some(Constrain::None),
                     "inside" => Some(Constrain::Inside),
                     "inflect" => Some(Constrain::Inflect),
                     _ => None,
                 };
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                match tokens.len() {
+                    1 => {
+                        let v = parse_constrain(tokens[0]);
+                        style.constrain = v;
+                        style.constrain_x = v;
+                        style.constrain_y = v;
+                    }
+                    2 => {
+                        style.constrain_x = parse_constrain(tokens[0]);
+                        style.constrain_y = parse_constrain(tokens[1]);
+                    }
+                    _ => {}
+                }
             }
             "pointer" => {
                 style.pointer = match value.trim().to_lowercase().as_str() {
@@ -1311,38 +1566,30 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             }
             // P2-32: link styling
             "link-color" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.link_color = None;
-                } else if let Some(color) = parse_color_like(value) {
+                if let Some(color) = parse_color_like(value) {
                     style.link_color = Some(color);
                 }
             }
             "link-background" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.link_background = None;
-                } else if let Some(color) = parse_color_like(value) {
+                if let Some(color) = parse_color_like(value) {
                     style.link_background = Some(color);
                 }
             }
             "link-style" => {
-                style.link_style = parse_text_style_flags(value);
+                style.link_style = parse_link_style_value(value);
             }
             "link-color-hover" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.link_color_hover = None;
-                } else if let Some(color) = parse_color_like(value) {
+                if let Some(color) = parse_color_like(value) {
                     style.link_color_hover = Some(color);
                 }
             }
             "link-background-hover" => {
-                if value.eq_ignore_ascii_case("initial") {
-                    style.link_background_hover = None;
-                } else if let Some(color) = parse_color_like(value) {
+                if let Some(color) = parse_color_like(value) {
                     style.link_background_hover = Some(color);
                 }
             }
             "link-style-hover" => {
-                style.link_style_hover = parse_text_style_flags(value);
+                style.link_style_hover = parse_link_style_value(value);
             }
             // P2-33: grid child placement
             "row-span" => {
@@ -1760,9 +2007,92 @@ fn parse_offset(value: &str) -> Option<Offset> {
     if parts.len() != 2 {
         return None;
     }
-    let x = parts[0].trim().parse::<i16>().ok()?;
-    let y = parts[1].trim().parse::<i16>().ok()?;
+    let x = parse_offset_value(parts[0].trim())?;
+    let y = parse_offset_value(parts[1].trim())?;
     Some(Offset { x, y })
+}
+
+/// Parse a single offset axis value: either `N` (cells) or `N%` (percent).
+fn parse_offset_value(s: &str) -> Option<OffsetValue> {
+    let s = s.trim();
+    if let Some(raw) = s.strip_suffix('%') {
+        raw.parse::<f32>().ok().map(OffsetValue::Percent)
+    } else {
+        s.parse::<i16>().ok().map(OffsetValue::Cells)
+    }
+}
+
+/// Parse `bg`/`fg` color value with optional `N%` alpha suffix.
+/// Handles `$token N%`, `#hex N%`, `colorname N%`, etc.
+fn parse_color_like_with_alpha(value: &str) -> Option<(crate::style::Color, Option<u8>)> {
+    // If value has no spaces, fast-path to parse_color_like (no alpha token possible).
+    if !value.contains(' ') {
+        return parse_color_like(value).map(|c| (c, None));
+    }
+    // Check if the last whitespace-separated token is a percentage (e.g. `$bg 60%`).
+    // If not, try the full value as a color (handles `rgb(210, 210, 210)` etc.).
+    let last_token = value.split_whitespace().last().unwrap_or("");
+    if let Some(raw) = last_token.strip_suffix('%')
+        && let Ok(v) = raw.parse::<u8>()
+    {
+        // Everything except the last token is the color part.
+        let end = value.rfind(last_token).unwrap_or(value.len());
+        let color_part = value[..end].trim();
+        if let Some(color) = parse_color_like(color_part) {
+            return Some((color, Some(v.min(100))));
+        }
+    }
+    // No valid percentage suffix; try the full value as a color.
+    parse_color_like(value).map(|c| (c, None))
+}
+
+/// Parse link-style value with token resolution and `not` negation support.
+fn parse_link_style_value(value: &str) -> Option<TextStyleFlags> {
+    let mut flags = TextStyleFlags::default();
+    let mut any = false;
+    let mut pending_not = false;
+    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+        let token = token.trim().to_ascii_lowercase();
+        if token.is_empty() {
+            continue;
+        }
+        if token == "not" {
+            pending_not = true;
+            continue;
+        }
+        if token == "none" {
+            return Some(TextStyleFlags::default());
+        }
+        if let Some(resolved) = resolve_text_style_token_flags(token.as_str()) {
+            let val = !pending_not;
+            if resolved.bold {
+                flags.bold = val;
+                any = true;
+            }
+            if resolved.dim {
+                flags.dim = val;
+                any = true;
+            }
+            if resolved.italic {
+                flags.italic = val;
+                any = true;
+            }
+            if resolved.underline {
+                flags.underline = val;
+                any = true;
+            }
+            if resolved.reverse {
+                flags.reverse = val;
+                any = true;
+            }
+            if resolved.strike {
+                flags.strike = val;
+                any = true;
+            }
+        }
+        pending_not = false;
+    }
+    if any { Some(flags) } else { None }
 }
 
 fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
@@ -1792,6 +2122,10 @@ fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
             }
             "reverse" => {
                 flags.reverse = true;
+                any = true;
+            }
+            "strike" | "strikethrough" => {
+                flags.strike = true;
                 any = true;
             }
             "none" => {
@@ -1836,6 +2170,9 @@ fn parse_text_style_shorthand_into_style(style: &mut Style, value: &str, is_impo
             if flags.reverse {
                 apply_text_style_flag(style, "reverse", value, is_important);
             }
+            if flags.strike {
+                apply_text_style_flag(style, "strike", value, is_important);
+            }
         }
         pending_not = false;
     }
@@ -1871,6 +2208,12 @@ fn apply_text_style_flag(style: &mut Style, flag: &str, value: bool, is_importan
             style.reverse = Some(value);
             if is_important {
                 style.importance.set(StyleProperty::Reverse);
+            }
+        }
+        "strike" | "strikethrough" => {
+            style.strike = Some(value);
+            if is_important {
+                style.importance.set(StyleProperty::Strike);
             }
         }
         _ => {}
@@ -2417,24 +2760,24 @@ mod tests {
     fn parse_offset_basic() {
         let style = parse_style_body("offset: 1 2;");
         let o = style.offset.expect("offset should be Some");
-        assert_eq!(o.x, 1);
-        assert_eq!(o.y, 2);
+        assert_eq!(o.x, OffsetValue::Cells(1));
+        assert_eq!(o.y, OffsetValue::Cells(2));
     }
 
     #[test]
     fn parse_offset_negative() {
         let style = parse_style_body("offset: -5 3;");
         let o = style.offset.expect("offset should be Some");
-        assert_eq!(o.x, -5);
-        assert_eq!(o.y, 3);
+        assert_eq!(o.x, OffsetValue::Cells(-5));
+        assert_eq!(o.y, OffsetValue::Cells(3));
     }
 
     #[test]
     fn parse_offset_zero() {
         let style = parse_style_body("offset: 0 0;");
         let o = style.offset.expect("offset should be Some");
-        assert_eq!(o.x, 0);
-        assert_eq!(o.y, 0);
+        assert_eq!(o.x, OffsetValue::Cells(0));
+        assert_eq!(o.y, OffsetValue::Cells(0));
     }
 
     #[test]
@@ -2474,8 +2817,8 @@ mod tests {
         assert_eq!(ca.vertical, crate::style::VerticalAlign::Bottom);
         assert_eq!(style.text_align, Some(crate::style::TextAlign::Justify));
         let o = style.offset.expect("offset");
-        assert_eq!(o.x, 3);
-        assert_eq!(o.y, -1);
+        assert_eq!(o.x, OffsetValue::Cells(3));
+        assert_eq!(o.y, OffsetValue::Cells(-1));
     }
 
     #[test]
@@ -2511,16 +2854,16 @@ mod tests {
     fn parse_offset_x_only() {
         let style = parse_style_body("offset-x: 5;");
         let o = style.offset.expect("offset should be Some");
-        assert_eq!(o.x, 5);
-        assert_eq!(o.y, 0);
+        assert_eq!(o.x, OffsetValue::Cells(5));
+        assert_eq!(o.y, OffsetValue::Cells(0));
     }
 
     #[test]
     fn parse_offset_y_only() {
         let style = parse_style_body("offset-y: -3;");
         let o = style.offset.expect("offset should be Some");
-        assert_eq!(o.x, 0);
-        assert_eq!(o.y, -3);
+        assert_eq!(o.x, OffsetValue::Cells(0));
+        assert_eq!(o.y, OffsetValue::Cells(-3));
     }
 
     // ---- constrain parsing tests ----
@@ -2571,6 +2914,232 @@ mod tests {
             sheet.rules[0].style.constrain,
             Some(crate::style::Constrain::Inflect)
         );
+    }
+
+    // ---- PL-8: universal initial keyword tests ----
+
+    #[test]
+    fn parse_initial_min_width() {
+        let style = parse_style_body("min-width: 30; min-width: initial;");
+        assert!(style.min_width.is_none());
+    }
+
+    #[test]
+    fn parse_initial_split() {
+        let style = parse_style_body("split: right;");
+        assert!(style.split.is_some());
+        let style2 = parse_style_body("split: initial;");
+        assert!(style2.split.is_none());
+    }
+
+    #[test]
+    fn parse_initial_visibility() {
+        let style = parse_style_body("visibility: initial;");
+        assert!(style.visibility.is_none());
+    }
+
+    #[test]
+    fn parse_initial_width() {
+        let style = parse_style_body("width: initial;");
+        assert!(style.width.is_none());
+    }
+
+    #[test]
+    fn parse_initial_layout() {
+        let style = parse_style_body("layout: initial;");
+        assert!(style.layout.is_none());
+    }
+
+    #[test]
+    fn parse_initial_overflow() {
+        let style = parse_style_body("overflow: initial;");
+        assert!(style.overflow.is_none());
+        assert!(style.overflow_x.is_none());
+        assert!(style.overflow_y.is_none());
+    }
+
+    // ---- PL-9: two-value overflow tests ----
+
+    #[test]
+    fn parse_overflow_two_values() {
+        let style = parse_style_body("overflow: hidden auto;");
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Hidden));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Auto));
+    }
+
+    #[test]
+    fn parse_overflow_single_value_preserved() {
+        let style = parse_style_body("overflow: scroll;");
+        assert_eq!(style.overflow, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Scroll));
+    }
+
+    #[test]
+    fn parse_overflow_scroll_hidden() {
+        let style = parse_style_body("overflow: scroll hidden;");
+        assert_eq!(style.overflow_x, Some(crate::style::Overflow::Scroll));
+        assert_eq!(style.overflow_y, Some(crate::style::Overflow::Hidden));
+    }
+
+    // ---- PL-10: Markdown :light/:dark defaults tests ----
+
+    #[test]
+    fn parse_markdown_blockquote_light() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse("MarkdownBlockQuote:light { border-left: outer $text-secondary; }");
+        assert_eq!(sheet.rules.len(), 1);
+        assert!(sheet.rules[0].style.border_left.is_set());
+    }
+
+    #[test]
+    fn parse_markdown_fence_dark_defaults() {
+        use super::super::ast::StyleSheet;
+        let css = r#"MarkdownFence { color: rgb(210, 210, 210); background: black 10%; }"#;
+        let sheet = StyleSheet::parse(css);
+        assert_eq!(sheet.rules.len(), 1);
+        let s = &sheet.rules[0].style;
+        assert!(s.fg.is_some());
+        assert!(s.bg.is_some());
+        // black 10% → alpha = 26 (0.10 * 255 = 25.5, rounded)
+        assert_eq!(s.bg.unwrap().a, 26);
+    }
+
+    #[test]
+    fn parse_markdown_bullet_light() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse("MarkdownBullet:light { color: $text-secondary; }");
+        assert_eq!(sheet.rules.len(), 1);
+        assert!(sheet.rules[0].style.fg.is_some());
+    }
+
+    #[test]
+    fn parse_markdown_table_light() {
+        use super::super::ast::StyleSheet;
+        let sheet = StyleSheet::parse("MarkdownTable:light { background: white 30%; }");
+        assert_eq!(sheet.rules.len(), 1);
+        let bg = sheet.rules[0].style.bg.expect("bg should be Some");
+        // white 30% → alpha = 77 (0.30 * 255 = 76.5, rounded)
+        assert_eq!(bg.a, 77);
+    }
+
+    // ---- PL-1: bg/fg alpha parsing tests ----
+
+    #[test]
+    fn parse_bg_with_alpha_token() {
+        let style = parse_style_body("bg: $background 60%;");
+        let bg = style.bg.expect("bg should be Some");
+        // Alpha = 60% → 0.6 * 255 ≈ 153
+        assert_eq!(bg.a, 153);
+    }
+
+    #[test]
+    fn parse_fg_with_alpha_token() {
+        let style = parse_style_body("color: $primary 50%;");
+        let fg = style.fg.expect("fg should be Some");
+        // Alpha = 50% → 0.5 * 255 ≈ 128
+        assert_eq!(fg.a, 128);
+    }
+
+    // ---- PL-2: constrain shorthand two-value tests ----
+
+    #[test]
+    fn parse_constrain_two_values() {
+        let style = parse_style_body("constrain: inside inflect;");
+        assert_eq!(style.constrain_x, Some(crate::style::Constrain::Inside));
+        assert_eq!(style.constrain_y, Some(crate::style::Constrain::Inflect));
+    }
+
+    #[test]
+    fn parse_constrain_single_sets_both_axes() {
+        let style = parse_style_body("constrain: inside;");
+        assert_eq!(style.constrain_x, Some(crate::style::Constrain::Inside));
+        assert_eq!(style.constrain_y, Some(crate::style::Constrain::Inside));
+    }
+
+    // ---- PL-3: percentage offset tests ----
+
+    #[test]
+    fn parse_offset_x_percent() {
+        let style = parse_style_body("offset-x: -50%;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, OffsetValue::Percent(-50.0));
+    }
+
+    #[test]
+    fn parse_offset_y_percent() {
+        let style = parse_style_body("offset-y: 25%;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.y, OffsetValue::Percent(25.0));
+    }
+
+    #[test]
+    fn parse_offset_mixed_cells_percent() {
+        let style = parse_style_body("offset: 5 -50%;");
+        let o = style.offset.expect("offset should be Some");
+        assert_eq!(o.x, OffsetValue::Cells(5));
+        assert_eq!(o.y, OffsetValue::Percent(-50.0));
+    }
+
+    // ---- PL-4: missing theme token tests ----
+
+    #[test]
+    fn resolve_link_background_token() {
+        let c = crate::style::parse_color_like("$link-background");
+        assert!(c.is_some(), "$link-background should resolve");
+        // Should be transparent
+        assert_eq!(c.unwrap().a, 0);
+    }
+
+    #[test]
+    fn resolve_secondary_muted_token() {
+        let c = crate::style::parse_color_like("$secondary-muted");
+        assert!(c.is_some(), "$secondary-muted should resolve");
+    }
+
+    // ---- PL-5+6: link-style token ref and not keyword tests ----
+
+    #[test]
+    fn parse_link_style_token_ref() {
+        let style = parse_style_body("link-style: $link-style;");
+        let ls = style.link_style.expect("link_style should be Some");
+        assert!(ls.underline, "$link-style should set underline");
+    }
+
+    #[test]
+    fn parse_link_style_hover_token_ref() {
+        let style = parse_style_body("link-style-hover: $link-style-hover;");
+        let ls = style.link_style_hover.expect("link_style_hover should be Some");
+        assert!(ls.bold, "$link-style-hover should set bold");
+    }
+
+    #[test]
+    fn parse_link_style_not_keyword() {
+        let style = parse_style_body("link-style-hover: bold not underline;");
+        let ls = style.link_style_hover.expect("link_style_hover should be Some");
+        assert!(ls.bold);
+        assert!(!ls.underline);
+    }
+
+    // ---- PL-7: strike / strikethrough tests ----
+
+    #[test]
+    fn parse_text_style_strike() {
+        let style = parse_style_body("text-style: strike;");
+        assert_eq!(style.strike, Some(true));
+    }
+
+    #[test]
+    fn parse_text_style_not_strike() {
+        let style = parse_style_body("text-style: bold not strike;");
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.strike, Some(false));
+    }
+
+    #[test]
+    fn parse_strike_property() {
+        let style = parse_style_body("strike: true;");
+        assert_eq!(style.strike, Some(true));
     }
 
     #[test]

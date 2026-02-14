@@ -305,6 +305,7 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         m.insert("footer-description-foreground", foreground);
         m.insert("footer-description-background", Color::rgba(0, 0, 0, 0));
         m.insert("footer-item-background", Color::rgba(0, 0, 0, 0));
+        m.insert("link-background", Color::rgba(0, 0, 0, 0)); // Python: "initial" (transparent)
         m.insert("link-background-hover", primary);
         m.insert("link-color", contrast.with_alpha(0.87));
         m.insert("link-color-hover", contrast.with_alpha(0.87));
@@ -713,10 +714,23 @@ pub struct Align {
     pub vertical: VerticalAlign,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A single offset axis value: either absolute cells or a percentage of the widget's own size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OffsetValue {
+    Cells(i16),
+    Percent(f32),
+}
+
+impl Default for OffsetValue {
+    fn default() -> Self {
+        OffsetValue::Cells(0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Offset {
-    pub x: i16,
-    pub y: i16,
+    pub x: OffsetValue,
+    pub y: OffsetValue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -812,6 +826,7 @@ pub struct TextStyleFlags {
     pub italic: bool,
     pub underline: bool,
     pub reverse: bool,
+    pub strike: bool,
 }
 
 pub(crate) fn resolve_text_style_token_flags(token: &str) -> Option<TextStyleFlags> {
@@ -823,6 +838,9 @@ pub(crate) fn resolve_text_style_token_flags(token: &str) -> Option<TextStyleFla
         "italic" => flags.italic = true,
         "underline" => flags.underline = true,
         "reverse" => flags.reverse = true,
+        "strike" | "strikethrough" => flags.strike = true,
+        "$link-style" => flags.underline = true,
+        "$link-style-hover" => flags.bold = true,
         "$button-focus-text-style" => {
             flags.bold = true;
             flags.reverse = true;
@@ -1043,6 +1061,7 @@ pub enum StyleProperty {
     ConstrainY = 97,
     ExpandProp = 98,
     TransitionsProp = 99,
+    Strike = 100,
 }
 
 /// Bitset tracking which [`Style`] properties carry `!important`.
@@ -1092,6 +1111,7 @@ pub struct Style {
     pub italic: Option<bool>,
     pub underline: Option<bool>,
     pub reverse: Option<bool>,
+    pub strike: Option<bool>,
 
     // --- Border ---
     pub border: Option<bool>,
@@ -1395,6 +1415,11 @@ impl Style {
         self
     }
 
+    pub fn strike(mut self, value: bool) -> Self {
+        self.strike = Some(value);
+        self
+    }
+
     // --- Border builders ---
 
     pub fn border(mut self, value: bool) -> Self {
@@ -1582,6 +1607,7 @@ impl Style {
             italic: cascade_field!(self, other, imp, italic, StyleProperty::Italic),
             underline: cascade_field!(self, other, imp, underline, StyleProperty::Underline),
             reverse: cascade_field!(self, other, imp, reverse, StyleProperty::Reverse),
+            strike: cascade_field!(self, other, imp, strike, StyleProperty::Strike),
             border: cascade_field!(self, other, imp, border, StyleProperty::Border),
             border_top: cascade_border_field!(
                 self,
@@ -1999,6 +2025,7 @@ impl Style {
             italic: self.italic.or(parent.italic),
             underline: self.underline.or(parent.underline),
             reverse: self.reverse.or(parent.reverse),
+            strike: self.strike.or(parent.strike),
             // border edges are NOT inherited.
             border: self.border.or(parent.border),
             border_top: self.border_top,
@@ -2122,6 +2149,7 @@ impl Style {
             || self.italic.is_some()
             || self.underline.is_some()
             || self.reverse.is_some()
+            || self.strike.is_some()
     }
 
     pub fn to_rich(&self) -> Option<rich_rs::Style> {
@@ -2150,6 +2178,9 @@ impl Style {
         if let Some(reverse) = self.reverse {
             style.reverse = Some(reverse);
         }
+        if let Some(strike) = self.strike {
+            style = style.with_strike(strike);
+        }
         Some(style)
     }
 
@@ -2159,6 +2190,7 @@ impl Style {
             && self.italic.is_none()
             && self.underline.is_none()
             && self.reverse.is_none()
+            && self.strike.is_none()
         {
             return None;
         }
@@ -2178,6 +2210,9 @@ impl Style {
         if let Some(reverse) = self.reverse {
             style.reverse = Some(reverse);
         }
+        if let Some(strike) = self.strike {
+            style = style.with_strike(strike);
+        }
         Some(style)
     }
 
@@ -2192,6 +2227,7 @@ impl Style {
             && self.italic.is_none()
             && self.underline.is_none()
             && self.reverse.is_none()
+            && self.strike.is_none()
             && self.border.is_none()
             && self.border_top == BorderEdge::Unset
             && self.border_right == BorderEdge::Unset

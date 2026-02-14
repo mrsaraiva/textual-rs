@@ -1,61 +1,141 @@
 // Tabs and TabbedContent widget defaults
+// DC-31: aligned with Python Textual _tabs.py and _tabbed_content.py DEFAULT_CSS
 
 pub(super) const DEFAULT_CSS: &str = r#"
-Tabs {
-    bg: $surface;
-    fg: $foreground;
+Underline {
+    width: 1fr;
+    height: 1;
+
+    & > .underline--bar {
+        color: $block-cursor-background;
+        bg: $foreground 10%;
+    }
+
+    &:ansi {
+        text-style: dim;
+    }
 }
 
-Tabs > .tabs--bar { bg: $panel; fg: $foreground; }
-Tabs > .tabs--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
-Tabs > .tabs--tab.-hover { bg: $panel; fg: $foreground; }
-Tabs > .tabs--tab.-active { bg: $panel; fg: $foreground; }
-Tabs > .tabs--tab.-active.-focus {
-    bg: $block-cursor-background;
-    fg: $block-cursor-foreground;
-    text-style: $button-focus-text-style;
+Tab {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    text-align: center;
+    color: $foreground 50%;
+    pointer: pointer;
+
+    &:hover {
+        color: $foreground;
+    }
+
+    &:disabled {
+        color: $foreground 25%;
+    }
+
+    &.-active {
+        color: $foreground;
+    }
+
+    &.-hidden {
+        display: none;
+    }
 }
-Tabs > .tabs--underline { bg: $panel-darken-1; fg: $foreground; text-style: dim; }
-Tabs > .tabs--underline.-focus { bg: $surface-lighten-1; fg: $foreground; text-style: dim; }
-Tabs > .tabs--underline.-active {
-    bg: $panel-darken-1;
-    fg: $primary;
-    transition: tabs.underline 300ms ease-in-out;
+
+Tabs {
+    width: 100%;
+    height: 2;
+
+    & > #tabs-scroll {
+        overflow: hidden;
+    }
+
+    #tabs-list {
+        width: auto;
+    }
+
+    #tabs-list-bar, #tabs-list {
+        width: auto;
+        height: auto;
+        min-width: 100%;
+        overflow: hidden hidden;
+    }
+
+    &:focus {
+        & .underline--bar {
+            bg: $foreground 30%;
+        }
+
+        & .-active {
+            text-style: $block-cursor-text-style;
+            color: $block-cursor-foreground;
+            bg: $block-cursor-background;
+        }
+    }
+
+    &:ansi {
+        #tabs-list {
+            text-style: dim;
+        }
+
+        & #tabs-list > .-active {
+            text-style: not dim;
+        }
+
+        &:focus {
+            #tabs-list > .-active {
+                text-style: bold not dim;
+            }
+        }
+
+        & .underline--bar {
+            color: ansi_bright_blue;
+            bg: ansi_default;
+        }
+
+        & .-active {
+            color: transparent;
+            bg: transparent;
+        }
+    }
+
+    & > .tabs--tab.-active.-focus {
+        text-style: $block-cursor-text-style;
+        color: $block-cursor-foreground;
+        bg: $block-cursor-background;
+    }
+
+    & > .tabs--underline.-focus {
+        bg: $surface-lighten-1;
+    }
+
+    & > .tabs--underline.-active.-focus {
+        bg: $surface-lighten-1;
+    }
 }
-Tabs > .tabs--underline.-active.-focus {
-    bg: $surface-lighten-1;
-    fg: $primary;
-    transition: tabs.underline 300ms ease-in-out;
+
+TabPane {
+    height: auto;
 }
 
 TabbedContent {
-    bg: $surface;
-    fg: $foreground;
-}
+    height: auto;
 
-TabbedContent > .tabbed-content--bar { bg: $panel; fg: $foreground; }
-TabbedContent > .tabbed-content--tab { bg: $panel; fg: $text-disabled; text-style: bold; }
-TabbedContent > .tabbed-content--tab.-hover { bg: $panel; fg: $foreground; }
-TabbedContent > .tabbed-content--tab.-active { bg: $panel; fg: $foreground; }
-TabbedContent > .tabbed-content--tab.-active.-focus {
-    bg: $block-cursor-background;
-    fg: $block-cursor-foreground;
-    text-style: $button-focus-text-style;
-}
-TabbedContent > .tabbed-content--underline { bg: $panel-darken-1; fg: $foreground; text-style: dim; }
-TabbedContent > .tabbed-content--underline.-focus {
-    bg: $surface-lighten-1;
-    fg: $foreground;
-    text-style: dim;
-}
-TabbedContent > .tabbed-content--underline.-active {
-    bg: $panel-darken-1;
-    fg: $primary;
-    transition: tabbed-content.underline 300ms ease-in-out;
-}
-TabbedContent > .tabbed-content--underline.-active.-focus {
-    bg: $surface-lighten-1;
-    fg: $primary;
-    transition: tabbed-content.underline 300ms ease-in-out;
+    & > ContentTabs {
+        dock: top;
+    }
+
+    & > .tabbed-content--tab.-active.-focus {
+        text-style: $block-cursor-text-style;
+        color: $block-cursor-foreground;
+        bg: $block-cursor-background;
+    }
+
+    & > .tabbed-content--underline.-focus {
+        bg: $surface-lighten-1;
+    }
+
+    & > .tabbed-content--underline.-active.-focus {
+        bg: $surface-lighten-1;
+    }
 }
 "#;

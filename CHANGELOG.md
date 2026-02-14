@@ -7,6 +7,17 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-16
+- **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
+  - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
+  - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.
+  - Parser: comprehensive `initial` keyword support (resets any CSS property to `None`), `offset-x`/`offset-y` with percentage values (`offset-x: -50%`), `strike`/`strikethrough` text-style flag, `link-style`/`link-style-hover` token resolution, `$link-style`/`$link-style-hover` text-style tokens.
+  - Style struct: added `strike` field with cascade/inherit/`to_rich()` support, `OffsetValue::Percent` variant for percentage offsets, `$link-background` theme token.
+  - Layout: percentage-based offset resolution in `layout_absolute()`.
+  - AST: widened `pub(crate)` visibility to `pub` on `StyleSelector`, `SelectorChain`, `Combinator`, `StyleRule` accessors for test introspection.
+  - Added 3 new integration test files: `dc_core_defaults.rs` (509 lines), `dc_interactive_defaults.rs` (316 lines), `dc_misc_defaults.rs` (899 lines) — covering parse-and-verify for all DC-* default files.
+  - Updated existing tests (`p2_layout_css`, `p2_render_css`, `tabs`, `tabbed_content`) for overflow-axis and padding-axis changes.
+
 ### 2026-02-13
 - **feat(css): rewrite CSS parser to support nested rules and `&` selector**
   - Rewrote `StyleSheet::parse()` with brace-balanced block parsing, replacing the flat `find('{')/find('}')` approach.

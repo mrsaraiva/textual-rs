@@ -117,7 +117,7 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
                 .to_simple_opaque()
         )
     );
-    assert_eq!(active_tab_style.reverse, Some(true));
+    assert_eq!(active_tab_style.bold, Some(true));
 
     let active_underline_style = buf.get(1, 1).style.expect("active underline style");
     let inactive_underline_style = buf.get(12, 1).style.expect("inactive underline style");

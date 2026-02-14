@@ -10,7 +10,7 @@
 
 use crate::node_id::NodeId;
 use crate::style::{
-    BoxSizing, Dock, Layout, Offset, Position, Scalar, Spacing, Split, Style, resolve_scalar,
+    BoxSizing, Dock, Layout, OffsetValue, Position, Scalar, Spacing, Split, Style, resolve_scalar,
 };
 use crate::widget_tree::{Rect, WidgetTree};
 
@@ -1410,18 +1410,30 @@ fn layout_absolute(
         };
 
         // Position: at parent origin + margin + offset.
-        let offset = style.offset.unwrap_or(Offset { x: 0, y: 0 });
+        let offset = style.offset.unwrap_or_default();
         let base_x = available.x.saturating_add(margin.left);
         let base_y = available.y.saturating_add(margin.top);
-        let layout_x = if offset.x >= 0 {
-            base_x.saturating_add(offset.x as u16)
-        } else {
-            base_x.saturating_sub(offset.x.unsigned_abs())
+        let layout_x = {
+            let dx = match offset.x {
+                OffsetValue::Cells(c) => c as i32,
+                OffsetValue::Percent(p) => (layout_w as f32 * p / 100.0).round() as i32,
+            };
+            if dx >= 0 {
+                base_x.saturating_add(dx as u16)
+            } else {
+                base_x.saturating_sub(dx.unsigned_abs() as u16)
+            }
         };
-        let layout_y = if offset.y >= 0 {
-            base_y.saturating_add(offset.y as u16)
-        } else {
-            base_y.saturating_sub(offset.y.unsigned_abs())
+        let layout_y = {
+            let dy = match offset.y {
+                OffsetValue::Cells(c) => c as i32,
+                OffsetValue::Percent(p) => (layout_h as f32 * p / 100.0).round() as i32,
+            };
+            if dy >= 0 {
+                base_y.saturating_add(dy as u16)
+            } else {
+                base_y.saturating_sub(dy.unsigned_abs() as u16)
+            }
         };
 
         let content_x = layout_x.saturating_add(bl + padding.left);

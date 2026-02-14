@@ -2,13 +2,38 @@
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Collapsible {
-    border-top: hkey $border-blurred;
-    padding: 0 0 1 1;
+    width: 1fr;
+    height: auto;
+    bg: $surface;
+    border-top: hkey $background;
+    padding-bottom: 1;
+    padding-left: 1;
+
+    &:focus-within {
+        background-tint: $foreground 5%;
+    }
+
+    &.-collapsed > Contents {
+        display: none;
+    }
 }
 
-Collapsible:focus { border-top: hkey $border; }
+CollapsibleTitle {
+    width: auto;
+    height: auto;
+    padding: 0 1;
+    text-style: $block-cursor-blurred-text-style;
+    color: $block-cursor-blurred-foreground;
+    pointer: pointer;
 
-Collapsible > .collapsible--title { fg: $foreground; text-style: bold; }
-
-Collapsible.-collapsed > Contents { display: none; }
+    &:hover {
+        bg: $block-hover-background;
+        color: $foreground;
+    }
+    &:focus {
+        text-style: $block-cursor-text-style;
+        bg: $block-cursor-background;
+        color: $block-cursor-foreground;
+    }
+}
 "#;

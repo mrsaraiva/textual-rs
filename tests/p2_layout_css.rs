@@ -11,7 +11,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::layout::{Region, inspect_node_rects, resolve_layout};
 use textual::node_id::NodeId;
 use textual::style::{
-    BoxSizing, Color, Dock, Layout, Offset, Position, Scalar, Spacing, Split, Style,
+    BoxSizing, Color, Dock, Layout, Offset, OffsetValue, Position, Scalar, Spacing, Split, Style,
 };
 use textual::widget_tree::WidgetTree;
 use textual::widgets::Widget;
@@ -115,7 +115,7 @@ fn p2g24_absolute_with_offset() {
                 .height(Scalar::Cells(10))
                 .width(Scalar::Cells(20));
             s.position = Some(Position::Absolute);
-            s.offset = Some(Offset { x: 5, y: 3 });
+            s.offset = Some(Offset { x: OffsetValue::Cells(5), y: OffsetValue::Cells(3) });
             s
         }),
     );

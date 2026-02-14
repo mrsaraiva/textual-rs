@@ -52,31 +52,31 @@ impl StyleSelector {
         self
     }
 
-    pub(crate) fn type_name(&self) -> Option<&str> {
+    pub fn type_name(&self) -> Option<&str> {
         self.type_name.as_deref()
     }
 
-    pub(crate) fn id_name(&self) -> Option<&str> {
+    pub fn id_name(&self) -> Option<&str> {
         self.id.as_deref()
     }
 
-    pub(crate) fn classes(&self) -> &[String] {
+    pub fn classes(&self) -> &[String] {
         &self.classes
     }
 
-    pub(crate) fn pseudos(&self) -> &[PseudoClass] {
+    pub fn pseudos(&self) -> &[PseudoClass] {
         &self.pseudos
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Combinator {
+pub enum Combinator {
     Descendant,
     Child,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SelectorChain {
+pub struct SelectorChain {
     pub(crate) parts: Vec<StyleSelector>,
     pub(crate) combinators: Vec<Combinator>,
 }
@@ -129,7 +129,7 @@ impl StyleSheet {
 }
 
 impl StyleRule {
-    pub(crate) fn selector_chain(&self) -> &SelectorChain {
+    pub fn selector_chain(&self) -> &SelectorChain {
         &self.selector_chain
     }
 
@@ -139,11 +139,11 @@ impl StyleRule {
 }
 
 impl SelectorChain {
-    pub(crate) fn parts(&self) -> &[StyleSelector] {
+    pub fn parts(&self) -> &[StyleSelector] {
         &self.parts
     }
 
-    pub(crate) fn combinators(&self) -> &[Combinator] {
+    pub fn combinators(&self) -> &[Combinator] {
         &self.combinators
     }
 }

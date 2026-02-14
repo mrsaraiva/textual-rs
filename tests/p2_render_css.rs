@@ -174,6 +174,7 @@ fn p2g29_border_title_style_flags() {
         dim: false,
         underline: false,
         reverse: false,
+        strike: false,
     };
     let mut style = textual::style::Style::new();
     style.border_title_style = Some(flags);

@@ -3,12 +3,33 @@
 pub(super) const DEFAULT_CSS: &str = r#"
 ListView {
     bg: $surface;
-    fg: $foreground;
 }
 
-ListView > .list-view--item { fg: $foreground; }
-ListView > .list-view--item.-hover { bg: $block-hover-background; }
-ListView > .list-view--item.-highlighted { bg: $primary-muted; fg: $text; text-style: bold; }
-ListView > .list-view--item.-highlighted.-focus { bg: $primary; fg: $text; text-style: bold; }
-ListView > .list-view--item.-disabled { color: $text-disabled; }
+ListView > ListItem {
+    fg: $foreground;
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    width: 1fr;
+}
+
+ListView > ListItem.-hovered {
+    bg: $block-hover-background;
+}
+
+ListView > ListItem.-highlight {
+    fg: $block-cursor-blurred-foreground;
+    bg: $block-cursor-blurred-background;
+    text-style: $block-cursor-blurred-text-style;
+}
+
+ListView:focus {
+    background-tint: $foreground 5%;
+}
+
+ListView:focus > ListItem.-highlight {
+    fg: $block-cursor-foreground;
+    bg: $block-cursor-background;
+    text-style: $block-cursor-text-style;
+}
 "#;

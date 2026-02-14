@@ -1,10 +1,24 @@
 // Container/layout widget defaults (layout direction, sizing, overflow).
 //
-// These entries match the Python Textual defaults for Horizontal, Vertical,
+// These entries match the Python Textual defaults for Container, Horizontal, Vertical,
 // HorizontalGroup, VerticalGroup, HorizontalScroll, VerticalScroll,
-// ScrollableContainer, Center, CenterMiddle, Middle, and Right.
+// ScrollableContainer, Center, CenterMiddle, Middle, Right, Grid, and ItemGrid.
 
 pub(super) const DEFAULT_CSS: &str = r#"
+Container {
+    width: 1fr;
+    height: 1fr;
+    layout: vertical;
+    overflow: hidden;
+}
+
+ScrollableContainer {
+    width: 1fr;
+    height: 1fr;
+    layout: vertical;
+    overflow: auto;
+}
+
 Horizontal {
     width: 1fr;
     height: 1fr;
@@ -45,21 +59,15 @@ VerticalScroll {
     overflow-y: auto;
 }
 
-ScrollableContainer {
-    layout: vertical;
-    overflow-y: auto;
-    overflow-x: auto;
-}
-
 Center {
-    align: center top;
+    align-horizontal: center;
     width: 1fr;
-    height: 1fr;
+    height: auto;
 }
 
 Middle {
-    align: left middle;
-    width: 1fr;
+    align-vertical: middle;
+    width: auto;
     height: 1fr;
 }
 
@@ -70,15 +78,21 @@ CenterMiddle {
 }
 
 Right {
-    align: right top;
+    align-horizontal: right;
     width: 1fr;
-    height: 1fr;
+    height: auto;
 }
 
-Container {
+Grid {
     width: 1fr;
     height: 1fr;
-    layout: vertical;
+    layout: grid;
+}
+
+ItemGrid {
+    width: 1fr;
+    height: auto;
+    layout: grid;
 }
 
 Row {

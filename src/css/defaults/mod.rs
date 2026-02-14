@@ -134,17 +134,18 @@ mod tests {
     }
 
     #[test]
-    fn screen_has_overflow_auto() {
+    fn screen_has_overflow_y_auto() {
         let sheet = StyleSheet::parse(base::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Screen");
-        assert_eq!(style.overflow, Some(Overflow::Auto));
+        assert_eq!(style.overflow_y, Some(Overflow::Auto));
     }
 
     #[test]
-    fn scrollview_has_overflow_auto() {
+    fn scrollview_has_overflow_y_and_x_auto() {
         let sheet = StyleSheet::parse(base::DEFAULT_CSS);
         let style = find_type_style(&sheet, "ScrollView");
-        assert_eq!(style.overflow, Some(Overflow::Auto));
+        assert_eq!(style.overflow_y, Some(Overflow::Auto));
+        assert_eq!(style.overflow_x, Some(Overflow::Auto));
     }
 
     // ---- button.rs: content-align + text-align now parsed ----
@@ -178,11 +179,11 @@ mod tests {
     // ---- collapsible.rs: padding shorthand fix ----
 
     #[test]
-    fn collapsible_has_padding_shorthand() {
+    fn collapsible_has_padding_bottom_and_left() {
         let sheet = StyleSheet::parse(collapsible::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Collapsible");
-        let p = style.padding.expect("Collapsible should have padding");
-        assert_eq!(p, Spacing::new(0, 0, 1, 1));
+        assert_eq!(style.padding_bottom, Some(1));
+        assert_eq!(style.padding_left, Some(1));
     }
 
     #[test]
@@ -310,10 +311,10 @@ mod tests {
     }
 
     #[test]
-    fn richlog_has_overflow_scroll() {
+    fn richlog_has_overflow_y_scroll() {
         let sheet = StyleSheet::parse(misc::DEFAULT_CSS);
         let style = find_type_style(&sheet, "RichLog");
-        assert_eq!(style.overflow, Some(Overflow::Scroll));
+        assert_eq!(style.overflow_y, Some(Overflow::Scroll));
     }
 
     #[test]
@@ -413,10 +414,10 @@ mod tests {
     }
 
     #[test]
-    fn option_list_has_overflow_hidden() {
+    fn option_list_has_overflow_x_hidden() {
         let sheet = StyleSheet::parse(select::DEFAULT_CSS);
         let style = find_type_style(&sheet, "OptionList");
-        assert_eq!(style.overflow, Some(Overflow::Hidden));
+        assert_eq!(style.overflow_x, Some(Overflow::Hidden));
     }
 
     // ---- text_area.rs ----
@@ -433,10 +434,11 @@ mod tests {
     // ---- tooltip.rs ----
 
     #[test]
-    fn tooltip_has_constrain_inside() {
+    fn tooltip_has_constrain_x_inside_y_inflect() {
         let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Tooltip");
-        assert_eq!(style.constrain, Some(Constrain::Inside));
+        assert_eq!(style.constrain_x, Some(Constrain::Inside));
+        assert_eq!(style.constrain_y, Some(Constrain::Inflect));
     }
 
     #[test]

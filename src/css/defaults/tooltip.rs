@@ -1,4 +1,5 @@
 // Tooltip widget defaults
+// DC-26: aligned with Python Textual _tooltip.py DEFAULT_CSS
 
 pub(super) const DEFAULT_CSS: &str = r#"
 Tooltip {
@@ -6,10 +7,10 @@ Tooltip {
     margin: 1 0;
     padding: 1 2;
     bg: $panel;
-    fg: $foreground;
     width: auto;
     height: auto;
+    constrain: inside inflect;
     max-width: 40;
-    constrain: inside;
+    display: none;
 }
 "#;

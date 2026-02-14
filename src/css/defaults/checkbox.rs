@@ -1,14 +1,110 @@
-// Checkbox widget defaults
+// Checkbox / ToggleButton widget defaults
+// DC-35: aligned with Python Textual _toggle_button.py DEFAULT_CSS
 
 pub(super) const DEFAULT_CSS: &str = r#"
-Checkbox {
+ToggleButton {
     width: auto;
-    height: auto;
-    fg: $foreground;
+    border: tall $border-blurred;
+    padding: 0 1;
+    bg: $surface;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    pointer: pointer;
+
+    &.-textual-compact {
+        border: none !important;
+        padding: 0;
+
+        &:focus {
+            border: tall $border;
+            background-tint: $foreground 5%;
+
+            & > .toggle--label {
+                color: $block-cursor-foreground;
+                bg: $block-cursor-background;
+                text-style: $block-cursor-text-style;
+            }
+        }
+    }
+
+    & > .toggle--button {
+        color: $panel-darken-2;
+        bg: $panel;
+    }
+
+    &.-on > .toggle--button {
+        color: $text-success;
+        bg: $panel;
+    }
+
+    &:focus {
+        border: tall $border;
+        background-tint: $foreground 5%;
+
+        & > .toggle--label {
+            color: $block-cursor-foreground;
+            bg: $block-cursor-background;
+            text-style: $block-cursor-text-style;
+        }
+    }
+
+    &:blur:hover {
+        & > .toggle--label {
+            bg: $block-hover-background;
+        }
+    }
 }
 
-Checkbox:focus { background-tint: $foreground 5%; }
-Checkbox:hover { background-tint: $foreground 3%; }
-Checkbox:active { background-tint: $foreground 8%; }
-Checkbox:disabled { dim: true; }
+Checkbox {
+    width: auto;
+    border: tall $border-blurred;
+    padding: 0 1;
+    bg: $surface;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    pointer: pointer;
+
+    &.-textual-compact {
+        border: none !important;
+        padding: 0;
+
+        &:focus {
+            border: tall $border;
+            background-tint: $foreground 5%;
+
+            & > .toggle--label {
+                color: $block-cursor-foreground;
+                bg: $block-cursor-background;
+                text-style: $block-cursor-text-style;
+            }
+        }
+    }
+
+    & > .toggle--button {
+        color: $panel-darken-2;
+        bg: $panel;
+    }
+
+    &.-on > .toggle--button {
+        color: $text-success;
+        bg: $panel;
+    }
+
+    &:focus {
+        border: tall $border;
+        background-tint: $foreground 5%;
+
+        & > .toggle--label {
+            color: $block-cursor-foreground;
+            bg: $block-cursor-background;
+            text-style: $block-cursor-text-style;
+        }
+    }
+
+    &:blur:hover {
+        & > .toggle--label {
+            bg: $block-hover-background;
+        }
+    }
+}
 "#;

@@ -287,7 +287,9 @@ mod tests {
     }
 
     #[test]
-    fn disabled_primary_button_uses_text_and_widget_opacity() {
+    fn disabled_primary_button_uses_text_opacity() {
+        // Python-aligned: disabled buttons dim via text-opacity inside the variant
+        // block (.-style-default:disabled { text-opacity: 60%; }), not widget-level opacity.
         let _guard = super::context::set_style_context(default_widget_stylesheet());
         let enabled = Button::primary("Primary!");
         let disabled = Button::primary("Primary!").disabled(true);
@@ -302,10 +304,9 @@ mod tests {
         assert_eq!(
             disabled_style.fg_auto.map(|value| value.alpha_percent),
             Some(87),
-            "disabled primary keeps auto-foreground alpha and dims via text/widget opacity"
+            "disabled primary keeps auto-foreground alpha and dims via text opacity"
         );
         assert_eq!(disabled_style.text_opacity, Some(60));
-        assert_eq!(disabled_style.opacity, Some(70));
     }
 
     #[test]
