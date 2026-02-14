@@ -331,10 +331,10 @@ impl ListView {
     ) -> Vec<&'static str> {
         let mut classes = vec!["list-view--item"];
         if highlighted {
-            classes.push("-highlighted");
+            classes.push("-highlight");
         }
         if hovered && !highlighted {
-            classes.push("-hover");
+            classes.push("-hovered");
         }
         if highlighted && focused {
             classes.push("-focus");
@@ -653,9 +653,9 @@ mod tests {
     #[test]
     fn highlighted_item_uses_highlight_class_not_hover() {
         let classes = ListView::item_classes(true, true, true, false);
-        assert!(classes.contains(&"-highlighted"));
+        assert!(classes.contains(&"-highlight"));
         assert!(classes.contains(&"-focus"));
-        assert!(!classes.contains(&"-hover"));
+        assert!(!classes.contains(&"-hovered"));
     }
 
     #[test]

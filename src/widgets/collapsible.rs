@@ -179,6 +179,8 @@ pub struct Collapsible {
     children: Vec<Box<dyn Widget>>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
+    collapsed_classes: Vec<String>,
+    focused_collapsed_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -193,6 +195,12 @@ impl Collapsible {
             children: Vec::new(),
             classes: vec!["collapsible".to_string()],
             focused_classes: vec!["collapsible".to_string(), "focused".to_string()],
+            collapsed_classes: vec!["collapsible".to_string(), "-collapsed".to_string()],
+            focused_collapsed_classes: vec![
+                "collapsible".to_string(),
+                "focused".to_string(),
+                "-collapsed".to_string(),
+            ],
             styles: WidgetStyles::default(),
         }
     }
@@ -542,12 +550,17 @@ impl Widget for Collapsible {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
+        match (self.focused, self.collapsed) {
+            (true, true) => &self.focused_collapsed_classes,
+            (true, false) => &self.focused_classes,
+            (false, true) => &self.collapsed_classes,
+            (false, false) => {
+                if self.classes.is_empty() {
+                    empty_classes()
+                } else {
+                    &self.classes
+                }
+            }
         }
     }
 

@@ -46,6 +46,8 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     search_last_tick: u64,
     classes: Vec<String>,
     focused_classes: Vec<String>,
+    expanded_classes: Vec<String>,
+    focused_expanded_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -87,6 +89,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             search_last_tick: 0,
             classes: vec!["select".to_string()],
             focused_classes: vec!["select".to_string(), "focused".to_string()],
+            expanded_classes: vec!["select".to_string(), "-expanded".to_string()],
+            focused_expanded_classes: vec![
+                "select".to_string(),
+                "focused".to_string(),
+                "-expanded".to_string(),
+            ],
             styles: WidgetStyles::default(),
         }
     }
@@ -724,12 +732,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
+        match (self.focused, self.open) {
+            (true, true) => &self.focused_expanded_classes,
+            (true, false) => &self.focused_classes,
+            (false, true) => &self.expanded_classes,
+            (false, false) => {
+                if self.classes.is_empty() {
+                    empty_classes()
+                } else {
+                    &self.classes
+                }
+            }
         }
     }
 
