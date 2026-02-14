@@ -21,7 +21,6 @@ until the API stabilizes.
   - Added `text-style: not <flag>` semantics with explicit false flag assignment (for example `not reverse`, `bold not underline`, `bold italic not dim`).
   - Added parser support for Textual text-style token refs in value position: `$button-focus-text-style`, `$block-cursor-text-style`, `$block-cursor-blurred-text-style`, `$input-cursor-text-style`.
   - Kept `text-style: none` shorthand behavior unchanged.
-
 - **feat(css/selectors): add Textual-aligned pseudo-classes `:blur`, `:inline`, `:ansi`, `:nocolor`**
   - Parser: recognizes new pseudo-classes in selector chains.
   - Matcher: `:blur` now matches when not focused (`!focused`), and runtime bridge pseudos match selector state flags.
