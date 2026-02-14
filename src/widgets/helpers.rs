@@ -300,7 +300,15 @@ pub(crate) fn apply_border_edges(
     if let Some(fg) = style.fg {
         fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
     }
-    lines = Segment::set_shape(&lines, inner_width.max(1), None, Some(fill), false);
+    let border_rows = usize::from(border_top.is_set()) + usize::from(border_bottom.is_set());
+    let interior_height = full_height.max(1).saturating_sub(border_rows);
+    lines = Segment::set_shape(
+        &lines,
+        inner_width.max(1),
+        Some(interior_height),
+        Some(fill),
+        false,
+    );
 
     let has_left = border_left.is_set();
     let has_right = border_right.is_set();

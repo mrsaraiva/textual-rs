@@ -711,3 +711,83 @@ fn p1g15_buttons_advanced_chain_preserves_vertical_grouping() {
         "columns must be horizontally separated: C1_A@({r_c1a},{c_c1a}) C2_A@({r_c2a},{c_c2a})"
     );
 }
+
+/// Regression guard: bordered footer wrappers in tree mode must keep child text
+/// on the interior content row (not on the border rows).
+#[test]
+fn p1g15_footer_wrapper_keeps_text_inside_border_content_row() {
+    let footer = Styled::new(
+        Static::new("Events: demo"),
+        Style::new()
+            .line_pad(1)
+            .bg(Color::parse("#303a43").unwrap())
+            .border_top(Color::parse("#44cc44").unwrap())
+            .border_right(Color::parse("#44cc44").unwrap())
+            .border_bottom(Color::parse("#44cc44").unwrap())
+            .border_left(Color::parse("#44cc44").unwrap()),
+    );
+    let mut root = Dock::new()
+        .push_fill(Static::new("body"))
+        .push_bottom(Some(3), footer);
+
+    let (_tree, _frame, lines) = tree_render(&mut root, 80, 24);
+    let (events_row, _events_col) = find_text(&lines, "Events: demo");
+
+    assert!(
+        events_row > 0 && events_row + 1 < lines.len(),
+        "events row should have both top and bottom neighbors; row={events_row} lines={lines:?}"
+    );
+    assert!(
+        !lines[events_row - 1].contains("Events: demo"),
+        "top border row must not contain footer text; line={}",
+        lines[events_row - 1]
+    );
+    assert!(
+        !lines[events_row + 1].contains("Events: demo"),
+        "bottom border row must not contain footer text; line={}",
+        lines[events_row + 1]
+    );
+    assert!(
+        lines[events_row].contains('│'),
+        "interior row should contain side border glyph(s); line={}",
+        lines[events_row]
+    );
+}
+
+/// Layout regression guard: combinator width rules must apply during layout
+/// (not only render-time style resolution).
+#[test]
+fn p1g15_layout_honors_horizontal_child_combinator_width() {
+    let mut root = Horizontal::new()
+        .with_child(VerticalScroll::new().with_child(Label::new("A")))
+        .with_child(VerticalScroll::new().with_child(Label::new("B")))
+        .with_child(VerticalScroll::new().with_child(Label::new("C")))
+        .with_child(VerticalScroll::new().with_child(Label::new("D")));
+
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let root_id = tree.root().expect("tree should have root");
+    let children = tree.children(root_id).to_vec();
+
+    let sheet = StyleSheet::parse(
+        r#"
+Horizontal {
+    layout: horizontal;
+}
+Horizontal > VerticalScroll {
+    width: 24;
+}
+"#,
+    );
+    let _guard = textual::css::set_style_context(sheet);
+    run_layout_pass(&mut tree, (80, 24));
+
+    let widths: Vec<u16> = children
+        .into_iter()
+        .map(|id| {
+            let (layout, _content) =
+                textual::layout::inspect_node_rects(&tree, id).expect("child rects should exist");
+            layout.2.saturating_sub(layout.0)
+        })
+        .collect();
+    assert_eq!(widths, vec![24, 24, 24, 24]);
+}

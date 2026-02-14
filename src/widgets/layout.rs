@@ -15,7 +15,7 @@ use super::{
         merge_constraints, pad_lines_to_width,
     },
 };
-use crate::style::{Dock as StyleDock, Margin, Scalar};
+use crate::style::{BoxSizing, Dock as StyleDock, Margin, Scalar};
 
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
@@ -905,24 +905,32 @@ impl Dock {
                 style.dock = Some(StyleDock::Top);
                 if let Some(height) = item.size {
                     style.height = Some(Scalar::Cells(height as u16));
+                    // Dock API sizes are absolute band sizes (including chrome).
+                    style.box_sizing = Some(BoxSizing::BorderBox);
                 }
             }
             DockKind::Bottom => {
                 style.dock = Some(StyleDock::Bottom);
                 if let Some(height) = item.size {
                     style.height = Some(Scalar::Cells(height as u16));
+                    // Dock API sizes are absolute band sizes (including chrome).
+                    style.box_sizing = Some(BoxSizing::BorderBox);
                 }
             }
             DockKind::Left => {
                 style.dock = Some(StyleDock::Left);
                 if let Some(width) = item.size {
                     style.width = Some(Scalar::Cells(width as u16));
+                    // Dock API sizes are absolute band sizes (including chrome).
+                    style.box_sizing = Some(BoxSizing::BorderBox);
                 }
             }
             DockKind::Right => {
                 style.dock = Some(StyleDock::Right);
                 if let Some(width) = item.size {
                     style.width = Some(Scalar::Cells(width as u16));
+                    // Dock API sizes are absolute band sizes (including chrome).
+                    style.box_sizing = Some(BoxSizing::BorderBox);
                 }
             }
             DockKind::Fill => {
@@ -2318,6 +2326,27 @@ mod tests {
         let children = d.take_composed_children();
         assert_eq!(children.len(), 2);
         assert!(d.is_tree_mode());
+    }
+
+    #[test]
+    fn dock_explicit_size_hints_use_border_box_in_tree_mode() {
+        let mut d = Dock::new()
+            .push_bottom(Some(3), Label::new("footer"))
+            .push_right(8, Label::new("side"));
+        let children = d.take_composed_children();
+        assert_eq!(children.len(), 2);
+
+        let footer_style = children[0]
+            .style()
+            .expect("footer child should expose style after dock hinting");
+        assert_eq!(footer_style.height, Some(Scalar::Cells(3)));
+        assert_eq!(footer_style.box_sizing, Some(BoxSizing::BorderBox));
+
+        let side_style = children[1]
+            .style()
+            .expect("side child should expose style after dock hinting");
+        assert_eq!(side_style.width, Some(Scalar::Cells(8)));
+        assert_eq!(side_style.box_sizing, Some(BoxSizing::BorderBox));
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use rich_rs::{Segment, Segments};
 use textual::compose;
 use textual::prelude::*;
-use textual::style::{Color, parse_color_like};
+use textual::style::Color;
 
 struct ButtonsAdvancedApp {
     status: Arc<Mutex<String>>,
@@ -54,12 +54,10 @@ impl TextualApp for ButtonsAdvancedApp {
             ]),
         ]);
 
-        let status_bg = parse_color_like("$panel").or_else(|| parse_color_like("$surface"));
         let status = Styled::new(
             StatusLine::new(self.status.clone()),
             Style::new()
                 .line_pad(1)
-                .bg(status_bg.unwrap_or(Color::parse("#303a43").unwrap()))
                 .border_top(Color::parse("#44cc44").unwrap())
                 .border_right(Color::parse("#44cc44").unwrap())
                 .border_bottom(Color::parse("#44cc44").unwrap())

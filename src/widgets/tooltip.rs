@@ -273,57 +273,55 @@ impl Tooltip {
         base_height: usize,
         overlay_width: usize,
         overlay_height: usize,
-        constrain: Constrain,
+        constrain_x: Constrain,
+        constrain_y: Constrain,
     ) -> (usize, usize) {
         let (anchor_x, anchor_y) = self.anchor.unwrap_or((base_width.saturating_sub(1) / 2, 0));
         let anchor_x = anchor_x.min(base_width.saturating_sub(1));
         let anchor_y = anchor_y.min(base_height.saturating_sub(1));
 
-        match constrain {
-            Constrain::Inside => {
-                // Clamp the tooltip fully inside the viewport.
+        // X-axis: center on anchor, then apply constrain mode.
+        let x0 = match constrain_x {
+            Constrain::Inside | Constrain::Inflect => {
                 let max_x = base_width.saturating_sub(overlay_width);
+                anchor_x.saturating_sub(overlay_width / 2).min(max_x)
+            }
+            Constrain::None => anchor_x.saturating_sub(overlay_width / 2),
+        };
+
+        // Y-axis: prefer below anchor, flip/clamp per constrain mode.
+        let y0 = match constrain_y {
+            Constrain::Inside => {
                 let max_y = base_height.saturating_sub(overlay_height);
-                let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
                 let preferred_below = anchor_y.saturating_add(self.y_offset);
-                let y0 = if preferred_below.saturating_add(overlay_height) <= base_height {
+                if preferred_below.saturating_add(overlay_height) <= base_height {
                     preferred_below.min(max_y)
                 } else {
-                    // Try above the anchor.
                     let needed_above = overlay_height.saturating_add(self.y_offset);
                     if anchor_y >= needed_above {
                         anchor_y.saturating_sub(needed_above).min(max_y)
                     } else {
                         max_y
                     }
-                };
-                (x0, y0)
+                }
             }
             Constrain::Inflect => {
-                // Preferred placement: below & centered.  If it overflows, flip vertically.
-                let max_x = base_width.saturating_sub(overlay_width);
-                let x0 = anchor_x.saturating_sub(overlay_width / 2).min(max_x);
                 let preferred_below = anchor_y.saturating_add(self.y_offset);
-                let y0 = if preferred_below.saturating_add(overlay_height) <= base_height {
+                if preferred_below.saturating_add(overlay_height) <= base_height {
                     preferred_below
                 } else {
                     let needed_above = overlay_height.saturating_add(self.y_offset);
                     if anchor_y >= needed_above {
                         anchor_y.saturating_sub(needed_above)
                     } else {
-                        // Neither side fits — place at top.
                         0
                     }
-                };
-                (x0, y0)
+                }
             }
-            Constrain::None => {
-                // No constraint — place below anchor, centered. No clamping.
-                let x0 = anchor_x.saturating_sub(overlay_width / 2);
-                let y0 = anchor_y.saturating_add(self.y_offset);
-                (x0, y0)
-            }
-        }
+            Constrain::None => anchor_y.saturating_add(self.y_offset),
+        };
+
+        (x0, y0)
     }
 }
 
@@ -335,15 +333,21 @@ impl Widget for Tooltip {
         if self.visible {
             if let Some(tooltip) = self.tooltip_frame(options.size.0.max(1), options.size.1.max(1))
             {
-                let constrain = crate::css::resolve_component_style(self, &[])
-                    .constrain
-                    .unwrap_or(Constrain::Inside);
+                let component_style = crate::css::resolve_component_style(self, &[]);
+                // Tooltip defaults to Inside when no constrain CSS is set.
+                let (cx, cy) = {
+                    let base = component_style.constrain.unwrap_or(Constrain::Inside);
+                    let cx = component_style.constrain_x.unwrap_or(base);
+                    let cy = component_style.constrain_y.unwrap_or(base);
+                    (cx, cy)
+                };
                 let (x0, y0) = self.overlay_origin(
                     merged.width,
                     merged.height,
                     tooltip.width,
                     tooltip.height,
-                    constrain,
+                    cx,
+                    cy,
                 );
                 Overlay::compose_overlay_at(&mut merged, &tooltip, x0, y0);
             }

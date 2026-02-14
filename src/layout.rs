@@ -237,17 +237,32 @@ pub fn layout_resolve_1d(total: u16, edges: &[Edge]) -> Vec<u16> {
 /// inline style.  When no stylesheet is active (unit tests), returns just the
 /// inline style.
 fn get_node_style(tree: &WidgetTree, node: NodeId) -> Style {
-    let Some(wn) = tree.get(node) else {
+    let Some(node_ref) = tree.get(node) else {
         return Style::default();
     };
-    let widget = &*wn.widget;
-    let meta = crate::css::selector_meta_generic(widget);
-    let css_style = crate::css::resolve_style_for_meta(&meta);
-    if let Some(inline) = widget.style() {
-        css_style.combine(&inline)
-    } else {
-        css_style
+
+    // Layout must resolve with full ancestor selector context so combinators
+    // like `Horizontal > VerticalScroll` affect width/height distribution.
+    let ancestors = tree.ancestors(node);
+    let mut pushed = 0usize;
+    for ancestor in ancestors.iter().rev() {
+        let Some(ancestor_node) = tree.get(*ancestor) else {
+            continue;
+        };
+        let ancestor_meta = crate::css::selector_meta_generic(ancestor_node.widget.as_ref());
+        let ancestor_style = crate::css::resolve_style(ancestor_node.widget.as_ref(), &ancestor_meta);
+        crate::css::push_style_context(ancestor_meta, ancestor_style);
+        pushed += 1;
     }
+
+    let meta = crate::css::selector_meta_generic(node_ref.widget.as_ref());
+    let resolved = crate::css::resolve_style(node_ref.widget.as_ref(), &meta);
+
+    for _ in 0..pushed {
+        crate::css::pop_style_context();
+    }
+
+    resolved
 }
 
 /// Collected layout-relevant properties for one child, resolved to cells.
@@ -301,6 +316,7 @@ fn extract_child_spec(
     parent_height: u16,
     viewport: (u16, u16),
     intrinsic_height: Option<u16>,
+    intrinsic_width: Option<u16>,
 ) -> ChildSpec {
     let margin = style.effective_margin();
     let padding = style.effective_padding();
@@ -373,13 +389,39 @@ fn extract_child_spec(
     };
 
     // Build width edge for 1D resolver.
-    let width_edge = scalar_to_edge(
-        style.width.as_ref(),
-        parent_width,
-        viewport.0,
-        min_w_cells,
-        h_chrome,
-    );
+    //
+    // For `width: auto`, prefer widget intrinsic content width when available.
+    // `content_width()` represents natural content width, so only horizontal
+    // chrome is added to compute the outer edge size.
+    let width_edge = match style.width.as_ref() {
+        None | Some(Scalar::Auto) => {
+            if let Some(intrinsic) = intrinsic_width {
+                let min_size = min_w_cells.saturating_add(h_chrome);
+                let auto_size = if box_sizing == BoxSizing::BorderBox {
+                    // Border-box width already includes border+padding.
+                    intrinsic
+                        .saturating_add(margin.left + margin.right)
+                        .max(min_size)
+                } else {
+                    intrinsic.saturating_add(h_chrome).max(min_size)
+                };
+                Edge {
+                    size: Some(auto_size),
+                    fraction: 1,
+                    min_size,
+                }
+            } else {
+                scalar_to_edge(None, parent_width, viewport.0, min_w_cells, h_chrome)
+            }
+        }
+        _ => scalar_to_edge(
+            style.width.as_ref(),
+            parent_width,
+            viewport.0,
+            min_w_cells,
+            h_chrome,
+        ),
+    };
 
     ChildSpec {
         height_edge,
@@ -570,12 +612,17 @@ pub fn layout_vertical(
                 .get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok());
+            let intrinsic_width = tree
+                .get(child)
+                .and_then(|node| node.widget.content_width())
+                .and_then(|w| u16::try_from(w).ok());
             extract_child_spec(
                 &style,
                 available.width,
                 available.height,
                 viewport,
                 intrinsic_height,
+                intrinsic_width,
             )
         })
         .collect();
@@ -679,12 +726,17 @@ pub fn layout_horizontal(
                 .get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok());
+            let intrinsic_width = tree
+                .get(child)
+                .and_then(|node| node.widget.content_width())
+                .and_then(|w| u16::try_from(w).ok());
             extract_child_spec(
                 &style,
                 available.width,
                 available.height,
                 viewport,
                 intrinsic_height,
+                intrinsic_width,
             )
         })
         .collect();
@@ -1459,6 +1511,7 @@ mod tests {
         label: &'static str,
         inline_style: Option<Style>,
         intrinsic_height: Option<usize>,
+        intrinsic_width: Option<usize>,
     }
 
     impl LayoutTestWidget {
@@ -1467,6 +1520,7 @@ mod tests {
                 label,
                 inline_style: None,
                 intrinsic_height: None,
+                intrinsic_width: None,
             }
         }
 
@@ -1488,12 +1542,25 @@ mod tests {
             self
         }
 
+        fn with_intrinsic_width(mut self, width: usize) -> Self {
+            self.intrinsic_width = Some(width.max(1));
+            self
+        }
+
         fn boxed_with_style_and_intrinsic_height(
             label: &'static str,
             style: Style,
             height: usize,
         ) -> Box<dyn Widget> {
             Box::new(Self::new(label).with_style(style).with_intrinsic_height(height))
+        }
+
+        fn boxed_with_style_and_intrinsic_width(
+            label: &'static str,
+            style: Style,
+            width: usize,
+        ) -> Box<dyn Widget> {
+            Box::new(Self::new(label).with_style(style).with_intrinsic_width(width))
         }
     }
 
@@ -1512,6 +1579,10 @@ mod tests {
 
         fn layout_height(&self) -> Option<usize> {
             self.intrinsic_height
+        }
+
+        fn content_width(&self) -> Option<usize> {
+            self.intrinsic_width
         }
     }
 
@@ -1925,6 +1996,32 @@ mod tests {
         layout_vertical(&mut tree, &[a, b], available, (80, 20));
 
         assert_layout_rect(&tree, a, 0, 0, 80, 3);
+        assert_layout_rect(&tree, b, 0, 3, 80, 6);
+    }
+
+    #[test]
+    fn vertical_auto_width_uses_intrinsic_content_width() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let a = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width(
+                "A",
+                Style::new().width(Scalar::Auto).height(Scalar::Cells(3)),
+                12,
+            ),
+        );
+        let b = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("B", Style::new().height(Scalar::Cells(3))),
+        );
+
+        let available = Region::new(0, 0, 80, 20);
+        layout_vertical(&mut tree, &[a, b], available, (80, 20));
+
+        // Auto-width with intrinsic width should not expand to full parent width.
+        assert_layout_rect(&tree, a, 0, 0, 12, 3);
+        // Non-auto/flex sibling still uses full width.
         assert_layout_rect(&tree, b, 0, 3, 80, 6);
     }
 

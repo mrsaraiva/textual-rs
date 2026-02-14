@@ -9,11 +9,11 @@ mod timers;
 mod types;
 
 // Public re-exports for integration testing via `textual::runtime::*`.
+pub use event_loop::resolve_transition_for_property;
 pub use render::{
     apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
     resolve_axis_constrain, run_layout_pass, text_overflow_mode,
 };
-pub use event_loop::resolve_transition_for_property;
 pub use routing::{dispatch_event_tree, dispatch_event_to_target_tree, focused_node_id_tree};
 pub use types::DispatchOutcome;
 

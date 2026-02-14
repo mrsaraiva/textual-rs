@@ -7,7 +7,7 @@ use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{ScrollbarGutter, ScrollbarVisibility, TransitionTiming, parse_color_like};
+use crate::style::{ScrollbarGutter, ScrollbarVisibility, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
@@ -269,15 +269,8 @@ impl ScrollView {
         self.render_offset_x = self.render_offset_x.clamp(0.0, max_x as f32);
     }
 
-    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
-        match timing {
-            TransitionTiming::Linear => AnimationEase::Linear,
-            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
-            TransitionTiming::OutCubic => AnimationEase::OutCubic,
-            TransitionTiming::Round => AnimationEase::Round,
-            TransitionTiming::None => AnimationEase::None,
-        }
-    }
+    // transition_timing_to_animation_ease removed — delegated to
+    // crate::runtime::event_loop::resolve_transition_for_property.
 
     fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
         if from == to {
@@ -429,41 +422,15 @@ impl ScrollView {
 
     /// Look up per-property transition parameters for a given attribute name.
     ///
-    /// Checks the `transitions` CSS vec first; falls back to the generic
-    /// `transition-duration/delay/timing` properties.
+    /// Delegates to the shared `resolve_transition_for_property()` helper which
+    /// checks the `transitions` CSS vec first, then falls back to the generic
+    /// `transition-duration / delay / timing` properties.
     fn animation_params_for_property(
         &self,
         property: &str,
     ) -> Option<(Duration, Duration, AnimationEase)> {
         let style = crate::css::resolve_component_style(self, &["scrollview--content"]);
-
-        // Per-property transitions take priority (P2-36).
-        if let Some(ref transitions) = style.transitions {
-            // Prefer a specific property match over the "all" wildcard.
-            if let Some(pt) = transitions
-                .iter()
-                .find(|t| t.property == property)
-                .or_else(|| transitions.iter().find(|t| t.property == "all"))
-            {
-                if pt.duration.is_zero() {
-                    return None;
-                }
-                let ease = Self::transition_timing_to_animation_ease(pt.timing);
-                return Some((pt.duration, pt.delay, ease));
-            }
-        }
-
-        // Fall back to generic transition properties.
-        let duration = style.transition_duration?;
-        if duration.is_zero() {
-            return None;
-        }
-        let delay = style.transition_delay.unwrap_or(Duration::ZERO);
-        let ease = style
-            .transition_timing
-            .map(Self::transition_timing_to_animation_ease)
-            .unwrap_or(AnimationEase::OutCubic);
-        Some((duration, delay, ease))
+        crate::runtime::resolve_transition_for_property(&style, property)
     }
 }
 
