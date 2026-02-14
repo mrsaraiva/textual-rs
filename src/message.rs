@@ -356,8 +356,37 @@ pub struct OverlayVisibilityChanged {
 }
 
 // ---------------------------------------------------------------------------
-// Per-message structs — app selector class actions
+// Per-message structs — app actions
 // ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppBack;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppBell;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppChangeTheme;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppCommandPalette;
+
+#[derive(Debug, Clone)]
+pub struct AppFocus {
+    pub widget_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppFocusNext;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppFocusPrevious;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppHelpQuit;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppHideHelpPanel;
 
 #[derive(Debug, Clone)]
 pub struct AppAddClass {
@@ -376,6 +405,51 @@ pub struct AppToggleClass {
     pub selector: String,
     pub class_name: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct AppNotify {
+    pub message: String,
+    pub title: String,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppPopScreen;
+
+#[derive(Debug, Clone)]
+pub struct AppPushScreen {
+    pub screen: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppScreenshot {
+    pub filename: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppShowHelpPanel;
+
+#[derive(Debug, Clone)]
+pub struct AppSimulateKey {
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppSuspendProcess;
+
+#[derive(Debug, Clone)]
+pub struct AppSwitchMode {
+    pub mode: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppSwitchScreen {
+    pub screen: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppToggleDark;
 
 // ---------------------------------------------------------------------------
 // Per-message structs — command palette
@@ -640,10 +714,29 @@ pub enum Message {
     OverlayToggle(OverlayToggle),
     OverlayDismissRequested(OverlayDismissRequested),
     OverlayVisibilityChanged(OverlayVisibilityChanged),
-    // App selector class actions
+    // App actions
+    AppBack(AppBack),
+    AppBell(AppBell),
+    AppChangeTheme(AppChangeTheme),
+    AppCommandPalette(AppCommandPalette),
+    AppFocus(AppFocus),
+    AppFocusNext(AppFocusNext),
+    AppFocusPrevious(AppFocusPrevious),
+    AppHelpQuit(AppHelpQuit),
+    AppHideHelpPanel(AppHideHelpPanel),
     AppAddClass(AppAddClass),
     AppRemoveClass(AppRemoveClass),
     AppToggleClass(AppToggleClass),
+    AppNotify(AppNotify),
+    AppPopScreen(AppPopScreen),
+    AppPushScreen(AppPushScreen),
+    AppScreenshot(AppScreenshot),
+    AppShowHelpPanel(AppShowHelpPanel),
+    AppSimulateKey(AppSimulateKey),
+    AppSuspendProcess(AppSuspendProcess),
+    AppSwitchMode(AppSwitchMode),
+    AppSwitchScreen(AppSwitchScreen),
+    AppToggleDark(AppToggleDark),
     // Command palette
     CommandPaletteCommandSelected(CommandPaletteCommandSelected),
     CommandPaletteSetCommands(CommandPaletteSetCommands),
@@ -732,9 +825,28 @@ impl_message_from!(
     OverlayToggle,
     OverlayDismissRequested,
     OverlayVisibilityChanged,
+    AppBack,
+    AppBell,
+    AppChangeTheme,
+    AppCommandPalette,
+    AppFocus,
+    AppFocusNext,
+    AppFocusPrevious,
+    AppHelpQuit,
+    AppHideHelpPanel,
     AppAddClass,
     AppRemoveClass,
     AppToggleClass,
+    AppNotify,
+    AppPopScreen,
+    AppPushScreen,
+    AppScreenshot,
+    AppShowHelpPanel,
+    AppSimulateKey,
+    AppSuspendProcess,
+    AppSwitchMode,
+    AppSwitchScreen,
+    AppToggleDark,
     CommandPaletteCommandSelected,
     CommandPaletteSetCommands,
     DataTableCursorMoved,

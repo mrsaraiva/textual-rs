@@ -2373,169 +2373,420 @@ impl Style {
         }
         fn fmt_text_style_flags(f: &TextStyleFlags) -> String {
             let mut parts = Vec::new();
-            if f.bold { parts.push("bold"); }
-            if f.dim { parts.push("dim"); }
-            if f.italic { parts.push("italic"); }
-            if f.underline { parts.push("underline"); }
-            if f.reverse { parts.push("reverse"); }
-            if f.strike { parts.push("strike"); }
-            if parts.is_empty() { "none".to_string() } else { parts.join(" ") }
+            if f.bold {
+                parts.push("bold");
+            }
+            if f.dim {
+                parts.push("dim");
+            }
+            if f.italic {
+                parts.push("italic");
+            }
+            if f.underline {
+                parts.push("underline");
+            }
+            if f.reverse {
+                parts.push("reverse");
+            }
+            if f.strike {
+                parts.push("strike");
+            }
+            if parts.is_empty() {
+                "none".to_string()
+            } else {
+                parts.join(" ")
+            }
         }
 
         // Text / color
-        if let Some(c) = &self.fg { out.push(("fg", fmt_color(c))); }
-        if let Some(a) = &self.fg_auto { out.push(("fg-auto", format!("{}%", a.alpha_percent))); }
-        if let Some(c) = &self.bg { out.push(("bg", fmt_color(c))); }
-        if let Some(v) = self.text_opacity { out.push(("text-opacity", format!("{v}%"))); }
-        if let Some(v) = self.opacity { out.push(("opacity", format!("{v}%"))); }
-        if let Some(v) = self.bold { out.push(("bold", v.to_string())); }
-        if let Some(v) = self.dim { out.push(("dim", v.to_string())); }
-        if let Some(v) = self.italic { out.push(("italic", v.to_string())); }
-        if let Some(v) = self.underline { out.push(("underline", v.to_string())); }
-        if let Some(v) = self.reverse { out.push(("reverse", v.to_string())); }
-        if let Some(v) = self.strike { out.push(("strike", v.to_string())); }
+        if let Some(c) = &self.fg {
+            out.push(("fg", fmt_color(c)));
+        }
+        if let Some(a) = &self.fg_auto {
+            out.push(("fg-auto", format!("{}%", a.alpha_percent)));
+        }
+        if let Some(c) = &self.bg {
+            out.push(("bg", fmt_color(c)));
+        }
+        if let Some(v) = self.text_opacity {
+            out.push(("text-opacity", format!("{v}%")));
+        }
+        if let Some(v) = self.opacity {
+            out.push(("opacity", format!("{v}%")));
+        }
+        if let Some(v) = self.bold {
+            out.push(("bold", v.to_string()));
+        }
+        if let Some(v) = self.dim {
+            out.push(("dim", v.to_string()));
+        }
+        if let Some(v) = self.italic {
+            out.push(("italic", v.to_string()));
+        }
+        if let Some(v) = self.underline {
+            out.push(("underline", v.to_string()));
+        }
+        if let Some(v) = self.reverse {
+            out.push(("reverse", v.to_string()));
+        }
+        if let Some(v) = self.strike {
+            out.push(("strike", v.to_string()));
+        }
 
         // Border
-        if let Some(v) = self.border { out.push(("border", v.to_string())); }
-        if let Some(s) = fmt_border_edge(&self.border_top) { out.push(("border-top", s)); }
-        if let Some(s) = fmt_border_edge(&self.border_right) { out.push(("border-right", s)); }
-        if let Some(s) = fmt_border_edge(&self.border_bottom) { out.push(("border-bottom", s)); }
-        if let Some(s) = fmt_border_edge(&self.border_left) { out.push(("border-left", s)); }
+        if let Some(v) = self.border {
+            out.push(("border", v.to_string()));
+        }
+        if let Some(s) = fmt_border_edge(&self.border_top) {
+            out.push(("border-top", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.border_right) {
+            out.push(("border-right", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.border_bottom) {
+            out.push(("border-bottom", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.border_left) {
+            out.push(("border-left", s));
+        }
 
         // Tint
-        if let Some(t) = &self.tint { out.push(("tint", format!("{} {}%", fmt_color(&t.color), t.percent))); }
-        if let Some(t) = &self.background_tint { out.push(("background-tint", format!("{} {}%", fmt_color(&t.color), t.percent))); }
+        if let Some(t) = &self.tint {
+            out.push(("tint", format!("{} {}%", fmt_color(&t.color), t.percent)));
+        }
+        if let Some(t) = &self.background_tint {
+            out.push((
+                "background-tint",
+                format!("{} {}%", fmt_color(&t.color), t.percent),
+            ));
+        }
 
         // Spacing
-        if let Some(s) = &self.margin { out.push(("margin", fmt_spacing(s))); }
-        if let Some(s) = &self.padding { out.push(("padding", fmt_spacing(s))); }
+        if let Some(s) = &self.margin {
+            out.push(("margin", fmt_spacing(s)));
+        }
+        if let Some(s) = &self.padding {
+            out.push(("padding", fmt_spacing(s)));
+        }
 
         // Size
-        if let Some(v) = &self.width { out.push(("width", fmt_scalar(v))); }
-        if let Some(v) = &self.height { out.push(("height", fmt_scalar(v))); }
-        if let Some(v) = &self.min_width { out.push(("min-width", fmt_scalar(v))); }
-        if let Some(v) = &self.max_width { out.push(("max-width", fmt_scalar(v))); }
-        if let Some(v) = &self.min_height { out.push(("min-height", fmt_scalar(v))); }
-        if let Some(v) = &self.max_height { out.push(("max-height", fmt_scalar(v))); }
+        if let Some(v) = &self.width {
+            out.push(("width", fmt_scalar(v)));
+        }
+        if let Some(v) = &self.height {
+            out.push(("height", fmt_scalar(v)));
+        }
+        if let Some(v) = &self.min_width {
+            out.push(("min-width", fmt_scalar(v)));
+        }
+        if let Some(v) = &self.max_width {
+            out.push(("max-width", fmt_scalar(v)));
+        }
+        if let Some(v) = &self.min_height {
+            out.push(("min-height", fmt_scalar(v)));
+        }
+        if let Some(v) = &self.max_height {
+            out.push(("max-height", fmt_scalar(v)));
+        }
 
         // Layout
-        if let Some(v) = &self.layout { out.push(("layout", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.display { out.push(("display", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.visibility { out.push(("visibility", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.overflow { out.push(("overflow", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.overflow_x { out.push(("overflow-x", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.overflow_y { out.push(("overflow-y", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.dock { out.push(("dock", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = &self.layout {
+            out.push(("layout", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.display {
+            out.push(("display", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.visibility {
+            out.push(("visibility", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.overflow {
+            out.push(("overflow", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.overflow_x {
+            out.push(("overflow-x", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.overflow_y {
+            out.push(("overflow-y", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.dock {
+            out.push(("dock", format!("{v:?}").to_lowercase()));
+        }
 
         // Alignment
-        if let Some(v) = &self.text_align { out.push(("text-align", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.content_align { out.push(("content-align", format!("{:?} {:?}", v.horizontal, v.vertical).to_lowercase())); }
-        if let Some(v) = &self.align { out.push(("align", format!("{:?} {:?}", v.horizontal, v.vertical).to_lowercase())); }
-        if let Some(v) = &self.offset { out.push(("offset", format!("{:?} {:?}", v.x, v.y))); }
+        if let Some(v) = &self.text_align {
+            out.push(("text-align", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.content_align {
+            out.push((
+                "content-align",
+                format!("{:?} {:?}", v.horizontal, v.vertical).to_lowercase(),
+            ));
+        }
+        if let Some(v) = &self.align {
+            out.push((
+                "align",
+                format!("{:?} {:?}", v.horizontal, v.vertical).to_lowercase(),
+            ));
+        }
+        if let Some(v) = &self.offset {
+            out.push(("offset", format!("{:?} {:?}", v.x, v.y)));
+        }
 
         // Pointer
-        if let Some(v) = &self.pointer { out.push(("pointer", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = &self.pointer {
+            out.push(("pointer", format!("{v:?}").to_lowercase()));
+        }
 
         // Constrain
-        if let Some(v) = &self.constrain { out.push(("constrain", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = &self.constrain {
+            out.push(("constrain", format!("{v:?}").to_lowercase()));
+        }
 
         // Grid
-        if let Some(v) = self.grid_size_columns { out.push(("grid-size-columns", v.to_string())); }
-        if let Some(v) = self.grid_size_rows { out.push(("grid-size-rows", v.to_string())); }
-        if let Some(v) = &self.grid_columns { out.push(("grid-columns", v.iter().map(fmt_scalar).collect::<Vec<_>>().join(" "))); }
-        if let Some(v) = &self.grid_rows { out.push(("grid-rows", v.iter().map(fmt_scalar).collect::<Vec<_>>().join(" "))); }
-        if let Some(v) = self.grid_gutter_horizontal { out.push(("grid-gutter-horizontal", v.to_string())); }
-        if let Some(v) = self.grid_gutter_vertical { out.push(("grid-gutter-vertical", v.to_string())); }
+        if let Some(v) = self.grid_size_columns {
+            out.push(("grid-size-columns", v.to_string()));
+        }
+        if let Some(v) = self.grid_size_rows {
+            out.push(("grid-size-rows", v.to_string()));
+        }
+        if let Some(v) = &self.grid_columns {
+            out.push((
+                "grid-columns",
+                v.iter().map(fmt_scalar).collect::<Vec<_>>().join(" "),
+            ));
+        }
+        if let Some(v) = &self.grid_rows {
+            out.push((
+                "grid-rows",
+                v.iter().map(fmt_scalar).collect::<Vec<_>>().join(" "),
+            ));
+        }
+        if let Some(v) = self.grid_gutter_horizontal {
+            out.push(("grid-gutter-horizontal", v.to_string()));
+        }
+        if let Some(v) = self.grid_gutter_vertical {
+            out.push(("grid-gutter-vertical", v.to_string()));
+        }
 
         // Layer
-        if let Some(v) = &self.layer { out.push(("layer", v.clone())); }
-        if let Some(v) = &self.layers { out.push(("layers", v.join(" "))); }
+        if let Some(v) = &self.layer {
+            out.push(("layer", v.clone()));
+        }
+        if let Some(v) = &self.layers {
+            out.push(("layers", v.join(" ")));
+        }
 
         // Transitions
-        if let Some(v) = self.transition_duration { out.push(("transition-duration", format!("{}ms", v.as_millis()))); }
-        if let Some(v) = self.transition_delay { out.push(("transition-delay", format!("{}ms", v.as_millis()))); }
-        if let Some(v) = &self.transition_timing { out.push(("transition-timing", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = self.transition_duration {
+            out.push(("transition-duration", format!("{}ms", v.as_millis())));
+        }
+        if let Some(v) = self.transition_delay {
+            out.push(("transition-delay", format!("{}ms", v.as_millis())));
+        }
+        if let Some(v) = &self.transition_timing {
+            out.push(("transition-timing", format!("{v:?}").to_lowercase()));
+        }
 
         // P2 properties
-        if let Some(v) = &self.position { out.push(("position", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.box_sizing { out.push(("box-sizing", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.split { out.push(("split", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = &self.position {
+            out.push(("position", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.box_sizing {
+            out.push(("box-sizing", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.split {
+            out.push(("split", format!("{v:?}").to_lowercase()));
+        }
 
         // Per-side spacing overrides
-        if let Some(v) = self.padding_top { out.push(("padding-top", v.to_string())); }
-        if let Some(v) = self.padding_right { out.push(("padding-right", v.to_string())); }
-        if let Some(v) = self.padding_bottom { out.push(("padding-bottom", v.to_string())); }
-        if let Some(v) = self.padding_left { out.push(("padding-left", v.to_string())); }
-        if let Some(v) = self.margin_top { out.push(("margin-top", v.to_string())); }
-        if let Some(v) = self.margin_right { out.push(("margin-right", v.to_string())); }
-        if let Some(v) = self.margin_bottom { out.push(("margin-bottom", v.to_string())); }
-        if let Some(v) = self.margin_left { out.push(("margin-left", v.to_string())); }
+        if let Some(v) = self.padding_top {
+            out.push(("padding-top", v.to_string()));
+        }
+        if let Some(v) = self.padding_right {
+            out.push(("padding-right", v.to_string()));
+        }
+        if let Some(v) = self.padding_bottom {
+            out.push(("padding-bottom", v.to_string()));
+        }
+        if let Some(v) = self.padding_left {
+            out.push(("padding-left", v.to_string()));
+        }
+        if let Some(v) = self.margin_top {
+            out.push(("margin-top", v.to_string()));
+        }
+        if let Some(v) = self.margin_right {
+            out.push(("margin-right", v.to_string()));
+        }
+        if let Some(v) = self.margin_bottom {
+            out.push(("margin-bottom", v.to_string()));
+        }
+        if let Some(v) = self.margin_left {
+            out.push(("margin-left", v.to_string()));
+        }
 
         // Outline
-        if let Some(s) = fmt_border_edge(&self.outline_top) { out.push(("outline-top", s)); }
-        if let Some(s) = fmt_border_edge(&self.outline_right) { out.push(("outline-right", s)); }
-        if let Some(s) = fmt_border_edge(&self.outline_bottom) { out.push(("outline-bottom", s)); }
-        if let Some(s) = fmt_border_edge(&self.outline_left) { out.push(("outline-left", s)); }
+        if let Some(s) = fmt_border_edge(&self.outline_top) {
+            out.push(("outline-top", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.outline_right) {
+            out.push(("outline-right", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.outline_bottom) {
+            out.push(("outline-bottom", s));
+        }
+        if let Some(s) = fmt_border_edge(&self.outline_left) {
+            out.push(("outline-left", s));
+        }
 
         // Border title/subtitle
-        if let Some(v) = &self.border_title_align { out.push(("border-title-align", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.border_subtitle_align { out.push(("border-subtitle-align", format!("{v:?}").to_lowercase())); }
-        if let Some(c) = &self.border_title_color { out.push(("border-title-color", fmt_color(c))); }
-        if let Some(c) = &self.border_title_background { out.push(("border-title-background", fmt_color(c))); }
-        if let Some(f) = &self.border_title_style { out.push(("border-title-style", fmt_text_style_flags(f))); }
-        if let Some(c) = &self.border_subtitle_color { out.push(("border-subtitle-color", fmt_color(c))); }
-        if let Some(c) = &self.border_subtitle_background { out.push(("border-subtitle-background", fmt_color(c))); }
-        if let Some(f) = &self.border_subtitle_style { out.push(("border-subtitle-style", fmt_text_style_flags(f))); }
+        if let Some(v) = &self.border_title_align {
+            out.push(("border-title-align", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.border_subtitle_align {
+            out.push(("border-subtitle-align", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(c) = &self.border_title_color {
+            out.push(("border-title-color", fmt_color(c)));
+        }
+        if let Some(c) = &self.border_title_background {
+            out.push(("border-title-background", fmt_color(c)));
+        }
+        if let Some(f) = &self.border_title_style {
+            out.push(("border-title-style", fmt_text_style_flags(f)));
+        }
+        if let Some(c) = &self.border_subtitle_color {
+            out.push(("border-subtitle-color", fmt_color(c)));
+        }
+        if let Some(c) = &self.border_subtitle_background {
+            out.push(("border-subtitle-background", fmt_color(c)));
+        }
+        if let Some(f) = &self.border_subtitle_style {
+            out.push(("border-subtitle-style", fmt_text_style_flags(f)));
+        }
 
         // Scrollbar
-        if let Some(c) = &self.scrollbar_color { out.push(("scrollbar-color", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_color_hover { out.push(("scrollbar-color-hover", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_color_active { out.push(("scrollbar-color-active", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_background { out.push(("scrollbar-background", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_background_hover { out.push(("scrollbar-background-hover", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_background_active { out.push(("scrollbar-background-active", fmt_color(c))); }
-        if let Some(c) = &self.scrollbar_corner_color { out.push(("scrollbar-corner-color", fmt_color(c))); }
-        if let Some(v) = &self.scrollbar_gutter { out.push(("scrollbar-gutter", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = self.scrollbar_size { out.push(("scrollbar-size", v.to_string())); }
-        if let Some(v) = self.scrollbar_size_horizontal { out.push(("scrollbar-size-horizontal", v.to_string())); }
-        if let Some(v) = self.scrollbar_size_vertical { out.push(("scrollbar-size-vertical", v.to_string())); }
-        if let Some(v) = &self.scrollbar_visibility { out.push(("scrollbar-visibility", format!("{v:?}").to_lowercase())); }
+        if let Some(c) = &self.scrollbar_color {
+            out.push(("scrollbar-color", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_color_hover {
+            out.push(("scrollbar-color-hover", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_color_active {
+            out.push(("scrollbar-color-active", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_background {
+            out.push(("scrollbar-background", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_background_hover {
+            out.push(("scrollbar-background-hover", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_background_active {
+            out.push(("scrollbar-background-active", fmt_color(c)));
+        }
+        if let Some(c) = &self.scrollbar_corner_color {
+            out.push(("scrollbar-corner-color", fmt_color(c)));
+        }
+        if let Some(v) = &self.scrollbar_gutter {
+            out.push(("scrollbar-gutter", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = self.scrollbar_size {
+            out.push(("scrollbar-size", v.to_string()));
+        }
+        if let Some(v) = self.scrollbar_size_horizontal {
+            out.push(("scrollbar-size-horizontal", v.to_string()));
+        }
+        if let Some(v) = self.scrollbar_size_vertical {
+            out.push(("scrollbar-size-vertical", v.to_string()));
+        }
+        if let Some(v) = &self.scrollbar_visibility {
+            out.push(("scrollbar-visibility", format!("{v:?}").to_lowercase()));
+        }
 
         // Text wrap/overflow
-        if let Some(v) = &self.text_wrap { out.push(("text-wrap", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.text_overflow { out.push(("text-overflow", format!("{v:?}").to_lowercase())); }
+        if let Some(v) = &self.text_wrap {
+            out.push(("text-wrap", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.text_overflow {
+            out.push(("text-overflow", format!("{v:?}").to_lowercase()));
+        }
 
         // Link styling
-        if let Some(c) = &self.link_color { out.push(("link-color", fmt_color(c))); }
-        if let Some(c) = &self.link_background { out.push(("link-background", fmt_color(c))); }
-        if let Some(f) = &self.link_style { out.push(("link-style", fmt_text_style_flags(f))); }
-        if let Some(c) = &self.link_color_hover { out.push(("link-color-hover", fmt_color(c))); }
-        if let Some(c) = &self.link_background_hover { out.push(("link-background-hover", fmt_color(c))); }
-        if let Some(f) = &self.link_style_hover { out.push(("link-style-hover", fmt_text_style_flags(f))); }
+        if let Some(c) = &self.link_color {
+            out.push(("link-color", fmt_color(c)));
+        }
+        if let Some(c) = &self.link_background {
+            out.push(("link-background", fmt_color(c)));
+        }
+        if let Some(f) = &self.link_style {
+            out.push(("link-style", fmt_text_style_flags(f)));
+        }
+        if let Some(c) = &self.link_color_hover {
+            out.push(("link-color-hover", fmt_color(c)));
+        }
+        if let Some(c) = &self.link_background_hover {
+            out.push(("link-background-hover", fmt_color(c)));
+        }
+        if let Some(f) = &self.link_style_hover {
+            out.push(("link-style-hover", fmt_text_style_flags(f)));
+        }
 
         // Grid child
-        if let Some(v) = self.row_span { out.push(("row-span", v.to_string())); }
-        if let Some(v) = self.column_span { out.push(("column-span", v.to_string())); }
+        if let Some(v) = self.row_span {
+            out.push(("row-span", v.to_string()));
+        }
+        if let Some(v) = self.column_span {
+            out.push(("column-span", v.to_string()));
+        }
 
         // Hatch, overlay, keyline
-        if let Some(h) = &self.hatch { out.push(("hatch", format!("'{}' {}", h.character, fmt_color(&h.color)))); }
-        if let Some(v) = &self.overlay { out.push(("overlay", format!("{v:?}").to_lowercase())); }
-        if let Some(k) = &self.keyline { out.push(("keyline", format!("{:?} {}", k.keyline_type, fmt_color(&k.color)).to_lowercase())); }
+        if let Some(h) = &self.hatch {
+            out.push((
+                "hatch",
+                format!("'{}' {}", h.character, fmt_color(&h.color)),
+            ));
+        }
+        if let Some(v) = &self.overlay {
+            out.push(("overlay", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(k) = &self.keyline {
+            out.push((
+                "keyline",
+                format!("{:?} {}", k.keyline_type, fmt_color(&k.color)).to_lowercase(),
+            ));
+        }
 
         // Constrain-x/y, expand
-        if let Some(v) = &self.constrain_x { out.push(("constrain-x", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = &self.constrain_y { out.push(("constrain-y", format!("{v:?}").to_lowercase())); }
-        if let Some(v) = self.expand { out.push(("expand", v.to_string())); }
+        if let Some(v) = &self.constrain_x {
+            out.push(("constrain-x", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = &self.constrain_y {
+            out.push(("constrain-y", format!("{v:?}").to_lowercase()));
+        }
+        if let Some(v) = self.expand {
+            out.push(("expand", v.to_string()));
+        }
 
         // Per-property transitions
         if let Some(ts) = &self.transitions {
             for t in ts {
-                out.push(("transition", format!("{} {}ms {:?} {}ms", t.property, t.duration.as_millis(), t.timing, t.delay.as_millis()).to_lowercase()));
+                out.push((
+                    "transition",
+                    format!(
+                        "{} {}ms {:?} {}ms",
+                        t.property,
+                        t.duration.as_millis(),
+                        t.timing,
+                        t.delay.as_millis()
+                    )
+                    .to_lowercase(),
+                ));
             }
         }
 
         // Line-pad
-        if let Some(v) = self.line_pad { out.push(("line-pad", v.to_string())); }
+        if let Some(v) = self.line_pad {
+            out.push(("line-pad", v.to_string()));
+        }
 
         out
     }

@@ -418,6 +418,14 @@ pub trait Widget: Send + Sync + Any {
     fn is_disabled(&self) -> bool {
         false
     }
+    /// Set disabled state (used by DOM query bulk mutations).
+    fn set_disabled_state(&mut self, _disabled: bool) {}
+    /// Whether the widget is in loading state.
+    fn is_loading(&self) -> bool {
+        false
+    }
+    /// Set loading state (used by DOM query bulk mutations).
+    fn set_loading_state(&mut self, _loading: bool) {}
     /// Whether the widget currently has focus (used for `:focus` selector matching).
     fn has_focus(&self) -> bool {
         false

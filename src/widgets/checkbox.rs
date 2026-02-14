@@ -159,6 +159,10 @@ impl Widget for Checkbox {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
     fn is_hovered(&self) -> bool {
         self.hovered
     }

@@ -73,16 +73,16 @@ pub trait ActionHandler {
 /// Standard application-level actions mirroring Python Textual's built-in set.
 pub const APP_ACTIONS: &[ActionDecl] = &[
     ActionDecl {
-        name: "quit",
+        name: "add_class",
         namespace: "app",
-        description: "Quit the application",
-        default_binding: Some("ctrl+q"),
+        description: "Add a CSS class to widgets matched by selector",
+        default_binding: None,
     },
     ActionDecl {
-        name: "toggle_dark",
+        name: "back",
         namespace: "app",
-        description: "Toggle dark mode",
-        default_binding: Some("ctrl+d"),
+        description: "Return to previous screen",
+        default_binding: None,
     },
     ActionDecl {
         name: "bell",
@@ -91,16 +91,16 @@ pub const APP_ACTIONS: &[ActionDecl] = &[
         default_binding: None,
     },
     ActionDecl {
-        name: "push_screen",
+        name: "change_theme",
         namespace: "app",
-        description: "Push a screen",
+        description: "Change application theme",
         default_binding: None,
     },
     ActionDecl {
-        name: "pop_screen",
+        name: "command_palette",
         namespace: "app",
-        description: "Pop the current screen",
-        default_binding: None,
+        description: "Open command palette",
+        default_binding: Some("ctrl+p"),
     },
     ActionDecl {
         name: "focus",
@@ -121,10 +121,40 @@ pub const APP_ACTIONS: &[ActionDecl] = &[
         default_binding: Some("shift+tab"),
     },
     ActionDecl {
-        name: "add_class",
+        name: "help_quit",
         namespace: "app",
-        description: "Add a CSS class to widgets matched by selector",
+        description: "Show quit help",
+        default_binding: Some("ctrl+c"),
+    },
+    ActionDecl {
+        name: "hide_help_panel",
+        namespace: "app",
+        description: "Hide help panel",
         default_binding: None,
+    },
+    ActionDecl {
+        name: "notify",
+        namespace: "app",
+        description: "Show notification",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "pop_screen",
+        namespace: "app",
+        description: "Pop the current screen",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "push_screen",
+        namespace: "app",
+        description: "Push a screen",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "quit",
+        namespace: "app",
+        description: "Quit the application",
+        default_binding: Some("ctrl+q"),
     },
     ActionDecl {
         name: "remove_class",
@@ -133,10 +163,52 @@ pub const APP_ACTIONS: &[ActionDecl] = &[
         default_binding: None,
     },
     ActionDecl {
+        name: "screenshot",
+        namespace: "app",
+        description: "Save screenshot",
+        default_binding: Some("ctrl+s"),
+    },
+    ActionDecl {
+        name: "show_help_panel",
+        namespace: "app",
+        description: "Show help panel",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "simulate_key",
+        namespace: "app",
+        description: "Simulate key press",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "suspend_process",
+        namespace: "app",
+        description: "Suspend process",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "switch_mode",
+        namespace: "app",
+        description: "Switch mode",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "switch_screen",
+        namespace: "app",
+        description: "Switch screen",
+        default_binding: None,
+    },
+    ActionDecl {
         name: "toggle_class",
         namespace: "app",
         description: "Toggle a CSS class on widgets matched by selector",
         default_binding: None,
+    },
+    ActionDecl {
+        name: "toggle_dark",
+        namespace: "app",
+        description: "Toggle dark mode",
+        default_binding: Some("ctrl+d"),
     },
 ];
 
@@ -471,7 +543,7 @@ mod tests {
 
     #[test]
     fn app_actions_has_expected_count() {
-        assert_eq!(APP_ACTIONS.len(), 11);
+        assert_eq!(APP_ACTIONS.len(), 23);
     }
 
     #[test]
@@ -505,6 +577,41 @@ mod tests {
         assert!(find_action(APP_ACTIONS, "add_class").is_some());
         assert!(find_action(APP_ACTIONS, "remove_class").is_some());
         assert!(find_action(APP_ACTIONS, "toggle_class").is_some());
+    }
+
+    #[test]
+    fn app_actions_cover_python_matrix() {
+        let expected = [
+            "add_class",
+            "back",
+            "bell",
+            "change_theme",
+            "command_palette",
+            "focus",
+            "focus_next",
+            "focus_previous",
+            "help_quit",
+            "hide_help_panel",
+            "notify",
+            "pop_screen",
+            "push_screen",
+            "quit",
+            "remove_class",
+            "screenshot",
+            "show_help_panel",
+            "simulate_key",
+            "suspend_process",
+            "switch_mode",
+            "switch_screen",
+            "toggle_class",
+            "toggle_dark",
+        ];
+        for name in expected {
+            assert!(
+                find_action(APP_ACTIONS, name).is_some(),
+                "missing app action {name}"
+            );
+        }
     }
 
     #[test]

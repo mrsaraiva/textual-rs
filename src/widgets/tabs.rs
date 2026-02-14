@@ -165,7 +165,9 @@ impl Tabs {
     }
 
     pub fn is_tab_hidden(&self, id: &str) -> bool {
-        self.query_tab_by_id(id).map(|tab| tab.hidden).unwrap_or(false)
+        self.query_tab_by_id(id)
+            .map(|tab| tab.hidden)
+            .unwrap_or(false)
     }
 
     // ── Reactive setters ──────────────────────────────────────────────
@@ -216,6 +218,39 @@ impl Tabs {
 
     pub fn show_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
         self.set_tab_hidden(id, false, ctx)
+    }
+
+    fn run_alias_reactive_update(
+        &mut self,
+        update: impl FnOnce(&mut Self, &mut ReactiveCtx) -> bool,
+    ) -> bool {
+        let mut rctx = ReactiveCtx::new(self.node_id());
+        let handled = update(self, &mut rctx);
+        if rctx.has_changes() {
+            let changes = rctx.take_changes();
+            self.reactive_dispatch(&changes, &mut rctx);
+        }
+        handled
+    }
+
+    /// Python-compat alias for `disable_tab`.
+    pub fn disable(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.disable_tab(id, ctx))
+    }
+
+    /// Python-compat alias for `enable_tab`.
+    pub fn enable(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.enable_tab(id, ctx))
+    }
+
+    /// Python-compat alias for `hide_tab`.
+    pub fn hide(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.hide_tab(id, ctx))
+    }
+
+    /// Python-compat alias for `show_tab`.
+    pub fn show(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.show_tab(id, ctx))
     }
 
     // ── Watchers ──────────────────────────────────────────────────────
@@ -1312,6 +1347,21 @@ mod tests {
             .with_tab_id("tab-two", "Tab Two", Label::new("second"));
         assert_eq!(tabs.active(), Some("tab-one"));
         assert!(tabs.is_tab_disabled("tab-one") == false);
+    }
+
+    #[test]
+    fn python_compat_aliases_map_to_existing_tab_state_transitions() {
+        let mut tabs = Tabs::new()
+            .with_tab_id("one", "One", Label::new("first"))
+            .with_tab_id("two", "Two", Label::new("second"));
+        assert!(tabs.disable("one"));
+        assert!(tabs.is_tab_disabled("one"));
+        assert!(tabs.enable("one"));
+        assert!(!tabs.is_tab_disabled("one"));
+        assert!(tabs.hide("two"));
+        assert!(tabs.is_tab_hidden("two"));
+        assert!(tabs.show("two"));
+        assert!(!tabs.is_tab_hidden("two"));
     }
 
     #[test]

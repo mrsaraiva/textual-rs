@@ -44,6 +44,22 @@ impl TabPane {
             .as_ref()
             .map(|pane_id| format!("--content-tab-{pane_id}"))
     }
+
+    pub fn title(&self) -> &str {
+        self.title.as_str()
+    }
+
+    pub fn pane_id(&self) -> Option<&str> {
+        self.pane_id.as_deref()
+    }
+
+    pub fn disabled(&self) -> bool {
+        self.disabled
+    }
+
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
 }
 
 pub struct TabbedContent {
@@ -179,6 +195,41 @@ impl TabbedContent {
 
     pub fn show_pane(&mut self, pane_id: &str) -> bool {
         self.set_pane_hidden(pane_id, false)
+    }
+
+    /// Python-compat alias for `disable_pane`.
+    pub fn disable_tab(&mut self, tab_id: &str) -> bool {
+        self.disable_pane(tab_id)
+    }
+
+    /// Python-compat alias for `enable_pane`.
+    pub fn enable_tab(&mut self, tab_id: &str) -> bool {
+        self.enable_pane(tab_id)
+    }
+
+    /// Python-compat alias for `hide_pane`.
+    pub fn hide_tab(&mut self, tab_id: &str) -> bool {
+        self.hide_pane(tab_id)
+    }
+
+    /// Python-compat alias for `show_pane`.
+    pub fn show_tab(&mut self, tab_id: &str) -> bool {
+        self.show_pane(tab_id)
+    }
+
+    /// Python-compat accessor for the currently active pane.
+    pub fn active_pane(&self) -> Option<&TabPane> {
+        self.active.and_then(|index| self.panes.get(index))
+    }
+
+    /// Python-compat accessor for pane metadata by id.
+    pub fn get_pane(&self, pane_id: &str) -> Option<&TabPane> {
+        self.query_pane_by_id(pane_id)
+    }
+
+    /// Python-compat accessor for tab metadata by id.
+    pub fn get_tab(&self, tab_id: &str) -> Option<&TabPane> {
+        self.query_pane_by_id(tab_id)
     }
 
     /// Remove a pane by its string ID. Returns `true` if found and removed.
@@ -1540,6 +1591,28 @@ mod tests {
         assert_eq!(tabs.child_display_for_tree(1), Some(true));
         assert_eq!(tabs.child_display_for_tree(2), Some(false));
         assert_eq!(tabs.tree_child_content_inset(), (2, 0, 0, 0));
+    }
+
+    #[test]
+    fn python_compat_aliases_route_to_existing_pane_state_and_accessors() {
+        let mut tabs = TabbedContent::new()
+            .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+            .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+
+        assert_eq!(
+            tabs.active_pane().and_then(|pane| pane.pane_id()),
+            Some("one")
+        );
+        assert!(tabs.get_tab("one").is_some());
+        assert!(tabs.get_pane("two").is_some());
+        assert!(tabs.disable_tab("two"));
+        assert!(tabs.is_pane_disabled("two"));
+        assert!(tabs.enable_tab("two"));
+        assert!(!tabs.is_pane_disabled("two"));
+        assert!(tabs.hide_tab("two"));
+        assert!(tabs.is_pane_hidden("two"));
+        assert!(tabs.show_tab("two"));
+        assert!(!tabs.is_pane_hidden("two"));
     }
 
     #[test]

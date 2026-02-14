@@ -22,16 +22,16 @@ use crate::compose::{ChildDecl, WidgetBuilder};
 use crate::css::{StyleSheet, default_widget_stylesheet};
 use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
-use crate::event::{ActionMap, BindingHint, KeyBind};
+use crate::event::{ActionMap, BindingHint, Event, KeyBind};
 use crate::message::MessageEvent;
 use crate::node_id::NodeId;
 use crate::node_id::node_id_from_ffi;
 use crate::node_id::node_id_to_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
-use crate::style::{Theme, Visibility};
+use crate::style::{Color, Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
-use crate::widgets::{ToastSeverity, Widget, WidgetStyles};
+use crate::widgets::{HelpPanel, ToastSeverity, Widget, WidgetStyles};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
@@ -49,7 +49,8 @@ use types::{
 };
 
 use helpers::{
-    ClickTracker, apply_size, default_action_map, tree_content_local_coords, widget_at_tree_layout,
+    ClickTracker, apply_size, collect_focus_chain_tree, default_action_map,
+    tree_content_local_coords, widget_at_tree_layout,
 };
 
 /// Snapshot-style query result over arena node ids.
@@ -169,13 +170,15 @@ impl<'a> DomQueryMut<'a> {
         &self.nodes
     }
 
-    pub fn set_class(self, add: bool, class: &str) -> Self {
+    pub fn set_class(self, add: bool, class_names: &[&str]) -> Self {
         if let Some(tree) = self.app.widget_tree.as_mut() {
             for &id in &self.nodes {
-                if add {
-                    tree.add_class(id, class);
-                } else {
-                    tree.remove_class(id, class);
+                for class in class_names {
+                    if add {
+                        tree.add_class(id, class);
+                    } else {
+                        tree.remove_class(id, class);
+                    }
                 }
             }
         }
@@ -183,17 +186,31 @@ impl<'a> DomQueryMut<'a> {
     }
 
     pub fn add_class(self, class: &str) -> Self {
-        self.set_class(true, class)
+        self.add_classes(&[class])
+    }
+
+    pub fn add_classes(self, class_names: &[&str]) -> Self {
+        self.set_class(true, class_names)
     }
 
     pub fn remove_class(self, class: &str) -> Self {
-        self.set_class(false, class)
+        self.remove_classes(&[class])
+    }
+
+    pub fn remove_classes(self, class_names: &[&str]) -> Self {
+        self.set_class(false, class_names)
     }
 
     pub fn toggle_class(self, class: &str) -> Self {
+        self.toggle_classes(&[class])
+    }
+
+    pub fn toggle_classes(self, class_names: &[&str]) -> Self {
         if let Some(tree) = self.app.widget_tree.as_mut() {
             for &id in &self.nodes {
-                tree.toggle_class(id, class);
+                for class in class_names {
+                    tree.toggle_class(id, class);
+                }
             }
         }
         self
@@ -232,11 +249,33 @@ impl<'a> DomQueryMut<'a> {
     }
 
     pub fn focus(self) -> Self {
-        self.set_focus(true)
+        for &id in &self.nodes {
+            let eligible = self
+                .app
+                .with_widget_mut(id, |widget| widget.focusable())
+                .unwrap_or(false);
+            if eligible {
+                let _ = self.app.set_focus_node(id);
+                break;
+            }
+        }
+        self
     }
 
     pub fn blur(self) -> Self {
-        self.set_focus(false)
+        let focused = self
+            .app
+            .widget_tree
+            .as_ref()
+            .and_then(routing::focused_node_id_tree);
+        if let Some(focused_id) = focused
+            && self.nodes.contains(&focused_id)
+            && let Some(tree) = self.app.widget_tree.as_mut()
+            && let Some(node) = tree.get_mut(focused_id)
+        {
+            node.widget.set_focus(false);
+        }
+        self
     }
 
     pub fn set_display(self, display: bool) -> Self {
@@ -262,17 +301,47 @@ impl<'a> DomQueryMut<'a> {
         self
     }
 
-    pub fn set(self, display: Option<bool>, visible: Option<bool>) -> Self {
+    pub fn set(
+        self,
+        display: Option<bool>,
+        visible: Option<bool>,
+        disabled: Option<bool>,
+        loading: Option<bool>,
+    ) -> Self {
         let query = if let Some(display) = display {
             self.set_display(display)
         } else {
             self
         };
-        if let Some(visible) = visible {
+
+        let query = if let Some(visible) = visible {
             query.set_visible(visible)
         } else {
             query
+        };
+
+        let query = if let Some(disabled) = disabled {
+            query.update(|widget| widget.set_disabled_state(disabled))
+        } else {
+            query
+        };
+
+        if let Some(loading) = loading {
+            query.update(|widget| widget.set_loading_state(loading))
+        } else {
+            query
         }
+    }
+
+    pub fn remove(self) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                if tree.contains(id) {
+                    tree.remove(id);
+                }
+            }
+        }
+        self
     }
 
     pub fn refresh(self) -> Self {
@@ -293,6 +362,7 @@ pub struct App {
     custom_binding_hints: Vec<BindingHintEntry>,
     command_palette_hint: Option<BindingHintEntry>,
     theme: Theme,
+    dark_mode: bool,
     default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
     stylesheet_watch: Option<StylesheetWatcher>,
@@ -385,6 +455,7 @@ impl App {
                     .with_system(true),
             }),
             theme: Theme::default(),
+            dark_mode: true,
             default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
             stylesheet_watch: None,
@@ -535,6 +606,75 @@ impl App {
         self.query_children(&format!("#{id}"))?.first()
     }
 
+    /// Find immediate child of the tree root by widget type.
+    pub fn get_child_by_type<T: Widget + 'static>(
+        &self,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let Some(tree) = self.widget_tree.as_ref() else {
+            return Err(QueryError::NoMatch);
+        };
+        let Some(root) = tree.root() else {
+            return Err(QueryError::NoMatch);
+        };
+        for child in tree.children(root) {
+            let Some(node) = tree.get(*child) else {
+                continue;
+            };
+            let any_widget = node.widget.as_ref() as &dyn Any;
+            if any_widget.is::<T>() {
+                return Ok(*child);
+            }
+        }
+        Err(QueryError::NoMatch)
+    }
+
+    /// Run multiple tree updates and request a single repaint at the end.
+    pub fn batch_update<R>(&mut self, update: impl FnOnce(&mut Self) -> R) -> R {
+        let out = update(self);
+        self.clear_on_next_render = true;
+        out
+    }
+
+    /// Mount a widget as a direct child of the active tree root.
+    pub fn mount(
+        &mut self,
+        widget: impl Widget + 'static,
+    ) -> std::result::Result<NodeId, QueryError> {
+        self.mount_boxed(Box::new(widget))
+    }
+
+    /// Mount a boxed widget as a direct child of the active tree root.
+    pub fn mount_boxed(
+        &mut self,
+        widget: Box<dyn Widget>,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return Err(QueryError::NoMatch);
+        };
+        let Some(root) = tree.root() else {
+            return Err(QueryError::NoMatch);
+        };
+        let id = tree.mount(root, widget);
+        self.clear_on_next_render = true;
+        Ok(id)
+    }
+
+    /// Mount multiple widgets as direct children of the active tree root.
+    pub fn mount_all(
+        &mut self,
+        widgets: Vec<Box<dyn Widget>>,
+    ) -> std::result::Result<(), QueryError> {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return Err(QueryError::NoMatch);
+        };
+        let Some(root) = tree.root() else {
+            return Err(QueryError::NoMatch);
+        };
+        tree.mount_all(root, widgets);
+        self.clear_on_next_render = true;
+        Ok(())
+    }
+
     /// Mutable query handle for chainable bulk mutations.
     pub fn query_mut(
         &mut self,
@@ -586,6 +726,205 @@ impl App {
         Ok(matched)
     }
 
+    fn set_focus_node(&mut self, node_id: NodeId) -> bool {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return false;
+        };
+        if !tree.contains(node_id) || !tree.is_displayed(node_id) {
+            return false;
+        }
+        let current = routing::focused_node_id_tree(tree);
+        if current == Some(node_id) {
+            return false;
+        }
+        if let Some(current) = current
+            && let Some(node) = tree.get_mut(current)
+        {
+            node.widget.set_focus(false);
+        }
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.set_focus(true);
+            return true;
+        }
+        false
+    }
+
+    pub fn action_focus(&mut self, widget_id: &str) -> std::result::Result<bool, QueryError> {
+        let selector = format!("#{widget_id}");
+        let target = match self.query_one(&selector) {
+            Ok(id) => id,
+            Err(QueryError::NoMatch) => return Ok(false),
+            Err(err) => return Err(err),
+        };
+        Ok(self.set_focus_node(target))
+    }
+
+    pub fn action_focus_next(&mut self) -> bool {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return false;
+        };
+        let focus_chain = collect_focus_chain_tree(tree);
+        if focus_chain.is_empty() {
+            return false;
+        }
+        let current = routing::focused_node_id_tree(tree);
+        let current_index =
+            current.and_then(|id| focus_chain.iter().position(|candidate| *candidate == id));
+        let next_index = match current_index {
+            Some(idx) => (idx + 1) % focus_chain.len(),
+            None => 0,
+        };
+        self.set_focus_node(focus_chain[next_index])
+    }
+
+    pub fn action_focus_previous(&mut self) -> bool {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return false;
+        };
+        let focus_chain = collect_focus_chain_tree(tree);
+        if focus_chain.is_empty() {
+            return false;
+        }
+        let current = routing::focused_node_id_tree(tree);
+        let current_index =
+            current.and_then(|id| focus_chain.iter().position(|candidate| *candidate == id));
+        let next_index = match current_index {
+            Some(0) | None => focus_chain.len() - 1,
+            Some(idx) => idx - 1,
+        };
+        self.set_focus_node(focus_chain[next_index])
+    }
+
+    pub fn action_help_quit(&mut self) {
+        self.notify_help_quit();
+    }
+
+    pub fn action_notify(&mut self, message: &str, title: &str, severity: &str) {
+        let severity = match severity.to_ascii_lowercase().as_str() {
+            "warning" => ToastSeverity::Warning,
+            "error" => ToastSeverity::Error,
+            _ => ToastSeverity::Information,
+        };
+        self.notify(message.to_string(), title.to_string(), severity, None);
+    }
+
+    pub fn action_back(&mut self) -> bool {
+        self.pop_screen().is_some()
+    }
+
+    pub fn action_push_screen(&mut self, screen: &str) -> bool {
+        let Some(factory) = self.modes.get(screen) else {
+            return false;
+        };
+        self.push_screen(factory());
+        true
+    }
+
+    pub fn action_pop_screen(&mut self) -> bool {
+        self.pop_screen().is_some()
+    }
+
+    pub fn action_switch_screen(&mut self, screen: &str) -> bool {
+        let Some(factory) = self.modes.get(screen) else {
+            return false;
+        };
+        let screen = factory();
+        let _ = self.pop_screen();
+        self.push_screen(screen);
+        true
+    }
+
+    pub fn action_hide_help_panel(&mut self) -> std::result::Result<bool, QueryError> {
+        let ids = self.query("HelpPanel")?.into_ids();
+        if ids.is_empty() {
+            return Ok(false);
+        }
+        if let Some(tree) = self.widget_tree.as_mut() {
+            for id in ids {
+                tree.remove(id);
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn action_show_help_panel(&mut self) -> std::result::Result<bool, QueryError> {
+        if !self.query("HelpPanel")?.is_empty() {
+            return Ok(false);
+        }
+        if let Some(tree) = self.widget_tree.as_mut()
+            && let Some(root) = tree.root()
+        {
+            tree.mount(root, Box::new(HelpPanel::new()));
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn action_toggle_dark(&mut self) -> bool {
+        self.dark_mode = !self.dark_mode;
+        let mut base = crate::style::Style::new();
+        if self.dark_mode {
+            if let Some(bg) = crate::style::parse_color_like("$background") {
+                base = base.bg(bg);
+            }
+            if let Some(fg) = crate::style::parse_color_like("$foreground") {
+                base = base.fg(fg);
+            }
+        } else {
+            base = base
+                .bg(Color::rgb(245, 245, 245))
+                .fg(Color::rgb(20, 20, 20));
+        }
+        self.theme = Theme::new().base(base);
+        true
+    }
+
+    pub fn action_change_theme(&mut self) -> bool {
+        self.action_toggle_dark()
+    }
+
+    pub fn action_bell(&mut self) -> bool {
+        self.console.write_str("\x07").is_ok()
+    }
+
+    pub fn action_screenshot(&mut self, filename: Option<&str>, path: Option<&str>) -> bool {
+        let file_name = filename
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("screenshot.svg");
+        let output = if let Some(path) = path {
+            PathBuf::from(path).join(file_name)
+        } else {
+            PathBuf::from(file_name)
+        };
+        let result = self.console.save_svg(
+            output.to_string_lossy().as_ref(),
+            "textual-rs screenshot",
+            None,
+            true,
+            0.61,
+            None,
+        );
+        match result {
+            Ok(()) => {
+                self.action_notify(
+                    &format!("Saved screenshot to {}", output.display()),
+                    "Screenshot",
+                    "information",
+                );
+                true
+            }
+            Err(err) => {
+                self.action_notify(
+                    &format!("Failed to save screenshot: {err}"),
+                    "Screenshot",
+                    "error",
+                );
+                true
+            }
+        }
+    }
+
     /// Borrow a widget mutably by node id for a scoped update.
     pub fn with_widget_mut<R>(
         &mut self,
@@ -628,7 +967,8 @@ impl App {
         f: impl FnOnce(&mut T) -> R,
     ) -> std::result::Result<R, QueryError> {
         let node_id = self.query_one(selector)?;
-        self.with_widget_mut_as(node_id, f).ok_or(QueryError::NoMatch)
+        self.with_widget_mut_as(node_id, f)
+            .ok_or(QueryError::NoMatch)
     }
 
     /// Build the arena-based widget tree by extracting children from the root widget.
@@ -957,6 +1297,17 @@ impl App {
         );
     }
 
+    fn dispatch_screen_lifecycle_event(&mut self, event: Event) {
+        let Some(tree) = self.widget_tree.as_mut() else {
+            return;
+        };
+        if tree.root().is_none() {
+            return;
+        }
+        let focused = routing::focused_node_id_tree(tree);
+        let _ = routing::dispatch_event_tree(tree, focused, &event);
+    }
+
     pub fn set_stylesheet(&mut self, stylesheet: StyleSheet) {
         self.stylesheet = stylesheet;
     }
@@ -1024,6 +1375,7 @@ impl App {
     ///
     /// Suspends the currently active screen (if any) and mounts the new one.
     pub fn push_screen(&mut self, screen: Box<dyn crate::screen::Screen>) {
+        self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push(screen);
     }
 
@@ -1036,6 +1388,7 @@ impl App {
         screen: Box<dyn crate::screen::Screen>,
         callback: crate::screen::ScreenResultCallback,
     ) {
+        self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push_with_callback(screen, callback);
     }
 
@@ -1050,6 +1403,7 @@ impl App {
                 if mode_name.is_some() {
                     self.current_mode = None;
                 }
+                self.dispatch_screen_lifecycle_event(Event::ScreenResume);
             }
             true
         } else {
@@ -1067,6 +1421,7 @@ impl App {
             if mode_name.is_some() {
                 self.current_mode = None;
             }
+            self.dispatch_screen_lifecycle_event(Event::ScreenResume);
             result
         })
     }
@@ -1134,6 +1489,8 @@ impl App {
         // so that if the factory panics the old screen is still intact.
         let new_screen = factory();
 
+        self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
+
         // Remove the current mode screen by its mode tag (safe even if
         // transient screens are on top).
         if let Some(mode) = self.current_mode.take() {
@@ -1143,6 +1500,7 @@ impl App {
         // Push the new mode screen with its mode tag.
         self.screen_stack.push_mode(new_screen, name.to_string());
         self.current_mode = Some(name.to_string());
+        self.dispatch_screen_lifecycle_event(Event::ScreenResume);
         true
     }
 
@@ -1621,6 +1979,7 @@ impl Widget for TreeStubWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::widget_tree::QueryError;
     use crate::widgets::{AppRoot, Button, Label};
     use rich_rs::Segments;
@@ -1826,6 +2185,57 @@ mod tests {
     }
 
     #[test]
+    fn app_convenience_mount_mount_all_and_get_child_by_type_work() {
+        struct TypeProbe;
+
+        impl Widget for TypeProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let _existing = tree.mount(root, Box::new(Label::new("existing")));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let mounted = app.mount(TypeProbe).expect("mount should work");
+        app.mount_all(vec![
+            Box::new(Button::new("one")),
+            Box::new(Button::new("two")),
+        ])
+        .expect("mount_all should work");
+
+        assert!(app.clear_on_next_render);
+        let by_type = app
+            .get_child_by_type::<TypeProbe>()
+            .expect("child by type should resolve");
+        assert_eq!(mounted, by_type);
+        let button_children = app.query_children("Button").expect("selector parses");
+        assert_eq!(button_children.len(), 2);
+    }
+
+    #[test]
+    fn app_batch_update_marks_repaint_once() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let _ = tree.mount(root, Box::new(Label::new("root")));
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.clear_on_next_render = false;
+
+        app.batch_update(|app| {
+            let _ = app.mount(Label::new("first"));
+            let _ = app.mount(Label::new("second"));
+        });
+        assert!(app.clear_on_next_render);
+        let labels = app.query_children("Label").expect("selector parses");
+        assert_eq!(labels.len(), 3);
+    }
+
+    #[test]
     fn app_query_ancestor_finds_closest_match() {
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
@@ -1901,7 +2311,7 @@ mod tests {
                 styles.set_min_width(9);
             })
             .focus()
-            .set(Some(false), Some(false))
+            .set(Some(false), Some(false), None, None)
             .refresh();
 
         let tree = app.widget_tree.as_ref().expect("tree should exist");
@@ -1924,8 +2334,139 @@ mod tests {
         assert_eq!(tree.visibility(first), Visibility::Hidden);
         assert_eq!(tree.visibility(second), Visibility::Hidden);
         assert!(first_node.widget.has_focus());
-        assert!(second_node.widget.has_focus());
+        assert!(!second_node.widget.has_focus());
         assert!(app.clear_on_next_render);
+    }
+
+    #[test]
+    fn dom_query_mut_supports_remove_and_multi_class_ops() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(Button::new("first")));
+        let second = tree.mount(root, Box::new(Button::new("second")));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.query_mut("Button")
+            .expect("query mut")
+            .add_classes(&["alpha", "beta"])
+            .remove_classes(&["alpha"])
+            .toggle_classes(&["beta", "gamma"]);
+
+        let gamma = app.query(".gamma").expect("selector should parse");
+        assert_eq!(gamma.len(), 2);
+        let beta = app.query(".beta").expect("selector should parse");
+        assert!(beta.is_empty());
+
+        app.query_mut("Button").expect("query mut").remove();
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(!tree.contains(first));
+        assert!(!tree.contains(second));
+    }
+
+    #[test]
+    fn dom_query_mut_set_supports_disabled_and_loading() {
+        #[derive(Default)]
+        struct StateProbe {
+            disabled: bool,
+            loading: bool,
+        }
+
+        impl Widget for StateProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn is_disabled(&self) -> bool {
+                self.disabled
+            }
+
+            fn set_disabled_state(&mut self, disabled: bool) {
+                self.disabled = disabled;
+            }
+
+            fn is_loading(&self) -> bool {
+                self.loading
+            }
+
+            fn set_loading_state(&mut self, loading: bool) {
+                self.loading = loading;
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let probe = tree.mount(root, Box::new(StateProbe::default()));
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.query_mut("StateProbe")
+            .expect("query mut")
+            .set(None, None, Some(true), Some(true));
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        let node = tree.get(probe).expect("probe exists");
+        assert!(node.widget.is_disabled());
+        assert!(node.widget.is_loading());
+    }
+
+    #[test]
+    fn dom_query_focus_and_blur_follow_first_match_semantics() {
+        struct FocusProbe {
+            id: String,
+            focused: bool,
+        }
+
+        impl FocusProbe {
+            fn new(id: &str) -> Self {
+                Self {
+                    id: id.to_string(),
+                    focused: false,
+                }
+            }
+        }
+
+        impl Widget for FocusProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn style_id(&self) -> Option<&str> {
+                Some(self.id.as_str())
+            }
+
+            fn focusable(&self) -> bool {
+                true
+            }
+
+            fn set_focus(&mut self, focused: bool) {
+                self.focused = focused;
+            }
+
+            fn has_focus(&self) -> bool {
+                self.focused
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(FocusProbe::new("first")));
+        let second = tree.mount(root, Box::new(FocusProbe::new("second")));
+        if let Some(node) = tree.get_mut(second) {
+            node.widget.set_focus(true);
+        }
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.query_mut("FocusProbe").expect("query").focus();
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(tree.get(first).expect("first exists").widget.has_focus());
+        assert!(!tree.get(second).expect("second exists").widget.has_focus());
+        app.query_mut("FocusProbe").expect("query").blur();
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(!tree.get(first).expect("first exists").widget.has_focus());
+        assert!(!tree.get(second).expect("second exists").widget.has_focus());
     }
 
     #[test]
@@ -1956,6 +2497,151 @@ mod tests {
         assert_eq!(bulk.len(), 2);
         let selected = app.query(".selected").expect("selector should parse");
         assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn app_action_helpers_cover_representative_direct_paths() {
+        struct FocusProbe {
+            id: String,
+            focused: bool,
+        }
+
+        impl FocusProbe {
+            fn new(id: &str) -> Self {
+                Self {
+                    id: id.to_string(),
+                    focused: false,
+                }
+            }
+        }
+
+        impl Widget for FocusProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn style_id(&self) -> Option<&str> {
+                Some(self.id.as_str())
+            }
+
+            fn focusable(&self) -> bool {
+                true
+            }
+
+            fn set_focus(&mut self, focused: bool) {
+                self.focused = focused;
+            }
+
+            fn has_focus(&self) -> bool {
+                self.focused
+            }
+        }
+
+        struct RuntimeModeScreen;
+        impl crate::screen::Screen for RuntimeModeScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(AppRoot::new())
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(FocusProbe::new("first")));
+        let second = tree.mount(root, Box::new(FocusProbe::new("second")));
+        if let Some(node) = tree.get_mut(first) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        assert_eq!(app.action_add_class("FocusProbe", "hot"), Ok(2));
+        assert_eq!(app.action_remove_class("#missing", "hot"), Ok(0));
+        assert_eq!(app.action_toggle_class("#first", "flip"), Ok(1));
+        assert_eq!(app.query(".flip").expect("selector").len(), 1);
+        assert_eq!(app.action_focus("second"), Ok(true));
+        assert!(app.action_focus_next());
+        assert!(app.action_focus_previous());
+        app.action_notify("hello", "title", "information");
+        assert!(!app.notifications.is_empty());
+        assert_eq!(app.action_show_help_panel(), Ok(true));
+        assert_eq!(app.action_hide_help_panel(), Ok(true));
+        assert!(app.action_change_theme());
+        assert!(app.action_toggle_dark());
+        assert!(app.action_screenshot(Some("test.svg"), None));
+
+        app.add_mode("one", || Box::new(RuntimeModeScreen));
+        app.add_mode("two", || Box::new(RuntimeModeScreen));
+        assert!(app.action_push_screen("one"));
+        assert!(app.switch_mode("two"));
+        assert!(app.action_switch_screen("one"));
+        assert!(app.action_back());
+        assert!(app.action_pop_screen() || app.action_pop_screen());
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(
+            tree.get(second)
+                .map(|node| node.widget.has_focus())
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn screen_suspend_resume_are_dispatched_for_push_pop_and_switch_mode() {
+        use std::sync::{Arc, Mutex};
+
+        struct EventLogRoot {
+            log: Arc<Mutex<Vec<&'static str>>>,
+        }
+
+        impl Widget for EventLogRoot {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+                let mut log = self.log.lock().expect("log lock");
+                match event {
+                    Event::ScreenSuspend => log.push("suspend"),
+                    Event::ScreenResume => log.push("resume"),
+                    _ => {}
+                }
+            }
+        }
+
+        struct RuntimeModeScreen;
+        impl crate::screen::Screen for RuntimeModeScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(AppRoot::new())
+            }
+        }
+
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut tree = WidgetTree::new();
+        tree.set_root(Box::new(EventLogRoot {
+            log: Arc::clone(&log),
+        }));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.add_mode("mode-a", || Box::new(RuntimeModeScreen));
+        app.add_mode("mode-b", || Box::new(RuntimeModeScreen));
+
+        app.push_screen(Box::new(RuntimeModeScreen));
+        app.pop_screen();
+        assert_eq!(
+            log.lock().expect("log lock").as_slice(),
+            &["suspend", "resume"]
+        );
+
+        log.lock().expect("log lock").clear();
+        assert!(app.switch_mode("mode-a"));
+        log.lock().expect("log lock").clear();
+        assert!(app.switch_mode("mode-b"));
+        assert_eq!(
+            log.lock().expect("log lock").as_slice(),
+            &["suspend", "resume"]
+        );
     }
 
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {

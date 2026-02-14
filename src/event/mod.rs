@@ -301,15 +301,9 @@ pub enum Event {
     Resize(u16, u16),
     /// Sent to the widget tree of a screen when it is no longer the active screen
     /// (another screen has been pushed on top).
-    ///
-    /// **Note:** Not yet dispatched by the runtime; currently a placeholder for
-    /// future screen-level event routing.
     ScreenSuspend,
     /// Sent to the widget tree of a screen when it becomes the active screen again
     /// (the screen above was popped).
-    ///
-    /// **Note:** Not yet dispatched by the runtime; currently a placeholder for
-    /// future screen-level event routing.
     ScreenResume,
 }
 

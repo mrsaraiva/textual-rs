@@ -262,6 +262,14 @@ impl Widget for RadioSet {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+        if disabled {
+            self.focused = false;
+            self.hovered = false;
+        }
+    }
+
     fn has_focus(&self) -> bool {
         self.focused
     }

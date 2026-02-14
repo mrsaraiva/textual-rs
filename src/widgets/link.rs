@@ -155,6 +155,10 @@ impl Widget for Link {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
     fn is_active(&self) -> bool {
         self.pressed && self.hovered
     }

@@ -5,7 +5,7 @@
 //!
 //! The runtime owns a [`WorkerRegistry`] that tracks all active workers.
 //! Widgets request workers via [`EventCtx`](crate::event::EventCtx); actual
-//! task spawning is handled by the runtime (deferred to a future sprint).
+//! task spawning/execution is handled by the runtime event loop.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

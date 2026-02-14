@@ -413,6 +413,13 @@ impl Widget for Button {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        if self.disabled != disabled {
+            self.disabled = disabled;
+            self.rebuild_classes_in_place();
+        }
+    }
+
     fn mouse_interactive(&self) -> bool {
         // Buttons should still get hover affordances even when disabled.
         true

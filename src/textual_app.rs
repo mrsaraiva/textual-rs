@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 
-use crate::action::{ActionDecl, ParsedAction};
+use crate::action::{APP_ACTIONS, ActionDecl, ParsedAction};
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
@@ -14,33 +14,6 @@ use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, Spacer, Widget};
 use crate::{App, Result};
-
-const APP_ADAPTER_ACTIONS: &[ActionDecl] = &[
-    ActionDecl {
-        name: "quit",
-        namespace: "app",
-        description: "Quit the application",
-        default_binding: Some("ctrl+q"),
-    },
-    ActionDecl {
-        name: "add_class",
-        namespace: "app",
-        description: "Add a CSS class to widgets matched by selector",
-        default_binding: None,
-    },
-    ActionDecl {
-        name: "remove_class",
-        namespace: "app",
-        description: "Remove a CSS class from widgets matched by selector",
-        default_binding: None,
-    },
-    ActionDecl {
-        name: "toggle_class",
-        namespace: "app",
-        description: "Toggle a CSS class on widgets matched by selector",
-        default_binding: None,
-    },
-];
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
 ///
@@ -345,7 +318,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn action_registry(&self) -> &[ActionDecl] {
-        APP_ADAPTER_ACTIONS
+        APP_ACTIONS
     }
 
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
@@ -355,10 +328,98 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             }
             Some((&action.arguments[0], &action.arguments[1]))
         }
+        fn single_arg(action: &ParsedAction) -> Option<&str> {
+            if action.arguments.len() != 1 {
+                return None;
+            }
+            Some(&action.arguments[0])
+        }
+        fn no_args(action: &ParsedAction) -> bool {
+            action.arguments.is_empty()
+        }
 
         match action.name.as_str() {
             "quit" => {
+                if !no_args(action) {
+                    return false;
+                }
                 ctx.request_stop();
+                ctx.set_handled();
+                true
+            }
+            "back" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppBack(crate::message::AppBack));
+                ctx.set_handled();
+                true
+            }
+            "bell" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppBell(crate::message::AppBell));
+                ctx.set_handled();
+                true
+            }
+            "change_theme" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppChangeTheme(crate::message::AppChangeTheme));
+                ctx.set_handled();
+                true
+            }
+            "command_palette" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppCommandPalette(
+                    crate::message::AppCommandPalette,
+                ));
+                ctx.set_handled();
+                true
+            }
+            "focus" => {
+                let Some(widget_id) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppFocus(crate::message::AppFocus {
+                    widget_id: widget_id.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "focus_next" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppFocusNext(crate::message::AppFocusNext));
+                ctx.set_handled();
+                true
+            }
+            "focus_previous" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppFocusPrevious(crate::message::AppFocusPrevious));
+                ctx.set_handled();
+                true
+            }
+            "help_quit" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppHelpQuit(crate::message::AppHelpQuit));
+                ctx.set_handled();
+                true
+            }
+            "hide_help_panel" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppHideHelpPanel(crate::message::AppHideHelpPanel));
                 ctx.set_handled();
                 true
             }
@@ -392,6 +453,110 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     selector: selector.to_string(),
                     class_name: class_name.to_string(),
                 }));
+                ctx.set_handled();
+                true
+            }
+            "notify" => {
+                if action.arguments.is_empty() || action.arguments.len() > 3 {
+                    return false;
+                }
+                let message = action.arguments[0].clone();
+                let title = action.arguments.get(1).cloned().unwrap_or_default();
+                let severity = action
+                    .arguments
+                    .get(2)
+                    .cloned()
+                    .unwrap_or_else(|| "information".to_string());
+                ctx.post_message(Message::AppNotify(crate::message::AppNotify {
+                    message,
+                    title,
+                    severity,
+                }));
+                ctx.set_handled();
+                true
+            }
+            "pop_screen" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppPopScreen(crate::message::AppPopScreen));
+                ctx.set_handled();
+                true
+            }
+            "push_screen" => {
+                let Some(screen) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppPushScreen(crate::message::AppPushScreen {
+                    screen: screen.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "screenshot" => {
+                if action.arguments.len() > 2 {
+                    return false;
+                }
+                ctx.post_message(Message::AppScreenshot(crate::message::AppScreenshot {
+                    filename: action.arguments.first().cloned(),
+                    path: action.arguments.get(1).cloned(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "show_help_panel" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
+                ctx.set_handled();
+                true
+            }
+            "simulate_key" => {
+                let Some(key) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppSimulateKey(crate::message::AppSimulateKey {
+                    key: key.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "suspend_process" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppSuspendProcess(
+                    crate::message::AppSuspendProcess,
+                ));
+                ctx.set_handled();
+                true
+            }
+            "switch_mode" => {
+                let Some(mode) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppSwitchMode(crate::message::AppSwitchMode {
+                    mode: mode.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "switch_screen" => {
+                let Some(screen) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppSwitchScreen(crate::message::AppSwitchScreen {
+                    screen: screen.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "toggle_dark" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppToggleDark(crate::message::AppToggleDark));
                 ctx.set_handled();
                 true
             }
@@ -1213,10 +1378,8 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
         let mut runtime = App::new().expect("app runtime should initialize");
         let mut ctx = EventCtx::default();
-        let key = KeyEventData::from_crossterm(KeyEvent::new(
-            KeyCode::Char('k'),
-            KeyModifiers::NONE,
-        ));
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
 
         adapter.on_app_key(&mut runtime, &key, &mut ctx);
 
@@ -1236,10 +1399,8 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
         let mut runtime = App::new().expect("app runtime should initialize");
         let mut ctx = EventCtx::default();
-        let key = KeyEventData::from_crossterm(KeyEvent::new(
-            KeyCode::Char('k'),
-            KeyModifiers::NONE,
-        ));
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
 
         adapter.on_app_key(&mut runtime, &key, &mut ctx);
         if !ctx.handled() {
@@ -1371,6 +1532,314 @@ mod tests {
                 ref class_name
             }) if selector == "Button" && class_name == "primary"
         ));
+    }
+
+    #[test]
+    fn app_adapter_action_registry_matches_python_action_matrix() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let names: std::collections::HashSet<&str> =
+            adapter.action_registry().iter().map(|a| a.name).collect();
+        let expected = [
+            "add_class",
+            "back",
+            "bell",
+            "change_theme",
+            "command_palette",
+            "focus",
+            "focus_next",
+            "focus_previous",
+            "help_quit",
+            "hide_help_panel",
+            "notify",
+            "pop_screen",
+            "push_screen",
+            "quit",
+            "remove_class",
+            "screenshot",
+            "show_help_panel",
+            "simulate_key",
+            "suspend_process",
+            "switch_mode",
+            "switch_screen",
+            "toggle_class",
+            "toggle_dark",
+        ];
+        assert_eq!(names.len(), expected.len());
+        for name in expected {
+            assert!(names.contains(name), "missing action {name}");
+        }
+    }
+
+    #[test]
+    fn app_action_caller_inventory_rows_are_complete() {
+        struct CallerRow {
+            action: &'static str,
+            python_callers: &'static [&'static str],
+            rust_callers: &'static [&'static str],
+        }
+
+        // APIG-14: keep a concrete caller audit per Python action row.
+        // Each row requires at least one Python callsite class and one Rust
+        // equivalent caller path.
+        let rows = [
+            CallerRow {
+                action: "add_class",
+                python_callers: &["app.py:4400", "app.py:4407"],
+                rust_callers: &["textual_app.rs:424", "runtime/event_loop.rs:361"],
+            },
+            CallerRow {
+                action: "back",
+                python_callers: &["app.py:4387", "screen.py:1913"],
+                rust_callers: &["textual_app.rs:350", "runtime/event_loop.rs:409"],
+            },
+            CallerRow {
+                action: "bell",
+                python_callers: &["app.py:4345", "_footer.py:134"],
+                rust_callers: &["textual_app.rs:358", "runtime/event_loop.rs:416"],
+            },
+            CallerRow {
+                action: "change_theme",
+                python_callers: &["app.py:1761", "app.py:1281"],
+                rust_callers: &["textual_app.rs:366", "runtime/event_loop.rs:419"],
+            },
+            CallerRow {
+                action: "command_palette",
+                python_callers: &["app.py:4584", "_header.py:46"],
+                rust_callers: &["textual_app.rs:374", "runtime/event_loop.rs:424"],
+            },
+            CallerRow {
+                action: "focus",
+                python_callers: &["app.py:4349", "screen.py:999"],
+                rust_callers: &["textual_app.rs:382", "runtime/event_loop.rs:432"],
+            },
+            CallerRow {
+                action: "focus_next",
+                python_callers: &["app.py:4435", "app.py:4437"],
+                rust_callers: &["textual_app.rs:392", "runtime/event_loop.rs:446"],
+            },
+            CallerRow {
+                action: "focus_previous",
+                python_callers: &["app.py:4439", "app.py:4441"],
+                rust_callers: &["textual_app.rs:400", "runtime/event_loop.rs:451"],
+            },
+            CallerRow {
+                action: "help_quit",
+                python_callers: &["app.py:3880", "app.py:3889"],
+                rust_callers: &["textual_app.rs:408", "runtime/event_loop.rs:456"],
+            },
+            CallerRow {
+                action: "hide_help_panel",
+                python_callers: &["app.py:4443", "app.py:1293"],
+                rust_callers: &["textual_app.rs:416", "runtime/event_loop.rs:460"],
+            },
+            CallerRow {
+                action: "notify",
+                python_callers: &["app.py:4456", "app.py:4460"],
+                rust_callers: &["textual_app.rs:457", "runtime/event_loop.rs:474"],
+            },
+            CallerRow {
+                action: "pop_screen",
+                python_callers: &["app.py:4379", "app.py:4381"],
+                rust_callers: &["textual_app.rs:476", "runtime/event_loop.rs:482"],
+            },
+            CallerRow {
+                action: "push_screen",
+                python_callers: &["app.py:4371", "app.py:4587"],
+                rust_callers: &["textual_app.rs:484", "runtime/event_loop.rs:489"],
+            },
+            CallerRow {
+                action: "quit",
+                python_callers: &["app.py:4341", "app.py:1286"],
+                rust_callers: &["textual_app.rs:342", "textual_app.rs:1676"],
+            },
+            CallerRow {
+                action: "remove_class",
+                python_callers: &["app.py:4409", "app.py:4415"],
+                rust_callers: &["textual_app.rs:435", "runtime/event_loop.rs:377"],
+            },
+            CallerRow {
+                action: "screenshot",
+                python_callers: &["app.py:1765", "demo_app.py:63"],
+                rust_callers: &["textual_app.rs:494", "runtime/event_loop.rs:500"],
+            },
+            CallerRow {
+                action: "show_help_panel",
+                python_callers: &["app.py:4447", "app.py:1299"],
+                rust_callers: &["textual_app.rs:502", "runtime/event_loop.rs:508"],
+            },
+            CallerRow {
+                action: "simulate_key",
+                python_callers: &["app.py:4331", "_footer.py:136"],
+                rust_callers: &["textual_app.rs:510", "runtime/event_loop.rs:522"],
+            },
+            CallerRow {
+                action: "suspend_process",
+                python_callers: &["app.py:4651", "app.py:4631"],
+                rust_callers: &["textual_app.rs:520", "runtime/event_loop.rs:565"],
+            },
+            CallerRow {
+                action: "switch_mode",
+                python_callers: &["app.py:4383", "demo_app.py:39"],
+                rust_callers: &["textual_app.rs:528", "runtime/event_loop.rs:573"],
+            },
+            CallerRow {
+                action: "switch_screen",
+                python_callers: &["app.py:4363", "app.py:4369"],
+                rust_callers: &["textual_app.rs:538", "runtime/event_loop.rs:582"],
+            },
+            CallerRow {
+                action: "toggle_class",
+                python_callers: &["app.py:4417", "app.py:4424"],
+                rust_callers: &["textual_app.rs:446", "runtime/event_loop.rs:393"],
+            },
+            CallerRow {
+                action: "toggle_dark",
+                python_callers: &["app.py:4426", "app.py:4431"],
+                rust_callers: &["textual_app.rs:548", "runtime/event_loop.rs:593"],
+            },
+        ];
+
+        assert_eq!(rows.len(), 23);
+        for row in rows {
+            assert!(
+                APP_ACTIONS.iter().any(|action| action.name == row.action),
+                "missing APP_ACTIONS row for {}",
+                row.action
+            );
+            assert!(
+                !row.python_callers.is_empty(),
+                "missing python caller audit for {}",
+                row.action
+            );
+            assert!(
+                !row.rust_callers.is_empty(),
+                "missing rust caller alignment for {}",
+                row.action
+            );
+        }
+    }
+
+    #[test]
+    fn app_actions_emit_runtime_messages_for_full_matrix() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut ctx = EventCtx::default();
+
+        let ok_actions = [
+            "app.back",
+            "app.bell",
+            "app.change_theme",
+            "app.command_palette",
+            "app.focus('sidebar')",
+            "app.focus_next",
+            "app.focus_previous",
+            "app.help_quit",
+            "app.hide_help_panel",
+            "app.add_class('Button', 'x')",
+            "app.remove_class('Button', 'x')",
+            "app.toggle_class('Button', 'x')",
+            "app.notify('hello')",
+            "app.notify('hello', 'title', 'warning')",
+            "app.pop_screen",
+            "app.push_screen('home')",
+            "app.screenshot",
+            "app.screenshot('shot.svg')",
+            "app.screenshot('shot.svg', '/tmp')",
+            "app.show_help_panel",
+            "app.simulate_key('tab')",
+            "app.suspend_process",
+            "app.switch_mode('home')",
+            "app.switch_screen('main')",
+            "app.toggle_dark",
+        ];
+
+        for action in ok_actions {
+            let parsed = parse_action(action).expect("action should parse");
+            assert!(
+                adapter.execute_action(&parsed, &mut ctx),
+                "expected handled: {action}"
+            );
+        }
+
+        let messages = ctx.take_messages();
+        assert!(!messages.is_empty());
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppBack(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppBell(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppFocus(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppNotify(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppSwitchMode(_)))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::AppToggleDark(_)))
+        );
+    }
+
+    #[test]
+    fn app_action_argument_validation_rejects_invalid_arity() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut ctx = EventCtx::default();
+
+        for action in [
+            "app.focus",
+            "app.add_class('Button')",
+            "app.notify",
+            "app.notify('a','b','c','d')",
+            "app.push_screen",
+            "app.screenshot('a','b','c')",
+            "app.switch_mode",
+            "app.switch_screen",
+            "app.simulate_key",
+        ] {
+            let parsed = parse_action(action).expect("action should parse");
+            assert!(
+                !adapter.execute_action(&parsed, &mut ctx),
+                "expected invalid arity for {action}"
+            );
+        }
     }
 
     #[test]

@@ -8,6 +8,27 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-14
+- **feat(parity): close App/runtime API parity gaps for actions, DOM query mutations, lifecycle events, and controller aliases**
+  - Expanded app action parity from partial adapter coverage to full Python action matrix coverage in `TextualApp` (`23/23` actions in `APP_ACTIONS` with adapter execution paths and argument validation).
+  - Added runtime handling and message types for full app action set, including richer `AppScreenshot { filename, path }` payload support and caller-inventory parity tests.
+  - Implemented app-level convenience wrappers: `App::batch_update`, `App::mount`, `App::mount_all`, `App::get_child_by_type`.
+  - Extended `DomQueryMut` parity semantics:
+    - added `remove()`,
+    - added multi-class helpers (`add_classes`, `remove_classes`, `toggle_classes`),
+    - aligned `focus()`/`blur()` to first-match semantics,
+    - expanded `set(...)` to include `disabled` and `loading`.
+  - Added widget trait mutation hooks for query-driven state changes:
+    - `Widget::set_disabled_state`,
+    - `Widget::set_loading_state`,
+    - `Widget::is_loading`.
+  - Wired runtime dispatch of `Event::ScreenSuspend` / `Event::ScreenResume` through push/pop/switch-mode app flows and added ordering coverage tests.
+  - Added Python-compat controller aliases/APIs:
+    - `Tabs::{disable, enable, hide, show}`,
+    - `TabbedContent::{disable_tab, enable_tab, hide_tab, show_tab, get_tab, get_pane, active_pane}`,
+    - `ContentSwitcher::add_content(child, id, set_current)`.
+  - Removed stale deferred/no-op parity comments for resolved runtime paths (`ScreenSuspend/ScreenResume` event docs, worker runtime header, reactive loop note).
+
+### 2026-02-14
 - **feat(devtools): inspector-grade snapshot protocol v2, new devtools commands, runtime hooks**
   - Added `Style::debug_properties()` returning all set CSS properties as human-readable `(&str, String)` pairs for devtools inspection.
   - Enriched devtools snapshot protocol (v2): widget lines extended from 11→19 columns (content_rect, display states, visibility, mounted, parent_id, children_ids). Added `style\t{id}\t{prop}\t{value}` lines for resolved CSS. Fixed class merging to include tree-level classes.

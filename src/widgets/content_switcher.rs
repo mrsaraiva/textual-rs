@@ -18,6 +18,57 @@ pub struct ContentSwitcher {
     styles: WidgetStyles,
 }
 
+struct IdTaggedChild {
+    id: String,
+    child: Box<dyn Widget>,
+}
+
+impl Widget for IdTaggedChild {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.child.render(console, options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        self.child.style_type()
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        Some(self.id.as_str())
+    }
+
+    fn focusable(&self) -> bool {
+        self.child.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.child.set_focus(focused);
+    }
+
+    fn has_focus(&self) -> bool {
+        self.child.has_focus()
+    }
+
+    fn is_hovered(&self) -> bool {
+        self.child.is_hovered()
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.child.set_hovered(hovered);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.child.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        self.child.on_message(message, ctx);
+    }
+}
+
 impl Default for ContentSwitcher {
     fn default() -> Self {
         Self::new()
@@ -45,6 +96,30 @@ impl ContentSwitcher {
 
     pub fn add_child(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
+    }
+
+    /// Python-compat helper: add content with optional id and optional activation.
+    pub fn add_content(
+        &mut self,
+        child: impl Widget + 'static,
+        id: Option<&str>,
+        set_current: bool,
+    ) {
+        let child: Box<dyn Widget> = if let Some(id) = id {
+            Box::new(IdTaggedChild {
+                id: id.to_string(),
+                child: Box::new(child),
+            })
+        } else {
+            Box::new(child)
+        };
+        let fallback_id = id
+            .map(str::to_string)
+            .or_else(|| child.style_id().map(str::to_string));
+        self.children.push(child);
+        if set_current {
+            self.current = fallback_id;
+        }
     }
 
     pub fn current(&self) -> Option<&str> {
@@ -267,5 +342,35 @@ impl Widget for ContentSwitcher {
 impl Renderable for ContentSwitcher {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Probe;
+
+    impl Widget for Probe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
+
+    #[test]
+    fn add_content_sets_id_and_current_when_requested() {
+        let mut switcher = ContentSwitcher::new();
+        switcher.add_content(Probe, Some("alpha"), true);
+        assert_eq!(switcher.current(), Some("alpha"));
+        assert_eq!(switcher.children().len(), 1);
+        assert_eq!(switcher.children()[0].style_id(), Some("alpha"));
+    }
+
+    #[test]
+    fn add_content_without_id_preserves_existing_current() {
+        let mut switcher = ContentSwitcher::new().initial("alpha");
+        switcher.add_content(Probe, None, false);
+        assert_eq!(switcher.current(), Some("alpha"));
+        assert_eq!(switcher.children().len(), 1);
     }
 }

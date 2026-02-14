@@ -318,7 +318,11 @@ fn sync_widget_controlled_child_display_tree(tree: &mut crate::widget_tree::Widg
     changed
 }
 
-fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> RuntimeMessagePass {
+fn split_runtime_control_messages(
+    app: &mut App,
+    root: &mut dyn Widget,
+    queue: Vec<MessageEvent>,
+) -> RuntimeMessagePass {
     let mut pass = RuntimeMessagePass::default();
     for event in queue {
         match event.message {
@@ -402,6 +406,195 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
                     ));
                 }
             },
+            Message::AppBack(crate::message::AppBack) => {
+                if app.action_back() {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+            }
+            Message::AppBell(crate::message::AppBell) => {
+                let _ = app.action_bell();
+            }
+            Message::AppChangeTheme(crate::message::AppChangeTheme) => {
+                if app.action_change_theme() {
+                    pass.repaint_requested = true;
+                }
+            }
+            Message::AppCommandPalette(crate::message::AppCommandPalette) => {
+                let sender = App::runtime_message_sender();
+                pass.generated.push(MessageEvent {
+                    sender,
+                    message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                    control: Some(sender),
+                });
+            }
+            Message::AppFocus(crate::message::AppFocus { widget_id }) => {
+                match app.action_focus(&widget_id) {
+                    Ok(changed) => {
+                        if changed {
+                            pass.repaint_requested = true;
+                        }
+                    }
+                    Err(err) => {
+                        debug_input(&format!(
+                            "[runtime] app.focus ignored widget_id={widget_id:?} err={err:?}"
+                        ));
+                    }
+                }
+            }
+            Message::AppFocusNext(crate::message::AppFocusNext) => {
+                if app.action_focus_next() {
+                    pass.repaint_requested = true;
+                }
+            }
+            Message::AppFocusPrevious(crate::message::AppFocusPrevious) => {
+                if app.action_focus_previous() {
+                    pass.repaint_requested = true;
+                }
+            }
+            Message::AppHelpQuit(crate::message::AppHelpQuit) => {
+                app.action_help_quit();
+                pass.repaint_requested = true;
+            }
+            Message::AppHideHelpPanel(crate::message::AppHideHelpPanel) => {
+                match app.action_hide_help_panel() {
+                    Ok(changed) => {
+                        if changed {
+                            pass.repaint_requested = true;
+                            pass.invalidation
+                                .merge(crate::event::InvalidationFlags::layout());
+                        }
+                    }
+                    Err(err) => {
+                        debug_input(&format!(
+                            "[runtime] app.hide_help_panel ignored err={err:?}"
+                        ));
+                    }
+                }
+            }
+            Message::AppNotify(crate::message::AppNotify {
+                message,
+                title,
+                severity,
+            }) => {
+                app.action_notify(&message, &title, &severity);
+                pass.repaint_requested = true;
+            }
+            Message::AppPopScreen(crate::message::AppPopScreen) => {
+                if app.action_pop_screen() {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+            }
+            Message::AppPushScreen(crate::message::AppPushScreen { screen }) => {
+                if app.action_push_screen(&screen) {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                } else {
+                    debug_input(&format!(
+                        "[runtime] app.push_screen ignored missing screen={screen:?}"
+                    ));
+                }
+            }
+            Message::AppScreenshot(crate::message::AppScreenshot { filename, path }) => {
+                pass.repaint_requested |=
+                    app.action_screenshot(filename.as_deref(), path.as_deref());
+            }
+            Message::AppShowHelpPanel(crate::message::AppShowHelpPanel) => {
+                match app.action_show_help_panel() {
+                    Ok(changed) => {
+                        if changed {
+                            pass.repaint_requested = true;
+                            pass.invalidation
+                                .merge(crate::event::InvalidationFlags::layout());
+                        }
+                    }
+                    Err(err) => {
+                        debug_input(&format!(
+                            "[runtime] app.show_help_panel ignored err={err:?}"
+                        ));
+                    }
+                }
+            }
+            Message::AppSimulateKey(crate::message::AppSimulateKey { key }) => {
+                let key = key.to_ascii_lowercase();
+                match key.as_str() {
+                    "tab" => {
+                        if app.action_focus_next() {
+                            pass.repaint_requested = true;
+                        }
+                    }
+                    "shift+tab" => {
+                        if app.action_focus_previous() {
+                            pass.repaint_requested = true;
+                        }
+                    }
+                    "ctrl+c" => {
+                        app.action_help_quit();
+                        pass.repaint_requested = true;
+                    }
+                    "ctrl+p" => {
+                        let sender = App::runtime_message_sender();
+                        pass.generated.push(MessageEvent {
+                            sender,
+                            message: Message::CommandPaletteOpened(
+                                crate::message::CommandPaletteOpened,
+                            ),
+                            control: Some(sender),
+                        });
+                    }
+                    _ => {
+                        // Fallback: route a synthetic key event through the
+                        // regular event pipeline for best-effort parity.
+                        let synthetic = Event::Key(KeyEventData::from_crossterm(
+                            crossterm::event::KeyEvent::new(
+                                crossterm::event::KeyCode::Null,
+                                crossterm::event::KeyModifiers::NONE,
+                            ),
+                        ));
+                        let mut outcome = app.dispatch_event_auto(root, synthetic);
+                        pass.repaint_requested |= outcome.repaint_requested;
+                        pass.invalidation.merge(outcome.invalidation);
+                        pass.generated.append(&mut outcome.messages);
+                    }
+                }
+            }
+            Message::AppSuspendProcess(crate::message::AppSuspendProcess) => {
+                app.action_notify(
+                    "Process suspend is not implemented yet in textual-rs runtime",
+                    "Suspend process",
+                    "warning",
+                );
+                pass.repaint_requested = true;
+            }
+            Message::AppSwitchMode(crate::message::AppSwitchMode { mode }) => {
+                if app.switch_mode(&mode) {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                } else {
+                    debug_input(&format!("[runtime] app.switch_mode ignored mode={mode:?}"));
+                }
+            }
+            Message::AppSwitchScreen(crate::message::AppSwitchScreen { screen }) => {
+                if app.action_switch_screen(&screen) {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                } else {
+                    debug_input(&format!(
+                        "[runtime] app.switch_screen ignored screen={screen:?}"
+                    ));
+                }
+            }
+            Message::AppToggleDark(crate::message::AppToggleDark) => {
+                if app.action_toggle_dark() {
+                    pass.repaint_requested = true;
+                }
+            }
             Message::OverlayVisibilityChanged(crate::message::OverlayVisibilityChanged {
                 overlay,
                 visible,
@@ -936,7 +1129,10 @@ impl App {
                     }
                     pending_invalidation.request_full_content();
                     // Schedule removal after ~500ms via a pending highlight clear.
-                    self.pending_highlight_clear = Some((id, std::time::Instant::now() + std::time::Duration::from_millis(500)));
+                    self.pending_highlight_clear = Some((
+                        id,
+                        std::time::Instant::now() + std::time::Duration::from_millis(500),
+                    ));
                 }
                 DevtoolsCommand::AddClass(id, class) => {
                     if let Some(tree) = self.widget_tree.as_mut() {
@@ -997,7 +1193,8 @@ impl App {
                     };
                     // Content rect from tree node.
                     let cr = &node.content_rect;
-                    let content_rect_field = if cr.x0 == 0 && cr.y0 == 0 && cr.x1 == 0 && cr.y1 == 0 {
+                    let content_rect_field = if cr.x0 == 0 && cr.y0 == 0 && cr.x1 == 0 && cr.y1 == 0
+                    {
                         "-".to_string()
                     } else {
                         format!("{},{},{},{}", cr.x0, cr.y0, cr.x1, cr.y1)
@@ -1165,7 +1362,7 @@ impl App {
         let mut aggregate = DispatchOutcome::default();
         let mut queue = initial;
         loop {
-            let pass = split_runtime_control_messages(self, queue);
+            let pass = split_runtime_control_messages(self, root, queue);
             aggregate.repaint_requested |= pass.repaint_requested;
             aggregate.invalidation.merge(pass.invalidation);
             let mut runtime_messages =
@@ -2126,12 +2323,6 @@ impl App {
             // Run the reactive phase for widgets that accumulated changes
             // during event dispatch. This drains ReactiveCtx changes, calls
             // watchers/computed recomputation, and detects cycles.
-            //
-            // Currently a no-op until widgets are migrated to carry
-            // ReactiveCtx (P3-10..P3-13). The infrastructure is ready:
-            // when a widget implements ReactiveWidget and has a ReactiveCtx,
-            // the runtime will call `run_reactive_phase()` here and feed
-            // its result into `pending_invalidation`.
             self.run_event_loop_reactive_phase(root, &mut pending_invalidation);
 
             // Detect focus transitions and dispatch Focus/Blur events.
@@ -2786,7 +2977,9 @@ impl App {
 
             // Preserve root-level action fallback in tree mode:
             // run root.on_event only when tree dispatch didn't handle Action.
-            if !outcome.handled && let Event::Action(action) = &event {
+            if !outcome.handled
+                && let Event::Action(action) = &event
+            {
                 let mut root_action_ctx = EventCtx::default();
                 root.on_event(&event, &mut root_action_ctx);
                 outcome.handled |= root_action_ctx.handled();
@@ -2821,7 +3014,9 @@ impl App {
             outcome
         } else {
             let mut outcome = dispatch_event(root, event.clone());
-            if !outcome.handled && let Event::Action(action) = event {
+            if !outcome.handled
+                && let Event::Action(action) = event
+            {
                 let mut app_action_ctx = EventCtx::default();
                 root.on_app_action(self, action, &mut app_action_ctx);
                 outcome.handled |= app_action_ctx.handled();
@@ -3058,6 +3253,7 @@ mod tests {
         set_overlay_modal_display_tree, should_dispatch_binding_hints,
         should_dispatch_focused_help, transition_requests_for_style_change,
     };
+    use crate::App;
     use crate::action::{ActionDecl, ParsedAction, parse_action, resolve_action};
     use crate::css::StyleSheet;
     use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
@@ -3070,7 +3266,6 @@ mod tests {
     };
     use crate::style::{Offset, OffsetValue, PropertyTransition, Style, TransitionTiming};
     use crate::widgets::{AppRoot, Widget};
-    use crate::App;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
@@ -4165,6 +4360,193 @@ mod tests {
         assert!(outcome.invalidation.layout);
         let highlighted = app.query(".highlight").expect("selector parses");
         assert_eq!(highlighted.len(), 1);
+    }
+
+    struct FocusIdProbe {
+        id: String,
+        focused: bool,
+    }
+
+    impl FocusIdProbe {
+        fn new(id: &str) -> Self {
+            Self {
+                id: id.to_string(),
+                focused: false,
+            }
+        }
+    }
+
+    impl Widget for FocusIdProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_id(&self) -> Option<&str> {
+            Some(&self.id)
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focused
+        }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
+    }
+
+    struct RuntimeModeScreen;
+
+    impl crate::screen::Screen for RuntimeModeScreen {
+        fn compose(&self) -> Box<dyn Widget> {
+            Box::new(AppRoot::new())
+        }
+    }
+
+    #[test]
+    fn runtime_app_action_messages_cover_non_selector_paths() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
+        let _second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
+        if let Some(node) = tree.get_mut(first) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = test_app_with_tree(tree);
+        app.add_mode("home", || Box::new(RuntimeModeScreen));
+        app.add_mode("main", || Box::new(RuntimeModeScreen));
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+
+        let messages = vec![
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppBell(crate::message::AppBell),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppChangeTheme(crate::message::AppChangeTheme),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppFocus(crate::message::AppFocus {
+                    widget_id: "second".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppFocusNext(crate::message::AppFocusNext),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppFocusPrevious(crate::message::AppFocusPrevious),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppNotify(crate::message::AppNotify {
+                    message: "hello".to_string(),
+                    title: "title".to_string(),
+                    severity: "warning".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppHelpQuit(crate::message::AppHelpQuit),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppCommandPalette(crate::message::AppCommandPalette),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppShowHelpPanel(crate::message::AppShowHelpPanel),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppHideHelpPanel(crate::message::AppHideHelpPanel),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppPushScreen(crate::message::AppPushScreen {
+                    screen: "home".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppPopScreen(crate::message::AppPopScreen),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppBack(crate::message::AppBack),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppSwitchMode(crate::message::AppSwitchMode {
+                    mode: "home".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppSwitchScreen(crate::message::AppSwitchScreen {
+                    screen: "main".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppScreenshot(crate::message::AppScreenshot {
+                    filename: None,
+                    path: None,
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppSimulateKey(crate::message::AppSimulateKey {
+                    key: "tab".to_string(),
+                }),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppSuspendProcess(crate::message::AppSuspendProcess),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppToggleDark(crate::message::AppToggleDark),
+                control: Some(node_id_from_ffi(1)),
+            },
+        ];
+
+        let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
+        assert!(outcome.repaint_requested);
+        assert!(app.notifications.len() >= 3);
+        let tree = app.widget_tree.as_ref().expect("tree should still exist");
+        assert!(
+            tree.walk_depth_first(tree.root().expect("root exists"))
+                .into_iter()
+                .any(|id| tree.get(id).is_some_and(|node| node.widget.has_focus())),
+            "one probe widget should stay focused"
+        );
+        assert!(app.screen_count() >= 1);
     }
 
     struct AppActionHost;

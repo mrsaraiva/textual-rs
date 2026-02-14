@@ -231,6 +231,10 @@ impl Widget for Placeholder {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if self.disabled {
             return;

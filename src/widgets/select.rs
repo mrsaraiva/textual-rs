@@ -419,6 +419,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         self.disabled
     }
 
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+        if disabled {
+            self.open = false;
+            self.search_buffer.clear();
+        }
+    }
+
     fn is_hovered(&self) -> bool {
         self.hovered
     }
