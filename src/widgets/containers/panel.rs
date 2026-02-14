@@ -47,6 +47,10 @@ impl Panel {
 }
 
 impl Widget for Panel {
+    fn border_title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         if self.child_extracted {
             return Vec::new();

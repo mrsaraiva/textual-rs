@@ -3,12 +3,12 @@
 //! These tests verify that render/visual CSS properties (P2-28/29/31/34/35)
 //! are correctly parsed, resolved, and wired into the rendering pipeline.
 
-use rich_rs::{Console, ConsoleOptions};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::style::{
-    Constrain, HorizontalAlign, KeylineType, OverlayMode, TextOverflow, TextWrap,
+    Constrain, HorizontalAlign, KeylineType, OverlayMode, Scalar, Style, TextOverflow, TextWrap,
 };
 
 // ===========================================================================
@@ -26,6 +26,103 @@ fn tree_render(
     let frame = render_tree_to_frame(&mut tree, root, &console, w, h);
     let lines = frame.as_plain_lines();
     (tree, frame, lines)
+}
+
+struct BorderCaptionWidget {
+    title: &'static str,
+    subtitle: &'static str,
+    styles: WidgetStyles,
+}
+
+impl BorderCaptionWidget {
+    fn new(title: &'static str, subtitle: &'static str) -> Self {
+        let mut styles = WidgetStyles::default();
+        styles.style = styles
+            .style
+            .border_top(textual::style::Color::parse("white").unwrap())
+            .border_bottom(textual::style::Color::parse("white").unwrap())
+            .border_left(textual::style::Color::parse("white").unwrap())
+            .border_right(textual::style::Color::parse("white").unwrap());
+        styles.style.border_title_align = Some(HorizontalAlign::Center);
+        styles.style.border_subtitle_align = Some(HorizontalAlign::Right);
+        styles.style.border_title_color = Some(textual::style::Color::parse("yellow").unwrap());
+        styles.style.border_subtitle_color = Some(textual::style::Color::parse("cyan").unwrap());
+        Self {
+            title,
+            subtitle,
+            styles,
+        }
+    }
+}
+
+impl Widget for BorderCaptionWidget {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let w = options.size.0.max(1);
+        let h = options.size.1.max(1);
+        let mut out = Segments::new();
+        for y in 0..h {
+            out.push(Segment::new(" ".repeat(w)));
+            if y + 1 < h {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn style_type(&self) -> &'static str {
+        "BorderCaptionWidget"
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        Some(self.title)
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        Some(self.subtitle)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+}
+
+struct FillWidget {
+    style_type_name: &'static str,
+    styles: WidgetStyles,
+}
+
+impl FillWidget {
+    fn new(style_type_name: &'static str, style: Style) -> Self {
+        let mut styles = WidgetStyles::default();
+        styles.style = style;
+        Self {
+            style_type_name,
+            styles,
+        }
+    }
+}
+
+impl Widget for FillWidget {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let w = options.size.0.max(1);
+        let h = options.size.1.max(1);
+        let mut out = Segments::new();
+        for y in 0..h {
+            out.push(Segment::new("x".repeat(w)));
+            if y + 1 < h {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn style_type(&self) -> &'static str {
+        self.style_type_name
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
 }
 
 // ===========================================================================
@@ -211,6 +308,28 @@ fn p2g29_border_title_color_css_parse_roundtrip() {
 
     let all_text: String = lines.join("");
     assert!(all_text.contains("styled"));
+}
+
+#[test]
+fn p2g29_border_title_subtitle_render_on_edges() {
+    let mut root = Container::new().with_child(BorderCaptionWidget::new("TITLE", "sub"));
+    let (_tree, frame, lines) = tree_render(&mut root, 24, 6);
+    assert!(lines[0].contains("TITLE"), "top border should contain title");
+    assert!(
+        lines[5].contains("sub"),
+        "bottom border should contain subtitle"
+    );
+
+    let title_x = lines[0].find("TITLE").expect("title should be present");
+    let title_cell = frame.get(title_x, 0);
+    let title_fg = title_cell
+        .style
+        .and_then(|s| s.color)
+        .map(|c| c);
+    assert_eq!(
+        title_fg,
+        Some(textual::style::Color::parse("yellow").unwrap().to_simple_opaque())
+    );
 }
 
 // ===========================================================================
@@ -653,6 +772,64 @@ fn p2_34_hatch_fills_blank_cells_with_pattern() {
     assert_eq!(frame.get(1, 0).text, "+", "blank cell should be hatched");
     assert_eq!(frame.get(5, 0).text, "+", "blank cell should be hatched");
     assert_eq!(frame.get(9, 0).text, "+", "blank cell should be hatched");
+}
+
+#[test]
+fn p2g34_overlay_screen_blends_with_underlay() {
+    let base_style = Style::new()
+        .width(Scalar::Percent(100.0))
+        .height(Scalar::Percent(100.0))
+        .bg(textual::style::Color::parse("#0000ff").unwrap());
+    let mut overlay_style = Style::new()
+        .width(Scalar::Percent(100.0))
+        .height(Scalar::Percent(100.0))
+        .bg(textual::style::Color::parse("#ff0000").unwrap());
+    overlay_style.position = Some(textual::style::Position::Absolute);
+    overlay_style.overlay = Some(OverlayMode::Screen);
+    let mut root = Container::new()
+        .with_child(FillWidget::new("BaseFill", base_style))
+        .with_child(FillWidget::new("OverlayFill", overlay_style));
+    let (_tree, frame, _lines) = tree_render(&mut root, 8, 3);
+
+    let bg = frame
+        .get(0, 0)
+        .style
+        .and_then(|s| s.bgcolor)
+        .map(|c| c)
+        .expect("blended background color should exist");
+    assert_eq!(bg, textual::style::Color::parse("#ff00ff").unwrap().to_simple_opaque());
+}
+
+#[test]
+fn p2g34_keyline_draws_separator_between_children() {
+    let mut keylined = Container::new();
+    keylined.styles_mut().unwrap().style.layout = Some(textual::style::Layout::Vertical);
+    keylined.styles_mut().unwrap().style.keyline = Some(textual::style::Keyline {
+        keyline_type: KeylineType::Thin,
+        color: textual::style::Color::parse("red").unwrap(),
+    });
+    let mut a = Label::new("A");
+    a.styles_mut().unwrap().style.height = Some(Scalar::Cells(1));
+    let mut b = Label::new("B");
+    b.styles_mut().unwrap().style.height = Some(Scalar::Cells(1));
+    keylined = keylined.with_child(a).with_child(b);
+    let mut root = Container::new().with_child(keylined);
+    let (_tree, frame, lines) = tree_render(&mut root, 10, 4);
+    assert!(
+        lines.iter().any(|l| l.contains('─')),
+        "keyline separator should be painted; lines={lines:?}"
+    );
+
+    let sep_y = lines
+        .iter()
+        .position(|l| l.contains('─'))
+        .expect("separator row");
+    let cell = frame.get(0, sep_y);
+    let fg = cell
+        .style
+        .and_then(|s| s.color)
+        .map(|c| c);
+    assert_eq!(fg, Some(textual::style::Color::parse("red").unwrap().to_simple_opaque()));
 }
 
 // ===========================================================================

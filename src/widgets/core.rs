@@ -268,6 +268,8 @@ pub trait Widget: Send + Sync {
             full_width,
             full_height,
             &debug_widget_label,
+            self.border_title(),
+            self.border_subtitle(),
         );
         let segments = if let Some(opacity) = resolved.opacity {
             crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)
@@ -418,6 +420,14 @@ pub trait Widget: Send + Sync {
     }
     fn style_classes(&self) -> &[String] {
         helpers::empty_classes()
+    }
+    /// Optional text rendered on the top border when border-title styling is active.
+    fn border_title(&self) -> Option<&str> {
+        None
+    }
+    /// Optional text rendered on the bottom border when border-subtitle styling is active.
+    fn border_subtitle(&self) -> Option<&str> {
+        None
     }
     /// Legacy convenience wrapper: render with styling.
     ///

@@ -16,6 +16,15 @@ until the API stabilizes.
     - `p2g24_absolute_applies_max_constraints`
     - `p2g35_expand_vertical_grows_intrinsic_child`
     - `p2g35_expand_horizontal_grows_intrinsic_child`
+- **fix(render): activate border captions, keylines, and `overlay: screen` compositing**
+  - Added widget border caption hooks (`border_title()` / `border_subtitle()`) and wired them into border edge composition.
+  - Border top/bottom rows now render caption text with `border-title-*` / `border-subtitle-*` alignment, color, background, and text-style flags.
+  - Implemented `overlay: screen` blending as an actual two-pass compositor using pre-paint underlay snapshots and per-cell screen blending.
+  - Implemented keyline rendering between adjacent children for vertical/horizontal layouts using `keyline` type + color.
+  - Added behavioral render tests in `tests/p2_render_css.rs`:
+    - `p2g29_border_title_subtitle_render_on_edges`
+    - `p2g34_overlay_screen_blends_with_underlay`
+    - `p2g34_keyline_draws_separator_between_children`
 - **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
   - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
   - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.

@@ -7,7 +7,7 @@ use crate::debug::{debug_layout, debug_render};
 use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::style::{
-    BorderEdge, Constrain, Hatch, KeylineType, OverlayMode, TextOverflow, TextWrap,
+    BorderEdge, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style, crop_line_horizontal};
@@ -571,6 +571,14 @@ fn render_tree_node(
     let resolved = resolve_style(node.widget.as_ref(), &meta);
 
     if should_render {
+        let dest_x = i32::from(rect.x0) + ctx.origin_x;
+        let dest_y = i32::from(rect.y0) + ctx.origin_y;
+        let screen_underlay = if matches!(resolved.overlay, Some(OverlayMode::Screen)) {
+            Some(capture_underlay_snapshot(frame, dest_x, dest_y, w, h, ctx.clip))
+        } else {
+            None
+        };
+
         // Create options sized to this widget's layout rect.
         let mut opts = rich_rs::ConsoleOptions::default();
         opts.size = (w, h);
@@ -611,8 +619,6 @@ fn render_tree_node(
             lines
         };
 
-        let dest_x = i32::from(rect.x0) + ctx.origin_x;
-        let dest_y = i32::from(rect.y0) + ctx.origin_y;
         let frame_clip = ClipRect::for_frame(frame);
         let Some(paint_clip) = ctx.clip.intersect(frame_clip) else {
             return;
@@ -652,11 +658,17 @@ fn render_tree_node(
 
         // P2-34: Apply overlay compositing mode.
         if let Some(ref overlay) = resolved.overlay {
-            apply_overlay_compositing(frame, overlay, dest_x, dest_y, w, h);
+            let fallback = Vec::new();
+            let underlay = screen_underlay.as_deref().unwrap_or(fallback.as_slice());
+            apply_overlay_compositing(frame, overlay, dest_x, dest_y, w, h, ctx.clip, underlay);
         }
     }
     // Clone keyline before push_style_context takes ownership of resolved.
-    let node_keyline = resolved.keyline;
+    let inline_style = node.widget.style();
+    let node_keyline = resolved
+        .keyline
+        .or_else(|| inline_style.clone().and_then(|s| s.keyline));
+    let node_layout = resolved.layout.or_else(|| inline_style.and_then(|s| s.layout));
     push_style_context(meta, resolved);
 
     let mut child_ctx = ctx;
@@ -686,7 +698,14 @@ fn render_tree_node(
 
     // P2-34: Paint keylines between children (after children are rendered).
     if let Some(ref keyline) = node_keyline {
-        paint_keylines(tree, node_id, keyline, ctx, frame);
+        paint_keylines(
+            tree,
+            node_id,
+            node_layout.unwrap_or(Layout::Vertical),
+            keyline,
+            ctx,
+            frame,
+        );
     }
 
     pop_style_context();
@@ -942,24 +961,65 @@ fn apply_hatch_fill(
 /// `OverlayMode::Screen` blends the widget's colors with the underlying frame
 /// using a screen-blend formula. `OverlayMode::None` is a no-op (normal paint).
 fn apply_overlay_compositing(
-    _frame: &mut FrameBuffer,
+    frame: &mut FrameBuffer,
     overlay: &OverlayMode,
-    _x0: i32,
-    _y0: i32,
-    _w: usize,
-    _h: usize,
+    x0: i32,
+    y0: i32,
+    w: usize,
+    h: usize,
+    clip: ClipRect,
+    underlay: &[OverlayCell],
 ) {
     match overlay {
         OverlayMode::None => {
             // Normal compositing — already the default paint behavior.
         }
         OverlayMode::Screen => {
-            // DEFERRED(P2-34): Screen-blend compositing requires reading the
-            // underlying frame cell colors before the widget is painted, then
-            // blending with `screen(a, b) = 1 - (1-a)(1-b)`. This needs a
-            // two-pass paint approach that is not yet implemented.
-            // The style field is wired and parsed; rendering will be activated
-            // when the two-pass compositor is available.
+            let frame_h = frame.height as i32;
+            let frame_w = frame.width as i32;
+            let mut idx = 0usize;
+            for dy in 0..h {
+                let y = y0 + dy as i32;
+                for dx in 0..w {
+                    let x = x0 + dx as i32;
+                    if x < clip.x0
+                        || y < clip.y0
+                        || x >= clip.x1
+                        || y >= clip.y1
+                        || x < 0
+                        || y < 0
+                        || x >= frame_w
+                        || y >= frame_h
+                    {
+                        idx = idx.saturating_add(1);
+                        continue;
+                    }
+                    let Some(base) = underlay.get(idx) else {
+                        idx = idx.saturating_add(1);
+                        continue;
+                    };
+                    idx = idx.saturating_add(1);
+
+                    let cell = frame.get_mut(x as usize, y as usize);
+                    let mut style = cell.style.unwrap_or_default();
+
+                    if let (Some(over_bg), Some(under_bg)) = (
+                        style.bgcolor.map(crate::style::color_from_simple),
+                        base.bg,
+                    ) {
+                        style.bgcolor = Some(screen_blend(under_bg, over_bg).to_simple_opaque());
+                    }
+
+                    if let (Some(over_fg), Some(under_fg)) = (
+                        style.color.map(crate::style::color_from_simple),
+                        base.fg,
+                    ) {
+                        style.color = Some(screen_blend(under_fg, over_fg).to_simple_opaque());
+                    }
+
+                    cell.style = Some(style);
+                }
+            }
         }
     }
 }
@@ -973,26 +1033,145 @@ fn apply_overlay_compositing(
 /// Keylines are horizontal or vertical lines drawn between sibling widgets
 /// inside a container. The keyline type determines the character used.
 fn paint_keylines(
-    _tree: &WidgetTree,
-    _parent_id: NodeId,
-    _keyline: &crate::style::Keyline,
-    _ctx: TreeRenderCtx,
-    _frame: &mut FrameBuffer,
+    tree: &WidgetTree,
+    parent_id: NodeId,
+    layout: Layout,
+    keyline: &crate::style::Keyline,
+    ctx: TreeRenderCtx,
+    frame: &mut FrameBuffer,
 ) {
-    // DEFERRED(P2-34): Keyline rendering requires knowledge of the parent's
-    // layout direction (horizontal vs vertical) and the exact bounding rects
-    // of each pair of adjacent children to paint separator lines between them.
-    // This requires layout-direction awareness in the tree compositor which is
-    // not yet exposed. The style field is wired and parsed; rendering will be
-    // activated when layout direction is available in the render pass.
-    let _type = &_keyline.keyline_type;
-    let _color = _keyline.color;
-    match _type {
-        KeylineType::None => {}
-        KeylineType::Thin | KeylineType::Heavy | KeylineType::Double => {
-            // Future: iterate adjacent child pairs, draw separator lines.
+    if keyline.keyline_type == KeylineType::None {
+        return;
+    }
+    let ch = match keyline.keyline_type {
+        KeylineType::None => return,
+        KeylineType::Thin => match layout {
+            Layout::Horizontal => '│',
+            _ => '─',
+        },
+        KeylineType::Heavy => match layout {
+            Layout::Horizontal => '┃',
+            _ => '━',
+        },
+        KeylineType::Double => match layout {
+            Layout::Horizontal => '║',
+            _ => '═',
+        },
+    };
+    let line_style = rich_rs::Style::new().with_color(keyline.color.to_simple_opaque());
+
+    let Some(parent) = tree.get(parent_id) else {
+        return;
+    };
+    let parent_rect = node_content_or_layout_rect(parent);
+    let child_ids: Vec<NodeId> = tree.children(parent_id).to_vec();
+    if child_ids.len() < 2 {
+        return;
+    }
+
+    for pair in child_ids.windows(2) {
+        let Some(a) = tree.get(pair[0]) else {
+            continue;
+        };
+        let Some(_b) = tree.get(pair[1]) else {
+            continue;
+        };
+        let ar = a.layout_rect;
+        match layout {
+            Layout::Horizontal => {
+                let x = i32::from(ar.x1) + ctx.origin_x;
+                let y0 = i32::from(parent_rect.y0) + ctx.origin_y;
+                let y1 = i32::from(parent_rect.y1) + ctx.origin_y;
+                if x < ctx.clip.x0 || x >= ctx.clip.x1 {
+                    continue;
+                }
+                for y in y0.max(ctx.clip.y0)..y1.min(ctx.clip.y1) {
+                    if y < 0 || y >= frame.height as i32 || x < 0 || x >= frame.width as i32 {
+                        continue;
+                    }
+                    let cell = frame.get_mut(x as usize, y as usize);
+                    cell.text = ch.to_string();
+                    cell.style = Some(line_style);
+                    cell.continuation = false;
+                }
+            }
+            _ => {
+                let y = i32::from(ar.y1) + ctx.origin_y;
+                let x0 = i32::from(parent_rect.x0) + ctx.origin_x;
+                let x1 = i32::from(parent_rect.x1) + ctx.origin_x;
+                if y < ctx.clip.y0 || y >= ctx.clip.y1 {
+                    continue;
+                }
+                for x in x0.max(ctx.clip.x0)..x1.min(ctx.clip.x1) {
+                    if x < 0 || x >= frame.width as i32 || y < 0 || y >= frame.height as i32 {
+                        continue;
+                    }
+                    let cell = frame.get_mut(x as usize, y as usize);
+                    cell.text = ch.to_string();
+                    cell.style = Some(line_style);
+                    cell.continuation = false;
+                }
+            }
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct OverlayCell {
+    fg: Option<crate::style::Color>,
+    bg: Option<crate::style::Color>,
+}
+
+fn capture_underlay_snapshot(
+    frame: &FrameBuffer,
+    x0: i32,
+    y0: i32,
+    w: usize,
+    h: usize,
+    clip: ClipRect,
+) -> Vec<OverlayCell> {
+    let mut out = Vec::with_capacity(w.saturating_mul(h));
+    let frame_h = frame.height as i32;
+    let frame_w = frame.width as i32;
+    for dy in 0..h {
+        let y = y0 + dy as i32;
+        for dx in 0..w {
+            let x = x0 + dx as i32;
+            if x < clip.x0
+                || y < clip.y0
+                || x >= clip.x1
+                || y >= clip.y1
+                || x < 0
+                || y < 0
+                || x >= frame_w
+                || y >= frame_h
+            {
+                out.push(OverlayCell::default());
+                continue;
+            }
+            let cell = frame.get(x as usize, y as usize);
+            let style = cell.style.unwrap_or_default();
+            out.push(OverlayCell {
+                fg: style.color.map(crate::style::color_from_simple),
+                bg: style.bgcolor.map(crate::style::color_from_simple),
+            });
+        }
+    }
+    out
+}
+
+fn screen_blend(base: crate::style::Color, over: crate::style::Color) -> crate::style::Color {
+    fn chan(a: u8, b: u8) -> u8 {
+        let af = a as f32 / 255.0;
+        let bf = b as f32 / 255.0;
+        ((1.0 - (1.0 - af) * (1.0 - bf)) * 255.0).round() as u8
+    }
+    crate::style::Color::rgba(
+        chan(base.r, over.r),
+        chan(base.g, over.g),
+        chan(base.b, over.b),
+        over.a,
+    )
 }
 
 // ===========================================================================
@@ -1131,14 +1310,6 @@ pub fn constrain_overlay_position(
 // ===========================================================================
 // P2-29: Border title/subtitle styling
 // ===========================================================================
-
-// DEFERRED(P2-29): Border title/subtitle rendering requires:
-// 1. Widget-level storage of title/subtitle text (not yet a Widget trait method)
-// 2. Integration into `apply_border_edges` in widgets/helpers.rs to overlay
-//    styled title text onto the top/bottom border rows
-// 3. The alignment (border_title_align, border_subtitle_align) and color/style
-//    properties are parsed and stored in the Style struct; rendering activation
-//    is blocked on the border-title text source being available in the render path.
 
 fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::widget_tree::Rect {
     let content = node.content_rect;

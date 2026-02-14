@@ -248,6 +248,8 @@ pub(crate) fn apply_border_edges(
     full_width: usize,
     full_height: usize,
     debug_widget_label: &str,
+    border_title: Option<&str>,
+    border_subtitle: Option<&str>,
 ) -> Segments {
     let border_top = style.border_top;
     let border_right = style.border_right;
@@ -340,7 +342,7 @@ pub(crate) fn apply_border_edges(
 
     // Add top/bottom borders (if any).
     if border_top.is_set() {
-        let top_row = border_horizontal_row(
+        let mut top_row = border_horizontal_row(
             border_top,
             Some(inner_bg),
             Some(outer_bg),
@@ -349,6 +351,22 @@ pub(crate) fn apply_border_edges(
             has_right,
             true,
         );
+        if let Some(title) = border_title.filter(|t| !t.is_empty()) {
+            overlay_border_text(
+                &mut top_row,
+                title,
+                full_width.max(1),
+                has_left,
+                has_right,
+                style
+                    .border_title_align
+                    .unwrap_or(crate::style::HorizontalAlign::Left),
+                style.border_title_color,
+                style.border_title_background,
+                style.border_title_style,
+                inner_bg,
+            );
+        }
         if border_debug {
             debug_border(&format!(
                 "[border_row] widget={} row=top segments={}",
@@ -359,7 +377,7 @@ pub(crate) fn apply_border_edges(
         edged.insert(0, top_row);
     }
     if border_bottom.is_set() {
-        let bottom_row = border_horizontal_row(
+        let mut bottom_row = border_horizontal_row(
             border_bottom,
             Some(inner_bg),
             Some(outer_bg),
@@ -368,6 +386,22 @@ pub(crate) fn apply_border_edges(
             has_right,
             false,
         );
+        if let Some(subtitle) = border_subtitle.filter(|t| !t.is_empty()) {
+            overlay_border_text(
+                &mut bottom_row,
+                subtitle,
+                full_width.max(1),
+                has_left,
+                has_right,
+                style
+                    .border_subtitle_align
+                    .unwrap_or(crate::style::HorizontalAlign::Right),
+                style.border_subtitle_color,
+                style.border_subtitle_background,
+                style.border_subtitle_style,
+                inner_bg,
+            );
+        }
         if border_debug {
             debug_border(&format!(
                 "[border_row] widget={} row=bottom segments={}",
@@ -604,6 +638,92 @@ fn border_side_segment(
     let loc = locations[1][col];
     let s = resolve_border_char_style(loc, inner, outer);
     Segment::styled(ch.to_string(), s)
+}
+
+fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
+    if flags.bold {
+        *style = style.clone().with_bold(true);
+    }
+    if flags.dim {
+        *style = style.clone().with_dim(true);
+    }
+    if flags.italic {
+        *style = style.clone().with_italic(true);
+    }
+    if flags.underline {
+        *style = style.clone().with_underline(true);
+    }
+    if flags.reverse {
+        style.reverse = Some(true);
+    }
+    if flags.strike {
+        style.strike = Some(true);
+    }
+}
+
+fn overlay_border_text(
+    row: &mut Vec<Segment>,
+    text: &str,
+    width: usize,
+    has_left: bool,
+    has_right: bool,
+    align: crate::style::HorizontalAlign,
+    fg: Option<crate::style::Color>,
+    bg: Option<crate::style::Color>,
+    flags: Option<crate::style::TextStyleFlags>,
+    fallback_bg: crate::style::Color,
+) {
+    let left_w = usize::from(has_left);
+    let right_w = usize::from(has_right);
+    if width <= left_w + right_w {
+        return;
+    }
+    let inner_w = width - left_w - right_w;
+    let clipped = rich_rs::set_cell_size(text, inner_w);
+    let text_w = rich_rs::cell_len(&clipped);
+    if text_w == 0 {
+        return;
+    }
+    let start = match align {
+        crate::style::HorizontalAlign::Left => 0,
+        crate::style::HorizontalAlign::Center => inner_w.saturating_sub(text_w) / 2,
+        crate::style::HorizontalAlign::Right => inner_w.saturating_sub(text_w),
+    };
+    let prefix = " ".repeat(start);
+    let suffix = " ".repeat(inner_w.saturating_sub(start + text_w));
+
+    let mut middle_style = row
+        .get(usize::from(has_left))
+        .and_then(|s| s.style)
+        .unwrap_or_default();
+    if let Some(c) = fg {
+        middle_style = middle_style.with_color(c.to_simple_opaque());
+    }
+    if let Some(c) = bg {
+        middle_style = middle_style.with_bgcolor(c.to_simple_opaque());
+    } else if middle_style.bgcolor.is_none() {
+        middle_style = middle_style.with_bgcolor(fallback_bg.to_simple_opaque());
+    }
+    if let Some(f) = flags.as_ref() {
+        apply_text_style_flags(&mut middle_style, f);
+    }
+
+    let mut rebuilt: Vec<Segment> = Vec::with_capacity(3);
+    if has_left {
+        if let Some(left) = row.first().cloned() {
+            rebuilt.push(left);
+        }
+    }
+    rebuilt.push(Segment::styled(
+        format!("{prefix}{clipped}{suffix}"),
+        middle_style,
+    ));
+    if has_right {
+        if let Some(right) = row.last().cloned() {
+            rebuilt.push(right);
+        }
+    }
+    *row = adjust_line_length_no_bg(&rebuilt, width);
 }
 
 pub(crate) fn apply_line_pad(
