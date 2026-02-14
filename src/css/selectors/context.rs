@@ -11,6 +11,8 @@ thread_local! {
     pub(super) static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
     pub(super) static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
     pub(super) static APP_ACTIVE: RefCell<bool> = RefCell::new(true);
+    pub(super) static APP_RUNTIME_PSEUDOS: RefCell<AppRuntimePseudos> =
+        RefCell::new(AppRuntimePseudos::default());
     pub(super) static COMPUTED_STYLE_CACHE: RefCell<ComputedStyleCache> =
         RefCell::new(ComputedStyleCache::default());
     /// Set of `NodeId`s that match the `:focus-within` pseudo-class.
@@ -22,6 +24,14 @@ thread_local! {
 }
 
 pub struct AppActiveGuard(bool);
+pub struct AppRuntimePseudosGuard(AppRuntimePseudos);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AppRuntimePseudos {
+    pub inline: bool,
+    pub ansi: bool,
+    pub nocolor: bool,
+}
 
 pub fn set_app_active(active: bool) -> AppActiveGuard {
     let prev = APP_ACTIVE.with(|v| {
@@ -44,6 +54,29 @@ impl Drop for AppActiveGuard {
 
 pub(super) fn app_is_active() -> bool {
     APP_ACTIVE.with(|v| *v.borrow())
+}
+
+pub fn set_app_runtime_pseudos(pseudos: AppRuntimePseudos) -> AppRuntimePseudosGuard {
+    let prev = APP_RUNTIME_PSEUDOS.with(|v| {
+        let mut guard = v.borrow_mut();
+        let prev = *guard;
+        *guard = pseudos;
+        prev
+    });
+    AppRuntimePseudosGuard(prev)
+}
+
+impl Drop for AppRuntimePseudosGuard {
+    fn drop(&mut self) {
+        let prev = self.0;
+        APP_RUNTIME_PSEUDOS.with(|v| {
+            *v.borrow_mut() = prev;
+        });
+    }
+}
+
+pub(super) fn app_runtime_pseudos() -> AppRuntimePseudos {
+    APP_RUNTIME_PSEUDOS.with(|v| *v.borrow())
 }
 
 // -- Focus-within context ---------------------------------------------------

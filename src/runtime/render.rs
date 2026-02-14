@@ -1,6 +1,7 @@
 use crate::css::{
-    begin_style_render_pass, pop_style_context, push_style_context, resolve_style,
-    selector_meta_generic, set_app_active, set_style_context, take_layout_affected_style_changes,
+    AppRuntimePseudos, begin_style_render_pass, pop_style_context, push_style_context,
+    resolve_style, selector_meta_generic, set_app_active, set_app_runtime_pseudos,
+    set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::{debug_layout, debug_render};
 use crate::node_id::NodeId;
@@ -87,6 +88,11 @@ impl App {
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
         let _active = set_app_active(self.app_active);
+        let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            inline: self.app_inline,
+            ansi: self.app_ansi,
+            nocolor: self.app_nocolor,
+        });
         let _guard = set_style_context(sheet);
         begin_style_render_pass();
 
@@ -594,8 +600,7 @@ fn render_tree_node(
         } else {
             w
         };
-        let lines =
-            rich_rs::Segment::split_and_crop_lines(segments, crop_width, None, true, false);
+        let lines = rich_rs::Segment::split_and_crop_lines(segments, crop_width, None, true, false);
 
         let lines = if let Some(overflow) = overflow_mode {
             lines
@@ -773,27 +778,24 @@ fn paint_outline(
         crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
     // Helper: paint a single outline cell if it's within bounds.
-    let paint_cell =
-        |frame: &mut FrameBuffer, x: i32, y: i32, ch: char, edge: &BorderEdge| {
-            if x < paint_clip.x0 || x >= paint_clip.x1 || y < paint_clip.y0 || y >= paint_clip.y1 {
-                return;
-            }
-            let ux = x as usize;
-            let uy = y as usize;
-            if ux >= frame.width || uy >= frame.height {
-                return;
-            }
-            let color = edge
-                .color()
-                .unwrap_or(fallback_bg);
-            let style = rich_rs::Style::new()
-                .with_color(color.to_simple_opaque())
-                .with_bgcolor(fallback_bg.to_simple_opaque());
-            let cell = frame.get_mut(ux, uy);
-            cell.text = ch.to_string();
-            cell.style = Some(style);
-            cell.continuation = false;
-        };
+    let paint_cell = |frame: &mut FrameBuffer, x: i32, y: i32, ch: char, edge: &BorderEdge| {
+        if x < paint_clip.x0 || x >= paint_clip.x1 || y < paint_clip.y0 || y >= paint_clip.y1 {
+            return;
+        }
+        let ux = x as usize;
+        let uy = y as usize;
+        if ux >= frame.width || uy >= frame.height {
+            return;
+        }
+        let color = edge.color().unwrap_or(fallback_bg);
+        let style = rich_rs::Style::new()
+            .with_color(color.to_simple_opaque())
+            .with_bgcolor(fallback_bg.to_simple_opaque());
+        let cell = frame.get_mut(ux, uy);
+        cell.text = ch.to_string();
+        cell.style = Some(style);
+        cell.continuation = false;
+    };
 
     // Top outline: row at dest_y - 1, columns [dest_x .. dest_x + w).
     if outline_top.is_set() {
@@ -887,7 +889,15 @@ fn outline_char_vertical(edge: &BorderEdge) -> char {
 /// Hatch replaces empty/space cells with the hatch character in the specified
 /// color, creating a repeating pattern fill effect. Only cells that are
 /// currently blank (space or empty) are filled; existing content is preserved.
-fn apply_hatch_fill(frame: &mut FrameBuffer, hatch: &Hatch, x0: i32, y0: i32, w: usize, h: usize, clip: ClipRect) {
+fn apply_hatch_fill(
+    frame: &mut FrameBuffer,
+    hatch: &Hatch,
+    x0: i32,
+    y0: i32,
+    w: usize,
+    h: usize,
+    clip: ClipRect,
+) {
     let frame_clip = ClipRect {
         x0: 0,
         y0: 0,
@@ -912,8 +922,7 @@ fn apply_hatch_fill(frame: &mut FrameBuffer, hatch: &Hatch, x0: i32, y0: i32, w:
             if cell.continuation {
                 continue;
             }
-            let is_blank = cell.text.is_empty()
-                || cell.text.chars().all(|c| c == ' ');
+            let is_blank = cell.text.is_empty() || cell.text.chars().all(|c| c == ' ');
             if is_blank {
                 cell.text = hatch.character.to_string();
                 let mut style = cell.style.unwrap_or_else(rich_rs::Style::new);
@@ -1007,9 +1016,7 @@ pub fn apply_text_overflow_to_line(
     }
 
     match overflow {
-        TextOverflow::Clip => {
-            crop_line_horizontal(line, 0, max_width)
-        }
+        TextOverflow::Clip => crop_line_horizontal(line, 0, max_width),
         TextOverflow::Ellipsis => {
             if max_width == 0 {
                 return Vec::new();
@@ -1018,7 +1025,10 @@ pub fn apply_text_overflow_to_line(
             let mut result = truncated;
             // Append ellipsis with the style of the last segment.
             let last_style = result.last().and_then(|s| s.style);
-            result.push(Segment::styled("…".to_string(), last_style.unwrap_or_default()));
+            result.push(Segment::styled(
+                "…".to_string(),
+                last_style.unwrap_or_default(),
+            ));
             result
         }
         TextOverflow::Fold => {
@@ -1033,13 +1043,9 @@ pub fn apply_text_overflow_to_line(
 ///
 /// Returns `Some(overflow_mode)` when text-wrap is NoWrap, indicating the
 /// caller should apply overflow truncation. Returns `None` for normal wrapping.
-pub fn text_overflow_mode(
-    resolved: &crate::style::Style,
-) -> Option<TextOverflow> {
+pub fn text_overflow_mode(resolved: &crate::style::Style) -> Option<TextOverflow> {
     match resolved.text_wrap {
-        Some(TextWrap::NoWrap) => {
-            Some(resolved.text_overflow.unwrap_or(TextOverflow::Clip))
-        }
+        Some(TextWrap::NoWrap) => Some(resolved.text_overflow.unwrap_or(TextOverflow::Clip)),
         _ => None,
     }
 }
@@ -1053,9 +1059,7 @@ pub fn text_overflow_mode(
 /// Returns `(constrain_x, constrain_y)` where each axis uses the specific
 /// override (`constrain-x`/`constrain-y`) if set, otherwise falls back to
 /// the generic `constrain` property.
-pub fn resolve_axis_constrain(
-    resolved: &crate::style::Style,
-) -> (Constrain, Constrain) {
+pub fn resolve_axis_constrain(resolved: &crate::style::Style) -> (Constrain, Constrain) {
     let base = resolved.constrain.unwrap_or(Constrain::None);
     let cx = resolved.constrain_x.unwrap_or(base);
     let cy = resolved.constrain_y.unwrap_or(base);

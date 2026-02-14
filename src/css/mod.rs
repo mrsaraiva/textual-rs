@@ -3,8 +3,9 @@ mod selectors;
 
 pub use defaults::default_widget_stylesheet;
 pub use selectors::{
-    AppActiveGuard, PseudoClass, StyleContextGuard, StyleRule, StyleSelector, StyleSheet,
-    set_app_active, set_style_context,
+    AppActiveGuard, AppRuntimePseudos, AppRuntimePseudosGuard, PseudoClass, StyleContextGuard,
+    StyleRule, StyleSelector, StyleSheet, set_app_active, set_app_runtime_pseudos,
+    set_style_context,
 };
 pub(crate) use selectors::{
     Combinator, SelectorChain, SelectorMeta, apply_display_visibility_to_tree,

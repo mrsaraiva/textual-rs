@@ -21,8 +21,7 @@ fn tree_render(
     h: usize,
 ) -> (WidgetTree, FrameBuffer, Vec<String>) {
     let console = Console::new();
-    let mut tree =
-        build_widget_tree_from_root(root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(root).expect("tree should have children");
     let frame = render_tree_to_frame(&mut tree, root, &console, w, h);
     let lines = frame.as_plain_lines();
     (tree, frame, lines)
@@ -43,7 +42,6 @@ fn find_text(lines: &[String], needle: &str) -> (usize, usize) {
         .unwrap_or_else(|| panic!("text '{needle}' missing from computed row {row}"));
     (row, col)
 }
-
 
 // ===========================================================================
 // P1G-12(a): Composed descendants receive non-zero layout rects
@@ -92,12 +90,15 @@ fn p1g12a_tree_contains_all_composed_descendants() {
         .with_child(Label::new("two"))
         .with_child(Label::new("three"));
 
-    let tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     let root_id = tree.root().expect("tree must have a root");
 
     // Root stub + 3 children = at least 4 nodes.
-    assert!(tree.len() >= 4, "tree should have root + 3 children, got {}", tree.len());
+    assert!(
+        tree.len() >= 4,
+        "tree should have root + 3 children, got {}",
+        tree.len()
+    );
 
     // Root's direct children count.
     let children = tree.children(root_id);
@@ -116,8 +117,14 @@ fn p1g12a_nested_container_vertical_labels_render() {
 
     let (tree, _frame, lines) = tree_render(&mut root, 40, 10);
 
-    assert!(lines_contain(&lines, "inner_one"), "inner_one should render");
-    assert!(lines_contain(&lines, "inner_two"), "inner_two should render");
+    assert!(
+        lines_contain(&lines, "inner_one"),
+        "inner_one should render"
+    );
+    assert!(
+        lines_contain(&lines, "inner_two"),
+        "inner_two should render"
+    );
 
     // Walk tree depth: root -> Container-child(Vertical) -> Labels
     let root_id = tree.root().unwrap();
@@ -172,10 +179,12 @@ fn p1g12b_scroll_view_clips_to_viewport() {
     );
 
     // Total visible must be bounded by viewport height (4).
-    let total_visible = ["line_A", "line_B", "line_C", "line_D", "line_E", "line_F", "line_G", "line_H"]
-        .iter()
-        .filter(|label| lines_contain(&lines, label))
-        .count();
+    let total_visible = [
+        "line_A", "line_B", "line_C", "line_D", "line_E", "line_F", "line_G", "line_H",
+    ]
+    .iter()
+    .filter(|label| lines_contain(&lines, label))
+    .count();
     assert!(
         total_visible <= 4,
         "visible count should not exceed viewport height (4), saw {total_visible}"
@@ -200,10 +209,19 @@ fn p1g12b_vertical_scroll_clips_excess_children() {
     let (_tree, _frame, lines) = tree_render(&mut root, 30, 3);
 
     let all_labels = [
-        "row_first", "row_second", "row_third", "row_fourth",
-        "row_fifth", "row_sixth", "row_seventh", "row_eighth",
+        "row_first",
+        "row_second",
+        "row_third",
+        "row_fourth",
+        "row_fifth",
+        "row_sixth",
+        "row_seventh",
+        "row_eighth",
     ];
-    let total_visible = all_labels.iter().filter(|l| lines_contain(&lines, l)).count();
+    let total_visible = all_labels
+        .iter()
+        .filter(|l| lines_contain(&lines, l))
+        .count();
 
     // With only 3 rows of viewport, not all 8 can be visible.
     assert!(
@@ -229,9 +247,7 @@ fn p1g12b_vertical_scroll_clips_excess_children() {
 /// Button nested in containers renders its text in the expected position.
 #[test]
 fn p1g12c_button_in_nested_containers_renders_text() {
-    let mut root = Container::new().with_child(
-        Vertical::new().with_child(Button::new("Click Me")),
-    );
+    let mut root = Container::new().with_child(Vertical::new().with_child(Button::new("Click Me")));
 
     let (_tree, _frame, lines) = tree_render(&mut root, 40, 10);
 
@@ -265,8 +281,7 @@ fn p1g12c_button_position_is_in_expected_region() {
 /// a hit-test at those coordinates would resolve to the interactive button.
 #[test]
 fn p1g12c_button_occupies_expected_column_range() {
-    let mut root = Container::new()
-        .with_child(Button::new("HitTarget"));
+    let mut root = Container::new().with_child(Button::new("HitTarget"));
 
     let (_tree, frame, lines) = tree_render(&mut root, 40, 5);
 
@@ -375,7 +390,10 @@ fn p1g15b_vertical_alias_stacks_children_vertically() {
     let r1 = lines.iter().position(|l| l.contains("vert_1")).unwrap();
     let r2 = lines.iter().position(|l| l.contains("vert_2")).unwrap();
     let r3 = lines.iter().position(|l| l.contains("vert_3")).unwrap();
-    assert!(r1 < r2 && r2 < r3, "Vertical must stack top-to-bottom: {r1}<{r2}<{r3}");
+    assert!(
+        r1 < r2 && r2 < r3,
+        "Vertical must stack top-to-bottom: {r1}<{r2}<{r3}"
+    );
 
     // Tree structure should have 3 direct children under root.
     let root_id = tree.root().unwrap();
@@ -582,13 +600,14 @@ fn p1g15c_deep_chain_with_compose_and_labels() {
 #[test]
 fn layout_pass_tree_structure_remains_valid() {
     let mut root = Container::new()
-        .with_child(Vertical::new()
-            .with_child(Label::new("a"))
-            .with_child(Label::new("b")))
+        .with_child(
+            Vertical::new()
+                .with_child(Label::new("a"))
+                .with_child(Label::new("b")),
+        )
         .with_child(Label::new("c"));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should exist");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should exist");
 
     // Install stylesheet context and run layout.
     let sheet = textual::css::default_widget_stylesheet();
@@ -598,11 +617,17 @@ fn layout_pass_tree_structure_remains_valid() {
     // Tree should still be walkable.
     let root_id = tree.root().unwrap();
     let all_nodes = tree.walk_depth_first(root_id);
-    assert!(all_nodes.len() >= 5, "all composed nodes should survive layout pass");
+    assert!(
+        all_nodes.len() >= 5,
+        "all composed nodes should survive layout pass"
+    );
 
     // Every node should be retrievable.
     for &nid in &all_nodes {
-        assert!(tree.get(nid).is_some(), "node {nid:?} should be accessible after layout");
+        assert!(
+            tree.get(nid).is_some(),
+            "node {nid:?} should be accessible after layout"
+        );
     }
 
     // Parent-child relationships should be consistent.
@@ -627,7 +652,11 @@ fn tree_build_drains_container_local_children() {
         .with_child(Label::new("y"));
 
     // Before tree build, container has 2 children.
-    assert_eq!(root.children().len(), 2, "container should start with 2 children");
+    assert_eq!(
+        root.children().len(),
+        2,
+        "container should start with 2 children"
+    );
 
     let tree = build_widget_tree_from_root(&mut root).expect("tree exists");
 
@@ -666,9 +695,15 @@ fn parallel_alias_wrappers_both_render() {
     let (_tree, _frame, lines) = tree_render(&mut root, 60, 10);
 
     assert!(lines_contain(&lines, "v_top"), "first Vertical top label");
-    assert!(lines_contain(&lines, "v_bot"), "first Vertical bottom label");
+    assert!(
+        lines_contain(&lines, "v_bot"),
+        "first Vertical bottom label"
+    );
     assert!(lines_contain(&lines, "v2_top"), "second Vertical top label");
-    assert!(lines_contain(&lines, "v2_bot"), "second Vertical bottom label");
+    assert!(
+        lines_contain(&lines, "v2_bot"),
+        "second Vertical bottom label"
+    );
 }
 
 /// Regression guard for the buttons_advanced-like wrapper chain.
@@ -676,18 +711,19 @@ fn parallel_alias_wrappers_both_render() {
 /// If wrappers collapse into a horizontal flow, this should fail.
 #[test]
 fn p1g15_buttons_advanced_chain_preserves_vertical_grouping() {
-    let mut root = Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
-        VerticalScroll::new().with_compose(compose![
-            Static::new("COL1"),
-            Button::new("C1_A"),
-            Button::new("C1_B"),
-        ]),
-        VerticalScroll::new().with_compose(compose![
-            Static::new("COL2"),
-            Button::new("C2_A"),
-            Button::new("C2_B"),
-        ]),
-    ])));
+    let mut root =
+        Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                Static::new("COL1"),
+                Button::new("C1_A"),
+                Button::new("C1_B"),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                Static::new("COL2"),
+                Button::new("C2_A"),
+                Button::new("C2_B"),
+            ]),
+        ])));
 
     let (_tree, _frame, lines) = tree_render(&mut root, 80, 20);
     let (r_c1a, c_c1a) = find_text(&lines, "C1_A");

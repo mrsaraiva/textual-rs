@@ -1,4 +1,4 @@
-use crate::css::{set_app_active, set_style_context};
+use crate::css::{AppRuntimePseudos, set_app_active, set_app_runtime_pseudos, set_style_context};
 use crate::debug::{debug_input, debug_render};
 use crate::event::{
     Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx,
@@ -21,8 +21,8 @@ use super::App;
 use super::devtools::DevtoolsCommand;
 use super::helpers::{
     any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
-    generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree, should_quit_key,
-    widget_at_tree_layout,
+    generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
+    should_quit_key, widget_at_tree_layout,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
@@ -313,9 +313,17 @@ struct SelectorSnapshot {
     focused: bool,
     hovered: bool,
     active: bool,
+    inline: bool,
+    ansi: bool,
+    nocolor: bool,
 }
 
-fn snapshot_for(widget: &dyn Widget, _node_id: NodeId, app_active: bool) -> SelectorSnapshot {
+fn snapshot_for(
+    widget: &dyn Widget,
+    _node_id: NodeId,
+    app_active: bool,
+    app_pseudos: AppRuntimePseudos,
+) -> SelectorSnapshot {
     SelectorSnapshot {
         type_name: widget.style_type().to_string(),
         style_id: widget.style_id().map(str::to_string),
@@ -324,6 +332,9 @@ fn snapshot_for(widget: &dyn Widget, _node_id: NodeId, app_active: bool) -> Sele
         focused: widget.has_focus() && app_active,
         hovered: widget.is_hovered(),
         active: widget.is_active(),
+        inline: app_pseudos.inline,
+        ansi: app_pseudos.ansi,
+        nocolor: app_pseudos.nocolor,
     }
 }
 
@@ -356,6 +367,10 @@ fn selector_matches_snapshot(
             crate::css::PseudoClass::Focus => meta.focused,
             crate::css::PseudoClass::Hover => meta.hovered,
             crate::css::PseudoClass::Active => meta.active,
+            crate::css::PseudoClass::Blur => !meta.focused,
+            crate::css::PseudoClass::Inline => meta.inline,
+            crate::css::PseudoClass::Ansi => meta.ansi,
+            crate::css::PseudoClass::NoColor => meta.nocolor,
             // Dark/Light/Even/Odd/FirstChild/LastChild are CSS-only pseudo-classes
             // handled by the selector matching engine; in the event_loop quick-check
             // they are treated as non-matching since per-widget state isn't available.
@@ -430,11 +445,12 @@ fn collect_stylesheet_affected_widgets_root(
     root: &dyn Widget,
     changed_rules: &[crate::css::StyleRule],
     app_active: bool,
+    app_pseudos: AppRuntimePseudos,
 ) -> Vec<NodeId> {
     if changed_rules.is_empty() {
         return Vec::new();
     }
-    let current = snapshot_for(root, NodeId::default(), app_active);
+    let current = snapshot_for(root, NodeId::default(), app_active, app_pseudos);
     if changed_rules
         .iter()
         .any(|rule| rule_matches_snapshot_chain(rule, &current, &[]))
@@ -454,6 +470,7 @@ fn collect_stylesheet_affected_widgets_tree(
     tree: &crate::widget_tree::WidgetTree,
     changed_rules: &[crate::css::StyleRule],
     app_active: bool,
+    app_pseudos: AppRuntimePseudos,
 ) -> Vec<NodeId> {
     if changed_rules.is_empty() {
         return Vec::new();
@@ -470,13 +487,14 @@ fn collect_stylesheet_affected_widgets_tree(
         node_id: NodeId,
         rules: &[crate::css::StyleRule],
         app_active: bool,
+        app_pseudos: AppRuntimePseudos,
         ancestors: &mut Vec<SelectorSnapshot>,
         affected: &mut HashSet<NodeId>,
     ) {
         let Some(node) = tree.get(node_id) else {
             return;
         };
-        let current = snapshot_for(node.widget.as_ref(), node_id, app_active);
+        let current = snapshot_for(node.widget.as_ref(), node_id, app_active, app_pseudos);
         if rules
             .iter()
             .any(|rule| rule_matches_snapshot_chain(rule, &current, ancestors))
@@ -485,7 +503,15 @@ fn collect_stylesheet_affected_widgets_tree(
         }
         ancestors.push(current);
         for &child_id in tree.children(node_id) {
-            visit(tree, child_id, rules, app_active, ancestors, affected);
+            visit(
+                tree,
+                child_id,
+                rules,
+                app_active,
+                app_pseudos,
+                ancestors,
+                affected,
+            );
         }
         ancestors.pop();
     }
@@ -496,6 +522,7 @@ fn collect_stylesheet_affected_widgets_tree(
         root,
         changed_rules,
         app_active,
+        app_pseudos,
         &mut ancestors,
         &mut affected,
     );
@@ -545,9 +572,7 @@ pub fn resolve_transition_for_property(
     Some((duration, delay, ease))
 }
 
-fn transition_timing_to_ease(
-    timing: crate::style::TransitionTiming,
-) -> AnimationEase {
+fn transition_timing_to_ease(timing: crate::style::TransitionTiming) -> AnimationEase {
     match timing {
         crate::style::TransitionTiming::Linear => AnimationEase::Linear,
         crate::style::TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
@@ -1064,6 +1089,11 @@ impl App {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
+                let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+                    inline: self.app_inline,
+                    ansi: self.app_ansi,
+                    nocolor: self.app_nocolor,
+                });
                 let _guard = set_style_context(sheet);
                 match input_event {
                     CrosstermEvent::Key(key) => {
@@ -1281,332 +1311,359 @@ impl App {
                         }
                     }
                     CrosstermEvent::Mouse(mouse) => {
-                        let mouse =
-                            if matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_))
-                            {
-                                coalesce_mouse_motion_events(mouse, &mut pending_input_event)?
-                            } else {
-                                mouse
-                            };
+                        let mouse = if matches!(
+                            mouse.kind,
+                            MouseEventKind::Moved | MouseEventKind::Drag(_)
+                        ) {
+                            coalesce_mouse_motion_events(mouse, &mut pending_input_event)?
+                        } else {
+                            mouse
+                        };
                         match mouse.kind {
-                        MouseEventKind::Moved | MouseEventKind::Drag(_) => {
-                            if hit_probe_enabled() {
-                                let curr = (mouse.column, mouse.row);
-                                let dir = point_direction(last_mouse_pos, curr);
-                                let frame_target = self.widget_at(mouse.column, mouse.row);
-                                let tree_target = self
-                                    .widget_tree
-                                    .as_ref()
-                                    .and_then(|tree| widget_at_tree_layout(tree, mouse.column, mouse.row));
-                                let chosen = self
-                                    .widget_tree
-                                    .as_ref()
-                                    .map(|tree| super::choose_deeper_target(tree, frame_target, tree_target))
-                                    .unwrap_or(frame_target);
-                                let relation = self
-                                    .widget_tree
-                                    .as_ref()
-                                    .and_then(|tree| match (frame_target, tree_target) {
-                                        (Some(frame), Some(tree_hit)) if frame != tree_hit => {
-                                            if super::is_ancestor_or_self(tree, frame, tree_hit) {
-                                                Some("frame->ancestor(tree)")
-                                            } else if super::is_ancestor_or_self(tree, tree_hit, frame) {
-                                                Some("tree->ancestor(frame)")
-                                            } else {
-                                                Some("unrelated")
+                            MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+                                if hit_probe_enabled() {
+                                    let curr = (mouse.column, mouse.row);
+                                    let dir = point_direction(last_mouse_pos, curr);
+                                    let frame_target = self.widget_at(mouse.column, mouse.row);
+                                    let tree_target = self.widget_tree.as_ref().and_then(|tree| {
+                                        widget_at_tree_layout(tree, mouse.column, mouse.row)
+                                    });
+                                    let chosen = self
+                                        .widget_tree
+                                        .as_ref()
+                                        .map(|tree| {
+                                            super::choose_deeper_target(
+                                                tree,
+                                                frame_target,
+                                                tree_target,
+                                            )
+                                        })
+                                        .unwrap_or(frame_target);
+                                    let relation = self
+                                        .widget_tree
+                                        .as_ref()
+                                        .and_then(|tree| match (frame_target, tree_target) {
+                                            (Some(frame), Some(tree_hit)) if frame != tree_hit => {
+                                                if super::is_ancestor_or_self(tree, frame, tree_hit)
+                                                {
+                                                    Some("frame->ancestor(tree)")
+                                                } else if super::is_ancestor_or_self(
+                                                    tree, tree_hit, frame,
+                                                ) {
+                                                    Some("tree->ancestor(frame)")
+                                                } else {
+                                                    Some("unrelated")
+                                                }
                                             }
-                                        }
-                                        (Some(_), Some(_)) => Some("same"),
-                                        _ => None,
-                                    })
-                                    .unwrap_or("-");
-                                let frame_rect = frame_target.and_then(|id| self.hit_test.rect(id));
-                                let tree_rect = tree_target.and_then(|id| self.hit_test.rect(id));
-                                debug_input(&format!(
-                                    "[hit-probe] pos=({}, {}) dir={} frame={:?} frame_rect={} tree={:?} tree_rect={} relation={} chosen={:?}",
-                                    mouse.column,
-                                    mouse.row,
-                                    dir,
-                                    frame_target.map(node_id_to_ffi),
-                                    fmt_rect(frame_rect),
-                                    tree_target.map(node_id_to_ffi),
-                                    fmt_rect(tree_rect),
-                                    relation,
-                                    chosen.map(node_id_to_ffi)
-                                ));
-                            }
-                            last_mouse_pos = Some((mouse.column, mouse.row));
-                            let before = self.hovered;
-                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                if let Some(id) = before {
-                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                            (Some(_), Some(_)) => Some("same"),
+                                            _ => None,
+                                        })
+                                        .unwrap_or("-");
+                                    let frame_rect =
+                                        frame_target.and_then(|id| self.hit_test.rect(id));
+                                    let tree_rect =
+                                        tree_target.and_then(|id| self.hit_test.rect(id));
+                                    debug_input(&format!(
+                                        "[hit-probe] pos=({}, {}) dir={} frame={:?} frame_rect={} tree={:?} tree_rect={} relation={} chosen={:?}",
+                                        mouse.column,
+                                        mouse.row,
+                                        dir,
+                                        frame_target.map(node_id_to_ffi),
+                                        fmt_rect(frame_rect),
+                                        tree_target.map(node_id_to_ffi),
+                                        fmt_rect(tree_rect),
+                                        relation,
+                                        chosen.map(node_id_to_ffi)
+                                    ));
                                 }
-                                if let Some(id) = self.hovered {
-                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
-                                } else {
-                                    pending_invalidation.request_full_content();
-                                }
+                                last_mouse_pos = Some((mouse.column, mouse.row));
+                                let before = self.hovered;
+                                if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                    if let Some(id) = before {
+                                        pending_invalidation
+                                            .request_widget_rect(&self.hit_test, id);
+                                    }
+                                    if let Some(id) = self.hovered {
+                                        pending_invalidation
+                                            .request_widget_rect(&self.hit_test, id);
+                                    } else {
+                                        pending_invalidation.request_full_content();
+                                    }
 
-                                // Dispatch Enter/Leave events on hover change.
-                                let enter_leave = generate_enter_leave_events(
-                                    before,
-                                    self.hovered,
+                                    // Dispatch Enter/Leave events on hover change.
+                                    let enter_leave = generate_enter_leave_events(
+                                        before,
+                                        self.hovered,
+                                        mouse.column,
+                                        mouse.row,
+                                        mouse.column,
+                                        mouse.row,
+                                    );
+                                    for (target, event) in enter_leave {
+                                        let mut outcome = self
+                                            .dispatch_event_to_target_auto(root, target, &event);
+                                        self.absorb_outcome(
+                                            &mut outcome,
+                                            &mut pending_invalidation,
+                                            InvalidationScope::Global,
+                                        );
+                                    }
+                                }
+                            }
+                            MouseEventKind::Down(btn) => {
+                                debug_input(&format!(
+                                    "[input] mouse down x={} y={} hovered={:?}",
                                     mouse.column,
                                     mouse.row,
-                                    mouse.column,
-                                    mouse.row,
-                                );
-                                for (target, event) in enter_leave {
-                                    let mut outcome =
-                                        self.dispatch_event_to_target_auto(root, target, &event);
+                                    self.hovered.map(|id| node_id_to_ffi(id))
+                                ));
+                                if let Some(target) = self.widget_at_auto(mouse.column, mouse.row) {
+                                    let (x, y) = self.content_local_coords_auto(
+                                        target,
+                                        mouse.column,
+                                        mouse.row,
+                                    );
+                                    debug_input(&format!(
+                                        "[input] mouse target id={}",
+                                        node_id_to_ffi(target)
+                                    ));
+                                    // Record click tracker state for click synthesis.
+                                    let button = match btn {
+                                        crossterm::event::MouseButton::Left => 0,
+                                        crossterm::event::MouseButton::Right => 2,
+                                        crossterm::event::MouseButton::Middle => 1,
+                                    };
+                                    self.click_tracker.on_mouse_down(
+                                        target,
+                                        x,
+                                        y,
+                                        mouse.column,
+                                        mouse.row,
+                                        button,
+                                    );
+                                    let down_event = Event::MouseDown(MouseDownEvent {
+                                        target,
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x,
+                                        y,
+                                    });
+                                    let mut outcome = self.dispatch_event_to_target_auto(
+                                        root,
+                                        target,
+                                        &down_event,
+                                    );
                                     self.absorb_outcome(
                                         &mut outcome,
                                         &mut pending_invalidation,
                                         InvalidationScope::Global,
                                     );
-                                }
-                            }
-                        }
-                        MouseEventKind::Down(btn) => {
-                            debug_input(&format!(
-                                "[input] mouse down x={} y={} hovered={:?}",
-                                mouse.column,
-                                mouse.row,
-                                self.hovered.map(|id| node_id_to_ffi(id))
-                            ));
-                            if let Some(target) = self.widget_at_auto(mouse.column, mouse.row) {
-                                let (x, y) =
-                                    self.content_local_coords_auto(target, mouse.column, mouse.row);
-                                debug_input(&format!(
-                                    "[input] mouse target id={}",
-                                    node_id_to_ffi(target)
-                                ));
-                                // Record click tracker state for click synthesis.
-                                let button = match btn {
-                                    crossterm::event::MouseButton::Left => 0,
-                                    crossterm::event::MouseButton::Right => 2,
-                                    crossterm::event::MouseButton::Middle => 1,
-                                };
-                                self.click_tracker.on_mouse_down(
-                                    target,
-                                    x,
-                                    y,
-                                    mouse.column,
-                                    mouse.row,
-                                    button,
-                                );
-                                let down_event = Event::MouseDown(MouseDownEvent {
-                                    target,
-                                    screen_x: mouse.column,
-                                    screen_y: mouse.row,
-                                    x,
-                                    y,
-                                });
-                                let mut outcome =
-                                    self.dispatch_event_to_target_auto(root, target, &down_event);
-                                self.absorb_outcome(
-                                    &mut outcome,
-                                    &mut pending_invalidation,
-                                    InvalidationScope::Global,
-                                );
-                                let mut msg_outcome = self
-                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
-                                self.absorb_outcome(
-                                    &mut msg_outcome,
-                                    &mut pending_invalidation,
-                                    InvalidationScope::Global,
-                                );
-                                if outcome.stop_requested || msg_outcome.stop_requested {
-                                    break 'event_loop;
-                                }
-                            } else {
-                                let down_event = Event::MouseDown(MouseDownEvent {
-                                    target: NodeId::default(),
-                                    screen_x: mouse.column,
-                                    screen_y: mouse.row,
-                                    x: mouse.column,
-                                    y: mouse.row,
-                                });
-                                let mut outcome = self.dispatch_event_auto(root, down_event);
-                                self.absorb_outcome(
-                                    &mut outcome,
-                                    &mut pending_invalidation,
-                                    InvalidationScope::Global,
-                                );
-                                let mut msg_outcome = self
-                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
-                                self.absorb_outcome(
-                                    &mut msg_outcome,
-                                    &mut pending_invalidation,
-                                    InvalidationScope::Global,
-                                );
-                                if outcome.stop_requested || msg_outcome.stop_requested {
-                                    break 'event_loop;
-                                }
-                            }
-                        }
-                        MouseEventKind::Up(_) => {
-                            let target = self.widget_at_auto(mouse.column, mouse.row);
-                            let (x, y) = target
-                                .map(|id| {
-                                    self.content_local_coords_auto(id, mouse.column, mouse.row)
-                                })
-                                .unwrap_or((mouse.column, mouse.row));
-                            let up_event = Event::MouseUp(MouseUpEvent {
-                                target,
-                                screen_x: mouse.column,
-                                screen_y: mouse.row,
-                                x,
-                                y,
-                            });
-                            let mut outcome = if let Some(target) = target {
-                                self.dispatch_event_to_target_auto(root, target, &up_event)
-                            } else {
-                                self.dispatch_event_auto(root, up_event)
-                            };
-                            self.absorb_outcome(
-                                &mut outcome,
-                                &mut pending_invalidation,
-                                InvalidationScope::Global,
-                            );
-                            // Synthesize Click if mouseup target matches mousedown target.
-                            if let Some((click_target, click_event)) = self
-                                .click_tracker
-                                .on_mouse_up(target, x, y, mouse.column, mouse.row)
-                            {
-                                let mut click_outcome = self.dispatch_event_to_target_auto(
-                                    root,
-                                    click_target,
-                                    &click_event,
-                                );
-                                self.absorb_outcome(
-                                    &mut click_outcome,
-                                    &mut pending_invalidation,
-                                    InvalidationScope::Global,
-                                );
-                            }
-                            let mut msg_outcome =
-                                self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                            self.absorb_outcome(
-                                &mut msg_outcome,
-                                &mut pending_invalidation,
-                                InvalidationScope::Global,
-                            );
-                            if outcome.stop_requested || msg_outcome.stop_requested {
-                                break 'event_loop;
-                            }
-                        }
-                        MouseEventKind::ScrollUp
-                        | MouseEventKind::ScrollDown
-                        | MouseEventKind::ScrollLeft
-                        | MouseEventKind::ScrollRight => {
-                            debug_input(&format!(
-                                "[input] mouse scroll kind={:?} mods={:?} x={} y={}",
-                                mouse.kind, mouse.modifiers, mouse.column, mouse.row
-                            ));
-                            let before = self.hovered;
-                            if self.update_hover_from_frame(mouse.column, mouse.row, root) {
-                                if let Some(id) = before {
-                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
-                                }
-                                if let Some(id) = self.hovered {
-                                    pending_invalidation.request_widget_rect(&self.hit_test, id);
+                                    let mut msg_outcome = self.dispatch_message_queue_with_runtime(
+                                        root,
+                                        outcome.messages,
+                                    );
+                                    self.absorb_outcome(
+                                        &mut msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if outcome.stop_requested || msg_outcome.stop_requested {
+                                        break 'event_loop;
+                                    }
                                 } else {
-                                    pending_invalidation.request_full_content();
+                                    let down_event = Event::MouseDown(MouseDownEvent {
+                                        target: NodeId::default(),
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x: mouse.column,
+                                        y: mouse.row,
+                                    });
+                                    let mut outcome = self.dispatch_event_auto(root, down_event);
+                                    self.absorb_outcome(
+                                        &mut outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    let mut msg_outcome = self.dispatch_message_queue_with_runtime(
+                                        root,
+                                        outcome.messages,
+                                    );
+                                    self.absorb_outcome(
+                                        &mut msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if outcome.stop_requested || msg_outcome.stop_requested {
+                                        break 'event_loop;
+                                    }
                                 }
                             }
-                            let (delta_x, delta_y) =
-                                mouse_scroll_deltas(mouse.kind, mouse.modifiers);
-                            let target = self.widget_at_auto(mouse.column, mouse.row);
-                            let (local_x, local_y) = target
-                                .map(|id| {
-                                    self.content_local_coords_auto(id, mouse.column, mouse.row)
-                                })
-                                .unwrap_or((0, 0));
-                            debug_input(&format!(
-                                "[input] mouse scroll route target={:?} dx={} dy={}",
-                                target.map(node_id_to_ffi),
-                                delta_x,
-                                delta_y
-                            ));
-                            let mut diag_outcome = if let Some(target) = target {
-                                self.dispatch_event_to_target_auto(
-                                    root,
+                            MouseEventKind::Up(_) => {
+                                let target = self.widget_at_auto(mouse.column, mouse.row);
+                                let (x, y) = target
+                                    .map(|id| {
+                                        self.content_local_coords_auto(id, mouse.column, mouse.row)
+                                    })
+                                    .unwrap_or((mouse.column, mouse.row));
+                                let up_event = Event::MouseUp(MouseUpEvent {
                                     target,
-                                    &Event::MouseScroll(MouseScrollEvent {
-                                        target: Some(target),
-                                        screen_x: mouse.column,
-                                        screen_y: mouse.row,
-                                        x: local_x,
-                                        y: local_y,
-                                        delta_x,
-                                        delta_y,
-                                        modifiers: mouse.modifiers,
-                                    }),
-                                )
-                            } else {
-                                self.dispatch_event_auto(
-                                    root,
-                                    Event::MouseScroll(MouseScrollEvent {
-                                        target: None,
-                                        screen_x: mouse.column,
-                                        screen_y: mouse.row,
-                                        x: local_x,
-                                        y: local_y,
-                                        delta_x,
-                                        delta_y,
-                                        modifiers: mouse.modifiers,
-                                    }),
-                                )
-                            };
-                            self.absorb_outcome(
-                                &mut diag_outcome,
-                                &mut pending_invalidation,
-                                target
-                                    .map(InvalidationScope::Widget)
-                                    .unwrap_or(InvalidationScope::Global),
-                            );
-                            let mut msg_outcome = self
-                                .dispatch_message_queue_with_runtime(root, diag_outcome.messages);
-                            self.absorb_outcome(
-                                &mut msg_outcome,
-                                &mut pending_invalidation,
-                                InvalidationScope::Global,
-                            );
-                            let mut outcome = if let Some(target) = target {
-                                self.dispatch_mouse_scroll_to_target_auto(
-                                    root, target, delta_x, delta_y,
-                                )
-                            } else {
-                                dispatch_mouse_scroll(root, delta_x, delta_y)
-                            };
-                            debug_input(&format!(
-                                "[input] mouse scroll dispatch handled={} repaint={} messages={}",
-                                outcome.handled,
-                                outcome.repaint_requested,
-                                outcome.messages.len()
-                            ));
-                            self.absorb_outcome(
-                                &mut outcome,
-                                &mut pending_invalidation,
-                                target
-                                    .map(InvalidationScope::Widget)
-                                    .unwrap_or(InvalidationScope::Global),
-                            );
-                            let mut msg_outcome =
-                                self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                            self.absorb_outcome(
-                                &mut msg_outcome,
-                                &mut pending_invalidation,
-                                InvalidationScope::Global,
-                            );
-                            if diag_outcome.stop_requested
-                                || outcome.stop_requested
-                                || msg_outcome.stop_requested
-                            {
-                                break 'event_loop;
+                                    screen_x: mouse.column,
+                                    screen_y: mouse.row,
+                                    x,
+                                    y,
+                                });
+                                let mut outcome = if let Some(target) = target {
+                                    self.dispatch_event_to_target_auto(root, target, &up_event)
+                                } else {
+                                    self.dispatch_event_auto(root, up_event)
+                                };
+                                self.absorb_outcome(
+                                    &mut outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                // Synthesize Click if mouseup target matches mousedown target.
+                                if let Some((click_target, click_event)) = self
+                                    .click_tracker
+                                    .on_mouse_up(target, x, y, mouse.column, mouse.row)
+                                {
+                                    let mut click_outcome = self.dispatch_event_to_target_auto(
+                                        root,
+                                        click_target,
+                                        &click_event,
+                                    );
+                                    self.absorb_outcome(
+                                        &mut click_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                }
+                                let mut msg_outcome = self
+                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                if outcome.stop_requested || msg_outcome.stop_requested {
+                                    break 'event_loop;
+                                }
                             }
-                        }
+                            MouseEventKind::ScrollUp
+                            | MouseEventKind::ScrollDown
+                            | MouseEventKind::ScrollLeft
+                            | MouseEventKind::ScrollRight => {
+                                debug_input(&format!(
+                                    "[input] mouse scroll kind={:?} mods={:?} x={} y={}",
+                                    mouse.kind, mouse.modifiers, mouse.column, mouse.row
+                                ));
+                                let before = self.hovered;
+                                if self.update_hover_from_frame(mouse.column, mouse.row, root) {
+                                    if let Some(id) = before {
+                                        pending_invalidation
+                                            .request_widget_rect(&self.hit_test, id);
+                                    }
+                                    if let Some(id) = self.hovered {
+                                        pending_invalidation
+                                            .request_widget_rect(&self.hit_test, id);
+                                    } else {
+                                        pending_invalidation.request_full_content();
+                                    }
+                                }
+                                let (delta_x, delta_y) =
+                                    mouse_scroll_deltas(mouse.kind, mouse.modifiers);
+                                let target = self.widget_at_auto(mouse.column, mouse.row);
+                                let (local_x, local_y) = target
+                                    .map(|id| {
+                                        self.content_local_coords_auto(id, mouse.column, mouse.row)
+                                    })
+                                    .unwrap_or((0, 0));
+                                debug_input(&format!(
+                                    "[input] mouse scroll route target={:?} dx={} dy={}",
+                                    target.map(node_id_to_ffi),
+                                    delta_x,
+                                    delta_y
+                                ));
+                                let mut diag_outcome = if let Some(target) = target {
+                                    self.dispatch_event_to_target_auto(
+                                        root,
+                                        target,
+                                        &Event::MouseScroll(MouseScrollEvent {
+                                            target: Some(target),
+                                            screen_x: mouse.column,
+                                            screen_y: mouse.row,
+                                            x: local_x,
+                                            y: local_y,
+                                            delta_x,
+                                            delta_y,
+                                            modifiers: mouse.modifiers,
+                                        }),
+                                    )
+                                } else {
+                                    self.dispatch_event_auto(
+                                        root,
+                                        Event::MouseScroll(MouseScrollEvent {
+                                            target: None,
+                                            screen_x: mouse.column,
+                                            screen_y: mouse.row,
+                                            x: local_x,
+                                            y: local_y,
+                                            delta_x,
+                                            delta_y,
+                                            modifiers: mouse.modifiers,
+                                        }),
+                                    )
+                                };
+                                self.absorb_outcome(
+                                    &mut diag_outcome,
+                                    &mut pending_invalidation,
+                                    target
+                                        .map(InvalidationScope::Widget)
+                                        .unwrap_or(InvalidationScope::Global),
+                                );
+                                let mut msg_outcome = self.dispatch_message_queue_with_runtime(
+                                    root,
+                                    diag_outcome.messages,
+                                );
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                let mut outcome = if let Some(target) = target {
+                                    self.dispatch_mouse_scroll_to_target_auto(
+                                        root, target, delta_x, delta_y,
+                                    )
+                                } else {
+                                    dispatch_mouse_scroll(root, delta_x, delta_y)
+                                };
+                                debug_input(&format!(
+                                    "[input] mouse scroll dispatch handled={} repaint={} messages={}",
+                                    outcome.handled,
+                                    outcome.repaint_requested,
+                                    outcome.messages.len()
+                                ));
+                                self.absorb_outcome(
+                                    &mut outcome,
+                                    &mut pending_invalidation,
+                                    target
+                                        .map(InvalidationScope::Widget)
+                                        .unwrap_or(InvalidationScope::Global),
+                                );
+                                let mut msg_outcome = self
+                                    .dispatch_message_queue_with_runtime(root, outcome.messages);
+                                self.absorb_outcome(
+                                    &mut msg_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                if diag_outcome.stop_requested
+                                    || outcome.stop_requested
+                                    || msg_outcome.stop_requested
+                                {
+                                    break 'event_loop;
+                                }
+                            }
                         }
                     }
                     CrosstermEvent::Resize(_, _) => {
@@ -1857,6 +1914,11 @@ impl App {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
+                let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+                    inline: self.app_inline,
+                    ansi: self.app_ansi,
+                    nocolor: self.app_nocolor,
+                });
                 let _guard = set_style_context(sheet);
                 if let Some(reload) = self.poll_stylesheet() {
                     self.absorb_stylesheet_reload(root, reload, &mut pending_invalidation);
@@ -2016,9 +2078,27 @@ impl App {
             return;
         }
         let affected = if let Some(tree) = &self.widget_tree {
-            collect_stylesheet_affected_widgets_tree(tree, &reload.changed_rules, self.app_active)
+            collect_stylesheet_affected_widgets_tree(
+                tree,
+                &reload.changed_rules,
+                self.app_active,
+                AppRuntimePseudos {
+                    inline: self.app_inline,
+                    ansi: self.app_ansi,
+                    nocolor: self.app_nocolor,
+                },
+            )
         } else {
-            collect_stylesheet_affected_widgets_root(_root, &reload.changed_rules, self.app_active)
+            collect_stylesheet_affected_widgets_root(
+                _root,
+                &reload.changed_rules,
+                self.app_active,
+                AppRuntimePseudos {
+                    inline: self.app_inline,
+                    ansi: self.app_ansi,
+                    nocolor: self.app_nocolor,
+                },
+            )
         };
         if affected.is_empty() {
             return;
@@ -2777,13 +2857,18 @@ mod tests {
             tree.get(_root_id).unwrap().widget.as_ref(),
             changed.rules(),
             true,
+            crate::css::AppRuntimePseudos::default(),
         );
         // Root-only check: root is "Container.panel" which doesn't match "Button.special"
         assert!(affected.is_empty());
 
         // Tree-based check: walks children with ancestor context and finds the Button
-        let affected_tree =
-            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), true);
+        let affected_tree = super::collect_stylesheet_affected_widgets_tree(
+            &tree,
+            changed.rules(),
+            true,
+            crate::css::AppRuntimePseudos::default(),
+        );
         // The tree should find exactly the Button node (child of Container.panel)
         assert_eq!(affected_tree.len(), 1);
     }
@@ -2796,10 +2881,18 @@ mod tests {
         let (tree, _root_id) = build_tree_from_style_node(root_node);
 
         let changed = StyleSheet::parse("Button:focus { fg: #ffffff; }");
-        let affected_active =
-            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), true);
-        let affected_inactive =
-            super::collect_stylesheet_affected_widgets_tree(&tree, changed.rules(), false);
+        let affected_active = super::collect_stylesheet_affected_widgets_tree(
+            &tree,
+            changed.rules(),
+            true,
+            crate::css::AppRuntimePseudos::default(),
+        );
+        let affected_inactive = super::collect_stylesheet_affected_widgets_tree(
+            &tree,
+            changed.rules(),
+            false,
+            crate::css::AppRuntimePseudos::default(),
+        );
 
         assert!(!affected_active.is_empty());
         assert!(affected_inactive.is_empty());

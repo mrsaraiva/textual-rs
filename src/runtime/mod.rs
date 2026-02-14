@@ -14,7 +14,7 @@ pub use render::{
     apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
     resolve_axis_constrain, run_layout_pass, text_overflow_mode,
 };
-pub use routing::{dispatch_event_tree, dispatch_event_to_target_tree, focused_node_id_tree};
+pub use routing::{dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree};
 pub use types::DispatchOutcome;
 
 use crate::animation::{Animator, animation_level_from_env};
@@ -77,6 +77,9 @@ pub struct App {
     sync_output: bool,
     pointer_shape: PointerShape,
     app_active: bool,
+    app_inline: bool,
+    app_ansi: bool,
+    app_nocolor: bool,
     last_binding_hints: Vec<BindingHint>,
     last_binding_hint_sources: Vec<NodeId>,
     last_focused_help_source: Option<NodeId>,
@@ -160,6 +163,12 @@ impl App {
             sync_output,
             pointer_shape: PointerShape::Default,
             app_active: true,
+            app_inline: false,
+            app_ansi: matches!(std::env::var("TEXTUAL_APP_ANSI").ok().as_deref(), Some("1")),
+            app_nocolor: matches!(
+                std::env::var("TEXTUAL_APP_NOCOLOR").ok().as_deref(),
+                Some("1")
+            ),
             last_binding_hints: Vec::new(),
             last_binding_hint_sources: Vec::new(),
             last_focused_help_source: None,
@@ -177,6 +186,22 @@ impl App {
             current_mode: None,
         };
         Ok(app)
+    }
+
+    /// Configure runtime pseudo-class state used by CSS selectors.
+    ///
+    /// This controls `:inline`, `:ansi`, and `:nocolor` matching during style
+    /// resolution. Defaults are `inline=false`, `ansi`/`nocolor` from
+    /// `TEXTUAL_APP_ANSI`/`TEXTUAL_APP_NOCOLOR` at startup.
+    pub fn set_css_runtime_pseudos(&mut self, inline: bool, ansi: bool, nocolor: bool) {
+        self.app_inline = inline;
+        self.app_ansi = ansi;
+        self.app_nocolor = nocolor;
+    }
+
+    /// Return current runtime pseudo-class flags (`inline`, `ansi`, `nocolor`).
+    pub fn css_runtime_pseudos(&self) -> (bool, bool, bool) {
+        (self.app_inline, self.app_ansi, self.app_nocolor)
     }
 
     /// Build the arena-based widget tree by extracting children from the root widget.
@@ -849,7 +874,9 @@ impl App {
             // Guard tree-only fallback with frame geometry presence to avoid
             // startup false positives from coarse layout-only hits.
             let chosen = match (frame_target, chosen_raw) {
-                (None, Some(tree_hit)) if !hit_test_contains_point(&self.hit_test, tree_hit, x, y) => {
+                (None, Some(tree_hit))
+                    if !hit_test_contains_point(&self.hit_test, tree_hit, x, y) =>
+                {
                     None
                 }
                 _ => chosen_raw,

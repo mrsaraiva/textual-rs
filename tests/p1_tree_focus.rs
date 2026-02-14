@@ -173,8 +173,7 @@ fn p1g13_focus_crosses_wrapper_boundary_via_tree_dispatch() {
             ),
     );
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 12));
 
     let root_id = tree.root().unwrap();
@@ -295,8 +294,7 @@ fn p1g13_focus_traverses_deep_wrapper_chain() {
             .height(8),
     );
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 12));
 
     let root_id = tree.root().unwrap();
@@ -327,11 +325,7 @@ fn p1g13_focus_traverses_deep_wrapper_chain() {
     assert_eq!(focused_node_id_tree(&tree), Some(deep_a));
 
     // Transfer to deep_B through wrapper chain.
-    dispatch_event_to_target_tree(
-        &mut tree,
-        deep_a,
-        &Event::Blur(BlurEvent { node: deep_a }),
-    );
+    dispatch_event_to_target_tree(&mut tree, deep_a, &Event::Blur(BlurEvent { node: deep_a }));
     dispatch_event_to_target_tree(
         &mut tree,
         deep_b,
@@ -369,8 +363,7 @@ fn p1g13_hover_enter_requests_repaint_via_tree_dispatch() {
         .with_child(TreeHoverProbe::new("btn1", sink.clone()))
         .with_child(TreeHoverProbe::new("btn2", sink.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -413,8 +406,7 @@ fn p1g13_hover_leave_clears_state_via_tree_dispatch() {
         .with_child(TreeHoverProbe::new("h1", sink.clone()))
         .with_child(TreeHoverProbe::new("h2", sink.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -465,8 +457,7 @@ fn p1g13_hover_transfer_between_siblings_via_tree_dispatch() {
         .with_child(TreeHoverProbe::new("top", sink.clone()))
         .with_child(TreeHoverProbe::new("bottom", sink.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -532,15 +523,10 @@ fn p1g13_focus_transfer_clears_previous_in_separate_branches() {
     // Tree: Container -> [Vertical -> ProbeLeft, Vertical -> ProbeRight]
     let sink = Arc::new(Mutex::new(Vec::new()));
     let mut root = Container::new()
-        .with_child(
-            Vertical::new().with_child(TreeFocusProbe::new("left", sink.clone())),
-        )
-        .with_child(
-            Vertical::new().with_child(TreeFocusProbe::new("right", sink.clone())),
-        );
+        .with_child(Vertical::new().with_child(TreeFocusProbe::new("left", sink.clone())))
+        .with_child(Vertical::new().with_child(TreeFocusProbe::new("right", sink.clone())));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -561,11 +547,7 @@ fn p1g13_focus_transfer_clears_previous_in_separate_branches() {
     let right = leaves[1];
 
     // Focus left probe.
-    dispatch_event_to_target_tree(
-        &mut tree,
-        left,
-        &Event::Focus(FocusEvent { node: left }),
-    );
+    dispatch_event_to_target_tree(&mut tree, left, &Event::Focus(FocusEvent { node: left }));
     assert_eq!(
         focused_node_id_tree(&tree),
         Some(left),
@@ -573,16 +555,8 @@ fn p1g13_focus_transfer_clears_previous_in_separate_branches() {
     );
 
     // Transfer focus: blur left, focus right.
-    dispatch_event_to_target_tree(
-        &mut tree,
-        left,
-        &Event::Blur(BlurEvent { node: left }),
-    );
-    dispatch_event_to_target_tree(
-        &mut tree,
-        right,
-        &Event::Focus(FocusEvent { node: right }),
-    );
+    dispatch_event_to_target_tree(&mut tree, left, &Event::Blur(BlurEvent { node: left }));
+    dispatch_event_to_target_tree(&mut tree, right, &Event::Focus(FocusEvent { node: right }));
 
     assert_eq!(
         focused_node_id_tree(&tree),
@@ -624,8 +598,7 @@ fn p1g13_focus_transfer_no_dual_focus() {
         .with_child(TreeFocusProbe::new("two", sink.clone()))
         .with_child(TreeFocusProbe::new("three", sink.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -637,37 +610,17 @@ fn p1g13_focus_transfer_no_dual_focus() {
     let three = children[2];
 
     // Focus "one".
-    dispatch_event_to_target_tree(
-        &mut tree,
-        one,
-        &Event::Focus(FocusEvent { node: one }),
-    );
+    dispatch_event_to_target_tree(&mut tree, one, &Event::Focus(FocusEvent { node: one }));
     assert_eq!(focused_node_id_tree(&tree), Some(one));
 
     // Transfer: one -> two.
-    dispatch_event_to_target_tree(
-        &mut tree,
-        one,
-        &Event::Blur(BlurEvent { node: one }),
-    );
-    dispatch_event_to_target_tree(
-        &mut tree,
-        two,
-        &Event::Focus(FocusEvent { node: two }),
-    );
+    dispatch_event_to_target_tree(&mut tree, one, &Event::Blur(BlurEvent { node: one }));
+    dispatch_event_to_target_tree(&mut tree, two, &Event::Focus(FocusEvent { node: two }));
     assert_eq!(focused_node_id_tree(&tree), Some(two));
 
     // Transfer: two -> three.
-    dispatch_event_to_target_tree(
-        &mut tree,
-        two,
-        &Event::Blur(BlurEvent { node: two }),
-    );
-    dispatch_event_to_target_tree(
-        &mut tree,
-        three,
-        &Event::Focus(FocusEvent { node: three }),
-    );
+    dispatch_event_to_target_tree(&mut tree, two, &Event::Blur(BlurEvent { node: two }));
+    dispatch_event_to_target_tree(&mut tree, three, &Event::Focus(FocusEvent { node: three }));
     assert_eq!(
         focused_node_id_tree(&tree),
         Some(three),
@@ -703,8 +656,7 @@ fn p1g13_focused_node_id_tree_tracks_single_focus() {
         .with_child(Label::new("not focusable"))
         .with_child(TreeFocusProbe::new("beta", sink.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -713,11 +665,7 @@ fn p1g13_focused_node_id_tree_tracks_single_focus() {
     // Alpha is first child, beta is third.
     let alpha = children[0];
 
-    dispatch_event_to_target_tree(
-        &mut tree,
-        alpha,
-        &Event::Focus(FocusEvent { node: alpha }),
-    );
+    dispatch_event_to_target_tree(&mut tree, alpha, &Event::Focus(FocusEvent { node: alpha }));
     assert_eq!(
         focused_node_id_tree(&tree),
         Some(alpha),
@@ -772,9 +720,18 @@ fn p1g13_tree_structure_matches_widget_hierarchy() {
     let probe_b = vertical_children[0];
     let probe_c = vertical_children[1];
 
-    assert!(tree.children(probe_a).is_empty(), "probe A should be a leaf");
-    assert!(tree.children(probe_b).is_empty(), "probe B should be a leaf");
-    assert!(tree.children(probe_c).is_empty(), "probe C should be a leaf");
+    assert!(
+        tree.children(probe_a).is_empty(),
+        "probe A should be a leaf"
+    );
+    assert!(
+        tree.children(probe_b).is_empty(),
+        "probe B should be a leaf"
+    );
+    assert!(
+        tree.children(probe_c).is_empty(),
+        "probe C should be a leaf"
+    );
 }
 
 // ===========================================================================
@@ -839,8 +796,7 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
         .with_child(Label::new("header"))
         .with_child(KeyProbe::new(keys.clone()));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (40, 10));
 
     let root_id = tree.root().unwrap();
@@ -861,7 +817,10 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
         KeyModifiers::NONE,
     )));
     let outcome = dispatch_event_tree(&mut tree, Some(probe_id), &tab_event);
-    assert!(outcome.handled, "key event should be handled by focused probe");
+    assert!(
+        outcome.handled,
+        "key event should be handled by focused probe"
+    );
 
     let recorded = keys.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -873,19 +832,19 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
 #[test]
 fn p1g13_buttons_advanced_like_chain_focus_transfer_is_single_owner() {
     let sink = Arc::new(Mutex::new(Vec::new()));
-    let mut root = Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
-        VerticalScroll::new().with_compose(compose![
-            TreeFocusProbe::new("left_a", sink.clone()),
-            TreeFocusProbe::new("left_b", sink.clone()),
-        ]),
-        VerticalScroll::new().with_compose(compose![
-            TreeFocusProbe::new("right_a", sink.clone()),
-            TreeFocusProbe::new("right_b", sink.clone()),
-        ]),
-    ])));
+    let mut root =
+        Dock::new().push_fill(ScrollView::new(Horizontal::new().with_compose(compose![
+            VerticalScroll::new().with_compose(compose![
+                TreeFocusProbe::new("left_a", sink.clone()),
+                TreeFocusProbe::new("left_b", sink.clone()),
+            ]),
+            VerticalScroll::new().with_compose(compose![
+                TreeFocusProbe::new("right_a", sink.clone()),
+                TreeFocusProbe::new("right_b", sink.clone()),
+            ]),
+        ])));
 
-    let mut tree =
-        build_widget_tree_from_root(&mut root).expect("tree should have children");
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should have children");
     run_layout_pass(&mut tree, (80, 20));
 
     let root_id = tree.root().unwrap();
@@ -910,11 +869,7 @@ fn p1g13_buttons_advanced_like_chain_focus_transfer_is_single_owner() {
     );
     assert_eq!(focused_node_id_tree(&tree), Some(left_a));
 
-    dispatch_event_to_target_tree(
-        &mut tree,
-        left_a,
-        &Event::Blur(BlurEvent { node: left_a }),
-    );
+    dispatch_event_to_target_tree(&mut tree, left_a, &Event::Blur(BlurEvent { node: left_a }));
     dispatch_event_to_target_tree(
         &mut tree,
         right_a,

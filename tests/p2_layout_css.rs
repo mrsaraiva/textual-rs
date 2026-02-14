@@ -8,7 +8,7 @@
 //! - P2G-33: row-span / column-span
 
 use rich_rs::{Console, ConsoleOptions, Segments};
-use textual::layout::{inspect_node_rects, resolve_layout, Region};
+use textual::layout::{Region, inspect_node_rects, resolve_layout};
 use textual::node_id::NodeId;
 use textual::style::{
     BoxSizing, Color, Dock, Layout, Offset, Position, Scalar, Spacing, Split, Style,
@@ -71,7 +71,6 @@ fn assert_layout(tree: &WidgetTree, node: NodeId, x0: u16, y0: u16, x1: u16, y1:
     assert_eq!(layout, (x0, y0, x1, y1), "layout_rect mismatch");
 }
 
-
 // =========================================================================
 // P2G-24: position (relative|absolute)
 // =========================================================================
@@ -84,7 +83,9 @@ fn p2g24_absolute_removed_from_flow() {
     let abs_child = tree.mount(
         root,
         TestWidget::boxed_with_style("Abs", {
-            let mut s = Style::new().height(Scalar::Cells(10)).width(Scalar::Cells(20));
+            let mut s = Style::new()
+                .height(Scalar::Cells(10))
+                .width(Scalar::Cells(20));
             s.position = Some(Position::Absolute);
             s
         }),
@@ -110,7 +111,9 @@ fn p2g24_absolute_with_offset() {
     let abs_child = tree.mount(
         root,
         TestWidget::boxed_with_style("Abs", {
-            let mut s = Style::new().height(Scalar::Cells(10)).width(Scalar::Cells(20));
+            let mut s = Style::new()
+                .height(Scalar::Cells(10))
+                .width(Scalar::Cells(20));
             s.position = Some(Position::Absolute);
             s.offset = Some(Offset { x: 5, y: 3 });
             s
@@ -188,8 +191,14 @@ fn p2g25_content_box_adds_chrome() {
     let (layout, content) = inspect_node_rects(&tree, child).unwrap();
     let layout_w = layout.2 - layout.0;
     let layout_h = layout.3 - layout.1;
-    assert_eq!(layout_w, 26, "content-box: layout width should include chrome");
-    assert_eq!(layout_h, 14, "content-box: layout height should include chrome");
+    assert_eq!(
+        layout_w, 26,
+        "content-box: layout width should include chrome"
+    );
+    assert_eq!(
+        layout_h, 14,
+        "content-box: layout height should include chrome"
+    );
 
     // Content size should match the specified 20x10.
     let content_w = content.2 - content.0;
@@ -226,7 +235,10 @@ fn p2g25_border_box_includes_chrome() {
     let layout_w = layout.2 - layout.0;
     let layout_h = layout.3 - layout.1;
     assert_eq!(layout_w, 26, "border-box: layout width == specified width");
-    assert_eq!(layout_h, 14, "border-box: layout height == specified height");
+    assert_eq!(
+        layout_h, 14,
+        "border-box: layout height == specified height"
+    );
 
     // Content = border-box - chrome. Chrome_w = 1+1+2+2 = 6, Chrome_h = 1+1+1+1 = 4
     let content_w = content.2 - content.0;
@@ -504,7 +516,10 @@ fn p2g33_column_span_2_in_2col_grid() {
     let (normal_l, _) = inspect_node_rects(&tree, normal).unwrap();
     let normal_w = normal_l.2 - normal_l.0;
     assert_eq!(normal_w, 40, "normal child gets one column");
-    assert_eq!(normal_l.1, wide_l.3, "normal starts in next row after spanning child");
+    assert_eq!(
+        normal_l.1, wide_l.3,
+        "normal starts in next row after spanning child"
+    );
 }
 
 #[test]

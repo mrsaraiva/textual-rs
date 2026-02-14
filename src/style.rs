@@ -1677,45 +1677,249 @@ impl Style {
             box_sizing: cascade_field!(self, other, imp, box_sizing, StyleProperty::BoxSizing),
             split: cascade_field!(self, other, imp, split, StyleProperty::Split),
             padding_top: cascade_field!(self, other, imp, padding_top, StyleProperty::PaddingTop),
-            padding_right: cascade_field!(self, other, imp, padding_right, StyleProperty::PaddingRight),
-            padding_bottom: cascade_field!(self, other, imp, padding_bottom, StyleProperty::PaddingBottom),
-            padding_left: cascade_field!(self, other, imp, padding_left, StyleProperty::PaddingLeft),
+            padding_right: cascade_field!(
+                self,
+                other,
+                imp,
+                padding_right,
+                StyleProperty::PaddingRight
+            ),
+            padding_bottom: cascade_field!(
+                self,
+                other,
+                imp,
+                padding_bottom,
+                StyleProperty::PaddingBottom
+            ),
+            padding_left: cascade_field!(
+                self,
+                other,
+                imp,
+                padding_left,
+                StyleProperty::PaddingLeft
+            ),
             margin_top: cascade_field!(self, other, imp, margin_top, StyleProperty::MarginTop),
-            margin_right: cascade_field!(self, other, imp, margin_right, StyleProperty::MarginRight),
-            margin_bottom: cascade_field!(self, other, imp, margin_bottom, StyleProperty::MarginBottom),
+            margin_right: cascade_field!(
+                self,
+                other,
+                imp,
+                margin_right,
+                StyleProperty::MarginRight
+            ),
+            margin_bottom: cascade_field!(
+                self,
+                other,
+                imp,
+                margin_bottom,
+                StyleProperty::MarginBottom
+            ),
             margin_left: cascade_field!(self, other, imp, margin_left, StyleProperty::MarginLeft),
-            outline_top: cascade_border_field!(self, other, imp, outline_top, StyleProperty::OutlineTop),
-            outline_right: cascade_border_field!(self, other, imp, outline_right, StyleProperty::OutlineRight),
-            outline_bottom: cascade_border_field!(self, other, imp, outline_bottom, StyleProperty::OutlineBottom),
-            outline_left: cascade_border_field!(self, other, imp, outline_left, StyleProperty::OutlineLeft),
-            border_title_align: cascade_field!(self, other, imp, border_title_align, StyleProperty::BorderTitleAlign),
-            border_subtitle_align: cascade_field!(self, other, imp, border_subtitle_align, StyleProperty::BorderSubtitleAlign),
-            border_title_color: cascade_field!(self, other, imp, border_title_color, StyleProperty::BorderTitleColor),
-            border_title_background: cascade_field!(self, other, imp, border_title_background, StyleProperty::BorderTitleBackground),
-            border_title_style: cascade_field!(self, other, imp, border_title_style, StyleProperty::BorderTitleStyle),
-            border_subtitle_color: cascade_field!(self, other, imp, border_subtitle_color, StyleProperty::BorderSubtitleColor),
-            border_subtitle_background: cascade_field!(self, other, imp, border_subtitle_background, StyleProperty::BorderSubtitleBackground),
-            border_subtitle_style: cascade_field!(self, other, imp, border_subtitle_style, StyleProperty::BorderSubtitleStyle),
-            scrollbar_color: cascade_field!(self, other, imp, scrollbar_color, StyleProperty::ScrollbarColor),
-            scrollbar_color_hover: cascade_field!(self, other, imp, scrollbar_color_hover, StyleProperty::ScrollbarColorHover),
-            scrollbar_color_active: cascade_field!(self, other, imp, scrollbar_color_active, StyleProperty::ScrollbarColorActive),
-            scrollbar_background: cascade_field!(self, other, imp, scrollbar_background, StyleProperty::ScrollbarBackground),
-            scrollbar_background_hover: cascade_field!(self, other, imp, scrollbar_background_hover, StyleProperty::ScrollbarBackgroundHover),
-            scrollbar_background_active: cascade_field!(self, other, imp, scrollbar_background_active, StyleProperty::ScrollbarBackgroundActive),
-            scrollbar_corner_color: cascade_field!(self, other, imp, scrollbar_corner_color, StyleProperty::ScrollbarCornerColor),
-            scrollbar_gutter: cascade_field!(self, other, imp, scrollbar_gutter, StyleProperty::ScrollbarGutter),
-            scrollbar_size: cascade_field!(self, other, imp, scrollbar_size, StyleProperty::ScrollbarSize),
-            scrollbar_size_horizontal: cascade_field!(self, other, imp, scrollbar_size_horizontal, StyleProperty::ScrollbarSizeHorizontal),
-            scrollbar_size_vertical: cascade_field!(self, other, imp, scrollbar_size_vertical, StyleProperty::ScrollbarSizeVertical),
-            scrollbar_visibility: cascade_field!(self, other, imp, scrollbar_visibility, StyleProperty::ScrollbarVisibility),
+            outline_top: cascade_border_field!(
+                self,
+                other,
+                imp,
+                outline_top,
+                StyleProperty::OutlineTop
+            ),
+            outline_right: cascade_border_field!(
+                self,
+                other,
+                imp,
+                outline_right,
+                StyleProperty::OutlineRight
+            ),
+            outline_bottom: cascade_border_field!(
+                self,
+                other,
+                imp,
+                outline_bottom,
+                StyleProperty::OutlineBottom
+            ),
+            outline_left: cascade_border_field!(
+                self,
+                other,
+                imp,
+                outline_left,
+                StyleProperty::OutlineLeft
+            ),
+            border_title_align: cascade_field!(
+                self,
+                other,
+                imp,
+                border_title_align,
+                StyleProperty::BorderTitleAlign
+            ),
+            border_subtitle_align: cascade_field!(
+                self,
+                other,
+                imp,
+                border_subtitle_align,
+                StyleProperty::BorderSubtitleAlign
+            ),
+            border_title_color: cascade_field!(
+                self,
+                other,
+                imp,
+                border_title_color,
+                StyleProperty::BorderTitleColor
+            ),
+            border_title_background: cascade_field!(
+                self,
+                other,
+                imp,
+                border_title_background,
+                StyleProperty::BorderTitleBackground
+            ),
+            border_title_style: cascade_field!(
+                self,
+                other,
+                imp,
+                border_title_style,
+                StyleProperty::BorderTitleStyle
+            ),
+            border_subtitle_color: cascade_field!(
+                self,
+                other,
+                imp,
+                border_subtitle_color,
+                StyleProperty::BorderSubtitleColor
+            ),
+            border_subtitle_background: cascade_field!(
+                self,
+                other,
+                imp,
+                border_subtitle_background,
+                StyleProperty::BorderSubtitleBackground
+            ),
+            border_subtitle_style: cascade_field!(
+                self,
+                other,
+                imp,
+                border_subtitle_style,
+                StyleProperty::BorderSubtitleStyle
+            ),
+            scrollbar_color: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_color,
+                StyleProperty::ScrollbarColor
+            ),
+            scrollbar_color_hover: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_color_hover,
+                StyleProperty::ScrollbarColorHover
+            ),
+            scrollbar_color_active: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_color_active,
+                StyleProperty::ScrollbarColorActive
+            ),
+            scrollbar_background: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_background,
+                StyleProperty::ScrollbarBackground
+            ),
+            scrollbar_background_hover: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_background_hover,
+                StyleProperty::ScrollbarBackgroundHover
+            ),
+            scrollbar_background_active: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_background_active,
+                StyleProperty::ScrollbarBackgroundActive
+            ),
+            scrollbar_corner_color: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_corner_color,
+                StyleProperty::ScrollbarCornerColor
+            ),
+            scrollbar_gutter: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_gutter,
+                StyleProperty::ScrollbarGutter
+            ),
+            scrollbar_size: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_size,
+                StyleProperty::ScrollbarSize
+            ),
+            scrollbar_size_horizontal: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_size_horizontal,
+                StyleProperty::ScrollbarSizeHorizontal
+            ),
+            scrollbar_size_vertical: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_size_vertical,
+                StyleProperty::ScrollbarSizeVertical
+            ),
+            scrollbar_visibility: cascade_field!(
+                self,
+                other,
+                imp,
+                scrollbar_visibility,
+                StyleProperty::ScrollbarVisibility
+            ),
             text_wrap: cascade_field!(self, other, imp, text_wrap, StyleProperty::TextWrapProp),
-            text_overflow: cascade_field!(self, other, imp, text_overflow, StyleProperty::TextOverflowProp),
+            text_overflow: cascade_field!(
+                self,
+                other,
+                imp,
+                text_overflow,
+                StyleProperty::TextOverflowProp
+            ),
             link_color: cascade_field!(self, other, imp, link_color, StyleProperty::LinkColor),
-            link_background: cascade_field!(self, other, imp, link_background, StyleProperty::LinkBackground),
+            link_background: cascade_field!(
+                self,
+                other,
+                imp,
+                link_background,
+                StyleProperty::LinkBackground
+            ),
             link_style: cascade_field!(self, other, imp, link_style, StyleProperty::LinkStyleProp),
-            link_color_hover: cascade_field!(self, other, imp, link_color_hover, StyleProperty::LinkColorHover),
-            link_background_hover: cascade_field!(self, other, imp, link_background_hover, StyleProperty::LinkBackgroundHover),
-            link_style_hover: cascade_field!(self, other, imp, link_style_hover, StyleProperty::LinkStyleHover),
+            link_color_hover: cascade_field!(
+                self,
+                other,
+                imp,
+                link_color_hover,
+                StyleProperty::LinkColorHover
+            ),
+            link_background_hover: cascade_field!(
+                self,
+                other,
+                imp,
+                link_background_hover,
+                StyleProperty::LinkBackgroundHover
+            ),
+            link_style_hover: cascade_field!(
+                self,
+                other,
+                imp,
+                link_style_hover,
+                StyleProperty::LinkStyleHover
+            ),
             row_span: cascade_field!(self, other, imp, row_span, StyleProperty::RowSpan),
             column_span: cascade_field!(self, other, imp, column_span, StyleProperty::ColumnSpan),
             hatch: cascade_field!(self, other, imp, hatch, StyleProperty::HatchProp),
@@ -1724,7 +1928,13 @@ impl Style {
             constrain_x: cascade_field!(self, other, imp, constrain_x, StyleProperty::ConstrainX),
             constrain_y: cascade_field!(self, other, imp, constrain_y, StyleProperty::ConstrainY),
             expand: cascade_field!(self, other, imp, expand, StyleProperty::ExpandProp),
-            transitions: cascade_field!(self, other, imp, transitions, StyleProperty::TransitionsProp),
+            transitions: cascade_field!(
+                self,
+                other,
+                imp,
+                transitions,
+                StyleProperty::TransitionsProp
+            ),
             importance: imp,
         }
     }

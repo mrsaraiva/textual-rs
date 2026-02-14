@@ -201,8 +201,7 @@ fn p2g29_border_title_css_parse_roundtrip() {
 #[test]
 fn p2g29_border_title_color_css_parse_roundtrip() {
     // NOTE: parse-only — verifies CSS parser, not runtime border title rendering.
-    let css =
-        "Label { border-title-color: red; border-title-background: blue; border-title-style: bold italic; }";
+    let css = "Label { border-title-color: red; border-title-background: blue; border-title-style: bold italic; }";
     let sheet = StyleSheet::parse(css);
     let _guard = set_style_context(sheet);
 
@@ -510,20 +509,9 @@ fn p2g35_axis_constrain_resolution() {
 fn p2g35_constrain_overlay_position_clamps_inside() {
     use textual::runtime::constrain_overlay_position;
 
-    let (x, y) = constrain_overlay_position(
-        90,
-        20,
-        20,
-        5,
-        100,
-        25,
-        Constrain::Inside,
-        Constrain::Inside,
-    );
-    assert!(
-        x + 20 <= 100,
-        "x should be clamped inside viewport: x={x}"
-    );
+    let (x, y) =
+        constrain_overlay_position(90, 20, 20, 5, 100, 25, Constrain::Inside, Constrain::Inside);
+    assert!(x + 20 <= 100, "x should be clamped inside viewport: x={x}");
     assert!(y + 5 <= 25, "y should be clamped inside viewport: y={y}");
     assert_eq!(x, 80, "x should be clamped to 80 (100 - 20)");
     assert_eq!(y, 20, "y should stay at 20 (fits in viewport)");
@@ -534,29 +522,13 @@ fn p2g35_constrain_overlay_position_inflects() {
     use textual::runtime::constrain_overlay_position;
 
     // Overlay overflows right: inflect should flip to left.
-    let (x, _y) = constrain_overlay_position(
-        90,
-        5,
-        20,
-        3,
-        100,
-        25,
-        Constrain::Inflect,
-        Constrain::None,
-    );
+    let (x, _y) =
+        constrain_overlay_position(90, 5, 20, 3, 100, 25, Constrain::Inflect, Constrain::None);
     assert_eq!(x, 70, "x should inflect to 70 (90 - 20)");
 
     // Overlay overflows bottom: inflect should flip up.
-    let (_x, y) = constrain_overlay_position(
-        5,
-        22,
-        10,
-        5,
-        100,
-        25,
-        Constrain::None,
-        Constrain::Inflect,
-    );
+    let (_x, y) =
+        constrain_overlay_position(5, 22, 10, 5, 100, 25, Constrain::None, Constrain::Inflect);
     assert_eq!(y, 17, "y should inflect to 17 (22 - 5)");
 }
 
@@ -564,16 +536,8 @@ fn p2g35_constrain_overlay_position_inflects() {
 fn p2g35_constrain_none_does_not_clamp() {
     use textual::runtime::constrain_overlay_position;
 
-    let (x, y) = constrain_overlay_position(
-        90,
-        22,
-        20,
-        5,
-        100,
-        25,
-        Constrain::None,
-        Constrain::None,
-    );
+    let (x, y) =
+        constrain_overlay_position(90, 22, 20, 5, 100, 25, Constrain::None, Constrain::None);
     assert_eq!(x, 90, "x should be unchanged");
     assert_eq!(y, 22, "y should be unchanged");
 }

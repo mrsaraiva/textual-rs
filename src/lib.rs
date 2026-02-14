@@ -61,8 +61,8 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
     pub use crate::runtime::{
-        App, DispatchOutcome, build_widget_tree_from_root, dispatch_event_tree,
-        dispatch_event_to_target_tree, focused_node_id_tree, render_tree_to_frame, run_layout_pass,
+        App, DispatchOutcome, build_widget_tree_from_root, dispatch_event_to_target_tree,
+        dispatch_event_tree, focused_node_id_tree, render_tree_to_frame, run_layout_pass,
     };
     pub use crate::screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
     pub use crate::signal::{Signal, SignalResponse};

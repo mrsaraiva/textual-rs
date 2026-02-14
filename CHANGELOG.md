@@ -27,6 +27,12 @@ until the API stabilizes.
   - Resolver: selector state now populates `inline/ansi/nocolor` from env bridges (`TEXTUAL_APP_INLINE=1`, `TEXTUAL_APP_ANSI=1`, `TEXTUAL_APP_NOCOLOR=1`) for generic and component selector metadata.
   - Debug output/filtering now includes all new pseudos (`selector_chain_string`, `style_debug_meta_label`, `pseudo=` filter support).
   - Added parser, matching, and debug-string coverage tests for the new pseudo-classes.
+- **fix(css/runtime): replace env-based pseudo bridge with runtime context state**
+  - Added CSS runtime pseudo context (`AppRuntimePseudos`) and guard APIs in selector context.
+  - Resolver now reads `inline/ansi/nocolor` from context instead of reading env vars per style lookup.
+  - Runtime render/event-loop style passes now set pseudo context from `App` fields.
+  - Added `App::set_css_runtime_pseudos()` / `App::css_runtime_pseudos()` for explicit app-level control.
+  - Extended stylesheet invalidation quick-check snapshot matching to include `:blur/:inline/:ansi/:nocolor`.
 
 - **Fix text overflow pipeline + P2 behavioral gate tests**
   - Fix: `split_and_crop_lines` was pre-cropping lines before `apply_text_overflow_to_line` could apply ellipsis/clip, making the text overflow wiring dead code. Now defers cropping when `text-wrap: nowrap` with an overflow mode is active.

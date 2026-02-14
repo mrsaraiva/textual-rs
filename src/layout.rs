@@ -250,7 +250,8 @@ fn get_node_style(tree: &WidgetTree, node: NodeId) -> Style {
             continue;
         };
         let ancestor_meta = crate::css::selector_meta_generic(ancestor_node.widget.as_ref());
-        let ancestor_style = crate::css::resolve_style(ancestor_node.widget.as_ref(), &ancestor_meta);
+        let ancestor_style =
+            crate::css::resolve_style(ancestor_node.widget.as_ref(), &ancestor_meta);
         crate::css::push_style_context(ancestor_meta, ancestor_style);
         pushed += 1;
     }
@@ -1552,7 +1553,11 @@ mod tests {
             style: Style,
             height: usize,
         ) -> Box<dyn Widget> {
-            Box::new(Self::new(label).with_style(style).with_intrinsic_height(height))
+            Box::new(
+                Self::new(label)
+                    .with_style(style)
+                    .with_intrinsic_height(height),
+            )
         }
 
         fn boxed_with_style_and_intrinsic_width(
@@ -1560,7 +1565,11 @@ mod tests {
             style: Style,
             width: usize,
         ) -> Box<dyn Widget> {
-            Box::new(Self::new(label).with_style(style).with_intrinsic_width(width))
+            Box::new(
+                Self::new(label)
+                    .with_style(style)
+                    .with_intrinsic_width(width),
+            )
         }
     }
 

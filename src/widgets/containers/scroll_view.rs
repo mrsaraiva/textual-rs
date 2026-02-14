@@ -277,7 +277,9 @@ impl ScrollView {
             self.render_offset_y = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) = self.animation_params_for_property(Self::OFFSET_Y_ATTR) {
+        if let Some((duration, delay, ease)) =
+            self.animation_params_for_property(Self::OFFSET_Y_ATTR)
+        {
             self.render_offset_y = from as f32;
             ctx.request_animation(
                 AnimationRequest::new(
@@ -302,7 +304,9 @@ impl ScrollView {
             self.render_offset_x = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) = self.animation_params_for_property(Self::OFFSET_X_ATTR) {
+        if let Some((duration, delay, ease)) =
+            self.animation_params_for_property(Self::OFFSET_X_ATTR)
+        {
             self.render_offset_x = from as f32;
             ctx.request_animation(
                 AnimationRequest::new(
@@ -352,44 +356,36 @@ impl ScrollView {
         let fallback_overflow = style.overflow.unwrap_or(crate::style::Overflow::Auto);
 
         // Track background: CSS → theme token.
-        let track_bg = style
-            .scrollbar_background
-            .unwrap_or_else(|| {
-                parse_color_like("$scrollbar-background")
-                    .or_else(|| parse_color_like("$background-darken-1"))
-                    .or_else(|| parse_color_like("$surface-darken-1"))
-                    .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
-            });
+        let track_bg = style.scrollbar_background.unwrap_or_else(|| {
+            parse_color_like("$scrollbar-background")
+                .or_else(|| parse_color_like("$background-darken-1"))
+                .or_else(|| parse_color_like("$surface-darken-1"))
+                .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
+        });
 
         // Thumb idle: CSS scrollbar_color → $scrollbar token.
-        let thumb_bg = style
-            .scrollbar_color
-            .unwrap_or_else(|| {
-                parse_color_like("$scrollbar")
-                    .or_else(|| parse_color_like("$primary-muted"))
-                    .or_else(|| parse_color_like("$primary"))
-                    .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255))
-            });
+        let thumb_bg = style.scrollbar_color.unwrap_or_else(|| {
+            parse_color_like("$scrollbar")
+                .or_else(|| parse_color_like("$primary-muted"))
+                .or_else(|| parse_color_like("$primary"))
+                .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255))
+        });
 
         // Thumb active: CSS scrollbar_color_active → $scrollbar-active token.
-        let thumb_active_bg = style
-            .scrollbar_color_active
-            .unwrap_or_else(|| {
-                parse_color_like("$scrollbar-active")
-                    .or_else(|| parse_color_like("$primary"))
-                    .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212))
-            });
+        let thumb_active_bg = style.scrollbar_color_active.unwrap_or_else(|| {
+            parse_color_like("$scrollbar-active")
+                .or_else(|| parse_color_like("$primary"))
+                .unwrap_or_else(|| crate::style::Color::rgb(1, 120, 212))
+        });
 
         // Corner color.
-        let corner_bg = style
-            .scrollbar_corner_color
-            .unwrap_or_else(|| {
-                parse_color_like("$scrollbar-corner-color")
-                    .or_else(|| parse_color_like("$scrollbar-background"))
-                    .or_else(|| parse_color_like("$background-darken-1"))
-                    .or_else(|| parse_color_like("$surface-darken-1"))
-                    .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
-            });
+        let corner_bg = style.scrollbar_corner_color.unwrap_or_else(|| {
+            parse_color_like("$scrollbar-corner-color")
+                .or_else(|| parse_color_like("$scrollbar-background"))
+                .or_else(|| parse_color_like("$background-darken-1"))
+                .or_else(|| parse_color_like("$surface-darken-1"))
+                .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
+        });
 
         // Scrollbar sizes: per-axis CSS → shorthand CSS → defaults (2 vertical, 1 horizontal).
         let v_size = style
@@ -520,10 +516,8 @@ impl Widget for ScrollView {
                 let vp_h = viewport_height
                     .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
                     .max(1);
-                let next_show_v =
-                    allow_scrollbars_v && (content_h > vp_h || force_visible);
-                let next_show_h =
-                    allow_scrollbars_h && (content_w > vp_w || force_visible);
+                let next_show_v = allow_scrollbars_v && (content_h > vp_h || force_visible);
+                let next_show_h = allow_scrollbars_h && (content_w > vp_w || force_visible);
                 content_viewport_w = vp_w;
                 content_viewport_h = vp_h;
                 if next_show_v == show_v && next_show_h == show_h {
@@ -711,8 +705,7 @@ impl Widget for ScrollView {
                 .max(viewport_w);
             let next_show_v =
                 allow_scrollbars_v && (candidate_height > viewport_h || force_visible);
-            let next_show_h =
-                allow_scrollbars_h && (candidate_width > viewport_w || force_visible);
+            let next_show_h = allow_scrollbars_h && (candidate_width > viewport_w || force_visible);
 
             lines = candidate;
             content_width = candidate_width;

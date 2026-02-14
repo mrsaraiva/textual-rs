@@ -9,7 +9,10 @@ mod segments;
 // Public re-exports (used by `src/css/mod.rs` and external consumers)
 pub(crate) use ast::{Combinator, SelectorChain, SelectorMeta};
 pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
-pub use context::{AppActiveGuard, StyleContextGuard, set_app_active, set_style_context};
+pub use context::{
+    AppActiveGuard, AppRuntimePseudos, AppRuntimePseudosGuard, StyleContextGuard,
+    set_app_active, set_app_runtime_pseudos, set_style_context,
+};
 // Re-exported for future use by the event loop / monolithic render path.
 #[allow(unused_imports)]
 pub use context::{FocusWithinGuard, set_focus_within};
@@ -388,6 +391,30 @@ mod tests {
         });
 
         assert_ne!(child_with_panel.fg, child_with_other.fg);
+    }
+
+    #[test]
+    fn runtime_pseudos_are_driven_by_css_context_state() {
+        reset_computed_style_cache_for_tests();
+        let _guard = super::context::set_style_context(StyleSheet::parse(
+            "Probe:inline { bold: true; }",
+        ));
+        let _active = super::context::set_app_active(true);
+        let widget = ProbeWidget::new();
+
+        begin_style_render_pass();
+        let style_without_inline = resolve_style(&widget, &selector_meta_generic(&widget));
+        assert_ne!(style_without_inline.bold, Some(true));
+
+        let _pseudo_guard =
+            super::context::set_app_runtime_pseudos(super::context::AppRuntimePseudos {
+                inline: true,
+                ansi: false,
+                nocolor: false,
+            });
+        begin_style_render_pass();
+        let style_with_inline = resolve_style(&widget, &selector_meta_generic(&widget));
+        assert_eq!(style_with_inline.bold, Some(true));
     }
 
     #[test]
