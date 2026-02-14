@@ -153,11 +153,11 @@ they require engine-level work.
 | Gap | Description | Python Textual Behavior | Tracking |
 |-----|-------------|------------------------|----------|
 | `pointer` CSS → runtime wiring | `Pointer` enum + parser exist (P2-02, P2-06), but `pointer_shape_for_hover_tree` uses hardcoded type-name checks instead of reading the CSS property. | `pointer: text` on Input, `pointer: not-allowed` on disabled, etc. | P2-23 |
-| Per-property `transition` | Rust `transition` shorthand sets global duration/delay/timing. No per-property targeting. | `transition: offset 400ms in_out_cubic, opacity 200ms linear` | — |
 
-### TCSS Property Parity Audit (2026-02-13)
+### TCSS Property Parity Audit (2026-02-14)
 
-**~56 of ~108** Python Textual TCSS properties are implemented. **52 remain.**
+**P2-24..P2-36 DONE.** 52 new CSS properties added (types, parser, cascade,
+layout/render/widget wiring, 76 gated tests). Property count: **~108 of ~108.**
 
 Full property-by-property gap analysis with 8 priority tiers lives in:
 - **Gap details:** `docs/devel/PARITY_ANALYSIS.md` → Appendix D
@@ -165,6 +165,21 @@ Full property-by-property gap analysis with 8 priority tiers lives in:
 
 Previously tracked P2-22 (split overflow axes) is **RESOLVED** — separate
 `overflow_x`/`overflow_y` fields with per-axis parser + ScrollView handling.
+
+#### P2 Deferred Items (parsed + cascaded, rendering not yet active)
+
+These properties are fully wired in the style model, parser, and cascade.
+Rendering is blocked on infrastructure that doesn't exist yet. Each has a
+`DEFERRED(P2-XX)` comment in the source with full details.
+
+| Item | Blocked On | Source Location | Priority |
+|------|-----------|----------------|----------|
+| Border title/subtitle rendering (P2-29) | Widget trait method for title text — currently no way to retrieve title/subtitle strings in the render path | `src/runtime/render.rs:1109` | Medium — needed when border titles are used in widget CSS |
+| `overlay: screen` blend (P2-34) | Two-pass compositor — needs to read underlying frame cells before widget paint, then blend with `screen(a,b) = 1-(1-a)(1-b)` | `src/runtime/render.rs:922` | Low — uncommon compositing mode |
+| Keyline rendering (P2-34) | Layout direction awareness — need horizontal vs vertical direction exposed in tree compositor to determine separator orientation | `src/runtime/render.rs:947` | Medium — needed for grid/container keyline decoration |
+| Full transition dispatch (P2-36) | Per-widget style snapshot diffing — need before/after style comparison, property-level diff, and automatic AnimationRequest generation on class/stylesheet/pseudo changes | `src/runtime/event_loop.rs:1957` | Medium — per-property transition lookup works at widget level (ScrollView uses it), but automatic dispatch on style changes is not yet wired |
+| Scrollbar hover/active sub-part styling (P2-30) | Scrollbar sub-part hit-testing — need to distinguish thumb vs track hover/active states | (not in code — agent report) | Low — basic scrollbar CSS colors are wired |
+| Absolute positioning min/max constraints (P2-24) | Layout solver — absolute children don't currently respect min-width/max-width/min-height/max-height | (not in code — Codex follow-up) | Low — basic absolute positioning works |
 
 ---
 
