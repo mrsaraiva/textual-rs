@@ -39,7 +39,9 @@ fn dc_13_button_has_pointer_pointer() {
 #[test]
 fn dc_13_button_has_content_align_center_middle() {
     let style = default_style_for_type("Button");
-    let ca = style.content_align.expect("Button should have content-align");
+    let ca = style
+        .content_align
+        .expect("Button should have content-align");
     assert_eq!(ca.horizontal, textual::style::HorizontalAlign::Center);
     assert_eq!(ca.vertical, textual::style::VerticalAlign::Middle);
 }
@@ -209,10 +211,7 @@ fn dc_29_option_list_has_padding_0_1() {
 #[test]
 fn dc_29_option_list_has_overflow_x_hidden() {
     let style = default_style_for_type("OptionList");
-    assert_eq!(
-        style.overflow_x,
-        Some(textual::style::Overflow::Hidden)
-    );
+    assert_eq!(style.overflow_x, Some(textual::style::Overflow::Hidden));
 }
 
 // ==== DC-30: SelectionList ====

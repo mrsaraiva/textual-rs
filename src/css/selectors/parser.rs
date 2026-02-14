@@ -755,7 +755,10 @@ fn apply_initial(style: &mut Style, key: &str, is_important: bool) -> bool {
         }
         "border-title-color" => reset!(border_title_color, StyleProperty::BorderTitleColor),
         "border-title-background" => {
-            reset!(border_title_background, StyleProperty::BorderTitleBackground)
+            reset!(
+                border_title_background,
+                StyleProperty::BorderTitleBackground
+            )
         }
         "border-title-style" => reset!(border_title_style, StyleProperty::BorderTitleStyle),
         "border-subtitle-color" => {
@@ -815,7 +818,10 @@ fn apply_initial(style: &mut Style, key: &str, is_important: bool) -> bool {
             )
         }
         "scrollbar-size-vertical" => {
-            reset!(scrollbar_size_vertical, StyleProperty::ScrollbarSizeVertical)
+            reset!(
+                scrollbar_size_vertical,
+                StyleProperty::ScrollbarSizeVertical
+            )
         }
         "scrollbar-visibility" => {
             reset!(scrollbar_visibility, StyleProperty::ScrollbarVisibility)
@@ -2987,7 +2993,8 @@ mod tests {
     #[test]
     fn parse_markdown_blockquote_light() {
         use super::super::ast::StyleSheet;
-        let sheet = StyleSheet::parse("MarkdownBlockQuote:light { border-left: outer $text-secondary; }");
+        let sheet =
+            StyleSheet::parse("MarkdownBlockQuote:light { border-left: outer $text-secondary; }");
         assert_eq!(sheet.rules.len(), 1);
         assert!(sheet.rules[0].style.border_left.is_set());
     }
@@ -3109,14 +3116,18 @@ mod tests {
     #[test]
     fn parse_link_style_hover_token_ref() {
         let style = parse_style_body("link-style-hover: $link-style-hover;");
-        let ls = style.link_style_hover.expect("link_style_hover should be Some");
+        let ls = style
+            .link_style_hover
+            .expect("link_style_hover should be Some");
         assert!(ls.bold, "$link-style-hover should set bold");
     }
 
     #[test]
     fn parse_link_style_not_keyword() {
         let style = parse_style_body("link-style-hover: bold not underline;");
-        let ls = style.link_style_hover.expect("link_style_hover should be Some");
+        let ls = style
+            .link_style_hover
+            .expect("link_style_hover should be Some");
         assert!(ls.bold);
         assert!(!ls.underline);
     }

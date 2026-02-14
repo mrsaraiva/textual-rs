@@ -314,7 +314,10 @@ fn p2g29_border_title_color_css_parse_roundtrip() {
 fn p2g29_border_title_subtitle_render_on_edges() {
     let mut root = Container::new().with_child(BorderCaptionWidget::new("TITLE", "sub"));
     let (_tree, frame, lines) = tree_render(&mut root, 24, 6);
-    assert!(lines[0].contains("TITLE"), "top border should contain title");
+    assert!(
+        lines[0].contains("TITLE"),
+        "top border should contain title"
+    );
     assert!(
         lines[5].contains("sub"),
         "bottom border should contain subtitle"
@@ -322,13 +325,14 @@ fn p2g29_border_title_subtitle_render_on_edges() {
 
     let title_x = lines[0].find("TITLE").expect("title should be present");
     let title_cell = frame.get(title_x, 0);
-    let title_fg = title_cell
-        .style
-        .and_then(|s| s.color)
-        .map(|c| c);
+    let title_fg = title_cell.style.and_then(|s| s.color).map(|c| c);
     assert_eq!(
         title_fg,
-        Some(textual::style::Color::parse("yellow").unwrap().to_simple_opaque())
+        Some(
+            textual::style::Color::parse("yellow")
+                .unwrap()
+                .to_simple_opaque()
+        )
     );
 }
 
@@ -797,7 +801,12 @@ fn p2g34_overlay_screen_blends_with_underlay() {
         .and_then(|s| s.bgcolor)
         .map(|c| c)
         .expect("blended background color should exist");
-    assert_eq!(bg, textual::style::Color::parse("#ff00ff").unwrap().to_simple_opaque());
+    assert_eq!(
+        bg,
+        textual::style::Color::parse("#ff00ff")
+            .unwrap()
+            .to_simple_opaque()
+    );
 }
 
 #[test]
@@ -825,11 +834,15 @@ fn p2g34_keyline_draws_separator_between_children() {
         .position(|l| l.contains('─'))
         .expect("separator row");
     let cell = frame.get(0, sep_y);
-    let fg = cell
-        .style
-        .and_then(|s| s.color)
-        .map(|c| c);
-    assert_eq!(fg, Some(textual::style::Color::parse("red").unwrap().to_simple_opaque()));
+    let fg = cell.style.and_then(|s| s.color).map(|c| c);
+    assert_eq!(
+        fg,
+        Some(
+            textual::style::Color::parse("red")
+                .unwrap()
+                .to_simple_opaque()
+        )
+    );
 }
 
 // ===========================================================================

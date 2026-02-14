@@ -12,7 +12,10 @@ use textual::style::{
 fn parse_single(css: &str) -> textual::style::Style {
     let sheet = StyleSheet::parse(css);
     let rules = sheet.rules();
-    assert!(!rules.is_empty(), "CSS should produce at least one rule: {css}");
+    assert!(
+        !rules.is_empty(),
+        "CSS should produce at least one rule: {css}"
+    );
     rules[0].style()
 }
 
@@ -98,7 +101,10 @@ fn dc_04_widget_scrollbar_colors() {
         "Widget { scrollbar-color: $scrollbar; scrollbar-background: $scrollbar-background; }",
     );
     assert!(s.scrollbar_color.is_some(), "should have scrollbar-color");
-    assert!(s.scrollbar_background.is_some(), "should have scrollbar-background");
+    assert!(
+        s.scrollbar_background.is_some(),
+        "should have scrollbar-background"
+    );
 }
 
 #[test]
@@ -145,33 +151,29 @@ fn dc_05_label_min_height_1() {
 
 #[test]
 fn dc_05_label_variant_success_parses() {
-    let sheet = StyleSheet::parse(
-        r#"Label { &.success { color: $text-success; bg: $success-muted; } }"#,
-    );
+    let sheet =
+        StyleSheet::parse(r#"Label { &.success { color: $text-success; bg: $success-muted; } }"#);
     // Should produce rules (base + nested) without panicking.
     assert!(sheet.rules().len() >= 1);
 }
 
 #[test]
 fn dc_05_label_variant_error_parses() {
-    let sheet =
-        StyleSheet::parse(r#"Label { &.error { color: $text-error; bg: $error-muted; } }"#);
+    let sheet = StyleSheet::parse(r#"Label { &.error { color: $text-error; bg: $error-muted; } }"#);
     assert!(sheet.rules().len() >= 1);
 }
 
 #[test]
 fn dc_05_label_variant_warning_parses() {
-    let sheet = StyleSheet::parse(
-        r#"Label { &.warning { color: $text-warning; bg: $warning-muted; } }"#,
-    );
+    let sheet =
+        StyleSheet::parse(r#"Label { &.warning { color: $text-warning; bg: $warning-muted; } }"#);
     assert!(sheet.rules().len() >= 1);
 }
 
 #[test]
 fn dc_05_label_variant_primary_parses() {
-    let sheet = StyleSheet::parse(
-        r#"Label { &.primary { color: $text-primary; bg: $primary-muted; } }"#,
-    );
+    let sheet =
+        StyleSheet::parse(r#"Label { &.primary { color: $text-primary; bg: $primary-muted; } }"#);
     assert!(sheet.rules().len() >= 1);
 }
 
@@ -181,26 +183,23 @@ fn dc_05_label_variant_primary_parses() {
 
 #[test]
 fn dc_06_container_overflow_hidden() {
-    let s = parse_single(
-        "Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }",
-    );
+    let s =
+        parse_single("Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }");
     assert_eq!(s.overflow_x, Some(Overflow::Hidden));
     assert_eq!(s.overflow_y, Some(Overflow::Hidden));
 }
 
 #[test]
 fn dc_06_container_layout_vertical() {
-    let s = parse_single(
-        "Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }",
-    );
+    let s =
+        parse_single("Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }");
     assert_eq!(s.layout, Some(Layout::Vertical));
 }
 
 #[test]
 fn dc_06_container_1fr_dimensions() {
-    let s = parse_single(
-        "Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }",
-    );
+    let s =
+        parse_single("Container { width: 1fr; height: 1fr; layout: vertical; overflow: hidden; }");
     assert_eq!(s.width, Some(Scalar::Fraction(1.0)));
     assert_eq!(s.height, Some(Scalar::Fraction(1.0)));
 }
@@ -317,13 +316,17 @@ fn dc_12_itemgrid_height_auto() {
 
 #[test]
 fn dc_26_tooltip_constrain_x_inside() {
-    let s = parse_single("Tooltip { constrain-x: inside; constrain-y: inflect; display: none; max-width: 40; }");
+    let s = parse_single(
+        "Tooltip { constrain-x: inside; constrain-y: inflect; display: none; max-width: 40; }",
+    );
     assert_eq!(s.constrain_x, Some(Constrain::Inside));
 }
 
 #[test]
 fn dc_26_tooltip_constrain_y_inflect() {
-    let s = parse_single("Tooltip { constrain-x: inside; constrain-y: inflect; display: none; max-width: 40; }");
+    let s = parse_single(
+        "Tooltip { constrain-x: inside; constrain-y: inflect; display: none; max-width: 40; }",
+    );
     assert_eq!(s.constrain_y, Some(Constrain::Inflect));
 }
 
@@ -345,19 +348,25 @@ fn dc_26_tooltip_max_width_40() {
 
 #[test]
 fn dc_36_collapsible_width_1fr() {
-    let s = parse_single("Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }");
+    let s = parse_single(
+        "Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }",
+    );
     assert_eq!(s.width, Some(Scalar::Fraction(1.0)));
 }
 
 #[test]
 fn dc_36_collapsible_height_auto() {
-    let s = parse_single("Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }");
+    let s = parse_single(
+        "Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }",
+    );
     assert_eq!(s.height, Some(Scalar::Auto));
 }
 
 #[test]
 fn dc_36_collapsible_bg_surface() {
-    let s = parse_single("Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }");
+    let s = parse_single(
+        "Collapsible { width: 1fr; height: auto; bg: $surface; padding-bottom: 1; padding-left: 1; }",
+    );
     assert!(s.bg.is_some(), "Collapsible should have bg");
 }
 
@@ -388,7 +397,8 @@ fn dc_36_collapsible_title_width_auto() {
 #[test]
 fn dc_36_collapsible_nested_rules_parse() {
     // Verify the full Collapsible CSS with nesting parses without panic.
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         Collapsible {
             width: 1fr;
             height: auto;
@@ -399,14 +409,16 @@ fn dc_36_collapsible_nested_rules_parse() {
             &:focus-within { background-tint: $foreground 5%; }
             &.-collapsed > Contents { display: none; }
         }
-    "#);
+    "#,
+    );
     assert!(sheet.rules().len() >= 1, "Collapsible CSS should parse");
 }
 
 #[test]
 fn dc_36_collapsible_title_nested_rules_parse() {
     // Verify the full CollapsibleTitle CSS with nesting parses without panic.
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         CollapsibleTitle {
             width: auto;
             height: auto;
@@ -417,8 +429,12 @@ fn dc_36_collapsible_title_nested_rules_parse() {
             &:hover { bg: $block-hover-background; color: $foreground; }
             &:focus { text-style: $block-cursor-text-style; bg: $block-cursor-background; color: $block-cursor-foreground; }
         }
-    "#);
-    assert!(sheet.rules().len() >= 1, "CollapsibleTitle CSS should parse");
+    "#,
+    );
+    assert!(
+        sheet.rules().len() >= 1,
+        "CollapsibleTitle CSS should parse"
+    );
 }
 
 // =====================================================================
@@ -427,18 +443,24 @@ fn dc_36_collapsible_title_nested_rules_parse() {
 
 #[test]
 fn dc_01_screen_inline_parses() {
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         Screen {
             layout: vertical; overflow-y: auto; bg: $background;
             &:inline { height: auto; min-height: 1; border-top: tall $background; border-bottom: tall $background; }
         }
-    "#);
-    assert!(sheet.rules().len() >= 2, "Screen with :inline should produce nested rules");
+    "#,
+    );
+    assert!(
+        sheet.rules().len() >= 2,
+        "Screen with :inline should produce nested rules"
+    );
 }
 
 #[test]
 fn dc_01_screen_ansi_parses() {
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         Screen {
             layout: vertical; overflow-y: auto; bg: $background;
             &:ansi {
@@ -446,18 +468,27 @@ fn dc_01_screen_ansi_parses() {
                 &.-screen-suspended { text-style: dim; }
             }
         }
-    "#);
-    assert!(sheet.rules().len() >= 2, "Screen with :ansi nesting should parse");
+    "#,
+    );
+    assert!(
+        sheet.rules().len() >= 2,
+        "Screen with :ansi nesting should parse"
+    );
 }
 
 #[test]
 fn dc_01_screen_selection_class_parses() {
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         Screen {
             & > .screen--selection { background: $primary 50%; }
         }
-    "#);
-    assert!(sheet.rules().len() >= 1, "Screen with .screen--selection should parse");
+    "#,
+    );
+    assert!(
+        sheet.rules().len() >= 1,
+        "Screen with .screen--selection should parse"
+    );
 }
 
 // =====================================================================
@@ -466,13 +497,18 @@ fn dc_01_screen_selection_class_parses() {
 
 #[test]
 fn dc_03_modalscreen_ansi_parses() {
-    let sheet = StyleSheet::parse(r#"
+    let sheet = StyleSheet::parse(
+        r#"
         ModalScreen {
             layout: vertical; overflow-y: auto; bg: $background;
             &:ansi { background: transparent; }
         }
-    "#);
-    assert!(sheet.rules().len() >= 2, "ModalScreen with :ansi should produce nested rules");
+    "#,
+    );
+    assert!(
+        sheet.rules().len() >= 2,
+        "ModalScreen with :ansi should produce nested rules"
+    );
 }
 
 // =====================================================================
@@ -489,9 +525,8 @@ fn dc_05_label_variant_secondary_parses() {
 
 #[test]
 fn dc_05_label_variant_accent_parses() {
-    let sheet = StyleSheet::parse(
-        r#"Label { &.accent { color: $text-accent; bg: $accent-muted; } }"#,
-    );
+    let sheet =
+        StyleSheet::parse(r#"Label { &.accent { color: $text-accent; bg: $accent-muted; } }"#);
     assert!(sheet.rules().len() >= 1);
 }
 

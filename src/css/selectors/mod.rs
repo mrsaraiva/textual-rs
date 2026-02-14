@@ -10,8 +10,8 @@ mod segments;
 pub(crate) use ast::{Combinator, SelectorChain, SelectorMeta};
 pub use ast::{PseudoClass, StyleRule, StyleSelector, StyleSheet};
 pub use context::{
-    AppActiveGuard, AppRuntimePseudos, AppRuntimePseudosGuard, StyleContextGuard,
-    set_app_active, set_app_runtime_pseudos, set_style_context,
+    AppActiveGuard, AppRuntimePseudos, AppRuntimePseudosGuard, StyleContextGuard, set_app_active,
+    set_app_runtime_pseudos, set_style_context,
 };
 // Re-exported for future use by the event loop / monolithic render path.
 #[allow(unused_imports)]
@@ -397,9 +397,8 @@ mod tests {
     #[test]
     fn runtime_pseudos_are_driven_by_css_context_state() {
         reset_computed_style_cache_for_tests();
-        let _guard = super::context::set_style_context(StyleSheet::parse(
-            "Probe:inline { bold: true; }",
-        ));
+        let _guard =
+            super::context::set_style_context(StyleSheet::parse("Probe:inline { bold: true; }"));
         let _active = super::context::set_app_active(true);
         let widget = ProbeWidget::new();
 

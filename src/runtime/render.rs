@@ -574,7 +574,9 @@ fn render_tree_node(
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
         let screen_underlay = if matches!(resolved.overlay, Some(OverlayMode::Screen)) {
-            Some(capture_underlay_snapshot(frame, dest_x, dest_y, w, h, ctx.clip))
+            Some(capture_underlay_snapshot(
+                frame, dest_x, dest_y, w, h, ctx.clip,
+            ))
         } else {
             None
         };
@@ -668,7 +670,9 @@ fn render_tree_node(
     let node_keyline = resolved
         .keyline
         .or_else(|| inline_style.clone().and_then(|s| s.keyline));
-    let node_layout = resolved.layout.or_else(|| inline_style.and_then(|s| s.layout));
+    let node_layout = resolved
+        .layout
+        .or_else(|| inline_style.and_then(|s| s.layout));
     push_style_context(meta, resolved);
 
     let mut child_ctx = ctx;
@@ -1003,17 +1007,15 @@ fn apply_overlay_compositing(
                     let cell = frame.get_mut(x as usize, y as usize);
                     let mut style = cell.style.unwrap_or_default();
 
-                    if let (Some(over_bg), Some(under_bg)) = (
-                        style.bgcolor.map(crate::style::color_from_simple),
-                        base.bg,
-                    ) {
+                    if let (Some(over_bg), Some(under_bg)) =
+                        (style.bgcolor.map(crate::style::color_from_simple), base.bg)
+                    {
                         style.bgcolor = Some(screen_blend(under_bg, over_bg).to_simple_opaque());
                     }
 
-                    if let (Some(over_fg), Some(under_fg)) = (
-                        style.color.map(crate::style::color_from_simple),
-                        base.fg,
-                    ) {
+                    if let (Some(over_fg), Some(under_fg)) =
+                        (style.color.map(crate::style::color_from_simple), base.fg)
+                    {
                         style.color = Some(screen_blend(under_fg, over_fg).to_simple_opaque());
                     }
 

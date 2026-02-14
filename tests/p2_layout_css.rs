@@ -160,7 +160,10 @@ fn p2g24_absolute_with_offset() {
                 .height(Scalar::Cells(10))
                 .width(Scalar::Cells(20));
             s.position = Some(Position::Absolute);
-            s.offset = Some(Offset { x: OffsetValue::Cells(5), y: OffsetValue::Cells(3) });
+            s.offset = Some(Offset {
+                x: OffsetValue::Cells(5),
+                y: OffsetValue::Cells(3),
+            });
             s
         }),
     );
@@ -211,7 +214,9 @@ fn p2g24_absolute_applies_min_constraints() {
     let abs_child = tree.mount(
         root,
         TestWidget::boxed_with_style("Abs", {
-            let mut s = Style::new().height(Scalar::Cells(5)).width(Scalar::Cells(10));
+            let mut s = Style::new()
+                .height(Scalar::Cells(5))
+                .width(Scalar::Cells(10));
             s.position = Some(Position::Absolute);
             s.min_width = Some(Scalar::Cells(30));
             s.min_height = Some(Scalar::Cells(20));

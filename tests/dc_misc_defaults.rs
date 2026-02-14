@@ -1,11 +1,11 @@
 // DC-17..25, DC-32..34, DC-37, DC-38: Misc/presentation widget CSS default parity tests
 
-use textual::css::default_widget_stylesheet;
-use textual::css::StyleSheet;
 use textual::css::PseudoClass;
+use textual::css::StyleSheet;
+use textual::css::default_widget_stylesheet;
 use textual::style::{
-    BoxSizing, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar, Spacing,
-    Split, TextAlign, VerticalAlign, Visibility,
+    BoxSizing, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar, Spacing, Split, TextAlign,
+    VerticalAlign, Visibility,
 };
 
 // ---------------------------------------------------------------------------
@@ -375,16 +375,14 @@ fn dc_24_loading_indicator_has_height_100_pct() {
 #[test]
 fn dc_24_loading_indicator_textual_class_has_layer() {
     let sheet = default_widget_stylesheet();
-    let style =
-        find_type_class_style(&sheet, "LoadingIndicator", "-textual-loading-indicator");
+    let style = find_type_class_style(&sheet, "LoadingIndicator", "-textual-loading-indicator");
     assert_eq!(style.layer.as_deref(), Some("_loading"));
 }
 
 #[test]
 fn dc_24_loading_indicator_textual_class_has_dock_top() {
     let sheet = default_widget_stylesheet();
-    let style =
-        find_type_class_style(&sheet, "LoadingIndicator", "-textual-loading-indicator");
+    let style = find_type_class_style(&sheet, "LoadingIndicator", "-textual-loading-indicator");
     assert_eq!(style.dock, Some(Dock::Top));
 }
 
@@ -666,9 +664,7 @@ fn dc_37_markdown_list_has_width_1fr() {
 fn dc_37_markdown_bullet_list_has_margin() {
     let sheet = default_widget_stylesheet();
     let style = find_type_style(&sheet, "MarkdownBulletList");
-    let m = style
-        .margin
-        .expect("MarkdownBulletList should have margin");
+    let m = style.margin.expect("MarkdownBulletList should have margin");
     assert_eq!(m, Spacing::new(0, 0, 1, 0));
 }
 
@@ -690,10 +686,7 @@ fn dc_37_markdown_bullet_has_width_auto() {
 fn dc_37_markdown_table_of_contents_has_bg() {
     let sheet = default_widget_stylesheet();
     let style = find_type_style(&sheet, "MarkdownTableOfContents");
-    assert!(
-        style.bg.is_some(),
-        "MarkdownTableOfContents should have bg"
-    );
+    assert!(style.bg.is_some(), "MarkdownTableOfContents should have bg");
 }
 
 #[test]
@@ -818,7 +811,11 @@ fn dc_37_markdown_nested_list_has_margin_0() {
 fn dc_37_markdown_table_header_has_bold() {
     let sheet = default_widget_stylesheet();
     let style = find_child_style(&sheet, "MarkdownTableContent", "markdown-table--header");
-    assert_eq!(style.bold, Some(true), "markdown-table--header should be bold");
+    assert_eq!(
+        style.bold,
+        Some(true),
+        "markdown-table--header should be bold"
+    );
 }
 
 #[test]
@@ -835,7 +832,10 @@ fn dc_37_markdown_blockquote_border_has_tint() {
 fn dc_38_help_panel_ansi_has_bg() {
     let sheet = default_widget_stylesheet();
     let style = find_type_pseudo_style(&sheet, "HelpPanel", PseudoClass::Ansi);
-    assert!(style.bg.is_some(), "HelpPanel:ansi should have bg (ansi_default)");
+    assert!(
+        style.bg.is_some(),
+        "HelpPanel:ansi should have bg (ansi_default)"
+    );
 }
 
 #[test]
@@ -856,7 +856,10 @@ fn dc_32_directory_tree_ansi_guides_exist() {
             }
         }
     }
-    assert!(found, "DirectoryTree:ansi > .tree--guides rule should exist");
+    assert!(
+        found,
+        "DirectoryTree:ansi > .tree--guides rule should exist"
+    );
 }
 
 #[test]
