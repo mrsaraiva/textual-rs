@@ -354,6 +354,54 @@ fn split_runtime_control_messages(app: &mut App, queue: Vec<MessageEvent>) -> Ru
                     pass.generated.push(cancelled);
                 }
             }
+            Message::AppAddClass(crate::message::AppAddClass {
+                selector,
+                class_name,
+            }) => match app.action_add_class(&selector, &class_name) {
+                Ok(matched) if matched > 0 => {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    debug_input(&format!(
+                        "[runtime] app.add_class ignored selector={selector:?} class={class_name:?} err={err:?}"
+                    ));
+                }
+            },
+            Message::AppRemoveClass(crate::message::AppRemoveClass {
+                selector,
+                class_name,
+            }) => match app.action_remove_class(&selector, &class_name) {
+                Ok(matched) if matched > 0 => {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    debug_input(&format!(
+                        "[runtime] app.remove_class ignored selector={selector:?} class={class_name:?} err={err:?}"
+                    ));
+                }
+            },
+            Message::AppToggleClass(crate::message::AppToggleClass {
+                selector,
+                class_name,
+            }) => match app.action_toggle_class(&selector, &class_name) {
+                Ok(matched) if matched > 0 => {
+                    pass.repaint_requested = true;
+                    pass.invalidation
+                        .merge(crate::event::InvalidationFlags::layout());
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    debug_input(&format!(
+                        "[runtime] app.toggle_class ignored selector={selector:?} class={class_name:?} err={err:?}"
+                    ));
+                }
+            },
             Message::OverlayVisibilityChanged(crate::message::OverlayVisibilityChanged {
                 overlay,
                 visible,
@@ -1260,6 +1308,35 @@ impl App {
                             break;
                         }
                         let key = KeyEventData::from_crossterm(key);
+
+                        // App-level key hook with runtime handle (Textual-style).
+                        let mut app_key_ctx = EventCtx::default();
+                        root.on_app_key(self, &key, &mut app_key_ctx);
+                        if app_key_ctx.repaint_requested() {
+                            pending_invalidation.request_full_content();
+                        }
+                        pending_invalidation.request_flags(app_key_ctx.invalidation());
+                        if app_key_ctx.stop_requested() {
+                            break 'event_loop;
+                        }
+                        let app_key_handled = app_key_ctx.handled();
+                        let app_key_messages = app_key_ctx.take_messages();
+                        if !app_key_messages.is_empty() {
+                            let mut msg_outcome =
+                                self.dispatch_message_queue_with_runtime(root, app_key_messages);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
+                            if msg_outcome.stop_requested {
+                                break 'event_loop;
+                            }
+                        }
+                        if app_key_handled {
+                            continue;
+                        }
+
                         let bind = crate::event::KeyBind::from_event(&key);
                         let mapped_action = self.action_map.lookup(&bind);
 
@@ -2805,6 +2882,7 @@ mod tests {
         set_overlay_modal_display_tree, should_dispatch_binding_hints,
         should_dispatch_focused_help, transition_requests_for_style_change,
     };
+    use crate::action::{ActionDecl, ParsedAction, parse_action, resolve_action};
     use crate::css::StyleSheet;
     use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
     use crate::keys::KeyEventData;
@@ -3776,6 +3854,121 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn runtime_app_selector_messages_mutate_tree_and_request_layout_invalidation() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root_id, Box::new(crate::widgets::Button::new("go")));
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+
+        let messages = vec![MessageEvent {
+            sender: node_id_from_ffi(1),
+            message: Message::AppAddClass(crate::message::AppAddClass {
+                selector: "Button".to_string(),
+                class_name: "highlight".to_string(),
+            }),
+            control: Some(node_id_from_ffi(1)),
+        }];
+        let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
+        assert!(outcome.repaint_requested);
+        assert!(outcome.invalidation.layout);
+        let highlighted = app.query(".highlight").expect("selector parses");
+        assert_eq!(highlighted.len(), 1);
+    }
+
+    struct AppActionHost;
+
+    impl Widget for AppActionHost {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn action_namespace(&self) -> &str {
+            "app"
+        }
+
+        fn action_registry(&self) -> &[ActionDecl] {
+            const ACTIONS: &[ActionDecl] = &[
+                ActionDecl {
+                    name: "add_class",
+                    namespace: "app",
+                    description: "Add class",
+                    default_binding: None,
+                },
+                ActionDecl {
+                    name: "remove_class",
+                    namespace: "app",
+                    description: "Remove class",
+                    default_binding: None,
+                },
+                ActionDecl {
+                    name: "toggle_class",
+                    namespace: "app",
+                    description: "Toggle class",
+                    default_binding: None,
+                },
+            ];
+            ACTIONS
+        }
+
+        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+            if action.name != "add_class" || action.arguments.len() != 2 {
+                return false;
+            }
+            ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                selector: action.arguments[0].clone(),
+                class_name: action.arguments[1].clone(),
+            }));
+            ctx.set_handled();
+            true
+        }
+    }
+
+    #[test]
+    fn action_routing_app_add_class_uses_runtime_pipeline() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let app_node = tree.mount(root, Box::new(AppActionHost));
+        let button = tree.mount(app_node, Box::new(crate::widgets::Button::new("ok")));
+        if let Some(node) = tree.get_mut(button) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let parsed =
+            parse_action("app.add_class('Button', 'from-action')").expect("action should parse");
+        let resolved = {
+            let tree_ref = app.widget_tree.as_ref().expect("tree exists");
+            resolve_action(&parsed, tree_ref, button, |nid| {
+                tree_ref.get(nid).map(|node| {
+                    (
+                        node.widget.action_namespace(),
+                        node.widget.action_registry(),
+                    )
+                })
+            })
+        }
+        .expect("action should resolve");
+        assert_eq!(resolved.node, app_node);
+
+        let mut ctx = EventCtx::default();
+        if let Some(tree_mut) = app.widget_tree.as_mut()
+            && let Some(node) = tree_mut.get_mut(resolved.node)
+        {
+            assert!(node.widget.execute_action(&parsed, &mut ctx));
+        }
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+        let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
+        assert!(outcome.repaint_requested);
+        assert!(outcome.invalidation.layout);
+        let mutated = app.query(".from-action").expect("selector should parse");
+        assert_eq!(mutated.len(), 1);
     }
 
     struct ReactivePhaseProbeWidget {

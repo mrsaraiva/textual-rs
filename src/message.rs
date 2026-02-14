@@ -356,6 +356,28 @@ pub struct OverlayVisibilityChanged {
 }
 
 // ---------------------------------------------------------------------------
+// Per-message structs — app selector class actions
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct AppAddClass {
+    pub selector: String,
+    pub class_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppRemoveClass {
+    pub selector: String,
+    pub class_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppToggleClass {
+    pub selector: String,
+    pub class_name: String,
+}
+
+// ---------------------------------------------------------------------------
 // Per-message structs — command palette
 // ---------------------------------------------------------------------------
 
@@ -618,6 +640,10 @@ pub enum Message {
     OverlayToggle(OverlayToggle),
     OverlayDismissRequested(OverlayDismissRequested),
     OverlayVisibilityChanged(OverlayVisibilityChanged),
+    // App selector class actions
+    AppAddClass(AppAddClass),
+    AppRemoveClass(AppRemoveClass),
+    AppToggleClass(AppToggleClass),
     // Command palette
     CommandPaletteCommandSelected(CommandPaletteCommandSelected),
     CommandPaletteSetCommands(CommandPaletteSetCommands),
@@ -706,6 +732,9 @@ impl_message_from!(
     OverlayToggle,
     OverlayDismissRequested,
     OverlayVisibilityChanged,
+    AppAddClass,
+    AppRemoveClass,
+    AppToggleClass,
     CommandPaletteCommandSelected,
     CommandPaletteSetCommands,
     DataTableCursorMoved,

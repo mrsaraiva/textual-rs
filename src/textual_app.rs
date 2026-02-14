@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 
+use crate::action::{ActionDecl, ParsedAction};
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
@@ -13,6 +14,33 @@ use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, Spacer, Widget};
 use crate::{App, Result};
+
+const APP_ADAPTER_ACTIONS: &[ActionDecl] = &[
+    ActionDecl {
+        name: "quit",
+        namespace: "app",
+        description: "Quit the application",
+        default_binding: Some("ctrl+q"),
+    },
+    ActionDecl {
+        name: "add_class",
+        namespace: "app",
+        description: "Add a CSS class to widgets matched by selector",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "remove_class",
+        namespace: "app",
+        description: "Remove a CSS class from widgets matched by selector",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "toggle_class",
+        namespace: "app",
+        description: "Toggle a CSS class on widgets matched by selector",
+        default_binding: None,
+    },
+];
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
 ///
@@ -70,6 +98,15 @@ pub trait TextualApp: Send + 'static {
     /// Called during capture phase before child widgets, allowing global key
     /// interception akin to Python Textual's app-level key handling.
     fn on_key(&mut self, _key: &KeyEventData, _ctx: &mut EventCtx) {}
+
+    /// App-level key hook with mutable runtime handle.
+    ///
+    /// This is the Python Textual-aligned surface for app callbacks that need
+    /// query/mutation APIs (`query_one`, `query_mut`, etc.) while handling keys.
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+        let _ = app;
+        self.on_key(key, ctx);
+    }
 
     /// App-level message hook. Called after widget message dispatch if not handled.
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
@@ -276,6 +313,65 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .bindings()
     }
 
+    fn action_namespace(&self) -> &str {
+        "app"
+    }
+
+    fn action_registry(&self) -> &[ActionDecl] {
+        APP_ADAPTER_ACTIONS
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        fn selector_and_class(action: &ParsedAction) -> Option<(&str, &str)> {
+            if action.arguments.len() != 2 {
+                return None;
+            }
+            Some((&action.arguments[0], &action.arguments[1]))
+        }
+
+        match action.name.as_str() {
+            "quit" => {
+                ctx.request_stop();
+                ctx.set_handled();
+                true
+            }
+            "add_class" => {
+                let Some((selector, class_name)) = selector_and_class(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                    selector: selector.to_string(),
+                    class_name: class_name.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "remove_class" => {
+                let Some((selector, class_name)) = selector_and_class(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                    selector: selector.to_string(),
+                    class_name: class_name.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            "toggle_class" => {
+                let Some((selector, class_name)) = selector_and_class(action) else {
+                    return false;
+                };
+                ctx.post_message(Message::AppToggleClass(crate::message::AppToggleClass {
+                    selector: selector.to_string(),
+                    class_name: class_name.to_string(),
+                }));
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         if self.child_extracted {
             return Vec::new();
@@ -324,16 +420,14 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Event::Key(key) = event {
-            self.app
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .on_key(key, ctx);
-            if ctx.handled() {
-                return;
-            }
-        }
         self.child.on_event_capture(event, ctx);
+    }
+
+    fn on_app_key(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_key_with_app(app, key, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -562,6 +656,7 @@ pub fn run_sync_snapshot<T: TextualApp>(definition: T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::parse_action;
     use crate::keys::KeyEventData;
     use crate::node_id::node_id_from_ffi;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1023,15 +1118,14 @@ mod tests {
             handle_key: true,
         }));
         let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
+        let mut runtime = App::new().expect("app runtime should initialize");
         let mut ctx = EventCtx::default();
+        let key = KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        ));
 
-        adapter.on_event_capture(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Char('k'),
-                KeyModifiers::NONE,
-            ))),
-            &mut ctx,
-        );
+        adapter.on_app_key(&mut runtime, &key, &mut ctx);
 
         assert_eq!(key_hits.load(Ordering::SeqCst), 1);
         assert_eq!(capture_hits.load(Ordering::SeqCst), 0);
@@ -1047,18 +1141,86 @@ mod tests {
             handle_key: false,
         }));
         let mut adapter = TextualAppAdapter::new(app, CaptureProbe::new(capture_hits.clone()));
+        let mut runtime = App::new().expect("app runtime should initialize");
         let mut ctx = EventCtx::default();
+        let key = KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        ));
 
-        adapter.on_event_capture(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Char('k'),
-                KeyModifiers::NONE,
-            ))),
-            &mut ctx,
-        );
+        adapter.on_app_key(&mut runtime, &key, &mut ctx);
+        if !ctx.handled() {
+            adapter.on_event_capture(&Event::Key(key), &mut ctx);
+        }
 
         assert_eq!(key_hits.load(Ordering::SeqCst), 1);
         assert_eq!(capture_hits.load(Ordering::SeqCst), 1);
         assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn app_selector_class_actions_emit_runtime_messages() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut ctx = EventCtx::default();
+
+        let add =
+            parse_action("app.add_class('Button', 'primary')").expect("add action should parse");
+        let remove = parse_action("app.remove_class('Button', 'primary')")
+            .expect("remove action should parse");
+        let toggle = parse_action("app.toggle_class('Button', 'primary')")
+            .expect("toggle action should parse");
+        assert!(adapter.execute_action(&add, &mut ctx));
+        assert!(adapter.execute_action(&remove, &mut ctx));
+        assert!(adapter.execute_action(&toggle, &mut ctx));
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 3);
+        assert!(matches!(
+            messages[0].message,
+            Message::AppAddClass(crate::message::AppAddClass {
+                ref selector,
+                ref class_name
+            }) if selector == "Button" && class_name == "primary"
+        ));
+        assert!(matches!(
+            messages[1].message,
+            Message::AppRemoveClass(crate::message::AppRemoveClass {
+                ref selector,
+                ref class_name
+            }) if selector == "Button" && class_name == "primary"
+        ));
+        assert!(matches!(
+            messages[2].message,
+            Message::AppToggleClass(crate::message::AppToggleClass {
+                ref selector,
+                ref class_name
+            }) if selector == "Button" && class_name == "primary"
+        ));
+    }
+
+    #[test]
+    fn app_quit_action_requests_stop() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut ctx = EventCtx::default();
+        let quit = parse_action("app.quit").expect("quit action should parse");
+        assert!(adapter.execute_action(&quit, &mut ctx));
+        assert!(ctx.stop_requested());
+        assert!(ctx.handled());
     }
 }

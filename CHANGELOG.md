@@ -8,7 +8,19 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-14
-- **feat(runtime): app-level `on_key` hook and CSS selector query API**
+- **feat(runtime): DomQuery/DomQueryMut API, on_key_with_app hook, selector class actions**
+  - Added `DomQuery` (read) and `DomQueryMut` (write) types for chainable CSS-selector-based widget tree queries with filter/exclude/results_where combinators and bulk mutation helpers (add_class, remove_class, toggle_class, set_classes, set_styles, set_display, set_visible, focus/blur, refresh).
+  - Added `App::query_exactly_one()`, `query_one_optional()`, `query_children()`, `query_ancestor()`, `get_widget_by_id()`, `get_child_by_id()`, `query_mut()` query variants.
+  - Added `App::with_widget_mut_as()` and `with_query_one_mut_as()` for type-safe downcasting widget mutation.
+  - Added `TextualApp::on_key_with_app()` hook receiving `&mut App` handle for query/mutation during key handling (Python Textual alignment). Runtime dispatches this before normal widget key routing.
+  - Added `app.add_class`/`remove_class`/`toggle_class` action declarations and `AppAddClass`/`AppRemoveClass`/`AppToggleClass` runtime messages with full action→message→runtime pipeline.
+  - `TextualAppAdapter` now implements `action_namespace`/`action_registry`/`execute_action` for `app.*` actions including `quit` and selector class mutations.
+  - `Widget` trait now requires `Any` supertrait bound for runtime downcasting.
+  - Added `Widget::on_app_key()` trait method for runtime-level app key hooks.
+  - Examples `keys.rs` and `rich_log.rs` rewritten to use `on_key_with_app` with `with_query_one_mut_as` — eliminated `Arc<Mutex<RichLog>>` shared state and `SharedKeyLog`/`SharedRichLog` wrapper widgets entirely, using message-based communication instead.
+  - Comprehensive regression tests for all new query APIs, DomQuery combinators, DomQueryMut mutations, selector class actions, action routing pipeline, and on_app_key dispatch.
+
+- **feat(runtime): app-level `on_key` hook and CSS selector query API** (previous entry)
   - Added `TextualApp::on_key()` capture-phase hook for app-level key interception (mirrors Python Textual's app-level key handling). Wired through `TextualAppAdapter::on_event_capture` and tree-mode `dispatch_event_auto`.
   - Added `App::query()`, `query_one()`, `with_widget_mut()`, `with_query_one_mut()` for CSS-selector-based widget tree queries and scoped mutation.
   - Tree-mode `dispatch_event_auto` now runs root key capture before tree dispatch and root action fallback after unhandled tree dispatch.

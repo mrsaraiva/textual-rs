@@ -29,13 +29,14 @@ use crate::node_id::node_id_from_ffi;
 use crate::node_id::node_id_to_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
-use crate::style::Theme;
+use crate::style::{Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
-use crate::widgets::{ToastSeverity, Widget};
+use crate::widgets::{ToastSeverity, Widget, WidgetStyles};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
-use std::collections::{BTreeSet, HashMap};
+use std::any::Any;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -50,6 +51,235 @@ use types::{
 use helpers::{
     ClickTracker, apply_size, default_action_map, tree_content_local_coords, widget_at_tree_layout,
 };
+
+/// Snapshot-style query result over arena node ids.
+#[derive(Debug, Clone)]
+pub struct DomQuery {
+    nodes: Vec<NodeId>,
+}
+
+impl DomQuery {
+    fn from_nodes(nodes: Vec<NodeId>) -> Self {
+        Self { nodes }
+    }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub fn ids(&self) -> &[NodeId] {
+        &self.nodes
+    }
+
+    pub fn into_ids(self) -> Vec<NodeId> {
+        self.nodes
+    }
+
+    pub fn first(&self) -> std::result::Result<NodeId, QueryError> {
+        self.nodes.first().copied().ok_or(QueryError::NoMatch)
+    }
+
+    pub fn last(&self) -> std::result::Result<NodeId, QueryError> {
+        self.nodes.last().copied().ok_or(QueryError::NoMatch)
+    }
+
+    pub fn only_one(&self) -> std::result::Result<NodeId, QueryError> {
+        match self.nodes.len() {
+            0 => Err(QueryError::NoMatch),
+            1 => Ok(self.nodes[0]),
+            n => Err(QueryError::TooManyMatches(n)),
+        }
+    }
+
+    pub fn results(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.nodes.iter().copied()
+    }
+
+    pub fn results_where(self, app: &App, mut predicate: impl FnMut(&dyn Widget) -> bool) -> Self {
+        let Some(tree) = app.widget_tree.as_ref() else {
+            return Self::from_nodes(Vec::new());
+        };
+        let filtered = self
+            .nodes
+            .into_iter()
+            .filter(|id| {
+                tree.get(*id)
+                    .is_some_and(|node| predicate(node.widget.as_ref()))
+            })
+            .collect();
+        Self::from_nodes(filtered)
+    }
+
+    pub fn filter(self, app: &App, selector: &str) -> std::result::Result<Self, QueryError> {
+        let matched = app.query(selector)?;
+        let matched_set: HashSet<NodeId> = matched.nodes.into_iter().collect();
+        let filtered = self
+            .nodes
+            .into_iter()
+            .filter(|id| matched_set.contains(id))
+            .collect();
+        Ok(Self::from_nodes(filtered))
+    }
+
+    pub fn exclude(self, app: &App, selector: &str) -> std::result::Result<Self, QueryError> {
+        let matched = app.query(selector)?;
+        let matched_set: HashSet<NodeId> = matched.nodes.into_iter().collect();
+        let filtered = self
+            .nodes
+            .into_iter()
+            .filter(|id| !matched_set.contains(id))
+            .collect();
+        Ok(Self::from_nodes(filtered))
+    }
+}
+
+impl IntoIterator for DomQuery {
+    type Item = NodeId;
+    type IntoIter = std::vec::IntoIter<NodeId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.into_iter()
+    }
+}
+
+/// Mutable query handle with chainable bulk mutation helpers.
+pub struct DomQueryMut<'a> {
+    app: &'a mut App,
+    nodes: Vec<NodeId>,
+}
+
+impl<'a> DomQueryMut<'a> {
+    fn new(app: &'a mut App, nodes: Vec<NodeId>) -> Self {
+        Self { app, nodes }
+    }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub fn ids(&self) -> &[NodeId] {
+        &self.nodes
+    }
+
+    pub fn set_class(self, add: bool, class: &str) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                if add {
+                    tree.add_class(id, class);
+                } else {
+                    tree.remove_class(id, class);
+                }
+            }
+        }
+        self
+    }
+
+    pub fn add_class(self, class: &str) -> Self {
+        self.set_class(true, class)
+    }
+
+    pub fn remove_class(self, class: &str) -> Self {
+        self.set_class(false, class)
+    }
+
+    pub fn toggle_class(self, class: &str) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                tree.toggle_class(id, class);
+            }
+        }
+        self
+    }
+
+    pub fn set_classes(self, classes: &[&str]) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                tree.set_classes(id, classes);
+            }
+        }
+        self
+    }
+
+    pub fn update(self, mut f: impl FnMut(&mut dyn Widget)) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                if let Some(node) = tree.get_mut(id) {
+                    f(node.widget.as_mut());
+                }
+            }
+        }
+        self
+    }
+
+    pub fn set_styles(self, mut f: impl FnMut(&mut WidgetStyles)) -> Self {
+        self.update(|widget| {
+            if let Some(styles) = widget.styles_mut() {
+                f(styles);
+            }
+        })
+    }
+
+    pub fn set_focus(self, focused: bool) -> Self {
+        self.update(|widget| widget.set_focus(focused))
+    }
+
+    pub fn focus(self) -> Self {
+        self.set_focus(true)
+    }
+
+    pub fn blur(self) -> Self {
+        self.set_focus(false)
+    }
+
+    pub fn set_display(self, display: bool) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                tree.set_runtime_display(id, display);
+            }
+        }
+        self
+    }
+
+    pub fn set_visible(self, visible: bool) -> Self {
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            let visibility = if visible {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+            for &id in &self.nodes {
+                tree.set_visibility(id, visibility);
+            }
+        }
+        self
+    }
+
+    pub fn set(self, display: Option<bool>, visible: Option<bool>) -> Self {
+        let query = if let Some(display) = display {
+            self.set_display(display)
+        } else {
+            self
+        };
+        if let Some(visible) = visible {
+            query.set_visible(visible)
+        } else {
+            query
+        }
+    }
+
+    pub fn refresh(self) -> Self {
+        self.app.clear_on_next_render = true;
+        self
+    }
+}
 
 pub struct App {
     driver: TerminalDriver,
@@ -208,39 +438,148 @@ impl App {
         (self.app_inline, self.app_ansi, self.app_nocolor)
     }
 
+    fn validate_selector(selector: &str) -> std::result::Result<(), QueryError> {
+        if crate::css::parse_selector_list(selector).is_empty() {
+            Err(QueryError::ParseError(format!(
+                "invalid selector: {selector}"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Query nodes in the active arena tree using a CSS selector.
     ///
-    /// Returns matching `NodeId`s in tree traversal order.
-    pub fn query(&self, selector: &str) -> std::result::Result<Vec<NodeId>, QueryError> {
+    /// Returns a snapshot query object in tree traversal order.
+    pub fn query(&self, selector: &str) -> std::result::Result<DomQuery, QueryError> {
         match self.widget_tree.as_ref() {
-            Some(tree) => tree.query(selector),
+            Some(tree) => tree.query(selector).map(DomQuery::from_nodes),
             None => {
-                // Preserve selector validation semantics even when no tree exists.
-                if crate::css::parse_selector_list(selector).is_empty() {
-                    Err(QueryError::ParseError(format!(
-                        "invalid selector: {selector}"
-                    )))
-                } else {
-                    Ok(Vec::new())
-                }
+                Self::validate_selector(selector)?;
+                Ok(DomQuery::from_nodes(Vec::new()))
             }
         }
     }
 
-    /// Query exactly one node in the active arena tree.
+    /// Query first matching node (Python `query_one` semantics).
     pub fn query_one(&self, selector: &str) -> std::result::Result<NodeId, QueryError> {
+        self.query(selector)?.first()
+    }
+
+    /// Query exactly one node; fails when more than one match exists.
+    pub fn query_exactly_one(&self, selector: &str) -> std::result::Result<NodeId, QueryError> {
+        self.query(selector)?.only_one()
+    }
+
+    /// Query one node optionally.
+    pub fn query_one_optional(
+        &self,
+        selector: &str,
+    ) -> std::result::Result<Option<NodeId>, QueryError> {
+        match self.query(selector)?.first() {
+            Ok(id) => Ok(Some(id)),
+            Err(QueryError::NoMatch) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Query immediate children of the tree root.
+    pub fn query_children(&self, selector: &str) -> std::result::Result<DomQuery, QueryError> {
         match self.widget_tree.as_ref() {
-            Some(tree) => tree.query_one(selector),
+            Some(tree) => match tree.root() {
+                Some(root) => tree
+                    .query_children(root, selector)
+                    .map(DomQuery::from_nodes),
+                None => Ok(DomQuery::from_nodes(Vec::new())),
+            },
             None => {
-                if crate::css::parse_selector_list(selector).is_empty() {
-                    Err(QueryError::ParseError(format!(
-                        "invalid selector: {selector}"
-                    )))
-                } else {
-                    Err(QueryError::NoMatch)
-                }
+                Self::validate_selector(selector)?;
+                Ok(DomQuery::from_nodes(Vec::new()))
             }
         }
+    }
+
+    /// Query closest ancestor of a node matching a selector.
+    pub fn query_ancestor(
+        &self,
+        node_id: NodeId,
+        selector: &str,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let Some(tree) = self.widget_tree.as_ref() else {
+            Self::validate_selector(selector)?;
+            return Err(QueryError::NoMatch);
+        };
+        if !tree.contains(node_id) {
+            return Err(QueryError::NoMatch);
+        }
+        let matched: HashSet<NodeId> = self.query(selector)?.into_ids().into_iter().collect();
+        for ancestor in tree.ancestors(node_id) {
+            if matched.contains(&ancestor) {
+                return Ok(ancestor);
+            }
+        }
+        Err(QueryError::NoMatch)
+    }
+
+    /// Find first descendant by CSS id (selector `#id`).
+    pub fn get_widget_by_id(&self, id: &str) -> std::result::Result<NodeId, QueryError> {
+        self.query_one(&format!("#{id}"))
+    }
+
+    /// Find immediate child of the tree root by CSS id.
+    pub fn get_child_by_id(&self, id: &str) -> std::result::Result<NodeId, QueryError> {
+        self.query_children(&format!("#{id}"))?.first()
+    }
+
+    /// Mutable query handle for chainable bulk mutations.
+    pub fn query_mut(
+        &mut self,
+        selector: &str,
+    ) -> std::result::Result<DomQueryMut<'_>, QueryError> {
+        let nodes = self.query(selector)?.into_ids();
+        Ok(DomQueryMut::new(self, nodes))
+    }
+
+    /// Apply `add_class` to all nodes matching `selector`.
+    ///
+    /// Returns the number of matched nodes.
+    pub fn action_add_class(
+        &mut self,
+        selector: &str,
+        class_name: &str,
+    ) -> std::result::Result<usize, QueryError> {
+        let query = self.query_mut(selector)?;
+        let matched = query.len();
+        query.add_class(class_name);
+        Ok(matched)
+    }
+
+    /// Apply `remove_class` to all nodes matching `selector`.
+    ///
+    /// Returns the number of matched nodes.
+    pub fn action_remove_class(
+        &mut self,
+        selector: &str,
+        class_name: &str,
+    ) -> std::result::Result<usize, QueryError> {
+        let query = self.query_mut(selector)?;
+        let matched = query.len();
+        query.remove_class(class_name);
+        Ok(matched)
+    }
+
+    /// Apply `toggle_class` to all nodes matching `selector`.
+    ///
+    /// Returns the number of matched nodes.
+    pub fn action_toggle_class(
+        &mut self,
+        selector: &str,
+        class_name: &str,
+    ) -> std::result::Result<usize, QueryError> {
+        let query = self.query_mut(selector)?;
+        let matched = query.len();
+        query.toggle_class(class_name);
+        Ok(matched)
     }
 
     /// Borrow a widget mutably by node id for a scoped update.
@@ -255,6 +594,19 @@ impl App {
             .map(|node| f(node.widget.as_mut()))
     }
 
+    /// Borrow a widget mutably by node id and downcast to `T`.
+    pub fn with_widget_mut_as<T: Widget + 'static, R>(
+        &mut self,
+        node_id: NodeId,
+        f: impl FnOnce(&mut T) -> R,
+    ) -> Option<R> {
+        self.with_widget_mut(node_id, |widget| {
+            let any_widget = widget as &mut dyn Any;
+            any_widget.downcast_mut::<T>().map(f)
+        })
+        .flatten()
+    }
+
     /// Query one widget by selector and borrow it mutably for a scoped update.
     pub fn with_query_one_mut<R>(
         &mut self,
@@ -263,6 +615,16 @@ impl App {
     ) -> std::result::Result<R, QueryError> {
         let node_id = self.query_one(selector)?;
         self.with_widget_mut(node_id, f).ok_or(QueryError::NoMatch)
+    }
+
+    /// Query one widget by selector and mutably downcast it to `T`.
+    pub fn with_query_one_mut_as<T: Widget + 'static, R>(
+        &mut self,
+        selector: &str,
+        f: impl FnOnce(&mut T) -> R,
+    ) -> std::result::Result<R, QueryError> {
+        let node_id = self.query_one(selector)?;
+        self.with_widget_mut_as(node_id, f).ok_or(QueryError::NoMatch)
     }
 
     /// Build the arena-based widget tree by extracting children from the root widget.
@@ -837,18 +1199,12 @@ impl App {
                 self.hovered.map(node_id_to_ffi),
                 hovered.map(node_id_to_ffi)
             ));
-            // Update hover state on actual widgets via the tree.
-            if let Some(tree) = self.widget_tree.as_mut() {
-                if let Some(old_id) = self.hovered {
-                    if let Some(node) = tree.get_mut(old_id) {
-                        node.widget.set_hovered(false);
-                    }
-                }
-                if let Some(new_id) = hovered {
-                    if let Some(node) = tree.get_mut(new_id) {
-                        node.widget.set_hovered(true);
-                    }
-                }
+            // Update hover state via centralized widget mutation helper.
+            if let Some(old_id) = self.hovered {
+                let _ = self.with_widget_mut(old_id, |widget| widget.set_hovered(false));
+            }
+            if let Some(new_id) = hovered {
+                let _ = self.with_widget_mut(new_id, |widget| widget.set_hovered(true));
             }
             self.hovered = hovered;
             let shape = self.pointer_shape_for_hover_auto(root, self.hovered);
@@ -1263,6 +1619,7 @@ mod tests {
     use super::*;
     use crate::widget_tree::QueryError;
     use crate::widgets::{AppRoot, Button, Label};
+    use rich_rs::Segments;
 
     #[test]
     fn choose_deeper_target_prefers_tree_descendant_over_frame_ancestor() {
@@ -1323,7 +1680,7 @@ mod tests {
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
         let primary = tree.mount(root, Box::new(Button::new("primary")));
-        let _secondary = tree.mount(root, Box::new(Button::new("secondary")));
+        let secondary = tree.mount(root, Box::new(Button::new("secondary")));
         tree.add_class(primary, "primary");
 
         let mut app = App::new().expect("app should initialize");
@@ -1331,8 +1688,18 @@ mod tests {
 
         let all_buttons = app.query("Button").expect("selector should parse");
         assert_eq!(all_buttons.len(), 2);
-        let selected = app.query_one(".primary").expect("exact selector match");
+        let selected = app.query_one(".primary").expect("selector match");
         assert_eq!(selected, primary);
+
+        let first_button = app.query_one("Button").expect("first match should exist");
+        assert_eq!(
+            first_button, primary,
+            "query_one should return first match in traversal order"
+        );
+        let strict = app.query_exactly_one("Button");
+        assert_eq!(strict, Err(QueryError::TooManyMatches(2)));
+        let first_via_last = app.query("Button").expect("selector should parse").last();
+        assert_eq!(first_via_last, Ok(secondary));
     }
 
     #[test]
@@ -1341,7 +1708,16 @@ mod tests {
 
         assert!(matches!(app.query(""), Err(QueryError::ParseError(_))));
         assert!(matches!(app.query_one(""), Err(QueryError::ParseError(_))));
+        assert!(matches!(
+            app.query_exactly_one(""),
+            Err(QueryError::ParseError(_))
+        ));
+        assert!(matches!(
+            app.query_one_optional(""),
+            Err(QueryError::ParseError(_))
+        ));
         assert!(matches!(app.query_one("Button"), Err(QueryError::NoMatch)));
+        assert_eq!(app.query_one_optional("Button"), Ok(None));
     }
 
     #[test]
@@ -1353,15 +1729,203 @@ mod tests {
         let mut app = App::new().expect("app should initialize");
         app.widget_tree = Some(tree);
 
-        app.with_query_one_mut("Button", |widget| widget.set_focus(true))
+        app.query_mut("Button")
+            .expect("query should succeed")
+            .update(|widget| widget.set_focus(true));
+
+        app.with_query_one_mut("Button", |widget| widget.set_hovered(true))
             .expect("target should exist");
 
-        let focused = app
+        let (focused, hovered) = app
             .widget_tree
             .as_ref()
             .and_then(|tree| tree.get(target))
-            .map(|node| node.widget.has_focus())
-            .unwrap_or(false);
+            .map(|node| (node.widget.has_focus(), node.widget.is_hovered()))
+            .unwrap_or((false, false));
         assert!(focused);
+        assert!(hovered);
+    }
+
+    #[test]
+    fn app_query_children_and_id_helpers_follow_root_children_scope() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(Button::new("first")));
+        let second = tree.mount(root, Box::new(Button::new("second")));
+        let nested_parent = tree.mount(root, Box::new(Label::new("parent")));
+        let nested = tree.mount(nested_parent, Box::new(Button::new("nested")));
+        app_assign_style_id(&mut tree, first, "first");
+        app_assign_style_id(&mut tree, second, "second");
+        app_assign_style_id(&mut tree, nested, "nested");
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let root_children = app.query_children("Button").expect("selector parses");
+        assert_eq!(root_children.len(), 2);
+        assert_eq!(app.get_child_by_id("first"), Ok(first));
+        assert_eq!(app.get_widget_by_id("nested"), Ok(nested));
+    }
+
+    #[test]
+    fn app_query_ancestor_finds_closest_match() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let container = tree.mount(root, Box::new(Label::new("container")));
+        let button = tree.mount(container, Box::new(Button::new("child")));
+        tree.add_class(container, "panel");
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let ancestor = app
+            .query_ancestor(button, ".panel")
+            .expect("ancestor exists");
+        assert_eq!(ancestor, container);
+    }
+
+    #[test]
+    fn dom_query_filter_exclude_and_bulk_class_mutation_are_centralized() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(Button::new("first")));
+        let second = tree.mount(root, Box::new(Button::new("second")));
+        tree.add_class(first, "left");
+        tree.add_class(second, "right");
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let left = app
+            .query("Button")
+            .expect("query")
+            .filter(&app, ".left")
+            .expect("filter");
+        assert_eq!(left.len(), 1);
+        assert_eq!(left.first(), Ok(first));
+        let not_left = app
+            .query("Button")
+            .expect("query")
+            .exclude(&app, ".left")
+            .expect("exclude");
+        assert_eq!(not_left.first(), Ok(second));
+        let _ = app.with_widget_mut(second, |widget| widget.set_focus(true));
+        let only_second = app
+            .query("Button")
+            .expect("query")
+            .results_where(&app, |widget| widget.has_focus());
+        assert_eq!(only_second.only_one(), Ok(second));
+
+        app.query_mut("Button")
+            .expect("query mut")
+            .add_class("all")
+            .remove_class("left")
+            .toggle_class("toggled")
+            .set_classes(&["normalized"]);
+        let all_normalized = app.query(".normalized").expect("selector");
+        assert_eq!(all_normalized.len(), 2);
+    }
+
+    #[test]
+    fn dom_query_mut_supports_state_style_and_refresh_helpers() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root, Box::new(Button::new("first")));
+        let second = tree.mount(root, Box::new(Button::new("second")));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.query_mut("Button")
+            .expect("query mut")
+            .set_styles(|styles| {
+                styles.set_bold(true);
+                styles.set_min_width(9);
+            })
+            .focus()
+            .set(Some(false), Some(false))
+            .refresh();
+
+        let tree = app.widget_tree.as_ref().expect("tree should exist");
+        let first_node = tree.get(first).expect("first exists");
+        let second_node = tree.get(second).expect("second exists");
+        assert!(
+            first_node
+                .widget
+                .styles()
+                .is_some_and(|styles| styles.style.bold == Some(true))
+        );
+        assert!(
+            second_node
+                .widget
+                .styles()
+                .is_some_and(|styles| styles.style.bold == Some(true))
+        );
+        assert!(!tree.is_displayed(first));
+        assert!(!tree.is_displayed(second));
+        assert_eq!(tree.visibility(first), Visibility::Hidden);
+        assert_eq!(tree.visibility(second), Visibility::Hidden);
+        assert!(first_node.widget.has_focus());
+        assert!(second_node.widget.has_focus());
+        assert!(app.clear_on_next_render);
+    }
+
+    #[test]
+    fn app_selector_class_actions_mutate_matching_nodes() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let _first = tree.mount(root, Box::new(Button::new("first")));
+        let second = tree.mount(root, Box::new(Button::new("second")));
+        tree.add_class(second, "selected");
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        let added = app
+            .action_add_class("Button", "bulk")
+            .expect("selector should parse");
+        assert_eq!(added, 2);
+        let removed = app
+            .action_remove_class(".selected", "selected")
+            .expect("selector should parse");
+        assert_eq!(removed, 1);
+        let toggled = app
+            .action_toggle_class("#missing", "ignored")
+            .expect("selector should parse");
+        assert_eq!(toggled, 0);
+
+        let bulk = app.query(".bulk").expect("selector should parse");
+        assert_eq!(bulk.len(), 2);
+        let selected = app.query(".selected").expect("selector should parse");
+        assert!(selected.is_empty());
+    }
+
+    fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {
+        struct IdWrapper {
+            id: String,
+            inner: Box<dyn Widget>,
+        }
+
+        impl Widget for IdWrapper {
+            fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+                self.inner.render(console, options)
+            }
+
+            fn style_type(&self) -> &'static str {
+                self.inner.style_type()
+            }
+
+            fn style_id(&self) -> Option<&str> {
+                Some(self.id.as_str())
+            }
+        }
+
+        if let Some(node_ref) = tree.get_mut(node) {
+            let inner = std::mem::replace(&mut node_ref.widget, Box::new(Label::new("tmp")));
+            node_ref.widget = Box::new(IdWrapper {
+                id: id.to_string(),
+                inner,
+            });
+        }
     }
 }

@@ -3,75 +3,79 @@
 //! Python parity target: Textual "keys" preview layout with title bar,
 //! instruction panel, scrolling log body, and bottom action bar.
 
-use std::sync::{Arc, Mutex};
-
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Segment, Style as RichStyle};
 use textual::keys::KeyEventData;
 use textual::prelude::*;
 
-struct SharedKeyLog {
-    log: Arc<Mutex<RichLog>>,
-}
+#[derive(Debug, Clone)]
+struct ClearKeyLogMessage;
 
-impl SharedKeyLog {
-    fn new(log: Arc<Mutex<RichLog>>) -> Self {
-        Self { log }
+impl textual::message::UserMessage for ClearKeyLogMessage {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn textual::message::UserMessage> {
+        Box::new(self.clone())
     }
 }
 
-impl Widget for SharedKeyLog {
+struct KeyLog {
+    log: RichLog,
+}
+
+impl KeyLog {
+    fn new() -> Self {
+        Self {
+            log: RichLog::new().max_lines(400).scroll_step(2),
+        }
+    }
+}
+
+impl Widget for KeyLog {
     fn style_type(&self) -> &'static str {
         "KeyLog"
     }
 
     fn focusable(&self) -> bool {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .focusable()
+        self.log.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .set_focus(focused);
+        self.log.set_focus(focused);
     }
 
     fn has_focus(&self) -> bool {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .has_focus()
+        self.log.has_focus()
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_event(event, ctx);
+        self.log.on_event(event, ctx);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_event_capture(event, ctx);
+        self.log.on_event_capture(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::Custom(custom) = &message.message
+            && custom.as_any().is::<ClearKeyLogMessage>()
+        {
+            self.log.clear();
+            ctx.request_repaint();
+            ctx.set_handled();
+            return;
+        }
+        self.log.on_message(message, ctx);
     }
 
     fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_mouse_scroll(dx, dy, ctx);
+        self.log.on_mouse_scroll(dx, dy, ctx);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_mouse_move(x, y)
+        self.log.on_mouse_move(x, y)
     }
 
     fn render(
@@ -79,10 +83,7 @@ impl Widget for SharedKeyLog {
         console: &rich_rs::Console,
         options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        self.log
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .render(console, options)
+        self.log.render(console, options)
     }
 }
 
@@ -124,18 +125,8 @@ fn write_key_line(log: &mut RichLog, key_name: &str, character: Option<char>, is
     ]);
 }
 
-#[derive(Clone)]
-struct KeysApp {
-    log: Arc<Mutex<RichLog>>,
-}
-
-impl Default for KeysApp {
-    fn default() -> Self {
-        Self {
-            log: Arc::new(Mutex::new(RichLog::new().max_lines(400).scroll_step(2))),
-        }
-    }
-}
+#[derive(Clone, Default)]
+struct KeysApp;
 
 impl TextualApp for KeysApp {
     fn compose(&mut self) -> AppRoot {
@@ -160,7 +151,7 @@ impl TextualApp for KeysApp {
             ))
             .min_height(4)
             .max_height(4),
-            SharedKeyLog::new(self.log.clone()),
+            KeyLog::new(),
             Some(3),
             Constrained::new(
                 Row::new()
@@ -184,30 +175,32 @@ impl TextualApp for KeysApp {
         Ok(())
     }
 
-    fn on_key(&mut self, key: &KeyEventData, ctx: &mut EventCtx) {
-        let mut log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         let key_name = key.name();
-        write_key_line(&mut log, key_name, key.character, key.is_printable);
-        if !matches!(key.modifiers, KeyModifiers::NONE) {
-            log.write(format!("  modifiers={:?}", key.modifiers));
-        }
-        if !matches!(key.kind, crossterm::event::KeyEventKind::Press) {
-            log.write(format!("  kind={:?}", key.kind));
-        }
-        if key.aliases().len() > 1 {
-            log.write(format!(
-                "  aliases={:?} display={:?} id={:?}",
-                key.aliases(),
-                key.display(),
-                key.identifier()
-            ));
-        }
-        if key.modifiers != KeyModifiers::NONE
-            || !matches!(key.kind, crossterm::event::KeyEventKind::Press)
-            || key.aliases().len() > 1
-        {
-            log.write(String::new());
-        }
+        let _ = app.with_query_one_mut_as::<KeyLog, _>("KeyLog", |key_log| {
+            let log = &mut key_log.log;
+            write_key_line(log, key_name, key.character, key.is_printable);
+            if !matches!(key.modifiers, KeyModifiers::NONE) {
+                log.write(format!("  modifiers={:?}", key.modifiers));
+            }
+            if !matches!(key.kind, crossterm::event::KeyEventKind::Press) {
+                log.write(format!("  kind={:?}", key.kind));
+            }
+            if key.aliases().len() > 1 {
+                log.write(format!(
+                    "  aliases={:?} display={:?} id={:?}",
+                    key.aliases(),
+                    key.display(),
+                    key.identifier()
+                ));
+            }
+            if key.modifiers != KeyModifiers::NONE
+                || !matches!(key.kind, crossterm::event::KeyEventKind::Press)
+                || key.aliases().len() > 1
+            {
+                log.write(String::new());
+            }
+        });
         ctx.set_handled();
         ctx.request_repaint();
     }
@@ -215,9 +208,9 @@ impl TextualApp for KeysApp {
     fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
         match description {
             "Clear" => {
-                self.log.lock().unwrap_or_else(|e| e.into_inner()).clear();
-                ctx.request_repaint();
+                ctx.post_message(Message::Custom(Box::new(ClearKeyLogMessage)));
                 ctx.set_handled();
+                ctx.request_repaint();
             }
             "Quit" => {
                 ctx.request_stop();

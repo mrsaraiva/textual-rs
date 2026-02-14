@@ -33,7 +33,7 @@ pub use error::{Error, Result};
 pub use event::BindingHint;
 pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
-pub use runtime::App;
+pub use runtime::{App, DomQuery, DomQueryMut};
 pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use textual_app::{
@@ -61,8 +61,9 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
     pub use crate::runtime::{
-        App, DispatchOutcome, build_widget_tree_from_root, dispatch_event_to_target_tree,
-        dispatch_event_tree, focused_node_id_tree, render_tree_to_frame, run_layout_pass,
+        App, DispatchOutcome, DomQuery, DomQueryMut, build_widget_tree_from_root,
+        dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree,
+        render_tree_to_frame, run_layout_pass,
     };
     pub use crate::screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
     pub use crate::signal::{Signal, SignalResponse};

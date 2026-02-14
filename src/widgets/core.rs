@@ -1,4 +1,5 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Segments, StyleMeta};
+use std::any::Any;
 
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
@@ -138,7 +139,7 @@ impl BindingDecl {
 /// it can tag rendered segments with the correct arena identity. The convenience
 /// wrappers `render_styled` / `render_styled_with_debug` use a null sentinel
 /// NodeId for backward-compatible widget-to-widget rendering during migration.
-pub trait Widget: Send + Sync {
+pub trait Widget: Send + Sync + Any {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
 
     /// Declare child widgets for this widget.
@@ -294,6 +295,17 @@ pub trait Widget: Send + Sync {
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    /// Optional runtime-level app key hook.
+    ///
+    /// The runtime calls this before normal widget key dispatch, passing the
+    /// active [`crate::App`] handle so app wrappers can query/mutate tree state.
+    fn on_app_key(
+        &mut self,
+        _app: &mut crate::App,
+        _key: &crate::keys::KeyEventData,
+        _ctx: &mut EventCtx,
+    ) {
+    }
     /// Optional visibility override for tree child nodes by child index.
     ///
     /// Tree mode can query this every frame and mirror it to child node

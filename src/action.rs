@@ -120,6 +120,24 @@ pub const APP_ACTIONS: &[ActionDecl] = &[
         description: "Focus previous widget",
         default_binding: Some("shift+tab"),
     },
+    ActionDecl {
+        name: "add_class",
+        namespace: "app",
+        description: "Add a CSS class to widgets matched by selector",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "remove_class",
+        namespace: "app",
+        description: "Remove a CSS class from widgets matched by selector",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "toggle_class",
+        namespace: "app",
+        description: "Toggle a CSS class on widgets matched by selector",
+        default_binding: None,
+    },
 ];
 
 // ── Parser ───────────────────────────────────────────────────────────────────
@@ -453,7 +471,7 @@ mod tests {
 
     #[test]
     fn app_actions_has_expected_count() {
-        assert_eq!(APP_ACTIONS.len(), 8);
+        assert_eq!(APP_ACTIONS.len(), 11);
     }
 
     #[test]
@@ -480,6 +498,13 @@ mod tests {
     fn app_actions_focus_previous() {
         let action = find_action(APP_ACTIONS, "focus_previous").unwrap();
         assert_eq!(action.default_binding, Some("shift+tab"));
+    }
+
+    #[test]
+    fn app_actions_include_selector_class_mutations() {
+        assert!(find_action(APP_ACTIONS, "add_class").is_some());
+        assert!(find_action(APP_ACTIONS, "remove_class").is_some());
+        assert!(find_action(APP_ACTIONS, "toggle_class").is_some());
     }
 
     #[test]
