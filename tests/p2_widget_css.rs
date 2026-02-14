@@ -9,6 +9,7 @@ use std::time::Duration;
 use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::prelude::*;
+use textual::render::FrameBuffer;
 use textual::style::{PropertyTransition, ScrollbarGutter, ScrollbarVisibility, TransitionTiming};
 
 // ───────────────────────────────────────────────────────────────────────
@@ -340,6 +341,52 @@ fn p2g32_color_initial_clears_fg_bg_and_link_colors() {
         style.link_color_hover, None,
         "link-color-hover: initial should clear value"
     );
+}
+
+#[test]
+fn dce12_color_auto_percent_parses_to_fg_auto() {
+    let css = r#"Label { color: auto 90%; }"#;
+    let sheet = StyleSheet::parse(css);
+    let style = sheet.rules()[0].style();
+    assert_eq!(style.fg, None);
+    assert_eq!(style.fg_auto.map(|auto| auto.alpha_percent), Some(90));
+}
+
+#[test]
+fn dce12_fg_auto_percent_parses_to_fg_auto() {
+    let css = r#"Label { fg: auto 50%; }"#;
+    let sheet = StyleSheet::parse(css);
+    let style = sheet.rules()[0].style();
+    assert_eq!(style.fg, None);
+    assert_eq!(style.fg_auto.map(|auto| auto.alpha_percent), Some(50));
+}
+
+#[test]
+fn dce11_tint_applies_to_rendered_foreground_and_background() {
+    let css = r#"
+Label {
+    color: #ff0000;
+    background: #00ff00;
+    tint: #000000 100%;
+}
+"#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (1, 1);
+    options.max_width = 1;
+    options.max_height = 1;
+
+    let label = Label::new("x");
+    let renderable = WidgetRenderable::new(&label);
+    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let cell = buf.get(0, 0);
+    let style = cell.style.expect("style should be present");
+
+    assert_eq!(style.color, Some(Color::rgb(0, 0, 0).to_simple_opaque()));
+    assert_eq!(style.bgcolor, Some(Color::rgb(0, 0, 0).to_simple_opaque()));
 }
 
 #[test]

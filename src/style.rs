@@ -342,6 +342,12 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         m.insert("markdown-h4-color", foreground);
         m.insert("markdown-h5-color", foreground);
         m.insert("markdown-h6-color", Color::parse("#E0E0E099").unwrap());
+        m.insert("markdown-h1-background", Color::rgba(0, 0, 0, 0));
+        m.insert("markdown-h2-background", Color::rgba(0, 0, 0, 0));
+        m.insert("markdown-h3-background", Color::rgba(0, 0, 0, 0));
+        m.insert("markdown-h4-background", Color::rgba(0, 0, 0, 0));
+        m.insert("markdown-h5-background", Color::rgba(0, 0, 0, 0));
+        m.insert("markdown-h6-background", Color::rgba(0, 0, 0, 0));
 
         // Scrollbar tokens (mirrors Textual dark design defaults closely enough for parity).
         let scrollbar_background = darken_lab(background, 0.15 / 2.0);
@@ -806,6 +812,33 @@ pub struct TextStyleFlags {
     pub italic: bool,
     pub underline: bool,
     pub reverse: bool,
+}
+
+pub(crate) fn resolve_text_style_token_flags(token: &str) -> Option<TextStyleFlags> {
+    // Text-style token defaults from Textual design/theme values.
+    let mut flags = TextStyleFlags::default();
+    match token {
+        "bold" => flags.bold = true,
+        "dim" => flags.dim = true,
+        "italic" => flags.italic = true,
+        "underline" => flags.underline = true,
+        "reverse" => flags.reverse = true,
+        "$button-focus-text-style" => {
+            flags.bold = true;
+            flags.reverse = true;
+        }
+        "$block-cursor-text-style" => flags.bold = true,
+        "$block-cursor-blurred-text-style" => {}
+        "$input-cursor-text-style" => {}
+        "$markdown-h1-text-style" => flags.bold = true,
+        "$markdown-h2-text-style" => flags.underline = true,
+        "$markdown-h3-text-style" => flags.bold = true,
+        "$markdown-h4-text-style" => flags.italic = true,
+        "$markdown-h5-text-style" => flags.italic = true,
+        "$markdown-h6-text-style" => flags.dim = true,
+        _ => return None,
+    }
+    Some(flags)
 }
 
 /// Hatch fill pattern: a character repeated as background fill with a color.

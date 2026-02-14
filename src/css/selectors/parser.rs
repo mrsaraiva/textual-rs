@@ -6,6 +6,7 @@ use crate::style::{
     Position, PropertyTransition, Scalar, ScrollbarGutter, ScrollbarVisibility, Split, Style,
     StyleProperty, TextAlign, TextOverflow, TextStyleFlags, TextWrap, Tint, TransitionTiming,
     VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
+    resolve_text_style_token_flags,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
@@ -1818,10 +1819,22 @@ fn parse_text_style_shorthand_into_style(style: &mut Style, value: &str, is_impo
             pending_not = false;
             continue;
         }
-        if let Some(flags) = expand_text_style_token_to_flags(token.as_str()) {
+        if let Some(flags) = resolve_text_style_token_flags(token.as_str()) {
             let value = !pending_not;
-            for flag in flags {
-                apply_text_style_flag(style, flag, value, is_important);
+            if flags.bold {
+                apply_text_style_flag(style, "bold", value, is_important);
+            }
+            if flags.dim {
+                apply_text_style_flag(style, "dim", value, is_important);
+            }
+            if flags.italic {
+                apply_text_style_flag(style, "italic", value, is_important);
+            }
+            if flags.underline {
+                apply_text_style_flag(style, "underline", value, is_important);
+            }
+            if flags.reverse {
+                apply_text_style_flag(style, "reverse", value, is_important);
             }
         }
         pending_not = false;
@@ -1861,26 +1874,6 @@ fn apply_text_style_flag(style: &mut Style, flag: &str, value: bool, is_importan
             }
         }
         _ => {}
-    }
-}
-
-fn expand_text_style_token_to_flags(token: &str) -> Option<&'static [&'static str]> {
-    match token {
-        "bold" => Some(&["bold"]),
-        "dim" => Some(&["dim"]),
-        "italic" => Some(&["italic"]),
-        "underline" => Some(&["underline"]),
-        "reverse" => Some(&["reverse"]),
-        // Textual design defaults:
-        // - button-focus-text-style -> "b reverse" (bold + reverse)
-        // - block-cursor-text-style -> "bold"
-        // - block-cursor-blurred-text-style -> "none"
-        // - input-cursor-text-style -> "none"
-        "$button-focus-text-style" => Some(&["bold", "reverse"]),
-        "$block-cursor-text-style" => Some(&["bold"]),
-        "$block-cursor-blurred-text-style" => Some(&[]),
-        "$input-cursor-text-style" => Some(&[]),
-        _ => None,
     }
 }
 

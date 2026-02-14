@@ -42,6 +42,17 @@ fn textual_dark_semantic_text_tokens_are_available() {
 }
 
 #[test]
+fn textual_dark_markdown_heading_background_tokens_are_available() {
+    let transparent = Color::rgba(0, 0, 0, 0);
+    expect_token("markdown-h1-background", transparent);
+    expect_token("markdown-h2-background", transparent);
+    expect_token("markdown-h3-background", transparent);
+    expect_token("markdown-h4-background", transparent);
+    expect_token("markdown-h5-background", transparent);
+    expect_token("markdown-h6-background", transparent);
+}
+
+#[test]
 fn textual_dark_auto_like_tokens_use_alpha() {
     // Python textual-dark: text=auto 87%, button-color-foreground=auto 87%.
     // In textual-rs this is represented as white with alpha 0.87, then flattened

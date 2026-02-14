@@ -102,15 +102,6 @@ pub(crate) fn apply_style_to_segments(
                     style_changed = true;
                 }
             }
-            if let Some(tint) = style.tint {
-                if let Some(bg) = s.bgcolor {
-                    let bg = crate::style::color_from_simple(bg);
-                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
-                    s.bgcolor = Some(blended.to_simple_opaque());
-                    style_changed = true;
-                }
-            }
-
             let text_opacity = style.text_opacity.map(|value| value as f32 / 100.0);
             // Preserve per-segment foregrounds unless unset.
             if s.color.is_none() {
@@ -150,6 +141,20 @@ pub(crate) fn apply_style_to_segments(
                 let flat = existing.flatten_over(bg_for_text);
                 s.color = Some(flat.to_simple_opaque());
                 style_changed = true;
+            }
+            if let Some(tint) = style.tint {
+                if let Some(bg) = s.bgcolor {
+                    let bg = crate::style::color_from_simple(bg);
+                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    s.bgcolor = Some(blended.to_simple_opaque());
+                    style_changed = true;
+                }
+                if let Some(fg) = s.color {
+                    let fg = crate::style::color_from_simple(fg);
+                    let blended = crate::style::blend_colors(fg, tint.color, tint.percent);
+                    s.color = Some(blended.to_simple_opaque());
+                    style_changed = true;
+                }
             }
             if style_changed || seg.style.is_some() {
                 seg.style = Some(s);

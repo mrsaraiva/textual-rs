@@ -17,6 +17,14 @@ until the API stabilizes.
   - Added 3 unit tests (nested `&`/descendant, cartesian expansion, `@`-rule issue) and 3 integration tests (`tests/style_nested.rs`).
 
 ### 2026-02-15
+- **fix(theme): add missing markdown heading background/text-style tokens**
+  - Added `$markdown-h1-background` through `$markdown-h6-background` to textual-dark token resolution.
+  - Added `$markdown-h1-text-style` through `$markdown-h6-text-style` token resolution for `text-style` shorthand parsing.
+  - Added integration coverage for token resolution and stylesheet parse-flow usage.
+- **fix(css/render): align `tint` and `auto NN%` foreground behavior**
+  - `tint:` now applies as a final render overlay to both foreground and background segment colors.
+  - Added behavioral regression coverage validating `tint` affects final rendered `color` and `background`.
+  - Added focused parser/integration coverage for `color: auto NN%` and `fg: auto NN%` populating `fg_auto`.
 - **fix(css): `text-style` negation + Textual token refs**
   - Added `text-style: not <flag>` semantics with explicit false flag assignment (for example `not reverse`, `bold not underline`, `bold italic not dim`).
   - Added parser support for Textual text-style token refs in value position: `$button-focus-text-style`, `$block-cursor-text-style`, `$block-cursor-blurred-text-style`, `$input-cursor-text-style`.
