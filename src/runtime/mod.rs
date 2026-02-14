@@ -183,7 +183,7 @@ impl App {
     ///
     /// Uses `take_composed_children()` to recursively move children out of
     /// containers and into the arena tree. After building, the tree is stored
-    /// in `self.widget_tree` and tree-based dispatch paths become active.
+    /// in `self.widget_tree` and tree mode becomes active.
     ///
     /// Also processes `compose()` declarations for any widget that provides them.
     pub(crate) fn build_widget_tree(&mut self, root: &mut dyn Widget) {
@@ -204,7 +204,7 @@ impl App {
         }
 
         if tree.len() <= 1 {
-            // Only root stub, no children — keep legacy path.
+            // Only root stub, no composed children — run in root-only mode.
             self.widget_tree = None;
             return;
         }
@@ -773,19 +773,19 @@ impl App {
         let moved_changed = if let Some(id) = self.hovered {
             let (lx, ly) = self.content_local_coords_auto(id, x as u16, y as u16);
             self.call_on_mouse_move_auto(root, id, lx, ly)
-        } else if self.widget_tree.is_some() {
-            // Tree root is a synthetic `TreeStubWidget`; forwarding mouse move
-            // there discards hover propagation. Always use the real root widget
-            // for no-target movement.
-            debug_input(&format!(
-                "[hover] fallback root-move via real-root screen=({}, {})",
-                x, y
-            ));
-            root.on_mouse_move(x as u16, y as u16)
         } else {
-            // When hit-test target resolution fails (common in partially tree-wired
-            // wrapper chains), still forward mouse movement through the root widget
-            // tree so containers can maintain descendant hover state.
+            // No hover target:
+            // - In tree mode, the arena root is a synthetic stub and should not
+            //   receive pointer movement directly.
+            // - In root-only mode, the root widget is the only dispatch target.
+            //
+            // In both cases, forward through the real root widget.
+            if self.widget_tree.is_some() {
+                debug_input(&format!(
+                    "[hover] fallback root-move via real-root screen=({}, {})",
+                    x, y
+                ));
+            }
             root.on_mouse_move(x as u16, y as u16)
         };
 

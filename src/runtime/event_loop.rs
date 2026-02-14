@@ -946,7 +946,7 @@ impl App {
 
         // Build the arena-based widget tree by extracting children from root.
         // If children are found (via take_composed_children or compose),
-        // tree-based dispatch paths become active; otherwise legacy dispatch.
+        // tree mode becomes active; otherwise runtime stays in root-only mode.
         self.build_widget_tree(root);
 
         // Auto-focus the first focusable widget via the arena tree.
@@ -1239,7 +1239,7 @@ impl App {
                                     if focus_outcome.handled {
                                         continue;
                                     }
-                                    if self.move_focus_auto(root, action) {
+                                    if self.move_focus_auto(action) {
                                         pending_invalidation.request_full_content();
                                         continue;
                                     }
@@ -2186,16 +2186,19 @@ impl App {
     // ===================================================================
     // Arena-tree bridge methods
     //
-    // Each method checks whether the arena `WidgetTree` is available. When
-    // it is, the tree-based scaffold function handles the operation; when
-    // it is not (the common case during migration), the legacy recursive
-    // path is used instead.
+    // The runtime has two explicit modes:
+    // - Tree mode: a composed widget tree exists (`self.widget_tree.is_some()`).
+    // - Root-only mode: no composed children were extracted; only the root
+    //   widget participates in dispatch.
+    //
+    // Root-only fallbacks below are intentional compatibility for root-only
+    // apps, not migration-only behavior.
     // ===================================================================
 
     /// Move focus forward/backward in the tree focus chain.
     ///
     /// Returns `true` when focus changed.
-    fn move_focus_auto(&mut self, _root: &mut dyn Widget, action: Action) -> bool {
+    fn move_focus_auto(&mut self, action: Action) -> bool {
         let Some(tree) = self.widget_tree.as_mut() else {
             return false;
         };
@@ -2233,7 +2236,7 @@ impl App {
         false
     }
 
-    /// Dispatch an event via the arena tree (if available) or the legacy path.
+    /// Dispatch an event via tree mode, or root-only mode when no tree exists.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         if let Some(tree) = self.widget_tree.as_mut() {
             let focused = focused_node_id_tree(tree);
@@ -2245,7 +2248,7 @@ impl App {
 
     /// Dispatch an event to a specific target via the arena tree.
     ///
-    /// Falls back to simple root dispatch when tree is absent.
+    /// Falls back to root-only dispatch when no tree exists.
     fn dispatch_event_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -2261,7 +2264,7 @@ impl App {
 
     /// Dispatch a scroll action via the arena tree.
     ///
-    /// Falls back to simple root dispatch when tree is absent.
+    /// Falls back to root-only dispatch when no tree exists.
     fn dispatch_scroll_action_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -2277,7 +2280,7 @@ impl App {
 
     /// Dispatch mouse scroll to a specific target via the arena tree.
     ///
-    /// Falls back to root-only scroll when tree is absent.
+    /// Falls back to root-only scroll when no tree exists.
     fn dispatch_mouse_scroll_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -2294,7 +2297,7 @@ impl App {
 
     /// Dispatch a message queue via the arena tree.
     ///
-    /// Falls back to root-only message delivery when tree is absent.
+    /// Falls back to root-only message delivery when no tree exists.
     fn dispatch_message_queue_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -2367,7 +2370,7 @@ impl App {
         }
     }
 
-    /// Check whether any widget is active, using tree or legacy path.
+    /// Check whether any widget is active, using tree mode or root-only mode.
     fn any_widget_active_auto(&self, root: &mut dyn Widget) -> bool {
         if let Some(tree) = &self.widget_tree {
             any_widget_active_tree(tree)
@@ -2376,7 +2379,7 @@ impl App {
         }
     }
 
-    /// Collect active binding hints via tree or root-only fallback.
+    /// Collect active binding hints via tree mode or root-only mode.
     fn active_binding_hints_auto(
         &self,
         root: &mut dyn Widget,
@@ -2388,7 +2391,7 @@ impl App {
         }
     }
 
-    /// Get focused help metadata via tree or root-only fallback.
+    /// Get focused help metadata via tree mode or root-only mode.
     fn focused_help_metadata_auto(&self, root: &mut dyn Widget) -> Option<(NodeId, String)> {
         if let Some(tree) = &self.widget_tree {
             focused_help_metadata_tree(tree)
@@ -2403,7 +2406,7 @@ impl App {
         }
     }
 
-    /// Forward `on_mouse_move` via tree or root-only fallback.
+    /// Forward `on_mouse_move` via tree mode or root-only mode.
     pub(super) fn call_on_mouse_move_auto(
         &mut self,
         root: &mut dyn Widget,
