@@ -8,6 +8,11 @@ mod tasks;
 mod timers;
 mod types;
 
+// Public re-exports for integration testing via `textual::runtime::*`.
+pub use render::{render_tree_to_frame, run_layout_pass};
+pub use routing::{dispatch_event_tree, dispatch_event_to_target_tree, focused_node_id_tree};
+pub use types::DispatchOutcome;
+
 use crate::animation::{Animator, animation_level_from_env};
 use crate::compose::{ChildDecl, WidgetBuilder};
 use crate::css::{StyleSheet, default_widget_stylesheet};
@@ -1080,6 +1085,37 @@ fn style_affects_layout(style: &crate::style::Style) -> bool {
         || style.display.is_some()
         || style.visibility.is_some()
         || style.dock.is_some()
+}
+
+// ---------------------------------------------------------------------------
+// Standalone tree-builder for integration tests
+// ---------------------------------------------------------------------------
+
+/// Build an arena-based [`WidgetTree`] from a root widget without requiring
+/// a full [`App`] instance.
+///
+/// Replicates the extraction logic of [`App::build_widget_tree()`]:
+/// 1. Creates a `TreeStubWidget` root node.
+/// 2. Recursively extracts children via `take_composed_children()`.
+/// 3. Processes `compose()` declarations.
+/// 4. Returns `None` if the root has no children (no tree to build).
+pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> {
+    let mut tree = WidgetTree::new();
+    let root_node_id = tree.set_root(Box::new(TreeStubWidget::from_widget(root)));
+
+    App::extract_children_to_tree(&mut tree, root_node_id, root);
+
+    let declarations = root.compose();
+    if !declarations.is_empty() {
+        App::mount_declarations(&mut tree, root_node_id, declarations);
+    }
+
+    if tree.len() <= 1 {
+        return None;
+    }
+
+    let _ = tree.drain_lifecycle();
+    Some(tree)
 }
 
 // ---------------------------------------------------------------------------

@@ -242,15 +242,15 @@ pub(crate) const SYNC_START: &str = "\x1b[?2026h";
 pub(crate) const SYNC_END: &str = "\x1b[?2026l";
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct DispatchOutcome {
-    pub(crate) handled: bool,
-    pub(crate) repaint_requested: bool,
-    pub(crate) invalidation: InvalidationFlags,
-    pub(crate) stop_requested: bool,
-    pub(crate) messages: Vec<MessageEvent>,
-    pub(crate) animation_requests: Vec<AnimationRequest>,
+pub struct DispatchOutcome {
+    pub handled: bool,
+    pub repaint_requested: bool,
+    pub invalidation: InvalidationFlags,
+    pub stop_requested: bool,
+    pub messages: Vec<MessageEvent>,
+    pub animation_requests: Vec<AnimationRequest>,
     /// Worker spawn requests emitted by widgets during this dispatch cycle.
-    pub(crate) worker_requests: Vec<WorkerRequest>,
+    pub worker_requests: Vec<WorkerRequest>,
     /// True when at least one handler called `prevent_default()` on the envelope
     /// during message dispatch, signalling the default action should be skipped.
     ///
@@ -258,11 +258,11 @@ pub(crate) struct DispatchOutcome {
     /// so this flag cannot be set from widget code yet. It is wired end-to-end
     /// in preparation for a future Widget trait update that passes envelopes
     /// directly to `on_message()`.
-    pub(crate) default_prevented: bool,
+    pub default_prevented: bool,
 }
 
 impl DispatchOutcome {
-    pub(crate) fn should_repaint(&self) -> bool {
+    pub fn should_repaint(&self) -> bool {
         self.handled || self.repaint_requested || self.invalidation.content
     }
 }

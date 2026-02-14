@@ -96,7 +96,7 @@ fn build_path_to_node(tree: &WidgetTree, target: NodeId) -> Vec<NodeId> {
 /// Find the currently focused node by walking the entire tree depth-first.
 ///
 /// Returns the first node whose widget reports `has_focus() == true`.
-pub(crate) fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
+pub fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
     let root = tree.root()?;
     for node_id in tree.walk_depth_first(root) {
         if let Some(node) = tree.get(node_id) {
@@ -115,7 +115,7 @@ pub(crate) fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
 /// 3. **Bubble phase**: walk focused→root, calling `on_event()`.
 ///
 /// If `focused` is `None`, dispatches to the root node only.
-pub(crate) fn dispatch_event_tree(
+pub fn dispatch_event_tree(
     tree: &mut WidgetTree,
     focused: Option<NodeId>,
     event: &Event,
@@ -178,7 +178,7 @@ pub(crate) fn dispatch_event_tree(
 /// Dispatch an event to a specific `target` node using the arena tree.
 ///
 /// Capture phase runs root→target, then bubble phase runs target→root.
-pub(crate) fn dispatch_event_to_target_tree(
+pub fn dispatch_event_to_target_tree(
     tree: &mut WidgetTree,
     target: NodeId,
     event: &Event,

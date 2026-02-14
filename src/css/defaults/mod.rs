@@ -10,6 +10,7 @@ mod base;
 mod button;
 mod checkbox;
 mod collapsible;
+mod containers;
 mod data_table;
 mod header_footer;
 mod input;
@@ -26,6 +27,7 @@ use super::StyleSheet;
 pub fn default_widget_stylesheet() -> StyleSheet {
     let combined = [
         base::DEFAULT_CSS,
+        containers::DEFAULT_CSS,
         misc::DEFAULT_CSS,
         header_footer::DEFAULT_CSS,
         text_area::DEFAULT_CSS,

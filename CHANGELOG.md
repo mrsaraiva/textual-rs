@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-13
+- **P1-12/P1-13/P1-15 done: tree-mode test infrastructure + container DEFAULT_CSS + behavioral gate tests**
+  - Exposed tree-mode APIs for integration testing: `build_widget_tree_from_root`, `render_tree_to_frame`, `run_layout_pass`, `dispatch_event_tree`, `dispatch_event_to_target_tree`, `focused_node_id_tree`, `DispatchOutcome`.
+  - Added DEFAULT_CSS entries for all container/layout widgets (Horizontal, HorizontalGroup, HorizontalScroll, Vertical, VerticalGroup, VerticalScroll, ScrollableContainer, Container, Row, Center, Middle, CenterMiddle, Right) matching Python Textual semantics — fixes horizontal layout in tree mode.
+  - Added 33 integration tests across `tests/p1_tree_render.rs` (P1G-12 + P1G-15) and `tests/p1_tree_focus.rs` (P1G-13) proving render, focus/hover, and wrapper-chain correctness through the tree pipeline.
+  - Fixed pre-existing `background_is_not_inherited_by_children` test to match correct composition semantics (transparent children compose onto parent background).
+
 - **[wip] Close reactive/runtime integration and worker runtime delivery gaps (P3-20, P5-15, P5-16)**
   - Wired event-loop reactive phase execution so queued reactive entries dispatch watchers and propagate repaint/layout invalidation in runtime flow.
   - Added/validated production reactive enqueue path from widget code (`Checkbox`) so runtime queue usage is not test-only.

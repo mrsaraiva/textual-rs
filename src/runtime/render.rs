@@ -687,6 +687,74 @@ fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::
 }
 
 // ===========================================================================
+// Standalone tree-render utility (for integration tests)
+// ===========================================================================
+
+/// Render a widget tree to a [`FrameBuffer`] without requiring a full [`App`].
+///
+/// This is a standalone version of the tree-driven render pipeline suitable
+/// for integration tests.  It:
+///
+/// 1. Installs the default widget stylesheet context so CSS resolution works.
+/// 2. Runs the CSS layout pass so every tree node has a valid `layout_rect`.
+/// 3. Renders the `root` widget's own chrome (children are already extracted).
+/// 4. Walks tree children depth-first, painting each at its `layout_rect`.
+///
+/// The returned `FrameBuffer` can be inspected with `as_plain_lines()` or
+/// `HitTestMap::from_frame()`.
+pub fn render_tree_to_frame(
+    tree: &mut WidgetTree,
+    root: &mut dyn Widget,
+    console: &rich_rs::Console,
+    width: usize,
+    height: usize,
+) -> FrameBuffer {
+    // Install stylesheet context for CSS resolution during layout + render.
+    let sheet = crate::css::default_widget_stylesheet();
+    let _guard = crate::css::set_style_context(sheet);
+
+    // Run layout so all tree nodes get their layout_rect populated.
+    run_layout_pass(tree, (width as u16, height as u16));
+
+    let mut frame = FrameBuffer::new(width, height, None);
+
+    let root_node_id = tree.root().unwrap_or_default();
+
+    // Render root widget chrome (children extracted — only own border/bg/padding).
+    let mut opts = rich_rs::ConsoleOptions::default();
+    opts.size = (width, height);
+    opts.max_width = width;
+    opts.max_height = height;
+    let root_segments = root.render_styled_dyn_obj(console, &opts, None, root_node_id);
+    let root_lines =
+        rich_rs::Segment::split_and_crop_lines(root_segments, width, None, true, false);
+    for (row, line) in root_lines.iter().enumerate() {
+        frame.write_line_at(0, row, line, true);
+    }
+
+    // Walk tree children and render each at its layout_rect.
+    if let Some(root_id) = tree.root() {
+        let root_meta = selector_meta_generic(root);
+        let root_resolved = resolve_style(root, &root_meta);
+        push_style_context(root_meta, root_resolved);
+
+        let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
+        let root_ctx = TreeRenderCtx {
+            origin_x: 0,
+            origin_y: 0,
+            clip: ClipRect::for_frame(&frame),
+        };
+        for child_id in child_ids {
+            render_tree_node(tree, child_id, root_ctx, &mut frame, console);
+        }
+
+        pop_style_context();
+    }
+
+    frame
+}
+
+// ===========================================================================
 // P1-12 / P2-18a: Arena-tree-based render scaffold + layout integration
 //
 // These standalone functions implement tree-walk render and layout patterns
@@ -704,7 +772,7 @@ fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::
 /// **Note:** The caller must ensure the CSS stylesheet context is active
 /// (via [`set_style_context`](crate::css::set_style_context)) before calling
 /// this function, because the layout solver resolves styles from the stylesheet.
-pub(crate) fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
+pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
     let root_id = match tree.root() {
         Some(r) => r,
         None => return,
