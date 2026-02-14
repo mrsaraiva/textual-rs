@@ -14,14 +14,15 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use super::App;
 use super::devtools::DevtoolsCommand;
 use super::helpers::{
     any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
-    generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
-    should_quit_key,
+    generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree, should_quit_key,
+    widget_at_tree_layout,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
@@ -119,6 +120,42 @@ fn worker_state_runtime_messages(
             }
         })
         .collect()
+}
+
+fn hit_probe_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("TEXTUAL_DEBUG_HIT_TEST_VERBOSE")
+            .ok()
+            .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+            .unwrap_or(false)
+    })
+}
+
+fn point_direction(prev: Option<(u16, u16)>, curr: (u16, u16)) -> &'static str {
+    let Some((px, py)) = prev else {
+        return "start";
+    };
+    let dx = curr.0 as i32 - px as i32;
+    let dy = curr.1 as i32 - py as i32;
+    match (dx.signum(), dy.signum()) {
+        (0, -1) => "up",
+        (0, 1) => "down",
+        (-1, 0) => "left",
+        (1, 0) => "right",
+        (1, -1) => "up-right",
+        (-1, -1) => "up-left",
+        (1, 1) => "down-right",
+        (-1, 1) => "down-left",
+        _ => "still",
+    }
+}
+
+fn fmt_rect(rect: Option<crate::runtime::types::Rect>) -> String {
+    match rect {
+        Some(r) => format!("[{},{}..{},{}]", r.x0, r.y0, r.x1, r.y1),
+        None => "-".to_string(),
+    }
 }
 
 /// Coalesce consecutive mouse-motion events into the most recent position.
@@ -991,6 +1028,7 @@ impl App {
 
         let mut last_render = Instant::now();
         let mut pending_input_event: Option<CrosstermEvent> = None;
+        let mut last_mouse_pos: Option<(u16, u16)> = None;
 
         'event_loop: loop {
             if self.apply_devtools_commands(root, &mut pending_invalidation) {
@@ -1252,6 +1290,52 @@ impl App {
                             };
                         match mouse.kind {
                         MouseEventKind::Moved | MouseEventKind::Drag(_) => {
+                            if hit_probe_enabled() {
+                                let curr = (mouse.column, mouse.row);
+                                let dir = point_direction(last_mouse_pos, curr);
+                                let frame_target = self.widget_at(mouse.column, mouse.row);
+                                let tree_target = self
+                                    .widget_tree
+                                    .as_ref()
+                                    .and_then(|tree| widget_at_tree_layout(tree, mouse.column, mouse.row));
+                                let chosen = self
+                                    .widget_tree
+                                    .as_ref()
+                                    .map(|tree| super::choose_deeper_target(tree, frame_target, tree_target))
+                                    .unwrap_or(frame_target);
+                                let relation = self
+                                    .widget_tree
+                                    .as_ref()
+                                    .and_then(|tree| match (frame_target, tree_target) {
+                                        (Some(frame), Some(tree_hit)) if frame != tree_hit => {
+                                            if super::is_ancestor_or_self(tree, frame, tree_hit) {
+                                                Some("frame->ancestor(tree)")
+                                            } else if super::is_ancestor_or_self(tree, tree_hit, frame) {
+                                                Some("tree->ancestor(frame)")
+                                            } else {
+                                                Some("unrelated")
+                                            }
+                                        }
+                                        (Some(_), Some(_)) => Some("same"),
+                                        _ => None,
+                                    })
+                                    .unwrap_or("-");
+                                let frame_rect = frame_target.and_then(|id| self.hit_test.rect(id));
+                                let tree_rect = tree_target.and_then(|id| self.hit_test.rect(id));
+                                debug_input(&format!(
+                                    "[hit-probe] pos=({}, {}) dir={} frame={:?} frame_rect={} tree={:?} tree_rect={} relation={} chosen={:?}",
+                                    mouse.column,
+                                    mouse.row,
+                                    dir,
+                                    frame_target.map(node_id_to_ffi),
+                                    fmt_rect(frame_rect),
+                                    tree_target.map(node_id_to_ffi),
+                                    fmt_rect(tree_rect),
+                                    relation,
+                                    chosen.map(node_id_to_ffi)
+                                ));
+                            }
+                            last_mouse_pos = Some((mouse.column, mouse.row));
                             let before = self.hovered;
                             if self.update_hover_from_frame(mouse.column, mouse.row, root) {
                                 if let Some(id) = before {

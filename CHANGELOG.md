@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-14
+- **Fix hit-target overshoot from `height:auto` in vertical flow + add opt-in hit probe instrumentation**
+  - Layout: `height: auto` now uses widget intrinsic `layout_height()` when available (instead of flexible `1fr` allocation), which fixes oversized interactive rects and prevents vertical containers from expanding beyond intended CSS sizing.
+  - Added regression coverage in `src/layout.rs` (`vertical_auto_height_uses_intrinsic_layout_height`).
+  - Runtime: added env-gated hit-test tracing (`TEXTUAL_DEBUG_HIT_TEST_VERBOSE=1`) to log frame/tree target selection and movement direction for systematic input-debug sessions.
+
 - **P2-24..P2-36: close TCSS property gap — 52 new CSS properties with parser, cascade, layout/render/widget wiring, and 76 gated tests**
   - Phase 1 (core infrastructure): added 13 new types (Position, BoxSizing, Split, TextWrap, TextOverflow, OverlayMode, KeylineType, ScrollbarGutter, ScrollbarVisibility, TextStyleFlags, Hatch, Keyline, PropertyTransition), 52 StyleProperty enum variants, 52 Style struct fields, ~50 parser arms, cascade/inherit/is_empty entries, importance tracking. Upgraded ImportanceBitset from u64 to u128 to support 100 property variants.
   - Phase 2 layout wiring (P2-24/25/26/27/33): absolute positioning, border-box sizing, split-region layout, per-side padding/margin with `effective_padding()`/`effective_margin()` merge helpers, grid row-span/column-span with occupancy-based 2D placement.
