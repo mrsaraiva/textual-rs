@@ -11,7 +11,7 @@ use crate::worker::{WorkerRegistry, WorkerRequest, process_worker_requests};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
 use rich_rs::Renderable;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -572,6 +572,76 @@ pub fn resolve_transition_for_property(
     Some((duration, delay, ease))
 }
 
+fn canonical_transition_property_name(property: &str) -> String {
+    property.trim().to_ascii_lowercase().replace('-', "_")
+}
+
+fn style_numeric_property(style: &crate::style::Style, property: &str) -> Option<f32> {
+    match canonical_transition_property_name(property).as_str() {
+        "opacity" => Some(style.opacity.unwrap_or(100) as f32),
+        "text_opacity" => Some(style.text_opacity.unwrap_or(100) as f32),
+        "offset_x" => style.offset.map(|offset| match offset.x {
+            crate::style::OffsetValue::Cells(v) => v as f32,
+            crate::style::OffsetValue::Percent(v) => v,
+        }),
+        "offset_y" => style.offset.map(|offset| match offset.y {
+            crate::style::OffsetValue::Cells(v) => v as f32,
+            crate::style::OffsetValue::Percent(v) => v,
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_transition_for_property_aliases(
+    style: &crate::style::Style,
+    property: &str,
+) -> Option<(Duration, Duration, AnimationEase)> {
+    if let Some(found) = resolve_transition_for_property(style, property) {
+        return Some(found);
+    }
+    let canonical = canonical_transition_property_name(property);
+    if let Some(found) = resolve_transition_for_property(style, &canonical) {
+        return Some(found);
+    }
+    let dashed = canonical.replace('_', "-");
+    if dashed != canonical {
+        return resolve_transition_for_property(style, &dashed);
+    }
+    None
+}
+
+fn transition_requests_for_style_change(
+    target: NodeId,
+    previous: &crate::style::Style,
+    current: &crate::style::Style,
+) -> Vec<AnimationRequest> {
+    if previous == current {
+        return Vec::new();
+    }
+
+    // Explicitly supported animatable style properties (P2-36 initial runtime scope).
+    const ANIMATABLE_PROPERTIES: [&str; 4] = ["opacity", "text_opacity", "offset_x", "offset_y"];
+
+    ANIMATABLE_PROPERTIES
+        .iter()
+        .filter_map(|property| {
+            let from = style_numeric_property(previous, property)?;
+            let to = style_numeric_property(current, property)?;
+            if (from - to).abs() < f32::EPSILON {
+                return None;
+            }
+            let (duration, delay, ease) =
+                resolve_transition_for_property_aliases(current, property)?;
+            Some(
+                AnimationRequest::new(target, *property, from, to, duration)
+                    .with_delay(delay)
+                    .with_ease(ease)
+                    .with_level(crate::event::AnimationLevel::Basic),
+            )
+        })
+        .collect()
+}
+
 fn transition_timing_to_ease(timing: crate::style::TransitionTiming) -> AnimationEase {
     match timing {
         crate::style::TransitionTiming::Linear => AnimationEase::Linear,
@@ -973,6 +1043,7 @@ impl App {
         // If children are found (via take_composed_children or compose),
         // tree mode becomes active; otherwise runtime stays in root-only mode.
         self.build_widget_tree(root);
+        self.style_snapshot_cache.clear();
 
         // Auto-focus the first focusable widget via the arena tree.
         if let Some(tree) = &mut self.widget_tree {
@@ -1046,6 +1117,10 @@ impl App {
                 InvalidationScope::Global,
             );
         }
+
+        // Seed style snapshot cache after startup lifecycle events so initial
+        // class/style setup doesn't emit synthetic transition requests.
+        self.dispatch_style_transition_requests(root);
 
         // Track focused widget for Focus/Blur event dispatch.
         let mut previous_focus: Option<NodeId> =
@@ -1896,6 +1971,8 @@ impl App {
                 worker_registry.cleanup();
             }
 
+            self.dispatch_style_transition_requests(root);
+
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
                 let regions = pending_invalidation
                     .content_regions
@@ -1946,6 +2023,7 @@ impl App {
                 if self.notifications.len() != notifications_before {
                     pending_invalidation.request_full_content();
                 }
+                self.dispatch_style_transition_requests(root);
                 if outcome.stop_requested || msg_outcome.stop_requested {
                     break 'event_loop;
                 }
@@ -2118,25 +2196,56 @@ impl App {
         }
     }
 
-    // DEFERRED(P2-36): Full style-change-triggered transition dispatch.
-    //
-    // When a widget's CSS properties change (class toggle, stylesheet reload,
-    // pseudo-class state change), the runtime should compare old/new style
-    // values for each property. If the widget's `transitions` CSS declaration
-    // covers that property, create an AnimationRequest to smoothly transition
-    // between the old and new values.
-    //
-    // Required infrastructure:
-    //  1. Per-widget style snapshot caching (before/after change).
-    //  2. Property-level diff between two Style instances.
-    //  3. Lookup into PropertyTransition vec for each changed property.
-    //  4. AnimationRequest generation for each matched property.
-    //  5. Integration into absorb_stylesheet_reload / class-change dispatch.
-    //
-    // Currently, per-property transition lookup is wired at the widget level
-    // (e.g. ScrollView::animation_params_for_property) for explicit animation
-    // requests. The full automatic dispatch is deferred until the
-    // style-snapshot infrastructure exists.
+    fn collect_current_resolved_styles(
+        &self,
+        root: &dyn Widget,
+    ) -> HashMap<NodeId, crate::style::Style> {
+        let mut out = HashMap::new();
+        if let Some(tree) = &self.widget_tree {
+            if let Some(root_id) = tree.root() {
+                for node_id in tree.walk_depth_first(root_id) {
+                    let Some(node) = tree.get(node_id) else {
+                        continue;
+                    };
+                    let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+                    out.insert(
+                        node_id,
+                        crate::css::resolve_style(node.widget.as_ref(), &meta),
+                    );
+                }
+            }
+            return out;
+        }
+        let meta = crate::css::selector_meta_generic(root);
+        out.insert(NodeId::default(), crate::css::resolve_style(root, &meta));
+        out
+    }
+
+    fn dispatch_style_transition_requests(&mut self, root: &dyn Widget) {
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        let _active = set_app_active(self.app_active);
+        let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            inline: self.app_inline,
+            ansi: self.app_ansi,
+            nocolor: self.app_nocolor,
+        });
+        let _guard = set_style_context(sheet);
+
+        let current_styles = self.collect_current_resolved_styles(root);
+        let mut requests = Vec::new();
+        for (node_id, current_style) in &current_styles {
+            if let Some(previous_style) = self.style_snapshot_cache.get(node_id) {
+                requests.extend(transition_requests_for_style_change(
+                    *node_id,
+                    previous_style,
+                    current_style,
+                ));
+            }
+        }
+        self.style_snapshot_cache = current_styles;
+        self.enqueue_animation_requests(requests);
+    }
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         let updates = self.animator.step(Instant::now(), self.animation_level);
@@ -2533,6 +2642,7 @@ mod tests {
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
         collect_stylesheet_affected_widgets_root, focused_help_message,
         should_dispatch_binding_hints, should_dispatch_focused_help,
+        transition_requests_for_style_change,
     };
     use crate::css::StyleSheet;
     use crate::event::{Action, BindingHint, Event, EventCtx, MountEvent};
@@ -2542,6 +2652,7 @@ mod tests {
         ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, enqueue_runtime_reactive_entry,
         take_runtime_reactive_entries,
     };
+    use crate::style::{Offset, OffsetValue, PropertyTransition, Style, TransitionTiming};
     use crate::widgets::{AppRoot, Widget};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
@@ -2896,6 +3007,68 @@ mod tests {
 
         assert!(!affected_active.is_empty());
         assert!(affected_inactive.is_empty());
+    }
+
+    #[test]
+    fn p2g36_runtime_transition_dispatch_matches_changed_properties() {
+        let target = node_id_from_ffi(99);
+        let old = Style::new().opacity(10).text_opacity(30);
+        let mut new = Style::new().opacity(80).text_opacity(30);
+        new.transitions = Some(vec![
+            PropertyTransition {
+                property: "opacity".to_string(),
+                duration: std::time::Duration::from_millis(250),
+                timing: TransitionTiming::Linear,
+                delay: std::time::Duration::from_millis(20),
+            },
+            PropertyTransition {
+                property: "offset_y".to_string(),
+                duration: std::time::Duration::from_millis(500),
+                timing: TransitionTiming::InOutCubic,
+                delay: std::time::Duration::ZERO,
+            },
+        ]);
+
+        let requests = transition_requests_for_style_change(target, &old, &new);
+        assert_eq!(
+            requests.len(),
+            1,
+            "only changed+transitioned property should animate"
+        );
+        assert_eq!(requests[0].target, target);
+        assert_eq!(requests[0].attribute, "opacity");
+        assert_eq!(requests[0].start, 10.0);
+        assert_eq!(requests[0].end, 80.0);
+        assert_eq!(requests[0].duration, std::time::Duration::from_millis(250));
+        assert_eq!(requests[0].delay, std::time::Duration::from_millis(20));
+    }
+
+    #[test]
+    fn p2g36_runtime_transition_dispatch_handles_css_hyphen_names() {
+        let target = node_id_from_ffi(101);
+        let mut old = Style::new();
+        old.offset = Some(Offset {
+            x: OffsetValue::Cells(0),
+            y: OffsetValue::Cells(0),
+        });
+        let mut new = Style::new();
+        new.offset = Some(Offset {
+            x: OffsetValue::Cells(0),
+            y: OffsetValue::Cells(6),
+        });
+        new.transitions = Some(vec![PropertyTransition {
+            property: "offset-y".to_string(),
+            duration: std::time::Duration::from_millis(120),
+            timing: TransitionTiming::OutCubic,
+            delay: std::time::Duration::ZERO,
+        }]);
+
+        let requests = transition_requests_for_style_change(target, &old, &new);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].attribute, "offset_y");
+        assert_eq!(requests[0].start, 0.0);
+        assert_eq!(requests[0].end, 6.0);
+        assert_eq!(requests[0].duration, std::time::Duration::from_millis(120));
     }
 
     // ── Worker request accumulator tests ─────────────────────────────

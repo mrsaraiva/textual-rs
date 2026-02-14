@@ -91,6 +91,9 @@ pub struct App {
     async_tasks: AsyncTaskRuntime,
     one_shot_timers: OneShotTimerRuntime,
     devtools: Option<devtools::DevtoolsRuntime>,
+    /// Last resolved CSS style per node, used for automatic style-transition
+    /// dispatch (P2-36).
+    style_snapshot_cache: HashMap<NodeId, crate::style::Style>,
     /// Arena-based widget tree built from `compose()` declarations.
     ///
     /// `None` until `build_widget_tree()` is called during app startup.
@@ -180,6 +183,7 @@ impl App {
             async_tasks: AsyncTaskRuntime::default(),
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
+            style_snapshot_cache: HashMap::new(),
             widget_tree: None,
             screen_stack: ScreenStack::new(),
             modes: HashMap::new(),

@@ -33,6 +33,13 @@ until the API stabilizes.
   - Added behavioral tests in `tests/p2_widget_css.rs`:
     - `p2g30_scroll_view_hover_subpart_colors_are_consumed`
     - `p2g30_scroll_view_drag_thumb_uses_active_color`
+- **feat(runtime): auto-dispatch per-property CSS transitions on style changes (P2-36)**
+  - Added per-node resolved style snapshot cache in `App` and runtime diffing in the widget-tree loop.
+  - Runtime now auto-emits `AnimationRequest`s when resolved styles change due class/pseudo/stylesheet updates, limited to supported animatable style properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`) with per-property transition lookup.
+  - Added property-name alias handling for transition declarations (`offset-y` ↔ `offset_y`) in runtime lookup.
+  - Added runtime unit coverage in `src/runtime/event_loop.rs`:
+    - `p2g36_runtime_transition_dispatch_matches_changed_properties`
+    - `p2g36_runtime_transition_dispatch_handles_css_hyphen_names`
 - **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
   - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
   - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.
