@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **fix(layout): wire `expand` into flow sizing and clamp absolute min/max constraints**
+  - `layout_vertical()` and `layout_horizontal()` now treat `expand: true` as a flex-grow signal on the layout axis, so intrinsic `auto` widgets can participate in remaining-space distribution.
+  - `layout_absolute()` now applies `min-width` / `max-width` / `min-height` / `max-height` constraints (with box-sizing-aware outer-size math) for absolutely positioned children.
+  - Added behavioral coverage in `tests/p2_layout_css.rs`:
+    - `p2g24_absolute_applies_min_constraints`
+    - `p2g24_absolute_applies_max_constraints`
+    - `p2g35_expand_vertical_grows_intrinsic_child`
+    - `p2g35_expand_horizontal_grows_intrinsic_child`
 - **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
   - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
   - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.

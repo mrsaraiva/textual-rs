@@ -61,6 +61,51 @@ impl Widget for TestWidget {
     }
 }
 
+struct IntrinsicWidget {
+    label: &'static str,
+    inline_style: Option<Style>,
+    intrinsic_w: usize,
+    intrinsic_h: usize,
+}
+
+impl IntrinsicWidget {
+    fn boxed_with_style(
+        label: &'static str,
+        intrinsic_w: usize,
+        intrinsic_h: usize,
+        style: Style,
+    ) -> Box<dyn Widget> {
+        Box::new(Self {
+            label,
+            inline_style: Some(style),
+            intrinsic_w,
+            intrinsic_h,
+        })
+    }
+}
+
+impl Widget for IntrinsicWidget {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        self.label
+    }
+
+    fn style(&self) -> Option<Style> {
+        self.inline_style.clone()
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        Some(self.intrinsic_w)
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(self.intrinsic_h)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -157,6 +202,44 @@ fn p2g24_absolute_does_not_reduce_dock_space() {
     assert_layout(&tree, flow_child, 0, 3, 80, 50);
     // Absolute child uses full available, not reduced.
     assert_layout(&tree, abs_child, 0, 0, 80, 30);
+}
+
+#[test]
+fn p2g24_absolute_applies_min_constraints() {
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed("Container"));
+    let abs_child = tree.mount(
+        root,
+        TestWidget::boxed_with_style("Abs", {
+            let mut s = Style::new().height(Scalar::Cells(5)).width(Scalar::Cells(10));
+            s.position = Some(Position::Absolute);
+            s.min_width = Some(Scalar::Cells(30));
+            s.min_height = Some(Scalar::Cells(20));
+            s
+        }),
+    );
+
+    resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+    assert_layout(&tree, abs_child, 0, 0, 30, 20);
+}
+
+#[test]
+fn p2g24_absolute_applies_max_constraints() {
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed("Container"));
+    let abs_child = tree.mount(
+        root,
+        TestWidget::boxed_with_style("Abs", {
+            let mut s = Style::new();
+            s.position = Some(Position::Absolute);
+            s.max_width = Some(Scalar::Cells(25));
+            s.max_height = Some(Scalar::Cells(12));
+            s
+        }),
+    );
+
+    resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+    assert_layout(&tree, abs_child, 0, 0, 25, 12);
 }
 
 // =========================================================================
@@ -643,6 +726,76 @@ fn p2g33_no_span_preserves_existing_behavior() {
     assert_layout(&tree, b, 40, 0, 80, 25);
     assert_layout(&tree, c, 0, 25, 40, 50);
     assert_layout(&tree, d, 40, 25, 80, 50);
+}
+
+// =========================================================================
+// P2G-35 follow-up: expand consumption in layout solver
+// =========================================================================
+
+#[test]
+fn p2g35_expand_vertical_grows_intrinsic_child() {
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed_with_style("Container", {
+        let mut s = Style::new();
+        s.layout = Some(Layout::Vertical);
+        s
+    }));
+
+    let expanded = tree.mount(
+        root,
+        IntrinsicWidget::boxed_with_style("Expanded", 4, 1, {
+            let mut s = Style::new();
+            s.expand = Some(true);
+            s
+        }),
+    );
+    let fixed = tree.mount(
+        root,
+        IntrinsicWidget::boxed_with_style("Fixed", 4, 1, Style::new()),
+    );
+
+    resolve_layout(&mut tree, root, Region::new(0, 0, 40, 20), (40, 20));
+    let (expanded_l, _) = inspect_node_rects(&tree, expanded).unwrap();
+    let (fixed_l, _) = inspect_node_rects(&tree, fixed).unwrap();
+    let expanded_h = expanded_l.3 - expanded_l.1;
+    let fixed_h = fixed_l.3 - fixed_l.1;
+    assert!(
+        expanded_h > fixed_h,
+        "expand=true child should receive more vertical space ({expanded_h} vs {fixed_h})"
+    );
+}
+
+#[test]
+fn p2g35_expand_horizontal_grows_intrinsic_child() {
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(TestWidget::boxed_with_style("Container", {
+        let mut s = Style::new();
+        s.layout = Some(Layout::Horizontal);
+        s
+    }));
+
+    let expanded = tree.mount(
+        root,
+        IntrinsicWidget::boxed_with_style("Expanded", 1, 1, {
+            let mut s = Style::new();
+            s.expand = Some(true);
+            s
+        }),
+    );
+    let fixed = tree.mount(
+        root,
+        IntrinsicWidget::boxed_with_style("Fixed", 1, 1, Style::new()),
+    );
+
+    resolve_layout(&mut tree, root, Region::new(0, 0, 40, 10), (40, 10));
+    let (expanded_l, _) = inspect_node_rects(&tree, expanded).unwrap();
+    let (fixed_l, _) = inspect_node_rects(&tree, fixed).unwrap();
+    let expanded_w = expanded_l.2 - expanded_l.0;
+    let fixed_w = fixed_l.2 - fixed_l.0;
+    assert!(
+        expanded_w > fixed_w,
+        "expand=true child should receive more horizontal space ({expanded_w} vs {fixed_w})"
+    );
 }
 
 // =========================================================================

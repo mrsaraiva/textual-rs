@@ -617,14 +617,24 @@ pub fn layout_vertical(
                 .get(child)
                 .and_then(|node| node.widget.content_width())
                 .and_then(|w| u16::try_from(w).ok());
-            extract_child_spec(
+            let mut spec = extract_child_spec(
                 &style,
                 available.width,
                 available.height,
                 viewport,
                 intrinsic_height,
                 intrinsic_width,
-            )
+            );
+
+            // P2-35: `expand: true` opts this child into flex-grow behavior on
+            // the layout axis even when intrinsic auto sizing would otherwise
+            // produce a fixed size.
+            if style.expand == Some(true) && spec.height_edge.size.is_some() {
+                spec.height_edge.size = None;
+                spec.height_edge.fraction = spec.height_edge.fraction.max(1);
+            }
+
+            spec
         })
         .collect();
 
@@ -731,14 +741,24 @@ pub fn layout_horizontal(
                 .get(child)
                 .and_then(|node| node.widget.content_width())
                 .and_then(|w| u16::try_from(w).ok());
-            extract_child_spec(
+            let mut spec = extract_child_spec(
                 &style,
                 available.width,
                 available.height,
                 viewport,
                 intrinsic_height,
                 intrinsic_width,
-            )
+            );
+
+            // P2-35: `expand: true` opts this child into flex-grow behavior on
+            // the layout axis even when intrinsic auto sizing would otherwise
+            // produce a fixed size.
+            if style.expand == Some(true) && spec.width_edge.size.is_some() {
+                spec.width_edge.size = None;
+                spec.width_edge.fraction = spec.width_edge.fraction.max(1);
+            }
+
+            spec
         })
         .collect();
 
@@ -1386,7 +1406,7 @@ fn layout_absolute(
         let width_is_explicit = style.width.is_some();
 
         // Resolve width/height (default to full available minus margin).
-        let layout_w = match style.width.as_ref() {
+        let mut layout_w = match style.width.as_ref() {
             Some(s) => {
                 let content_w = resolve_scalar_to_cells(s, available.width, viewport.0);
                 if box_sizing == BoxSizing::BorderBox && width_is_explicit {
@@ -1397,7 +1417,7 @@ fn layout_absolute(
             }
             None => available.width.saturating_sub(margin.left + margin.right),
         };
-        let layout_h = match style.height.as_ref() {
+        let mut layout_h = match style.height.as_ref() {
             Some(s) => {
                 let content_h = resolve_scalar_to_cells(s, available.height, viewport.1);
                 if box_sizing == BoxSizing::BorderBox && height_is_explicit {
@@ -1408,6 +1428,44 @@ fn layout_absolute(
             }
             None => available.height.saturating_sub(margin.top + margin.bottom),
         };
+
+        // Apply min/max constraints for absolute children (P2-24 follow-up).
+        if let Some(ref s) = style.min_width {
+            let min_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let min_w_outer = if box_sizing == BoxSizing::BorderBox {
+                min_w
+            } else {
+                min_w.saturating_add(chrome_w)
+            };
+            layout_w = layout_w.max(min_w_outer);
+        }
+        if let Some(ref s) = style.max_width {
+            let max_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let max_w_outer = if box_sizing == BoxSizing::BorderBox {
+                max_w
+            } else {
+                max_w.saturating_add(chrome_w)
+            };
+            layout_w = layout_w.min(max_w_outer);
+        }
+        if let Some(ref s) = style.min_height {
+            let min_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let min_h_outer = if box_sizing == BoxSizing::BorderBox {
+                min_h
+            } else {
+                min_h.saturating_add(chrome_h)
+            };
+            layout_h = layout_h.max(min_h_outer);
+        }
+        if let Some(ref s) = style.max_height {
+            let max_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let max_h_outer = if box_sizing == BoxSizing::BorderBox {
+                max_h
+            } else {
+                max_h.saturating_add(chrome_h)
+            };
+            layout_h = layout_h.min(max_h_outer);
+        }
 
         // Position: at parent origin + margin + offset.
         let offset = style.offset.unwrap_or_default();
