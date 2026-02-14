@@ -41,6 +41,8 @@ pub struct Button {
     flat: bool,
     classes: Vec<String>,
     focused_classes: Vec<String>,
+    active_classes: Vec<String>,
+    focused_active_classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -84,6 +86,8 @@ impl Button {
             flat: false,
             classes: Vec::new(),
             focused_classes: Vec::new(),
+            active_classes: Vec::new(),
+            focused_active_classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
         .rebuild_classes()
@@ -347,8 +351,14 @@ impl Button {
         }
         let mut focused_classes = classes.clone();
         focused_classes.push("focused".to_string());
+        let mut active_classes = classes.clone();
+        active_classes.push("-active".to_string());
+        let mut focused_active_classes = focused_classes.clone();
+        focused_active_classes.push("-active".to_string());
         self.classes = classes;
         self.focused_classes = focused_classes;
+        self.active_classes = active_classes;
+        self.focused_active_classes = focused_active_classes;
     }
 }
 
@@ -600,8 +610,15 @@ impl Widget for Button {
     }
 
     fn style_classes(&self) -> &[String] {
+        let active = self.is_active();
         if self.focused {
-            &self.focused_classes
+            if active {
+                &self.focused_active_classes
+            } else {
+                &self.focused_classes
+            }
+        } else if active {
+            &self.active_classes
         } else if self.classes.is_empty() {
             empty_classes()
         } else {
