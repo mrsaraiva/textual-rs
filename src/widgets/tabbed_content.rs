@@ -132,11 +132,19 @@ impl TabbedContent {
         self.activate_by_id(pane_id, None)
     }
 
-    fn activate_by_id(&mut self, pane_id: &str, ctx: Option<&mut EventCtx>) -> bool {
-        let target = self
-            .panes
+    fn query_pane_index_by_id(&self, pane_id: &str) -> Option<usize> {
+        self.panes
             .iter()
-            .position(|pane| pane.pane_id.as_deref() == Some(pane_id));
+            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
+    }
+
+    fn query_pane_by_id(&self, pane_id: &str) -> Option<&TabPane> {
+        let index = self.query_pane_index_by_id(pane_id)?;
+        self.panes.get(index)
+    }
+
+    fn activate_by_id(&mut self, pane_id: &str, ctx: Option<&mut EventCtx>) -> bool {
+        let target = self.query_pane_index_by_id(pane_id);
         if let Some(index) = target {
             return self.activate(index, ctx);
         }
@@ -144,11 +152,7 @@ impl TabbedContent {
     }
 
     pub fn set_pane_disabled(&mut self, pane_id: &str, disabled: bool) -> bool {
-        let Some(index) = self
-            .panes
-            .iter()
-            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
-        else {
+        let Some(index) = self.query_pane_index_by_id(pane_id) else {
             return false;
         };
         self.set_pane_disabled_index(index, disabled)
@@ -163,11 +167,7 @@ impl TabbedContent {
     }
 
     pub fn set_pane_hidden(&mut self, pane_id: &str, hidden: bool) -> bool {
-        let Some(index) = self
-            .panes
-            .iter()
-            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
-        else {
+        let Some(index) = self.query_pane_index_by_id(pane_id) else {
             return false;
         };
         self.set_pane_hidden_index(index, hidden)
@@ -183,11 +183,7 @@ impl TabbedContent {
 
     /// Remove a pane by its string ID. Returns `true` if found and removed.
     pub fn remove_pane(&mut self, pane_id: &str) -> bool {
-        let Some(index) = self
-            .panes
-            .iter()
-            .position(|pane| pane.pane_id.as_deref() == Some(pane_id))
-        else {
+        let Some(index) = self.query_pane_index_by_id(pane_id) else {
             return false;
         };
         let is_active = self.active == Some(index);
@@ -237,17 +233,13 @@ impl TabbedContent {
     }
 
     pub fn is_pane_disabled(&self, pane_id: &str) -> bool {
-        self.panes
-            .iter()
-            .find(|pane| pane.pane_id.as_deref() == Some(pane_id))
+        self.query_pane_by_id(pane_id)
             .map(|pane| pane.disabled)
             .unwrap_or(false)
     }
 
     pub fn is_pane_hidden(&self, pane_id: &str) -> bool {
-        self.panes
-            .iter()
-            .find(|pane| pane.pane_id.as_deref() == Some(pane_id))
+        self.query_pane_by_id(pane_id)
             .map(|pane| pane.hidden)
             .unwrap_or(false)
     }

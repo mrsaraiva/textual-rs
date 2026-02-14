@@ -15,6 +15,11 @@ until the API stabilizes.
   - `HIGHLIGHT` auto-clears after 500ms via `pending_highlight_clear` timer.
   - Added `TextualApp::on_tick()`/`on_tick_with_app()`, `on_action_with_app()`, `on_message_with_app()` convenience hooks with `&mut App` runtime handle.
   - Added `Widget::on_app_action()`, `on_app_message()`, `on_app_tick()` trait methods for runtime-level app hooks.
+  - Runtime fallback wiring now invokes app-handle hooks in the event loop: unhandled actions flow to `on_app_action()`, unhandled messages flow to `on_app_message()`, and each tick runs `on_app_tick()` before `Event::Tick`.
+  - Migrated cross-widget example callsites to centralized query/mutation APIs:
+    - `examples/buttons_advanced.rs` status updates now use `on_message_with_app` + `with_query_one_mut_as::<StatusLine>()`.
+    - `examples/data_table.rs` event footer updates now use `on_message_with_app` + `with_query_one_mut_as::<StatusLine>()`.
+  - Consolidated ID-targeted controller widget lookups through internal query-style helpers in `ContentSwitcher`, `Tabs`, and `TabbedContent` to reduce duplicated ad-hoc scans.
 
 ### 2026-02-14
 - **feat(runtime): DomQuery/DomQueryMut API, on_key_with_app hook, selector class actions**

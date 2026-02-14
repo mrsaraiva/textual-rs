@@ -1,21 +1,12 @@
-use std::sync::{Arc, Mutex};
-
 use rich_rs::{Segment, Segments};
+use textual::message::{
+    DataTableCellActivated, DataTableCursorMoved, DataTableHeaderSelected, Message,
+};
 use textual::prelude::*;
 use textual::style::{Color, parse_color_like};
 
 /// Mirrors Python Textual's `docs/examples/widgets/data_table.py`.
-struct DataTableApp {
-    status: Arc<Mutex<String>>,
-}
-
-impl DataTableApp {
-    fn new() -> Self {
-        Self {
-            status: Arc::new(Mutex::new(String::new())),
-        }
-    }
-}
+struct DataTableApp;
 
 impl TextualApp for DataTableApp {
     fn compose(&mut self) -> AppRoot {
@@ -34,7 +25,7 @@ impl TextualApp for DataTableApp {
         ]);
 
         let status_line = Styled::new(
-            StatusLine::new(self.status.clone()),
+            StatusLine::new(),
             Style::new()
                 .line_pad(1)
                 .bg(parse_color_like("$panel").unwrap_or(Color::parse("#303a43").unwrap()))
@@ -51,7 +42,7 @@ impl TextualApp for DataTableApp {
         )
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         let text = match &message.message {
             Message::DataTableCursorMoved(DataTableCursorMoved { row, column }) => {
                 format!("cursor=({row},{column})")
@@ -64,27 +55,38 @@ impl TextualApp for DataTableApp {
             }
             _ => return,
         };
-        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = text;
+        let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status_line| {
+            status_line.set_text(text);
+        });
         ctx.request_repaint();
         ctx.set_handled();
     }
 }
 
 struct StatusLine {
-    text: Arc<Mutex<String>>,
+    text: String,
 }
 
 impl StatusLine {
-    fn new(text: Arc<Mutex<String>>) -> Self {
-        Self { text }
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+        }
+    }
+
+    fn set_text(&mut self, text: String) {
+        self.text = text;
     }
 }
 
 impl Widget for StatusLine {
+    fn style_type(&self) -> &'static str {
+        "StatusLine"
+    }
+
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
-        let line = rich_rs::set_cell_size(&format!("Events: {text}"), width);
+        let line = rich_rs::set_cell_size(&format!("Events: {}", self.text), width);
         let mut out = Segments::new();
         out.push(Segment::new(line));
         out
@@ -95,5 +97,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync(DataTableApp::new())
+    run_sync(DataTableApp)
 }

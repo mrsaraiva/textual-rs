@@ -159,19 +159,13 @@ impl Tabs {
     }
 
     pub fn is_tab_disabled(&self, id: &str) -> bool {
-        self.tabs
-            .iter()
-            .find(|tab| tab.tab_id == id)
+        self.query_tab_by_id(id)
             .map(|tab| tab.disabled)
             .unwrap_or(false)
     }
 
     pub fn is_tab_hidden(&self, id: &str) -> bool {
-        self.tabs
-            .iter()
-            .find(|tab| tab.tab_id == id)
-            .map(|tab| tab.hidden)
-            .unwrap_or(false)
+        self.query_tab_by_id(id).map(|tab| tab.hidden).unwrap_or(false)
     }
 
     // ── Reactive setters ──────────────────────────────────────────────
@@ -287,6 +281,11 @@ impl Tabs {
 
     fn index_for_id(&self, id: &str) -> Option<usize> {
         self.tabs.iter().position(|tab| tab.tab_id == id)
+    }
+
+    fn query_tab_by_id(&self, id: &str) -> Option<&Tab> {
+        let index = self.index_for_id(id)?;
+        self.tabs.get(index)
     }
 
     fn set_tab_disabled_index(

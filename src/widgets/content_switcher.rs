@@ -55,6 +55,17 @@ impl ContentSwitcher {
         self.current = current;
     }
 
+    fn query_child_index_by_id(&self, id: &str) -> Option<usize> {
+        self.children
+            .iter()
+            .position(|child| child.style_id() == Some(id))
+    }
+
+    fn query_visible_child_index(&self) -> Option<usize> {
+        let current = self.current.as_deref()?;
+        self.query_child_index_by_id(current)
+    }
+
     /// Returns a reference to the currently visible content widget, if any.
     ///
     /// The visible child is determined by matching `current` against each
@@ -64,21 +75,14 @@ impl ContentSwitcher {
     }
 
     fn visible_child(&self) -> Option<&dyn Widget> {
-        let current = self.current.as_deref()?;
-        self.children
-            .iter()
-            .find(|child| child.style_id() == Some(current))
+        self.query_visible_child_index()
+            .and_then(|index| self.children.get(index))
             .map(|child| child.as_ref())
     }
 
     fn visible_child_mut(&mut self) -> Option<&mut Box<dyn Widget>> {
-        let current = self.current.as_deref()?;
-        // Find the index first to avoid borrow-checker issues with self.current.
-        let idx = self
-            .children
-            .iter()
-            .position(|child| child.style_id() == Some(current))?;
-        Some(&mut self.children[idx])
+        let index = self.query_visible_child_index()?;
+        self.children.get_mut(index)
     }
 
     /// Read-only access to all children (not just the visible one).

@@ -1,21 +1,10 @@
-use std::sync::{Arc, Mutex};
-
 use rich_rs::{Segment, Segments};
 use textual::compose;
+use textual::message::{ButtonPressed, Message};
 use textual::prelude::*;
 use textual::style::Color;
 
-struct ButtonsAdvancedApp {
-    status: Arc<Mutex<String>>,
-}
-
-impl ButtonsAdvancedApp {
-    fn new() -> Self {
-        Self {
-            status: Arc::new(Mutex::new(String::new())),
-        }
-    }
-}
+struct ButtonsAdvancedApp;
 
 impl TextualApp for ButtonsAdvancedApp {
     fn compose(&mut self) -> AppRoot {
@@ -55,7 +44,7 @@ impl TextualApp for ButtonsAdvancedApp {
         ]);
 
         let status = Styled::new(
-            StatusLine::new(self.status.clone()),
+            StatusLine::new(),
             Style::new()
                 .line_pad(1)
                 .border_top(Color::parse("#44cc44").unwrap())
@@ -74,28 +63,41 @@ impl TextualApp for ButtonsAdvancedApp {
         Some("examples/button.tcss")
     }
 
-    fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
-        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = description.to_string();
-        ctx.request_repaint();
-        ctx.set_handled();
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
+            let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status| {
+                status.set_text(description.clone());
+            });
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
     }
 }
 
 struct StatusLine {
-    text: Arc<Mutex<String>>,
+    text: String,
 }
 
 impl StatusLine {
-    fn new(text: Arc<Mutex<String>>) -> Self {
-        Self { text }
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+        }
+    }
+
+    fn set_text(&mut self, text: String) {
+        self.text = text;
     }
 }
 
 impl Widget for StatusLine {
+    fn style_type(&self) -> &'static str {
+        "StatusLine"
+    }
+
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let text = self.text.lock().unwrap_or_else(|e| e.into_inner());
-        let line = rich_rs::set_cell_size(&format!("Events: {text}"), width);
+        let line = rich_rs::set_cell_size(&format!("Events: {}", self.text), width);
         let mut out = Segments::new();
         out.push(Segment::new(line));
         out
@@ -106,5 +108,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync_snapshot(ButtonsAdvancedApp::new())
+    run_sync_snapshot(ButtonsAdvancedApp)
 }
