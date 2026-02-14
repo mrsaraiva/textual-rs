@@ -4,12 +4,12 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::node_id::NodeId;
-use crate::style::parse_color_like;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::helpers::{clamp_with_constraints, crop_line_horizontal, pad_lines_to_width};
 use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetStyles};
 use crate::compose::ComposeResult;
+use crate::widgets::containers::ScrollView;
 
 fn scrollbar_thumb(
     track_len: usize,
@@ -17,43 +17,11 @@ fn scrollbar_thumb(
     window_len: usize,
     position: usize,
 ) -> (usize, usize) {
-    if track_len == 0 {
-        return (0, 0);
-    }
-    if virtual_len <= window_len || virtual_len == 0 || window_len == 0 {
-        return (0, track_len);
-    }
-
-    let track_f = track_len as f64;
-    let window_f = window_len as f64;
-    let virtual_f = virtual_len as f64;
-
-    let bar_ratio = virtual_f / track_f;
-    let thumb_size_f = (window_f / bar_ratio).max(1.0);
-    let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
-
-    let max_pos = (virtual_len - window_len) as f64;
-    if max_pos <= 0.0 {
-        return (0, thumb_len);
-    }
-    let position_ratio = (position as f64 / max_pos).clamp(0.0, 1.0);
-    let travel_f = (track_f - thumb_size_f).max(0.0);
-    let thumb_start = (travel_f * position_ratio)
-        .floor()
-        .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64) as usize;
-    (thumb_start, thumb_len)
+    ScrollView::line_scrollbar_thumb(track_len, virtual_len, window_len, position)
 }
 
 fn scrollbar_styles() -> (rich_rs::Style, rich_rs::Style) {
-    let track_bg = parse_color_like("$scrollbar-background")
-        .or_else(|| parse_color_like("$surface-darken-2"))
-        .unwrap_or_else(|| crate::style::Color::rgb(0x1f, 0x26, 0x30));
-    let thumb_bg = parse_color_like("$scrollbar")
-        .or_else(|| parse_color_like("$primary"))
-        .unwrap_or_else(|| crate::style::Color::rgb(0x2f, 0x9e, 0xff));
-
-    let track_style = rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque());
-    let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque());
+    let (track_style, thumb_style, _thumb_active_style) = ScrollView::line_scrollbar_styles();
     (track_style, thumb_style)
 }
 

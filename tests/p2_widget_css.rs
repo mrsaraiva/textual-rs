@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use rich_rs::Console;
 use textual::css::set_style_context;
+use textual::event::{Event, EventCtx, MouseDownEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::style::{PropertyTransition, ScrollbarGutter, ScrollbarVisibility, TransitionTiming};
@@ -221,6 +222,122 @@ fn p2g30_scroll_view_visibility_hidden_no_scrollbar() {
             i
         );
     }
+}
+
+#[test]
+fn p2g30_scroll_view_hover_subpart_colors_are_consumed() {
+    let css = r#"
+        ScrollView {
+            scrollbar-size-vertical: 1;
+            scrollbar-color: #101010;
+            scrollbar-color-hover: #11aa11;
+            scrollbar-background: #202020;
+            scrollbar-background-hover: #2222aa;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let mut sv = ScrollView::new(Label::new("content"));
+    let _ = sv.take_composed_children();
+    sv.set_virtual_content_size(5, 100);
+
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (10, 4);
+    opts.max_width = 10;
+    opts.max_height = 4;
+
+    // Prime viewport/widget dimensions used by on_mouse_move hover hit-tests.
+    let _ = Widget::render(&sv, &console, &opts);
+
+    // Hover a track-only cell.
+    assert!(
+        sv.on_mouse_move(9, 3),
+        "hovering scrollbar track should mark changed"
+    );
+    let segments = Widget::render(&sv, &console, &opts);
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, 10, None, true, false);
+    let track_style = lines[3]
+        .last()
+        .and_then(|seg| seg.style)
+        .expect("track style should exist");
+    assert_eq!(
+        track_style.bgcolor,
+        Some(Color::parse("#2222aa").unwrap().to_simple_opaque()),
+        "hovered scrollbar track should use scrollbar-background-hover"
+    );
+
+    // Hover the thumb cell.
+    assert!(
+        sv.on_mouse_move(9, 0),
+        "hovering scrollbar thumb should mark changed"
+    );
+    let segments = Widget::render(&sv, &console, &opts);
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, 10, None, true, false);
+    let thumb_style = lines[0]
+        .last()
+        .and_then(|seg| seg.style)
+        .expect("thumb style should exist");
+    assert_eq!(
+        thumb_style.bgcolor,
+        Some(Color::parse("#11aa11").unwrap().to_simple_opaque()),
+        "hovered scrollbar thumb should use scrollbar-color-hover"
+    );
+}
+
+#[test]
+fn p2g30_scroll_view_drag_thumb_uses_active_color() {
+    let css = r#"
+        ScrollView {
+            scrollbar-size-vertical: 1;
+            scrollbar-color: #101010;
+            scrollbar-color-active: #ff5500;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let mut sv = ScrollView::new(Label::new("content"));
+    let _ = sv.take_composed_children();
+    sv.set_virtual_content_size(5, 100);
+
+    let console = Console::new();
+    let mut opts = console.options().clone();
+    opts.size = (10, 4);
+    opts.max_width = 10;
+    opts.max_height = 4;
+
+    // Prime viewport/widget dimensions used by mouse-down scrollbar hit-tests.
+    let _ = Widget::render(&sv, &console, &opts);
+
+    let mut ctx = EventCtx::default();
+    sv.on_event(
+        &Event::MouseDown(MouseDownEvent {
+            target: NodeId::default(),
+            screen_x: 9,
+            screen_y: 0,
+            x: 9,
+            y: 0,
+        }),
+        &mut ctx,
+    );
+    assert!(
+        ctx.handled(),
+        "scrollbar thumb mouse-down should be handled"
+    );
+
+    let segments = Widget::render(&sv, &console, &opts);
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, 10, None, true, false);
+    let thumb_style = lines[0]
+        .last()
+        .and_then(|seg| seg.style)
+        .expect("thumb style should exist");
+    assert_eq!(
+        thumb_style.bgcolor,
+        Some(Color::parse("#ff5500").unwrap().to_simple_opaque()),
+        "dragging scrollbar thumb should use scrollbar-color-active"
+    );
 }
 
 // ───────────────────────────────────────────────────────────────────────

@@ -38,6 +38,10 @@ pub struct ScrollView {
     widget_height: AtomicUsize,
     drag_v: Option<usize>,
     drag_h: Option<usize>,
+    hover_v_thumb: bool,
+    hover_v_track: bool,
+    hover_h_thumb: bool,
+    hover_h_track: bool,
     styles: WidgetStyles,
 }
 
@@ -65,6 +69,10 @@ impl ScrollView {
             widget_height: AtomicUsize::new(0),
             drag_v: None,
             drag_h: None,
+            hover_v_thumb: false,
+            hover_v_track: false,
+            hover_h_thumb: false,
+            hover_h_track: false,
             styles: WidgetStyles::default(),
         }
     }
@@ -346,6 +354,65 @@ impl ScrollView {
         self.child_extracted
     }
 
+    fn update_scrollbar_hover_state(&mut self, x: u16, y: u16) -> bool {
+        let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
+        let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
+        let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
+        let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_w = self.content_width.load(Ordering::Relaxed);
+        let content_h = self.content_height.load(Ordering::Relaxed);
+        let show_v = content_h > viewport_h;
+        let show_h = content_w > viewport_w;
+        let v_scrollbar_size = widget_width.saturating_sub(viewport_w).max(1);
+        let h_scrollbar_size = widget_height.saturating_sub(viewport_h).max(1);
+        let local_x = x as usize;
+        let local_y = y as usize;
+
+        let mut next_v_track = false;
+        let mut next_v_thumb = false;
+        if show_v
+            && local_x >= widget_width.saturating_sub(v_scrollbar_size)
+            && local_y < viewport_h
+        {
+            next_v_track = true;
+            let offset = self
+                .render_offset_y
+                .clamp(0.0, self.max_offset() as f32)
+                .round() as usize;
+            let (thumb_start, thumb_len) =
+                Self::line_scrollbar_thumb(viewport_h, content_h, viewport_h, offset);
+            next_v_thumb =
+                local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len);
+        }
+
+        let mut next_h_track = false;
+        let mut next_h_thumb = false;
+        if show_h
+            && local_y >= widget_height.saturating_sub(h_scrollbar_size)
+            && local_x < viewport_w
+        {
+            next_h_track = true;
+            let offset = self
+                .render_offset_x
+                .clamp(0.0, self.max_offset_x() as f32)
+                .round() as usize;
+            let (thumb_start, thumb_len) =
+                Self::line_scrollbar_thumb(viewport_w, content_w, viewport_w, offset);
+            next_h_thumb =
+                local_x >= thumb_start && local_x < thumb_start.saturating_add(thumb_len);
+        }
+
+        let changed = self.hover_v_thumb != next_v_thumb
+            || self.hover_v_track != next_v_track
+            || self.hover_h_thumb != next_h_thumb
+            || self.hover_h_track != next_h_track;
+        self.hover_v_thumb = next_v_thumb;
+        self.hover_v_track = next_v_track;
+        self.hover_h_thumb = next_h_thumb;
+        self.hover_h_track = next_h_track;
+        changed
+    }
+
     /// Resolve all scrollbar-related CSS properties for a single render pass.
     ///
     /// CSS fields take priority; falls back to theme tokens matching the
@@ -370,6 +437,7 @@ impl ScrollView {
                 .or_else(|| parse_color_like("$primary"))
                 .unwrap_or_else(|| crate::style::Color::rgb(48, 156, 255))
         });
+        let thumb_hover_bg = style.scrollbar_color_hover.unwrap_or(thumb_bg);
 
         // Thumb active: CSS scrollbar_color_active → $scrollbar-active token.
         let thumb_active_bg = style.scrollbar_color_active.unwrap_or_else(|| {
@@ -386,6 +454,8 @@ impl ScrollView {
                 .or_else(|| parse_color_like("$surface-darken-1"))
                 .unwrap_or_else(|| crate::style::Color::rgb(30, 30, 30))
         });
+        let track_hover_bg = style.scrollbar_background_hover.unwrap_or(track_bg);
+        let track_active_bg = style.scrollbar_background_active.unwrap_or(track_bg);
 
         // Scrollbar sizes: per-axis CSS → shorthand CSS → defaults (2 vertical, 1 horizontal).
         let v_size = style
@@ -403,7 +473,13 @@ impl ScrollView {
             overflow_x: style.overflow_x.unwrap_or(fallback_overflow),
             overflow_y: style.overflow_y.unwrap_or(fallback_overflow),
             track_style: rich_rs::Style::new().with_bgcolor(track_bg.to_simple_opaque()),
+            track_hover_style: rich_rs::Style::new()
+                .with_bgcolor(track_hover_bg.to_simple_opaque()),
+            track_active_style: rich_rs::Style::new()
+                .with_bgcolor(track_active_bg.to_simple_opaque()),
             thumb_style: rich_rs::Style::new().with_bgcolor(thumb_bg.to_simple_opaque()),
+            thumb_hover_style: rich_rs::Style::new()
+                .with_bgcolor(thumb_hover_bg.to_simple_opaque()),
             thumb_active_style: rich_rs::Style::new()
                 .with_bgcolor(thumb_active_bg.to_simple_opaque()),
             corner_style: rich_rs::Style::new().with_bgcolor(corner_bg.to_simple_opaque()),
@@ -435,7 +511,10 @@ struct ResolvedScrollbar {
     overflow_x: crate::style::Overflow,
     overflow_y: crate::style::Overflow,
     track_style: rich_rs::Style,
+    track_hover_style: rich_rs::Style,
+    track_active_style: rich_rs::Style,
     thumb_style: rich_rs::Style,
+    thumb_hover_style: rich_rs::Style,
     thumb_active_style: rich_rs::Style,
     corner_style: rich_rs::Style,
     v_size: usize,
@@ -471,6 +550,15 @@ impl Widget for ScrollView {
 
     fn has_focus(&self) -> bool {
         self.focused
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if !hovered {
+            self.hover_v_thumb = false;
+            self.hover_v_track = false;
+            self.hover_h_thumb = false;
+            self.hover_h_track = false;
+        }
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -539,7 +627,10 @@ impl Widget for ScrollView {
                 .collect();
 
             let track_style = sb.track_style;
+            let track_hover_style = sb.track_hover_style;
+            let track_active_style = sb.track_active_style;
             let thumb_style = sb.thumb_style;
+            let thumb_hover_style = sb.thumb_hover_style;
             let thumb_active_style = sb.thumb_active_style;
             let corner_style = sb.corner_style;
             let v_scrollbar_size = if show_v {
@@ -560,9 +651,15 @@ impl Widget for ScrollView {
                     let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
                         if self.drag_v.is_some() {
                             thumb_active_style
+                        } else if self.hover_v_thumb {
+                            thumb_hover_style
                         } else {
                             thumb_style
                         }
+                    } else if self.drag_v.is_some() {
+                        track_active_style
+                    } else if self.hover_v_track {
+                        track_hover_style
                     } else {
                         track_style
                     };
@@ -587,9 +684,15 @@ impl Widget for ScrollView {
                     let style = if col >= thumb_start && col < thumb_start + thumb_len {
                         if self.drag_h.is_some() {
                             thumb_active_style
+                        } else if self.hover_h_thumb {
+                            thumb_hover_style
                         } else {
                             thumb_style
                         }
+                    } else if self.drag_h.is_some() {
+                        track_active_style
+                    } else if self.hover_h_track {
+                        track_hover_style
                     } else {
                         track_style
                     };
@@ -750,7 +853,10 @@ impl Widget for ScrollView {
         );
 
         let track_style = sb.track_style;
+        let track_hover_style = sb.track_hover_style;
+        let track_active_style = sb.track_active_style;
         let thumb_style = sb.thumb_style;
+        let thumb_hover_style = sb.thumb_hover_style;
         let thumb_active_style = sb.thumb_active_style;
         let corner_style = sb.corner_style;
         let v_scrollbar_size = if show_v {
@@ -768,9 +874,15 @@ impl Widget for ScrollView {
                 let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
                     if self.drag_v.is_some() {
                         thumb_active_style
+                    } else if self.hover_v_thumb {
+                        thumb_hover_style
                     } else {
                         thumb_style
                     }
+                } else if self.drag_v.is_some() {
+                    track_active_style
+                } else if self.hover_v_track {
+                    track_hover_style
                 } else {
                     track_style
                 };
@@ -790,6 +902,8 @@ impl Widget for ScrollView {
                 for _ in 0..v_scrollbar_size.max(1) {
                     let active_style = if self.drag_v.is_some() {
                         thumb_active_style
+                    } else if self.hover_v_thumb {
+                        thumb_hover_style
                     } else {
                         thumb_style
                     };
@@ -809,9 +923,15 @@ impl Widget for ScrollView {
                 let style = if col >= thumb_start && col < thumb_start + thumb_len {
                     if self.drag_h.is_some() {
                         thumb_active_style
+                    } else if self.hover_h_thumb {
+                        thumb_hover_style
                     } else {
                         thumb_style
                     }
+                } else if self.drag_h.is_some() {
+                    track_active_style
+                } else if self.hover_h_track {
+                    track_hover_style
                 } else {
                     track_style
                 };
@@ -1022,6 +1142,7 @@ impl Widget for ScrollView {
         }
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.node_id() {
+                let hover_changed = self.update_scrollbar_hover_state(mouse.x, mouse.y);
                 let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
                 let viewport_w = self.viewport_width.load(Ordering::Relaxed).max(1);
@@ -1048,6 +1169,9 @@ impl Widget for ScrollView {
                     if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len) {
                         self.drag_v = Some(local_y.saturating_sub(thumb_start));
                         self.drag_h = None;
+                        if hover_changed {
+                            ctx.request_repaint();
+                        }
                         ctx.set_handled();
                         return;
                     }
@@ -1078,6 +1202,9 @@ impl Widget for ScrollView {
                     if local_x >= thumb_start && local_x < thumb_start.saturating_add(thumb_len) {
                         self.drag_h = Some(local_x.saturating_sub(thumb_start));
                         self.drag_v = None;
+                        if hover_changed {
+                            ctx.request_repaint();
+                        }
                         ctx.set_handled();
                         return;
                     }
@@ -1326,7 +1453,7 @@ impl Widget for ScrollView {
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         self.sync_child_layout();
-        let mut changed = false;
+        let mut changed = self.update_scrollbar_hover_state(x, y);
         if let Some(grab_offset) = self.drag_v {
             let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
             let content_h = self.content_height.load(Ordering::Relaxed).max(1);

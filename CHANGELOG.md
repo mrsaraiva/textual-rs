@@ -25,6 +25,14 @@ until the API stabilizes.
     - `p2g29_border_title_subtitle_render_on_edges`
     - `p2g34_overlay_screen_blends_with_underlay`
     - `p2g34_keyline_draws_separator_between_children`
+- **fix(scrollbar): consume hover/active sub-part CSS and dedupe alias helpers**
+  - `ScrollView` now tracks scrollbar sub-part hover state (`thumb` vs `track`) on both axes and consumes `scrollbar-color-hover` / `scrollbar-color-active` and `scrollbar-background-hover` / `scrollbar-background-active` in render.
+  - Mouse-down on scrollbar updates sub-part hover state before drag activation, keeping visual state in sync with interaction.
+  - Hover state is cleared on widget unhover to avoid stale sub-part styling.
+  - `aliases.rs` now delegates duplicated scrollbar thumb/style helpers to shared `ScrollView` helpers (WP-32 consolidation path).
+  - Added behavioral tests in `tests/p2_widget_css.rs`:
+    - `p2g30_scroll_view_hover_subpart_colors_are_consumed`
+    - `p2g30_scroll_view_drag_thumb_uses_active_color`
 - **feat(css): DC-01..DC-38/DC-ALL — rewrite all widget default CSS to Python Textual parity**
   - Rewrote all 16 default CSS files (`base`, `button`, `checkbox`, `collapsible`, `containers`, `data_table`, `header_footer`, `input`, `list_view`, `misc`, `select`, `tabs`, `text_area`, `tooltip`, `tree`, `mod`) to match Python Textual DEFAULT_CSS verbatim, using nested `&` syntax.
   - Added new widget defaults: `ModalScreen`, `Widget` (global base with scrollbar/link tokens), `Label` semantic variants (`.success`/`.error`/`.warning`/`.primary`/`.secondary`/`.accent`), `Screen:inline`/`:ansi` blocks, `Collapsible` children (`CollapsibleTitle`, `Contents`), `Toast`/`Notification` with severity/positioning, `Markdown*` full hierarchy (H1–H6, paragraphs, fences, tables, bullet/ordered lists, TOC), `HelpPanel`/`KeyPanel` with child selectors.
