@@ -93,6 +93,15 @@ pub trait TextualApp: Send + 'static {
     /// App-level action hook. Called after widget dispatch if the event was not handled.
     fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {}
 
+    /// App-level action hook with mutable runtime handle.
+    ///
+    /// This mirrors Python Textual-style app callbacks where action handlers can
+    /// query/mutate application state via the runtime handle.
+    fn on_action_with_app(&mut self, app: &mut App, action: Action, ctx: &mut EventCtx) {
+        let _ = app;
+        self.on_action(action, ctx);
+    }
+
     /// App-level key hook.
     ///
     /// Called during capture phase before child widgets, allowing global key
@@ -108,8 +117,26 @@ pub trait TextualApp: Send + 'static {
         self.on_key(key, ctx);
     }
 
+    /// App-level tick hook.
+    ///
+    /// Called once per runtime tick after widget `on_tick` and before `Event::Tick`
+    /// dispatch.
+    fn on_tick(&mut self, _tick: u64, _ctx: &mut EventCtx) {}
+
+    /// App-level tick hook with mutable runtime handle.
+    fn on_tick_with_app(&mut self, app: &mut App, tick: u64, ctx: &mut EventCtx) {
+        let _ = app;
+        self.on_tick(tick, ctx);
+    }
+
     /// App-level message hook. Called after widget message dispatch if not handled.
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+
+    /// App-level message hook with mutable runtime handle.
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        let _ = app;
+        self.on_message(message, ctx);
+    }
 
     /// Typed convenience hook for button-pressed messages.
     fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {}
@@ -430,17 +457,29 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .on_key_with_app(app, key, ctx);
     }
 
+    fn on_app_action(&mut self, app: &mut App, action: Action, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_action_with_app(app, action, ctx);
+    }
+
+    fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_message_with_app(app, message, ctx);
+    }
+
+    fn on_app_tick(&mut self, app: &mut App, tick: u64, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_tick_with_app(app, tick, ctx);
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.child.on_event(event, ctx);
-        if ctx.handled() {
-            return;
-        }
-        if let Event::Action(action) = event {
-            self.app
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .on_action(*action, ctx);
-        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
@@ -543,10 +582,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         if ctx.handled() {
             return;
         }
-        self.app
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .on_message(message, ctx);
     }
 }
 
@@ -850,6 +885,64 @@ mod tests {
         }
     }
 
+    struct LegacyAppHookForwardingApp {
+        action_hits: Arc<AtomicUsize>,
+        message_hits: Arc<AtomicUsize>,
+        tick_hits: Arc<AtomicUsize>,
+    }
+
+    impl TextualApp for LegacyAppHookForwardingApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {
+            self.action_hits.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {
+            self.message_hits.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_tick(&mut self, _tick: u64, _ctx: &mut EventCtx) {
+            self.tick_hits.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct AppHandleHooksApp {
+        action_hits: Arc<AtomicUsize>,
+        message_hits: Arc<AtomicUsize>,
+        tick_hits: Arc<AtomicUsize>,
+    }
+
+    impl TextualApp for AppHandleHooksApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut EventCtx) {
+            app.set_css_runtime_pseudos(true, false, true);
+            self.action_hits.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_message_with_app(
+            &mut self,
+            app: &mut App,
+            _message: &MessageEvent,
+            _ctx: &mut EventCtx,
+        ) {
+            let (inline, ansi, nocolor) = app.css_runtime_pseudos();
+            if inline && !ansi && nocolor {
+                self.message_hits.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+            let _ = app.query_one_optional("Button");
+            self.tick_hits.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     #[test]
     fn command_palette_providers_start_set_commands_select_and_shutdown() {
         let state = ProviderState {
@@ -1025,7 +1118,7 @@ mod tests {
         assert_eq!(app.hooks.list_selection, Some((2, "gamma".to_string())));
         assert_eq!(app.hooks.list_activated, Some((3, "delta".to_string())));
         assert_eq!(app.hooks.tab_activated, Some((1, "General".to_string())));
-        assert_eq!(app.hooks.fallback_count, 8);
+        assert_eq!(app.hooks.fallback_count, 0);
     }
 
     #[test]
@@ -1156,6 +1249,80 @@ mod tests {
         assert_eq!(key_hits.load(Ordering::SeqCst), 1);
         assert_eq!(capture_hits.load(Ordering::SeqCst), 1);
         assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn legacy_action_message_and_tick_hooks_forward_from_with_app_variants() {
+        let action_hits = Arc::new(AtomicUsize::new(0));
+        let message_hits = Arc::new(AtomicUsize::new(0));
+        let tick_hits = Arc::new(AtomicUsize::new(0));
+        let app = Arc::new(Mutex::new(LegacyAppHookForwardingApp {
+            action_hits: Arc::clone(&action_hits),
+            message_hits: Arc::clone(&message_hits),
+            tick_hits: Arc::clone(&tick_hits),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut runtime = App::new().expect("app runtime should initialize");
+
+        let mut action_ctx = EventCtx::default();
+        adapter.on_app_action(&mut runtime, Action::HelpQuit, &mut action_ctx);
+
+        let mut message_ctx = EventCtx::default();
+        adapter.on_app_message(
+            &mut runtime,
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
+                    count: 0,
+                }),
+                control: None,
+            },
+            &mut message_ctx,
+        );
+
+        let mut tick_ctx = EventCtx::default();
+        adapter.on_app_tick(&mut runtime, 7, &mut tick_ctx);
+
+        assert_eq!(action_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(message_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(tick_hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn with_app_hooks_receive_runtime_handle() {
+        let action_hits = Arc::new(AtomicUsize::new(0));
+        let message_hits = Arc::new(AtomicUsize::new(0));
+        let tick_hits = Arc::new(AtomicUsize::new(0));
+        let app = Arc::new(Mutex::new(AppHandleHooksApp {
+            action_hits: Arc::clone(&action_hits),
+            message_hits: Arc::clone(&message_hits),
+            tick_hits: Arc::clone(&tick_hits),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut runtime = App::new().expect("app runtime should initialize");
+
+        let mut action_ctx = EventCtx::default();
+        adapter.on_app_action(&mut runtime, Action::HelpQuit, &mut action_ctx);
+
+        let mut message_ctx = EventCtx::default();
+        adapter.on_app_message(
+            &mut runtime,
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
+                    count: 0,
+                }),
+                control: None,
+            },
+            &mut message_ctx,
+        );
+
+        let mut tick_ctx = EventCtx::default();
+        adapter.on_app_tick(&mut runtime, 9, &mut tick_ctx);
+
+        assert_eq!(action_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(message_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(tick_hits.load(Ordering::SeqCst), 1);
     }
 
     #[test]

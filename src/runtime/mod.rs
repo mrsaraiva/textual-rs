@@ -324,6 +324,9 @@ pub struct App {
     /// Last resolved CSS style per node, used for automatic style-transition
     /// dispatch (P2-36).
     style_snapshot_cache: HashMap<NodeId, crate::style::Style>,
+    /// Pending highlight clear: (node_id, clear_at_instant).
+    /// Set by HIGHLIGHT devtools command, cleared after timeout.
+    pending_highlight_clear: Option<(NodeId, std::time::Instant)>,
     /// Arena-based widget tree built from `compose()` declarations.
     ///
     /// `None` until `build_widget_tree()` is called during app startup.
@@ -414,6 +417,7 @@ impl App {
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
+            pending_highlight_clear: None,
             widget_tree: None,
             screen_stack: ScreenStack::new(),
             modes: HashMap::new(),

@@ -4,7 +4,7 @@ use std::any::Any;
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
 use crate::debug::DebugLayout;
-use crate::event::{BindingHint, Event, EventCtx};
+use crate::event::{Action, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::node_id::{self, NodeId};
 use crate::reactive::ReactiveWidget;
@@ -306,6 +306,26 @@ pub trait Widget: Send + Sync + Any {
         _ctx: &mut EventCtx,
     ) {
     }
+    /// Optional runtime-level app action hook.
+    ///
+    /// Called for unhandled actions so app wrappers can run selector/query-based
+    /// behavior with mutable runtime access.
+    fn on_app_action(&mut self, _app: &mut crate::App, _action: Action, _ctx: &mut EventCtx) {}
+    /// Optional runtime-level app message hook.
+    ///
+    /// Called after `on_message` when the message remains unhandled.
+    fn on_app_message(
+        &mut self,
+        _app: &mut crate::App,
+        _message: &MessageEvent,
+        _ctx: &mut EventCtx,
+    ) {
+    }
+    /// Optional runtime-level app tick hook.
+    ///
+    /// Runs once per runtime tick after `on_tick` and before `Event::Tick`
+    /// dispatch, allowing app wrappers to use query/mutation APIs.
+    fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut EventCtx) {}
     /// Optional visibility override for tree child nodes by child index.
     ///
     /// Tree mode can query this every frame and mirror it to child node

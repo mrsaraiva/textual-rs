@@ -923,9 +923,46 @@ impl App {
                     self.enable_debug_layout(enabled);
                     pending_invalidation.request_full_content();
                 }
+                DevtoolsCommand::ToggleDisplay(id) => {
+                    if let Some(tree) = self.widget_tree.as_mut() {
+                        let current = tree.is_displayed(id);
+                        tree.set_runtime_display(id, !current);
+                    }
+                    pending_invalidation.request_full_content();
+                }
+                DevtoolsCommand::Highlight(id) => {
+                    if let Some(tree) = self.widget_tree.as_mut() {
+                        tree.add_class(id, "-devtools-highlight");
+                    }
+                    pending_invalidation.request_full_content();
+                    // Schedule removal after ~500ms via a pending highlight clear.
+                    self.pending_highlight_clear = Some((id, std::time::Instant::now() + std::time::Duration::from_millis(500)));
+                }
+                DevtoolsCommand::AddClass(id, class) => {
+                    if let Some(tree) = self.widget_tree.as_mut() {
+                        tree.add_class(id, &class);
+                    }
+                    pending_invalidation.request_full_content();
+                }
+                DevtoolsCommand::RemoveClass(id, class) => {
+                    if let Some(tree) = self.widget_tree.as_mut() {
+                        tree.remove_class(id, &class);
+                    }
+                    pending_invalidation.request_full_content();
+                }
                 DevtoolsCommand::Quit => {
                     return true;
                 }
+            }
+        }
+        // Check pending highlight clear.
+        if let Some((id, clear_at)) = self.pending_highlight_clear {
+            if std::time::Instant::now() >= clear_at {
+                if let Some(tree) = self.widget_tree.as_mut() {
+                    tree.remove_class(id, "-devtools-highlight");
+                }
+                self.pending_highlight_clear = None;
+                pending_invalidation.request_full_content();
             }
         }
         false
@@ -935,46 +972,6 @@ impl App {
         let Some(devtools) = &self.devtools else {
             return;
         };
-
-        fn snapshot_widget_line(
-            widget: &dyn Widget,
-            id: NodeId,
-            depth: usize,
-            app_active: bool,
-            hovered: Option<NodeId>,
-            hit_test: &crate::runtime::types::HitTestMap,
-        ) -> (String, bool) {
-            let focused = widget.has_focus() && app_active;
-            let rect = hit_test.rect(id);
-            let rect_field = if let Some(rect) = rect {
-                format!("{},{},{},{}", rect.x0, rect.y0, rect.x1, rect.y1)
-            } else {
-                "-".to_string()
-            };
-            let style_id = widget
-                .style_id()
-                .map(sanitize_snapshot_field)
-                .unwrap_or_else(|| "-".to_string());
-            let classes = widget
-                .style_classes()
-                .iter()
-                .map(|class| sanitize_snapshot_field(class))
-                .collect::<Vec<_>>()
-                .join(",");
-            let line = format!(
-                "widget\t{depth}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                node_id_to_ffi(id),
-                sanitize_snapshot_field(widget.style_type()),
-                style_id,
-                classes,
-                bool_flag(focused),
-                bool_flag(hovered == Some(id)),
-                bool_flag(widget.is_active()),
-                bool_flag(widget.is_disabled()),
-                rect_field
-            );
-            (line, focused)
-        }
 
         let mut widget_lines = Vec::new();
         let mut focused = None;
@@ -988,13 +985,83 @@ impl App {
                         continue;
                     };
                     let depth = tree.ancestors(node_id).len();
-                    let (line, is_focused) = snapshot_widget_line(
-                        node.widget.as_ref(),
-                        node_id,
-                        depth,
-                        self.app_active,
-                        self.hovered,
-                        &self.hit_test,
+                    let widget = node.widget.as_ref();
+                    let is_focused = widget.has_focus() && self.app_active;
+
+                    // Layout rect from hit-test map.
+                    let layout_rect = self.hit_test.rect(node_id);
+                    let layout_rect_field = if let Some(r) = layout_rect {
+                        format!("{},{},{},{}", r.x0, r.y0, r.x1, r.y1)
+                    } else {
+                        "-".to_string()
+                    };
+                    // Content rect from tree node.
+                    let cr = &node.content_rect;
+                    let content_rect_field = if cr.x0 == 0 && cr.y0 == 0 && cr.x1 == 0 && cr.y1 == 0 {
+                        "-".to_string()
+                    } else {
+                        format!("{},{},{},{}", cr.x0, cr.y0, cr.x1, cr.y1)
+                    };
+
+                    let style_id = widget
+                        .style_id()
+                        .map(sanitize_snapshot_field)
+                        .unwrap_or_else(|| "-".to_string());
+
+                    // Merge widget-level + tree-level classes.
+                    let mut classes: Vec<String> = widget
+                        .style_classes()
+                        .iter()
+                        .map(|c| sanitize_snapshot_field(c))
+                        .collect();
+                    for c in &node.classes {
+                        let sanitized = sanitize_snapshot_field(c);
+                        if !classes.contains(&sanitized) {
+                            classes.push(sanitized);
+                        }
+                    }
+                    let classes_field = classes.join(",");
+
+                    // Parent / children IDs.
+                    let parent_field = node
+                        .parent
+                        .map(|p| node_id_to_ffi(p).to_string())
+                        .unwrap_or_else(|| "-".to_string());
+                    let children_field = if node.children.is_empty() {
+                        "-".to_string()
+                    } else {
+                        node.children
+                            .iter()
+                            .map(|c| node_id_to_ffi(*c).to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+
+                    // Visibility.
+                    let visibility_field = match node.visibility {
+                        crate::style::Visibility::Visible => "visible",
+                        crate::style::Visibility::Hidden => "hidden",
+                    };
+
+                    let line = format!(
+                        "widget\t{depth}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        node_id_to_ffi(node_id),
+                        sanitize_snapshot_field(widget.style_type()),
+                        style_id,
+                        classes_field,
+                        bool_flag(is_focused),
+                        bool_flag(self.hovered == Some(node_id)),
+                        bool_flag(widget.is_active()),
+                        bool_flag(widget.is_disabled()),
+                        layout_rect_field,
+                        content_rect_field,
+                        bool_flag(node.display),
+                        visibility_field,
+                        bool_flag(node.css_display),
+                        bool_flag(node.runtime_display),
+                        bool_flag(node.mounted),
+                        parent_field,
+                        children_field,
                     );
                     widget_lines.push(line);
                     if is_focused {
@@ -1003,14 +1070,36 @@ impl App {
                 }
             }
         } else {
-            // Root-only fallback: just the root widget.
-            let (line, is_focused) = snapshot_widget_line(
-                root,
-                NodeId::default(),
-                0,
-                self.app_active,
-                self.hovered,
-                &self.hit_test,
+            // Root-only fallback: just the root widget (limited info).
+            let widget = root as &dyn Widget;
+            let is_focused = widget.has_focus() && self.app_active;
+            let rect = self.hit_test.rect(NodeId::default());
+            let rect_field = if let Some(r) = rect {
+                format!("{},{},{},{}", r.x0, r.y0, r.x1, r.y1)
+            } else {
+                "-".to_string()
+            };
+            let style_id = widget
+                .style_id()
+                .map(sanitize_snapshot_field)
+                .unwrap_or_else(|| "-".to_string());
+            let classes = widget
+                .style_classes()
+                .iter()
+                .map(|c| sanitize_snapshot_field(c))
+                .collect::<Vec<_>>()
+                .join(",");
+            let line = format!(
+                "widget\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-\t1\tvisible\t1\t1\t1\t-\t-",
+                node_id_to_ffi(NodeId::default()),
+                sanitize_snapshot_field(widget.style_type()),
+                style_id,
+                classes,
+                bool_flag(is_focused),
+                bool_flag(self.hovered == Some(NodeId::default())),
+                bool_flag(widget.is_active()),
+                bool_flag(widget.is_disabled()),
+                rect_field,
             );
             widget_lines.push(line);
             if is_focused {
@@ -1019,7 +1108,7 @@ impl App {
         }
 
         let mut snapshot = String::new();
-        snapshot.push_str("version\t1\n");
+        snapshot.push_str("version\t2\n");
         snapshot.push_str(&format!("pid\t{}\n", std::process::id()));
         snapshot.push_str(&format!("app_active\t{}\n", bool_flag(self.app_active)));
         snapshot.push_str(&format!(
@@ -1053,6 +1142,17 @@ impl App {
         for line in widget_lines {
             snapshot.push_str(&line);
             snapshot.push('\n');
+        }
+        // Emit resolved CSS style lines from the snapshot cache.
+        for (node_id, style) in &self.style_snapshot_cache {
+            let ffi_id = node_id_to_ffi(*node_id);
+            for (prop, value) in style.debug_properties() {
+                snapshot.push_str(&format!(
+                    "style\t{ffi_id}\t{}\t{}\n",
+                    sanitize_snapshot_field(prop),
+                    sanitize_snapshot_field(&value)
+                ));
+            }
         }
         devtools.publish_snapshot(snapshot);
     }
@@ -2165,6 +2265,38 @@ impl App {
                 // `on_tick` mutates widget state without an `EventCtx`, so request a repaint
                 // for this frame to keep tick-driven widgets (e.g. counters/cursors) in sync.
                 pending_invalidation.request_full_content();
+
+                let mut app_tick_ctx = EventCtx::default();
+                root.on_app_tick(self, tick, &mut app_tick_ctx);
+                let mut app_tick_outcome = DispatchOutcome {
+                    handled: app_tick_ctx.handled(),
+                    repaint_requested: app_tick_ctx.repaint_requested(),
+                    invalidation: app_tick_ctx.invalidation(),
+                    stop_requested: app_tick_ctx.stop_requested(),
+                    messages: app_tick_ctx.take_messages(),
+                    animation_requests: app_tick_ctx.take_animation_requests(),
+                    worker_requests: app_tick_ctx.take_worker_requests(),
+                    default_prevented: false,
+                };
+                self.absorb_outcome(
+                    &mut app_tick_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if app_tick_outcome.stop_requested {
+                    break 'event_loop;
+                }
+                let mut app_tick_msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, app_tick_outcome.messages);
+                self.absorb_outcome(
+                    &mut app_tick_msg_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if app_tick_msg_outcome.stop_requested {
+                    break 'event_loop;
+                }
+
                 let mut outcome = self.dispatch_event_auto(root, Event::Tick(tick));
                 self.absorb_outcome(
                     &mut outcome,
@@ -2598,7 +2730,7 @@ impl App {
 
     /// Dispatch an event via tree mode, or root-only mode when no tree exists.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if self.widget_tree.is_some() {
             // In tree mode, the root widget (e.g. TextualAppAdapter) is not mounted
             // in the arena, so app-level hooks on root would otherwise be skipped.
             // Run key capture on root first, then route through tree.
@@ -2619,8 +2751,11 @@ impl App {
                 }
             }
 
-            let focused = focused_node_id_tree(tree);
-            let mut outcome = dispatch_event_tree(tree, focused, &event);
+            let mut outcome = {
+                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                let focused = focused_node_id_tree(tree);
+                dispatch_event_tree(tree, focused, &event)
+            };
 
             // Merge root key-capture side effects (if any) while preserving
             // ordering: root-capture emissions happen before tree dispatch.
@@ -2649,9 +2784,9 @@ impl App {
                 }
             }
 
-            // Preserve adapter-style app action fallback in tree mode:
+            // Preserve root-level action fallback in tree mode:
             // run root.on_event only when tree dispatch didn't handle Action.
-            if !outcome.handled && matches!(&event, Event::Action(..)) {
+            if !outcome.handled && let Event::Action(action) = &event {
                 let mut root_action_ctx = EventCtx::default();
                 root.on_event(&event, &mut root_action_ctx);
                 outcome.handled |= root_action_ctx.handled();
@@ -2665,11 +2800,43 @@ impl App {
                 outcome
                     .worker_requests
                     .extend(root_action_ctx.take_worker_requests());
+
+                if !outcome.handled {
+                    let mut app_action_ctx = EventCtx::default();
+                    root.on_app_action(self, *action, &mut app_action_ctx);
+                    outcome.handled |= app_action_ctx.handled();
+                    outcome.repaint_requested |= app_action_ctx.repaint_requested();
+                    outcome.invalidation.merge(app_action_ctx.invalidation());
+                    outcome.stop_requested |= app_action_ctx.stop_requested();
+                    outcome.messages.extend(app_action_ctx.take_messages());
+                    outcome
+                        .animation_requests
+                        .extend(app_action_ctx.take_animation_requests());
+                    outcome
+                        .worker_requests
+                        .extend(app_action_ctx.take_worker_requests());
+                }
             }
 
             outcome
         } else {
-            dispatch_event(root, event)
+            let mut outcome = dispatch_event(root, event.clone());
+            if !outcome.handled && let Event::Action(action) = event {
+                let mut app_action_ctx = EventCtx::default();
+                root.on_app_action(self, action, &mut app_action_ctx);
+                outcome.handled |= app_action_ctx.handled();
+                outcome.repaint_requested |= app_action_ctx.repaint_requested();
+                outcome.invalidation.merge(app_action_ctx.invalidation());
+                outcome.stop_requested |= app_action_ctx.stop_requested();
+                outcome.messages.extend(app_action_ctx.take_messages());
+                outcome
+                    .animation_requests
+                    .extend(app_action_ctx.take_animation_requests());
+                outcome
+                    .worker_requests
+                    .extend(app_action_ctx.take_worker_requests());
+            }
+            outcome
         }
     }
 
@@ -2730,8 +2897,11 @@ impl App {
         root: &mut dyn Widget,
         initial: Vec<MessageEvent>,
     ) -> DispatchOutcome {
-        if let Some(tree) = self.widget_tree.as_mut() {
-            let mut outcome = dispatch_message_queue_tree(tree, initial.clone());
+        if self.widget_tree.is_some() {
+            let mut outcome = {
+                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                dispatch_message_queue_tree(tree, initial.clone())
+            };
 
             // Tree routing delivers to arena nodes, but the TextualApp adapter root
             // also hosts typed hooks (e.g. on_button_pressed). Forward top-level
@@ -2739,6 +2909,9 @@ impl App {
             for message in initial {
                 let mut ctx = EventCtx::default();
                 root.on_message(&message, &mut ctx);
+                if !ctx.handled() {
+                    root.on_app_message(self, &message, &mut ctx);
+                }
                 outcome.handled |= ctx.handled();
                 outcome.repaint_requested |= ctx.repaint_requested();
                 outcome.invalidation.merge(ctx.invalidation());
@@ -2772,6 +2945,9 @@ impl App {
                 }
                 let mut ctx = EventCtx::default();
                 root.on_message(&message, &mut ctx);
+                if !ctx.handled() {
+                    root.on_app_message(self, &message, &mut ctx);
+                }
                 handled |= ctx.handled();
                 repaint_requested |= ctx.repaint_requested();
                 invalidation.merge(ctx.invalidation());
@@ -2894,6 +3070,7 @@ mod tests {
     };
     use crate::style::{Offset, OffsetValue, PropertyTransition, Style, TransitionTiming};
     use crate::widgets::{AppRoot, Widget};
+    use crate::App;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
@@ -2923,7 +3100,13 @@ mod tests {
     struct RootHookProbe {
         key_hits: Arc<AtomicUsize>,
         action_hits: Arc<AtomicUsize>,
+        app_action_hits: Arc<AtomicUsize>,
+        message_hits: Arc<AtomicUsize>,
+        app_message_hits: Arc<AtomicUsize>,
+        app_tick_hits: Arc<AtomicUsize>,
         handle_key: bool,
+        handle_action: bool,
+        handle_message: bool,
     }
 
     impl Widget for RootHookProbe {
@@ -2943,8 +3126,31 @@ mod tests {
         fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
             if matches!(event, Event::Action(..)) {
                 self.action_hits.fetch_add(1, Ordering::SeqCst);
+                if self.handle_action {
+                    ctx.set_handled();
+                }
+            }
+        }
+
+        fn on_app_action(&mut self, _app: &mut App, _action: Action, ctx: &mut EventCtx) {
+            self.app_action_hits.fetch_add(1, Ordering::SeqCst);
+            ctx.set_handled();
+        }
+
+        fn on_message(&mut self, _message: &MessageEvent, ctx: &mut EventCtx) {
+            self.message_hits.fetch_add(1, Ordering::SeqCst);
+            if self.handle_message {
                 ctx.set_handled();
             }
+        }
+
+        fn on_app_message(&mut self, _app: &mut App, _message: &MessageEvent, ctx: &mut EventCtx) {
+            self.app_message_hits.fetch_add(1, Ordering::SeqCst);
+            ctx.set_handled();
+        }
+
+        fn on_app_tick(&mut self, _app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+            self.app_tick_hits.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -3011,7 +3217,13 @@ mod tests {
         let mut runtime_root = RootHookProbe {
             key_hits: Arc::clone(&root_key_hits),
             action_hits: Arc::clone(&root_action_hits),
+            app_action_hits: Arc::new(AtomicUsize::new(0)),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
             handle_key: false,
+            handle_action: true,
+            handle_message: false,
         };
 
         let outcome = app.dispatch_event_auto(
@@ -3053,7 +3265,13 @@ mod tests {
         let mut runtime_root = RootHookProbe {
             key_hits: Arc::clone(&root_key_hits),
             action_hits: Arc::clone(&root_action_hits),
+            app_action_hits: Arc::new(AtomicUsize::new(0)),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
             handle_key: true,
+            handle_action: true,
+            handle_message: false,
         };
 
         let outcome = app.dispatch_event_auto(
@@ -3075,6 +3293,7 @@ mod tests {
     fn dispatch_event_auto_tree_runs_root_action_fallback_when_unhandled() {
         let root_key_hits = Arc::new(AtomicUsize::new(0));
         let root_action_hits = Arc::new(AtomicUsize::new(0));
+        let app_action_hits = Arc::new(AtomicUsize::new(0));
         let tree_capture_hits = Arc::new(AtomicUsize::new(0));
 
         let mut tree = crate::widget_tree::WidgetTree::new();
@@ -3087,15 +3306,84 @@ mod tests {
         let mut runtime_root = RootHookProbe {
             key_hits: Arc::clone(&root_key_hits),
             action_hits: Arc::clone(&root_action_hits),
+            app_action_hits: Arc::clone(&app_action_hits),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
             handle_key: false,
+            handle_action: true,
+            handle_message: false,
         };
 
         let outcome = app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::HelpQuit));
 
         assert_eq!(root_action_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(app_action_hits.load(Ordering::SeqCst), 0);
         assert!(outcome.handled);
         assert_eq!(root_key_hits.load(Ordering::SeqCst), 0);
         assert_eq!(tree_capture_hits.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dispatch_event_auto_tree_uses_app_action_hook_when_root_fallback_unhandled() {
+        let root_action_hits = Arc::new(AtomicUsize::new(0));
+        let app_action_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        tree.set_root(Box::new(TreeEventProbe {
+            focused: true,
+            capture_hits: Arc::new(AtomicUsize::new(0)),
+        }));
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = RootHookProbe {
+            key_hits: Arc::new(AtomicUsize::new(0)),
+            action_hits: Arc::clone(&root_action_hits),
+            app_action_hits: Arc::clone(&app_action_hits),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
+            handle_key: false,
+            handle_action: false,
+            handle_message: false,
+        };
+
+        let outcome = app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::HelpQuit));
+
+        assert_eq!(root_action_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(app_action_hits.load(Ordering::SeqCst), 1);
+        assert!(outcome.handled);
+    }
+
+    #[test]
+    fn dispatch_message_queue_auto_calls_app_message_when_root_message_unhandled() {
+        let mut app = super::App::new().expect("app should initialize");
+        let mut runtime_root = RootHookProbe {
+            key_hits: Arc::new(AtomicUsize::new(0)),
+            action_hits: Arc::new(AtomicUsize::new(0)),
+            app_action_hits: Arc::new(AtomicUsize::new(0)),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
+            handle_key: false,
+            handle_action: true,
+            handle_message: false,
+        };
+
+        let outcome = app.dispatch_message_queue_auto(
+            &mut runtime_root,
+            vec![MessageEvent {
+                sender: node_id_from_ffi(7),
+                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
+                    count: 0,
+                }),
+                control: None,
+            }],
+        );
+
+        assert_eq!(runtime_root.message_hits.load(Ordering::SeqCst), 1);
+        assert_eq!(runtime_root.app_message_hits.load(Ordering::SeqCst), 1);
+        assert!(outcome.handled);
     }
 
     #[test]

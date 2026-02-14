@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-14
+- **feat(devtools): inspector-grade snapshot protocol v2, new devtools commands, runtime hooks**
+  - Added `Style::debug_properties()` returning all set CSS properties as human-readable `(&str, String)` pairs for devtools inspection.
+  - Enriched devtools snapshot protocol (v2): widget lines extended from 11→19 columns (content_rect, display states, visibility, mounted, parent_id, children_ids). Added `style\t{id}\t{prop}\t{value}` lines for resolved CSS. Fixed class merging to include tree-level classes.
+  - Added devtools commands: `TOGGLE_DISPLAY <id>`, `HIGHLIGHT <id>`, `ADD_CLASS <id> <class>`, `REMOVE_CLASS <id> <class>` with full parsing, dispatch, and runtime handling.
+  - `HIGHLIGHT` auto-clears after 500ms via `pending_highlight_clear` timer.
+  - Added `TextualApp::on_tick()`/`on_tick_with_app()`, `on_action_with_app()`, `on_message_with_app()` convenience hooks with `&mut App` runtime handle.
+  - Added `Widget::on_app_action()`, `on_app_message()`, `on_app_tick()` trait methods for runtime-level app hooks.
+
+### 2026-02-14
 - **feat(runtime): DomQuery/DomQueryMut API, on_key_with_app hook, selector class actions**
   - Added `DomQuery` (read) and `DomQueryMut` (write) types for chainable CSS-selector-based widget tree queries with filter/exclude/results_where combinators and bulk mutation helpers (add_class, remove_class, toggle_class, set_classes, set_styles, set_display, set_visible, focus/blur, refresh).
   - Added `App::query_exactly_one()`, `query_one_optional()`, `query_children()`, `query_ancestor()`, `get_widget_by_id()`, `get_child_by_id()`, `query_mut()` query variants.

@@ -20,6 +20,10 @@ const DEFAULT_BIND: &str = "127.0.0.1:0";
 pub(crate) enum DevtoolsCommand {
     Focus(NodeId),
     SetDebugLayout(bool),
+    ToggleDisplay(NodeId),
+    Highlight(NodeId),
+    AddClass(NodeId, String),
+    RemoveClass(NodeId, String),
     Quit,
 }
 
@@ -218,6 +222,30 @@ fn handle_client(
             }
             write_ok_line(&mut stream, "queued")
         }
+        Ok(Request::ToggleDisplay(id)) => {
+            if let Ok(mut pending) = shared.pending.lock() {
+                pending.push(DevtoolsCommand::ToggleDisplay(node_id_from_ffi(id)));
+            }
+            write_ok_line(&mut stream, "queued")
+        }
+        Ok(Request::Highlight(id)) => {
+            if let Ok(mut pending) = shared.pending.lock() {
+                pending.push(DevtoolsCommand::Highlight(node_id_from_ffi(id)));
+            }
+            write_ok_line(&mut stream, "queued")
+        }
+        Ok(Request::AddClass(id, class)) => {
+            if let Ok(mut pending) = shared.pending.lock() {
+                pending.push(DevtoolsCommand::AddClass(node_id_from_ffi(id), class));
+            }
+            write_ok_line(&mut stream, "queued")
+        }
+        Ok(Request::RemoveClass(id, class)) => {
+            if let Ok(mut pending) = shared.pending.lock() {
+                pending.push(DevtoolsCommand::RemoveClass(node_id_from_ffi(id), class));
+            }
+            write_ok_line(&mut stream, "queued")
+        }
         Ok(Request::Quit) => {
             if let Ok(mut pending) = shared.pending.lock() {
                 pending.push(DevtoolsCommand::Quit);
@@ -235,6 +263,10 @@ enum Request {
     Watch,
     Focus(u64),
     DebugLayout(bool),
+    ToggleDisplay(u64),
+    Highlight(u64),
+    AddClass(u64, String),
+    RemoveClass(u64, String),
     Quit,
 }
 
@@ -281,6 +313,52 @@ fn parse_command(raw: &str) -> Result<Request, String> {
             _ => return Err("DEBUG_LAYOUT expects on/off".to_string()),
         };
         return Ok(Request::DebugLayout(enabled));
+    }
+
+    if head.eq_ignore_ascii_case("TOGGLE_DISPLAY") {
+        let Some(id) = parts.next() else {
+            return Err("TOGGLE_DISPLAY requires widget id".to_string());
+        };
+        let parsed = id
+            .parse::<u64>()
+            .map_err(|_| "TOGGLE_DISPLAY id must be an unsigned integer".to_string())?;
+        return Ok(Request::ToggleDisplay(parsed));
+    }
+
+    if head.eq_ignore_ascii_case("HIGHLIGHT") {
+        let Some(id) = parts.next() else {
+            return Err("HIGHLIGHT requires widget id".to_string());
+        };
+        let parsed = id
+            .parse::<u64>()
+            .map_err(|_| "HIGHLIGHT id must be an unsigned integer".to_string())?;
+        return Ok(Request::Highlight(parsed));
+    }
+
+    if head.eq_ignore_ascii_case("ADD_CLASS") {
+        let Some(id) = parts.next() else {
+            return Err("ADD_CLASS requires widget id and class name".to_string());
+        };
+        let parsed = id
+            .parse::<u64>()
+            .map_err(|_| "ADD_CLASS id must be an unsigned integer".to_string())?;
+        let Some(class) = parts.next() else {
+            return Err("ADD_CLASS requires a class name".to_string());
+        };
+        return Ok(Request::AddClass(parsed, class.to_string()));
+    }
+
+    if head.eq_ignore_ascii_case("REMOVE_CLASS") {
+        let Some(id) = parts.next() else {
+            return Err("REMOVE_CLASS requires widget id and class name".to_string());
+        };
+        let parsed = id
+            .parse::<u64>()
+            .map_err(|_| "REMOVE_CLASS id must be an unsigned integer".to_string())?;
+        let Some(class) = parts.next() else {
+            return Err("REMOVE_CLASS requires a class name".to_string());
+        };
+        return Ok(Request::RemoveClass(parsed, class.to_string()));
     }
 
     Err(format!("unknown request: {head}"))
@@ -349,5 +427,46 @@ mod tests {
     fn parse_command_accepts_watch() {
         let request = parse_command("WATCH").expect("watch should parse");
         assert!(matches!(request, Request::Watch));
+    }
+
+    #[test]
+    fn parse_command_accepts_toggle_display() {
+        let request = parse_command("TOGGLE_DISPLAY 99").expect("should parse");
+        assert!(matches!(request, Request::ToggleDisplay(99)));
+    }
+
+    #[test]
+    fn parse_command_accepts_highlight() {
+        let request = parse_command("HIGHLIGHT 7").expect("should parse");
+        assert!(matches!(request, Request::Highlight(7)));
+    }
+
+    #[test]
+    fn parse_command_accepts_add_class() {
+        let request = parse_command("ADD_CLASS 42 highlight").expect("should parse");
+        match request {
+            Request::AddClass(id, class) => {
+                assert_eq!(id, 42);
+                assert_eq!(class, "highlight");
+            }
+            _ => panic!("expected AddClass"),
+        }
+    }
+
+    #[test]
+    fn parse_command_accepts_remove_class() {
+        let request = parse_command("REMOVE_CLASS 42 highlight").expect("should parse");
+        match request {
+            Request::RemoveClass(id, class) => {
+                assert_eq!(id, 42);
+                assert_eq!(class, "highlight");
+            }
+            _ => panic!("expected RemoveClass"),
+        }
+    }
+
+    #[test]
+    fn parse_command_rejects_add_class_missing_class() {
+        assert!(parse_command("ADD_CLASS 42").is_err());
     }
 }
