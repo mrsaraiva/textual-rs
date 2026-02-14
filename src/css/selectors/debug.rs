@@ -38,6 +38,7 @@ pub(super) fn selector_chain_string(chain: &SelectorChain) -> String {
                 PseudoClass::Inline => out.push_str("inline"),
                 PseudoClass::Ansi => out.push_str("ansi"),
                 PseudoClass::NoColor => out.push_str("nocolor"),
+                PseudoClass::CanFocus => out.push_str("can-focus"),
                 PseudoClass::Even => out.push_str("even"),
                 PseudoClass::Odd => out.push_str("odd"),
                 PseudoClass::FirstChild => out.push_str("first-child"),

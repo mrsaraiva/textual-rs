@@ -310,6 +310,19 @@ mod tests {
     }
 
     #[test]
+    fn disabled_button_matches_global_disabled_can_focus_opacity_rule() {
+        let _guard = super::context::set_style_context(default_widget_stylesheet());
+        let enabled = Button::new("Default");
+        let disabled = Button::new("Default").disabled(true);
+
+        let enabled_style = resolve_style(&enabled, &selector_meta_generic(&enabled));
+        let disabled_style = resolve_style(&disabled, &selector_meta_generic(&disabled));
+
+        assert_eq!(enabled_style.opacity, None);
+        assert_eq!(disabled_style.opacity, Some(70));
+    }
+
+    #[test]
     fn widget_opacity_dims_background_and_text_together() {
         let original_bg = crate::style::Color::rgb(1, 120, 212);
         let original_fg = crate::style::Color::rgb(221, 237, 249);

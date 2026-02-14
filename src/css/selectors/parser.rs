@@ -382,6 +382,7 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
                 "inline" => Some(PseudoClass::Inline),
                 "ansi" => Some(PseudoClass::Ansi),
                 "nocolor" => Some(PseudoClass::NoColor),
+                "can-focus" | "can_focus" => Some(PseudoClass::CanFocus),
                 "even" => Some(PseudoClass::Even),
                 "odd" => Some(PseudoClass::Odd),
                 "first-child" | "first_child" => Some(PseudoClass::FirstChild),
@@ -429,7 +430,10 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
 
     let mut selector = StyleSelector::default();
     if let Some(type_name) = type_name {
-        selector = StyleSelector::new(type_name);
+        // "*" is the universal selector — matches any type.
+        if type_name != "*" {
+            selector = StyleSelector::new(type_name);
+        }
     }
     if let Some(id) = id {
         selector = selector.id(id);
@@ -1034,8 +1038,8 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 parse_text_style_shorthand_into_style(&mut style, value, is_important);
             }
             "line-pad" => {
-                if let Ok(value) = value.parse() {
-                    style = style.line_pad(value);
+                if let Ok(value) = value.parse::<u16>() {
+                    style.line_pad = Some(value);
                 }
             }
             "transition" => {

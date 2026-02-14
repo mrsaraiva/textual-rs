@@ -7,6 +7,17 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-17
+- **fix(css/layout): three button parity fixes — disabled dimming, margin collapsing, box-model correctness**
+  - Added `:can-focus` pseudo-class support (AST, parser, matcher, resolver, debug) and global `*:disabled:can-focus { opacity: 70%; }` rule matching Python Textual's disabled-widget dimming.
+  - Added `Widget::can_focus()` trait method (inherent focus capability, ignoring disabled state) so disabled buttons still match `:can-focus`.
+  - Implemented vertical margin collapsing in `layout_vertical()`: adjacent sibling margins now collapse to `max(bottom, top)` instead of summing additively.
+  - Separated `line-pad` from CSS `padding`: added `Style::line_pad` field as a render-time-only property that does NOT inflate the box model, matching Python Textual semantics where `gutter = padding + border.spacing` (line-pad excluded).
+  - Changed default `box-sizing` from `content-box` to `border-box` across all layout paths, matching Python Textual's default where borders are included within declared/auto width.
+  - Updated render pipeline (`core.rs`, `render.rs`, `types.rs`) to read `line_pad` from the new style field instead of deriving from `resolved.padding`.
+  - Added regression test: `disabled_button_matches_global_disabled_can_focus_opacity_rule`.
+  - Updated layout tests for border-box default behavior.
+
 ### 2026-02-16
 - **fix(layout): wire `expand` into flow sizing and clamp absolute min/max constraints**
   - `layout_vertical()` and `layout_horizontal()` now treat `expand: true` as a flex-grow signal on the layout axis, so intrinsic `auto` widgets can participate in remaining-space distribution.

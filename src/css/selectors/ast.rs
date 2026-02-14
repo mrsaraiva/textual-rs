@@ -21,6 +21,7 @@ pub enum PseudoClass {
     Inline,
     Ansi,
     NoColor,
+    CanFocus,
     Even,
     Odd,
     FirstChild,
@@ -182,6 +183,7 @@ pub(super) struct SelectorStates {
     pub(super) inline: bool,
     pub(super) ansi: bool,
     pub(super) nocolor: bool,
+    pub(super) can_focus: bool,
     pub(super) child_index: Option<usize>,
     pub(super) sibling_count: Option<usize>,
 }

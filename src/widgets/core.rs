@@ -217,7 +217,7 @@ pub trait Widget: Send + Sync {
         };
         let resolved = crate::css::resolve_style(self, &meta);
         let parent_style = crate::css::current_parent_style();
-        let line_pad = resolved.padding.map(|s| s.left as usize).unwrap_or(0);
+        let line_pad = resolved.line_pad.unwrap_or(0) as usize;
         let full_width = options.size.0.max(1);
         let full_height = options.size.1.max(1);
         let (border_top, border_bottom, border_left, border_right) =
@@ -360,6 +360,11 @@ pub trait Widget: Send + Sync {
     fn on_layout(&mut self, _width: u16, _height: u16) {}
     fn focusable(&self) -> bool {
         false
+    }
+    /// Whether this widget type can receive focus (inherent capability, ignoring disabled state).
+    /// Used for `:can-focus` CSS pseudo-class matching. Defaults to `focusable()`.
+    fn can_focus(&self) -> bool {
+        self.focusable()
     }
     fn set_focus(&mut self, _focused: bool) {}
     /// Whether the widget is disabled (used for `:disabled` selector matching).

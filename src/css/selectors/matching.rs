@@ -36,6 +36,7 @@ impl StyleSelector {
                     super::ast::PseudoClass::Inline => meta.states.inline,
                     super::ast::PseudoClass::Ansi => meta.states.ansi,
                     super::ast::PseudoClass::NoColor => meta.states.nocolor,
+                    super::ast::PseudoClass::CanFocus => meta.states.can_focus,
                     super::ast::PseudoClass::Even => {
                         meta.states.child_index.map_or(false, |i| i % 2 == 0)
                     }

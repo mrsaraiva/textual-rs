@@ -327,7 +327,7 @@ fn extract_child_spec(
     let border_left = bl as u16;
     let border_right = br as u16;
 
-    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
     // For border-box, width/height already include padding+border.
     // Edge chrome should only add margin.
@@ -643,10 +643,18 @@ pub fn layout_vertical(
     let heights = layout_resolve_1d(available.height, &edges);
 
     // Phase 3: compute rects and write to tree (mutable borrow).
+    // Track previous child's bottom margin for CSS-style margin collapsing:
+    // the gap between adjacent siblings is max(prev.bottom, cur.top) not the sum.
     let mut y = available.y;
+    let mut prev_margin_bottom: u16 = 0;
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
         let total_h = heights[i];
+
+        // Collapse vertical margins between adjacent children: subtract the
+        // overlap so the effective gap equals max(prev_bottom, cur_top).
+        let collapse = prev_margin_bottom.min(spec.margin.top);
+        y = y.saturating_sub(collapse);
 
         // Layout rect excludes margin.
         let layout_x = available.x.saturating_add(spec.margin.left);
@@ -706,6 +714,7 @@ pub fn layout_vertical(
         }
 
         y = y.saturating_add(total_h);
+        prev_margin_bottom = spec.margin.bottom;
     }
 }
 
@@ -1114,7 +1123,7 @@ pub fn layout_grid(
         let margin = style.effective_margin();
         let padding = style.effective_padding();
         let (bt, bb, bl, br) = border_spacing(&style);
-        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
         // Layout rect: cell + available offset, margin inset.
         let layout_x = available
@@ -1209,7 +1218,7 @@ fn carve_edge(
     let border_bottom = bb as u16;
     let border_left = bl as u16;
     let border_right = br as u16;
-    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
     let current_w = x1.saturating_sub(*x0);
     let current_h = y1.saturating_sub(*y0);
@@ -1397,7 +1406,7 @@ fn layout_absolute(
         let margin = style.effective_margin();
         let padding = style.effective_padding();
         let (bt, bb, bl, br) = border_spacing(&style);
-        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::ContentBox);
+        let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
         let chrome_w = bl + br + padding.left + padding.right;
         let chrome_h = bt + bb + padding.top + padding.bottom;
@@ -2148,12 +2157,12 @@ mod tests {
         let available = Region::new(0, 0, 80, 50);
         layout_vertical(&mut tree, &[child], available, (80, 50));
 
-        // Chrome: border(1+1+1+1) + padding(1+1+2+2) = 4+6 = 10
-        // Edge total height = 10 + 1+1+1+1 = 14 (content + vertical chrome)
-        // layout: x=0, y=0, w=80, h=14
-        assert_layout_rect(&tree, child, 0, 0, 80, 14);
-        // content: x=0+1+2=3, y=0+1+1=2, w=80-1-1-2-2=74, h=14-1-1-1-1=10
-        assert_content_rect(&tree, child, 3, 2, 77, 12);
+        // Default box-sizing is border-box (Textual parity):
+        // explicit height includes border+padding chrome.
+        // layout: x=0, y=0, w=80, h=10
+        assert_layout_rect(&tree, child, 0, 0, 80, 10);
+        // content: x=0+1+2=3, y=0+1+1=2, w=80-1-1-2-2=74, h=10-1-1-1-1=6
+        assert_content_rect(&tree, child, 3, 2, 77, 8);
     }
 
     #[test]

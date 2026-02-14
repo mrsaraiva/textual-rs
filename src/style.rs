@@ -1062,6 +1062,7 @@ pub enum StyleProperty {
     ExpandProp = 98,
     TransitionsProp = 99,
     Strike = 100,
+    LinePad = 101,
 }
 
 /// Bitset tracking which [`Style`] properties carry `!important`.
@@ -1252,6 +1253,11 @@ pub struct Style {
 
     // P2-36: per-property transitions
     pub transitions: Option<Vec<PropertyTransition>>,
+
+    // --- Render-time-only properties (not part of box model) ---
+    /// Horizontal padding applied to each content line at render time.
+    /// Unlike CSS `padding`, this does NOT affect the box model / layout width.
+    pub line_pad: Option<u16>,
 
     // --- Importance tracking ---
     pub importance: ImportanceBitset,
@@ -1471,12 +1477,10 @@ impl Style {
         self
     }
 
-    /// Backward-compatible builder: `line_pad` was horizontal padding applied
-    /// to each content line. Maps to `padding.left` + `padding.right`.
+    /// Render-time horizontal padding applied to each content line.
+    /// Does NOT affect the box model (not included in `effective_padding()`).
     pub fn line_pad(mut self, value: usize) -> Self {
-        let v = value as u16;
-        let current = self.padding.unwrap_or_default();
-        self.padding = Some(Spacing::new(current.top, v, current.bottom, v));
+        self.line_pad = Some(value as u16);
         self
     }
 
@@ -1994,6 +1998,7 @@ impl Style {
                 transitions,
                 StyleProperty::TransitionsProp
             ),
+            line_pad: cascade_field!(self, other, imp, line_pad, StyleProperty::LinePad),
             importance: imp,
         }
     }
@@ -2130,6 +2135,8 @@ impl Style {
             constrain_y: self.constrain_y,
             expand: self.expand,
             transitions: self.transitions.clone(),
+            // line_pad is NOT inherited (render-time property, not part of box model).
+            line_pad: self.line_pad,
             // Importance is not inherited — it only applies during cascade.
             importance: ImportanceBitset::new(),
         }

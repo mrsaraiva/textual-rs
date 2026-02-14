@@ -81,6 +81,7 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
             inline: pseudos.inline,
             ansi: pseudos.ansi,
             nocolor: pseudos.nocolor,
+            can_focus: widget.can_focus(),
             ..Default::default()
         },
     }
@@ -112,6 +113,7 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             inline: pseudos.inline,
             ansi: pseudos.ansi,
             nocolor: pseudos.nocolor,
+            can_focus: widget.can_focus(),
             ..SelectorStates::default()
         },
     }
@@ -135,6 +137,7 @@ pub(crate) fn selector_meta_component_for_with_id<T: Widget + ?Sized>(
             inline: pseudos.inline,
             ansi: pseudos.ansi,
             nocolor: pseudos.nocolor,
+            can_focus: widget.can_focus(),
             ..SelectorStates::default()
         },
     }

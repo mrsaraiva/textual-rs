@@ -104,4 +104,8 @@ Label {
 }
 
 Spacer { bg: $background; }
+
+*:disabled:can-focus {
+    opacity: 70%;
+}
 "#;

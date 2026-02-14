@@ -391,6 +391,10 @@ impl Widget for Button {
         !self.disabled
     }
 
+    fn can_focus(&self) -> bool {
+        true
+    }
+
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
     }

@@ -253,22 +253,23 @@ fn p2g24_absolute_applies_max_constraints() {
 
 #[test]
 fn p2g25_content_box_adds_chrome() {
-    // content-box (default): specified width/height is content only; chrome is added.
+    // content-box: specified width/height is content only; chrome is added.
     let mut tree = WidgetTree::new();
     let root = tree.set_root(TestWidget::boxed("Container"));
     let child = tree.mount(
         root,
-        TestWidget::boxed_with_style(
-            "Child",
-            Style::new()
+        TestWidget::boxed_with_style("Child", {
+            let mut s = Style::new()
                 .height(Scalar::Cells(10))
                 .width(Scalar::Cells(20))
                 .padding(Spacing::new(1, 2, 1, 2))
                 .border_top(Color::rgb(255, 255, 255))
                 .border_bottom(Color::rgb(255, 255, 255))
                 .border_left(Color::rgb(255, 255, 255))
-                .border_right(Color::rgb(255, 255, 255)),
-        ),
+                .border_right(Color::rgb(255, 255, 255));
+            s.box_sizing = Some(BoxSizing::ContentBox);
+            s
+        }),
     );
 
     resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
