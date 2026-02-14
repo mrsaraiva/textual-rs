@@ -1,39 +1,340 @@
 use std::time::Duration;
 
 use crate::style::{
-    Align, BorderEdge, BorderType, BoxSizing, Constrain, ContentAlign, Display, Dock, Hatch,
-    HorizontalAlign, Keyline, KeylineType, Layout, Margin, Offset, Overflow, OverlayMode, Pointer,
-    Position, PropertyTransition, Scalar, ScrollbarGutter, ScrollbarVisibility, Split, Style,
-    StyleProperty, TextAlign, TextOverflow, TextStyleFlags, TextWrap, Tint, TransitionTiming,
-    VerticalAlign, Visibility, parse_auto_color_like, parse_color_like,
+    parse_auto_color_like, parse_color_like, Align, BorderEdge, BorderType, BoxSizing, Constrain,
+    ContentAlign, Display, Dock, Hatch, HorizontalAlign, Keyline, KeylineType, Layout, Margin,
+    Offset, Overflow, OverlayMode, Pointer, Position, PropertyTransition, Scalar, ScrollbarGutter,
+    ScrollbarVisibility, Split, Style, StyleProperty, TextAlign, TextOverflow, TextStyleFlags,
+    TextWrap, Tint, TransitionTiming, VerticalAlign, Visibility,
 };
 
 use super::ast::{Combinator, PseudoClass, SelectorChain, StyleRule, StyleSelector, StyleSheet};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CssParseIssueKind {
+    UnterminatedBlock,
+    InvalidSelector,
+    UnexpectedToken,
+    UnsupportedAtRule,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CssParseIssue {
+    kind: CssParseIssueKind,
+    message: String,
+    snippet: String,
+    offset: usize,
+}
+
 impl StyleSheet {
     pub fn parse(input: &str) -> Self {
-        let mut sheet = StyleSheet::new();
-        let mut rest = input;
-        while let Some(start) = rest.find('{') {
-            let selector = rest[..start].trim();
-            let after = &rest[start + 1..];
-            let end = match after.find('}') {
-                Some(pos) => pos,
-                None => break,
+        let (sheet, issues) = parse_with_issues(input);
+        emit_parse_issues(&issues);
+        sheet
+    }
+}
+
+fn parse_with_issues(input: &str) -> (StyleSheet, Vec<CssParseIssue>) {
+    let mut sheet = StyleSheet::new();
+    let mut issues = Vec::new();
+    let mut pos = 0usize;
+
+    while pos < input.len() {
+        let Some(rel_open) = input[pos..].find('{') else {
+            break;
+        };
+        let open = pos + rel_open;
+        let selector_text = input[pos..open].trim();
+        let Some(close) = find_matching_brace(input, open) else {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnterminatedBlock,
+                message: "unterminated block".to_string(),
+                snippet: snippet_of(input, open, input.len()),
+                offset: open,
+            });
+            break;
+        };
+        let body = &input[open + 1..close];
+        if selector_text.is_empty() {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnexpectedToken,
+                message: "missing selector before block".to_string(),
+                snippet: snippet_of(input, open, close + 1),
+                offset: open,
+            });
+            pos = close + 1;
+            continue;
+        }
+        if selector_text.starts_with('@') {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnsupportedAtRule,
+                message: format!("unsupported at-rule: {selector_text}"),
+                snippet: snippet_of(input, pos, close + 1),
+                offset: pos,
+            });
+            pos = close + 1;
+            continue;
+        }
+        let selectors = split_selector_groups(selector_text);
+        if selectors.is_empty() {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::InvalidSelector,
+                message: format!("invalid selector list: {selector_text}"),
+                snippet: snippet_of(input, pos, close + 1),
+                offset: pos,
+            });
+            pos = close + 1;
+            continue;
+        }
+        parse_rule_block(&mut sheet, &selectors, body, pos, input, &mut issues);
+        pos = close + 1;
+    }
+
+    (sheet, issues)
+}
+
+fn parse_rule_block(
+    sheet: &mut StyleSheet,
+    selectors: &[String],
+    body: &str,
+    base_offset: usize,
+    source: &str,
+    issues: &mut Vec<CssParseIssue>,
+) {
+    let split = split_block_body(body, base_offset, source, issues);
+    let style = parse_style_body(&split.declarations);
+    if !style.is_empty() {
+        append_style_rules(sheet, selectors, style, issues, base_offset, source);
+    }
+
+    for nested in split.nested_rules {
+        if nested.selector.starts_with('@') {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnsupportedAtRule,
+                message: format!("unsupported at-rule: {}", nested.selector),
+                snippet: snippet_of(source, nested.selector_offset, nested.block_end),
+                offset: nested.selector_offset,
+            });
+            continue;
+        }
+        let expanded = expand_nested_selectors(selectors, &nested.selector);
+        if expanded.is_empty() {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::InvalidSelector,
+                message: format!("invalid nested selector: {}", nested.selector),
+                snippet: snippet_of(source, nested.selector_offset, nested.block_end),
+                offset: nested.selector_offset,
+            });
+            continue;
+        }
+        parse_rule_block(
+            sheet,
+            &expanded,
+            &nested.body,
+            nested.selector_offset,
+            source,
+            issues,
+        );
+    }
+}
+
+fn append_style_rules(
+    sheet: &mut StyleSheet,
+    selectors: &[String],
+    style: Style,
+    issues: &mut Vec<CssParseIssue>,
+    base_offset: usize,
+    source: &str,
+) {
+    for selector in selectors {
+        if let Some(selector_chain) = parse_selector_chain(selector) {
+            sheet.rules.push(StyleRule {
+                selector_chain,
+                style: style.clone(),
+            });
+        } else {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::InvalidSelector,
+                message: format!("invalid selector: {selector}"),
+                snippet: snippet_of(
+                    source,
+                    base_offset,
+                    (base_offset + selector.len()).min(source.len()),
+                ),
+                offset: base_offset,
+            });
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NestedRuleBlock {
+    selector: String,
+    body: String,
+    selector_offset: usize,
+    block_end: usize,
+}
+
+#[derive(Debug, Default)]
+struct SplitBlockBody {
+    declarations: String,
+    nested_rules: Vec<NestedRuleBlock>,
+}
+
+fn split_block_body(
+    body: &str,
+    base_offset: usize,
+    source: &str,
+    issues: &mut Vec<CssParseIssue>,
+) -> SplitBlockBody {
+    let mut out = SplitBlockBody::default();
+    let mut cursor = 0usize;
+    let mut idx = 0usize;
+
+    while idx < body.len() {
+        let Some(rel_open) = body[idx..].find('{') else {
+            break;
+        };
+        let open = idx + rel_open;
+        let Some(close) = find_matching_brace(body, open) else {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnterminatedBlock,
+                message: "unterminated nested block".to_string(),
+                snippet: snippet_of(source, base_offset + open, base_offset + body.len()),
+                offset: base_offset + open,
+            });
+            break;
+        };
+
+        let segment = &body[cursor..open];
+        let (declarations, selector_fragment) = split_segment_for_nested_selector(segment);
+        if !declarations.trim().is_empty() {
+            out.declarations.push_str(declarations);
+            if !declarations.trim_end().ends_with(';') {
+                out.declarations.push(';');
+            }
+            out.declarations.push('\n');
+        }
+        let selector = selector_fragment.trim();
+        if selector.is_empty() {
+            issues.push(CssParseIssue {
+                kind: CssParseIssueKind::UnexpectedToken,
+                message: "missing nested selector before block".to_string(),
+                snippet: snippet_of(source, base_offset + open, base_offset + close + 1),
+                offset: base_offset + open,
+            });
+        } else {
+            out.nested_rules.push(NestedRuleBlock {
+                selector: selector.to_string(),
+                body: body[open + 1..close].to_string(),
+                selector_offset: base_offset
+                    + cursor
+                    + segment.len().saturating_sub(selector.len()),
+                block_end: base_offset + close + 1,
+            });
+        }
+
+        cursor = close + 1;
+        idx = close + 1;
+    }
+
+    let tail = body[cursor..].trim();
+    if !tail.is_empty() {
+        out.declarations.push_str(tail);
+    }
+    out
+}
+
+fn split_segment_for_nested_selector(segment: &str) -> (&str, &str) {
+    match segment.rfind(';') {
+        Some(idx) => (&segment[..=idx], &segment[idx + 1..]),
+        None => ("", segment),
+    }
+}
+
+fn split_selector_groups(selector: &str) -> Vec<String> {
+    selector
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn expand_nested_selectors(parents: &[String], nested_selector: &str) -> Vec<String> {
+    let nested_groups = split_selector_groups(nested_selector);
+    if nested_groups.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for parent in parents {
+        for nested in &nested_groups {
+            let combined = if nested.contains('&') {
+                nested.replace('&', parent)
+            } else {
+                format!("{parent} {nested}")
             };
-            let body = &after[..end];
-            let style = parse_style_body(body);
-            if !style.is_empty() {
-                for selector_chain in parse_selector_list(selector) {
-                    sheet.rules.push(StyleRule {
-                        selector_chain,
-                        style: style.clone(),
-                    });
+            let combined = combined.trim();
+            if !combined.is_empty() {
+                out.push(combined.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn find_matching_brace(input: &str, open: usize) -> Option<usize> {
+    if input.as_bytes().get(open) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 1usize;
+    for (i, b) in input.as_bytes().iter().enumerate().skip(open + 1) {
+        match *b {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
                 }
             }
-            rest = &after[end + 1..];
+            _ => {}
         }
-        sheet
+    }
+    None
+}
+
+fn snippet_of(source: &str, start: usize, end: usize) -> String {
+    if source.is_empty() {
+        return String::new();
+    }
+    let safe_start = start.min(source.len());
+    let safe_end = end.min(source.len()).max(safe_start);
+    source[safe_start..safe_end]
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .trim()
+        .chars()
+        .take(120)
+        .collect()
+}
+
+fn emit_parse_issues(issues: &[CssParseIssue]) {
+    if issues.is_empty() {
+        return;
+    }
+    let summary = format!(
+        "[css][parse] {} issue(s) encountered while parsing stylesheet",
+        issues.len()
+    );
+    eprintln!("{summary}");
+    crate::debug::debug_style(&summary);
+    for issue in issues {
+        let line = format!(
+            "[css][parse][{:?}] at byte {}: {} | {}",
+            issue.kind, issue.offset, issue.message, issue.snippet
+        );
+        eprintln!("{line}");
+        crate::debug::debug_style(&line);
     }
 }
 
@@ -526,7 +827,9 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 let mut per_property = Vec::new();
                 for (idx, item) in items.iter().enumerate() {
                     let item = item.trim();
-                    if item.is_empty() { continue; }
+                    if item.is_empty() {
+                        continue;
+                    }
                     // Try to extract a property name (first non-duration/non-timing token).
                     let mut prop_name: Option<String> = None;
                     let mut dur: Option<std::time::Duration> = None;
@@ -534,12 +837,21 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     let mut tim: Option<TransitionTiming> = None;
                     for token in item.split_whitespace() {
                         if dur.is_none() {
-                            if let Some(d) = parse_duration(token) { dur = Some(d); continue; }
+                            if let Some(d) = parse_duration(token) {
+                                dur = Some(d);
+                                continue;
+                            }
                         } else if del.is_none() {
-                            if let Some(d) = parse_duration(token) { del = Some(d); continue; }
+                            if let Some(d) = parse_duration(token) {
+                                del = Some(d);
+                                continue;
+                            }
                         }
                         if tim.is_none() {
-                            if let Some(t) = parse_transition_timing(token) { tim = Some(t); continue; }
+                            if let Some(t) = parse_transition_timing(token) {
+                                tim = Some(t);
+                                continue;
+                            }
                         }
                         if prop_name.is_none() {
                             prop_name = Some(token.to_string());
@@ -551,7 +863,9 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     if let Some(name) = prop_name {
                         per_property.push(PropertyTransition {
                             property: name,
-                            duration, timing, delay,
+                            duration,
+                            timing,
+                            delay,
                         });
                     }
                     // First item: set global transition fields only for values
@@ -1092,7 +1406,10 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                     };
                     let color_str = parts[1..].join(" ");
                     if let (Some(kt), Some(color)) = (keyline_type, parse_color_like(&color_str)) {
-                        style.keyline = Some(Keyline { keyline_type: kt, color });
+                        style.keyline = Some(Keyline {
+                            keyline_type: kt,
+                            color,
+                        });
                     }
                 }
             }
@@ -1477,16 +1794,37 @@ fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
             continue;
         }
         match token.to_lowercase().as_str() {
-            "bold" => { flags.bold = true; any = true; }
-            "dim" => { flags.dim = true; any = true; }
-            "italic" => { flags.italic = true; any = true; }
-            "underline" => { flags.underline = true; any = true; }
-            "reverse" => { flags.reverse = true; any = true; }
-            "none" => { return Some(TextStyleFlags::default()); }
+            "bold" => {
+                flags.bold = true;
+                any = true;
+            }
+            "dim" => {
+                flags.dim = true;
+                any = true;
+            }
+            "italic" => {
+                flags.italic = true;
+                any = true;
+            }
+            "underline" => {
+                flags.underline = true;
+                any = true;
+            }
+            "reverse" => {
+                flags.reverse = true;
+                any = true;
+            }
+            "none" => {
+                return Some(TextStyleFlags::default());
+            }
             _ => {}
         }
     }
-    if any { Some(flags) } else { None }
+    if any {
+        Some(flags)
+    } else {
+        None
+    }
 }
 
 pub(super) fn parse_transition_timing(value: &str) -> Option<TransitionTiming> {
@@ -2113,5 +2451,71 @@ mod tests {
             sheet.rules[0].style.constrain,
             Some(crate::style::Constrain::Inflect)
         );
+    }
+
+    #[test]
+    fn parse_nested_amp_and_descendant_rules() {
+        let css = r#"
+        Screen {
+            color: red;
+            &.active {
+                bold: true;
+            }
+            Label {
+                underline: true;
+            }
+        }
+        "#;
+        let (sheet, issues) = parse_with_issues(css);
+        assert!(issues.is_empty(), "unexpected parse issues: {issues:?}");
+        assert_eq!(sheet.rules.len(), 3);
+        let selectors: Vec<String> = sheet
+            .rules
+            .iter()
+            .map(|r| super::super::debug::selector_chain_string(&r.selector_chain))
+            .collect();
+        assert!(selectors.iter().any(|s| s == "Screen"));
+        assert!(selectors.iter().any(|s| s == "Screen.active"));
+        assert!(selectors.iter().any(|s| s == "Screen Label"));
+    }
+
+    #[test]
+    fn parse_nested_selector_groups_cartesian_expansion() {
+        let css = r#"
+        Label, Button {
+            &.foo, &.bar {
+                bold: true;
+            }
+        }
+        "#;
+        let (sheet, issues) = parse_with_issues(css);
+        assert!(issues.is_empty(), "unexpected parse issues: {issues:?}");
+        let selectors: Vec<String> = sheet
+            .rules
+            .iter()
+            .map(|r| super::super::debug::selector_chain_string(&r.selector_chain))
+            .collect();
+        assert!(selectors.iter().any(|s| s == "Label.foo"));
+        assert!(selectors.iter().any(|s| s == "Label.bar"));
+        assert!(selectors.iter().any(|s| s == "Button.foo"));
+        assert!(selectors.iter().any(|s| s == "Button.bar"));
+    }
+
+    #[test]
+    fn parse_unsupported_at_rule_records_issue() {
+        let css = r#"
+        @media (max-width: 20) {
+            Label { color: red; }
+        }
+        Label { underline: true; }
+        "#;
+        let (sheet, issues) = parse_with_issues(css);
+        assert!(
+            issues
+                .iter()
+                .any(|i| matches!(i.kind, CssParseIssueKind::UnsupportedAtRule)),
+            "expected unsupported at-rule issue"
+        );
+        assert_eq!(sheet.rules.len(), 1, "only regular rules should be parsed");
     }
 }

@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-13
+- **feat(css): rewrite CSS parser to support nested rules and `&` selector**
+  - Rewrote `StyleSheet::parse()` with brace-balanced block parsing, replacing the flat `find('{')/find('}')` approach.
+  - Nested CSS rules with `&` (parent reference) and implicit descendant selectors are now supported, matching Python Textual TCSS semantics.
+  - Selector group lists (`Label, Button { ... }`) are expanded as Cartesian product with nested selectors.
+  - Structured parse-issue reporting (`CssParseIssue`) with kind, offset, snippet, and stderr + debug-style emission.
+  - Graceful handling of unsupported `@`-rules (logged as issues, not fatal).
+  - Added 3 unit tests (nested `&`/descendant, cartesian expansion, `@`-rule issue) and 3 integration tests (`tests/style_nested.rs`).
+
 ### 2026-02-15
 - **Fix text overflow pipeline + P2 behavioral gate tests**
   - Fix: `split_and_crop_lines` was pre-cropping lines before `apply_text_overflow_to_line` could apply ellipsis/clip, making the text overflow wiring dead code. Now defers cropping when `text-wrap: nowrap` with an overflow mode is active.
