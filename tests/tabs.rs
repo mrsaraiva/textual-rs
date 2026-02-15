@@ -56,7 +56,7 @@ fn tabs_keyboard_changes_active_tab() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(key), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("two".to_string()));
+    assert!(tabs.is_active("two"));
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("two".to_string()));
+    assert!(tabs.is_active("two"));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("deux".to_string()));
+    assert!(tabs.is_active("deux"));
 }
 
 #[test]
@@ -201,12 +201,12 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right.clone()), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("four".to_string()));
+    assert!(tabs.is_active("four"));
 
     let mut wrap_ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right), &mut wrap_ctx);
     assert!(wrap_ctx.handled());
-    assert_eq!(tabs.active(), Some("one".to_string()));
+    assert!(tabs.is_active("one"));
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
         &mut ctx,
     );
     assert!(!ctx.handled());
-    assert_eq!(tabs.active(), Some("one".to_string()));
+    assert!(tabs.is_active("one"));
 }
 
 #[test]
@@ -239,10 +239,10 @@ fn tabs_hiding_active_tab_promotes_next_available() {
         .with_tab_id("three", "Three");
     let mut rctx = ReactiveCtx::new(NodeId::default());
     tabs.set_active("two", &mut rctx);
-    assert_eq!(tabs.active(), Some("two".to_string()));
+    assert!(tabs.is_active("two"));
 
     assert!(tabs.hide_tab("two", &mut rctx));
-    assert_eq!(tabs.active(), Some("three".to_string()));
+    assert!(tabs.is_active("three"));
     assert!(tabs.hide_tab("three", &mut rctx));
-    assert_eq!(tabs.active(), Some("one".to_string()));
+    assert!(tabs.is_active("one"));
 }

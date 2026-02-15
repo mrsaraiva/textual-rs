@@ -399,6 +399,16 @@ impl Tabs {
         state.active.clone()
     }
 
+    pub fn is_active(&self, id: &str) -> bool {
+        let state = self.state.lock().expect("tabs state lock");
+        state.active.as_deref() == Some(id)
+    }
+
+    pub fn with_active_id<R>(&self, f: impl FnOnce(Option<&str>) -> R) -> R {
+        let state = self.state.lock().expect("tabs state lock");
+        f(state.active.as_deref())
+    }
+
     pub fn active_index(&self) -> Option<usize> {
         let state = self.state.lock().expect("tabs state lock");
         let id = state.active.as_ref()?;
@@ -1432,5 +1442,24 @@ mod tests {
                 .iter()
                 .all(|m| !matches!(m.message, Message::TabActivated(..)))
         );
+    }
+
+    #[test]
+    fn is_active_checks_current_id_without_allocating_callsite_string() {
+        let tabs = Tabs::new()
+            .with_tab_id("one", "One")
+            .with_tab_id("two", "Two");
+        assert!(tabs.is_active("one"));
+        assert!(!tabs.is_active("two"));
+    }
+
+    #[test]
+    fn with_active_id_exposes_borrowed_view_of_active_id() {
+        let tabs = Tabs::new()
+            .with_tab_id("one", "One")
+            .with_tab_id("two", "Two");
+        tabs.with_active_id(|active| {
+            assert_eq!(active, Some("one"));
+        });
     }
 }

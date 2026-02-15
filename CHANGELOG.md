@@ -35,6 +35,10 @@ until the API stabilizes.
     - verifies tab header auto-width keeps expected horizontal gaps.
   - Added button regression test:
     - `mouse_click_message_description_includes_active_class`.
+  - Added Tabs ergonomics helpers to avoid allocation-heavy callsites:
+    - `Tabs::is_active(&str) -> bool`,
+    - `Tabs::with_active_id(|Option<&str>| ...)`.
+  - Updated tabs integration assertions to use non-allocating active-id checks.
 
 ### 2026-02-15
 - **[wip] fix(tabbed-content parity): align tab state styling, underline behavior, footer hints/separator, and markdown heading surfaces**
