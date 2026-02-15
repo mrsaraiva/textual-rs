@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(tabbed-content + layout/test regressions): restore stable fallback behavior and remove false `cargo test` blocker**
+  - Fixed `ScrollView` content-height inference to ignore trailing blank probe rows from oversized auto/fill renders, preventing false vertical scrollbar activation and viewport width shrink in focus/layout paths.
+  - Restored `Middle` / `CenterMiddle` vertical-centering behavior to use intrinsic child height (with non-blank rendered fallback) instead of shaped full-height output.
+  - Stabilized `TabbedContent` non-tree compatibility semantics used by isolated tests/previews:
+    - keyboard/mouse tab switching,
+    - hidden/disabled activation guards,
+    - active-pane promotion after hide/disable,
+    - binding hints.
+  - Updated `TabbedContent` style assertions to render through widget-tree runtime (canonical path) while keeping non-tree compatibility minimal.
+  - Result: `cargo test` now runs through the previously reported stop point and completes successfully in this tree.
+
 - **[wip] fix(widget render + tabs parity): restore chrome-aware intrinsic sizing, scoped tab state classes, and tab/button interaction regressions**
   - Added a shared widget render path (`render_widget_with_meta`) that consistently applies:
     - CSS style stack context,

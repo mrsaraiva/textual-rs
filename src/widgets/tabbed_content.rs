@@ -361,7 +361,7 @@ impl TabbedContent {
             .lock()
             .expect("tabbed meta lock")
             .iter()
-            .any(|m| m.id == pane_id)
+            .any(|m| m.id == pane_id && !m.disabled && !m.hidden)
         {
             return false;
         }
@@ -445,6 +445,7 @@ impl TabbedContent {
             return false;
         };
         pane.disabled = disabled;
+        drop(meta);
         if let Some(tabs) = self
             .tabs_handle
             .lock()
@@ -458,6 +459,7 @@ impl TabbedContent {
                 let _ = tabs.enable_tab(&Self::content_tab_id(pane_id), &mut rctx);
             }
         }
+        self.promote_active_if_needed();
         true
     }
 
@@ -467,6 +469,7 @@ impl TabbedContent {
             return false;
         };
         pane.hidden = hidden;
+        drop(meta);
         if let Some(tabs) = self
             .tabs_handle
             .lock()
@@ -480,6 +483,7 @@ impl TabbedContent {
                 let _ = tabs.show_tab(&Self::content_tab_id(pane_id), &mut rctx);
             }
         }
+        self.promote_active_if_needed();
         true
     }
 
@@ -530,10 +534,81 @@ impl TabbedContent {
             }
         }
         tabs.set_dock(crate::style::Dock::Top);
+        tabs.set_focus(self.focused);
         if let Some(initial) = self.initial.as_deref().or(self.active.as_deref()) {
             let _ = tabs.set_active_id(&Self::content_tab_id(initial), None);
         }
         tabs
+    }
+
+    fn selectable_pane_count(&self) -> usize {
+        self.pane_meta
+            .lock()
+            .expect("tabbed meta lock")
+            .iter()
+            .filter(|pane| !pane.hidden && !pane.disabled)
+            .count()
+    }
+
+    fn next_selectable_pane_id(&self, current: Option<&str>, forward: bool) -> Option<String> {
+        let meta = self.pane_meta.lock().expect("tabbed meta lock");
+        if meta.is_empty() {
+            return None;
+        }
+        let selectable = |idx: usize| !meta[idx].hidden && !meta[idx].disabled;
+        let start = current
+            .and_then(|id| meta.iter().position(|pane| pane.id == id))
+            .unwrap_or(0);
+        if current.is_none() && selectable(start) {
+            return Some(meta[start].id.clone());
+        }
+        for step in 1..=meta.len() {
+            let idx = if forward {
+                (start + step) % meta.len()
+            } else {
+                (start + meta.len() - (step % meta.len())) % meta.len()
+            };
+            if selectable(idx) {
+                return Some(meta[idx].id.clone());
+            }
+        }
+        None
+    }
+
+    fn promote_active_if_needed(&mut self) {
+        let active_valid = {
+            let meta = self.pane_meta.lock().expect("tabbed meta lock");
+            self.active
+                .as_deref()
+                .and_then(|active| meta.iter().find(|pane| pane.id == active))
+                .map(|pane| !pane.hidden && !pane.disabled)
+                .unwrap_or(false)
+        };
+        if active_valid {
+            return;
+        }
+        self.active = self.next_selectable_pane_id(self.active.as_deref(), true);
+    }
+
+    fn hit_tab_index(&self, x: usize, y: usize) -> Option<usize> {
+        if y > 0 {
+            return None;
+        }
+        let meta = self.pane_meta.lock().expect("tabbed meta lock");
+        let mut cursor = 0usize;
+        for (idx, pane) in meta.iter().enumerate() {
+            if pane.hidden {
+                continue;
+            }
+            let tab_width = rich_rs::cell_len(format!(" {} ", pane.title).as_str());
+            let start = cursor;
+            let end = cursor.saturating_add(tab_width);
+            if x >= start && x < end {
+                return Some(idx);
+            }
+            cursor = end;
+        }
+        None
     }
 }
 
@@ -610,10 +685,67 @@ impl Widget for TabbedContent {
         if let Some(initial) = self.initial.clone() {
             let _ = self.set_active_id(&initial, None);
         }
-        if self.active.is_none() {
+        self.promote_active_if_needed();
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if self.children_extracted.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(tabs) = self
+            .tabs_handle
+            .lock()
+            .expect("tabbed tabs handle lock")
+            .as_mut()
+        {
+            tabs.set_focus(self.focused);
+            tabs.on_layout(width, 2);
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.children_extracted.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.focused && let Event::Key(key) = event {
+            match key.code {
+                crossterm::event::KeyCode::Left | crossterm::event::KeyCode::Char('h') => {
+                    if let Some(next) = self.next_selectable_pane_id(self.active.as_deref(), false)
+                        && self.set_active_id(&next, Some(ctx))
+                    {
+                        ctx.set_handled();
+                    }
+                    return;
+                }
+                crossterm::event::KeyCode::Right | crossterm::event::KeyCode::Char('l') => {
+                    if let Some(next) = self.next_selectable_pane_id(self.active.as_deref(), true)
+                        && self.set_active_id(&next, Some(ctx))
+                    {
+                        ctx.set_handled();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if let Event::MouseDown(mouse) = event
+            && let Some(index) = self.hit_tab_index(mouse.x as usize, mouse.y as usize)
+        {
             let meta = self.pane_meta.lock().expect("tabbed meta lock");
-            if let Some(meta) = meta.first() {
-                self.active = Some(meta.id.clone());
+            let Some(pane) = meta.get(index) else {
+                return;
+            };
+            if pane.disabled {
+                return;
+            }
+            let pane_id = pane.id.clone();
+            drop(meta);
+            if self.active.as_deref() == Some(pane_id.as_str()) {
+                ctx.set_handled();
+                return;
+            }
+            if self.set_active_id(&pane_id, Some(ctx)) {
+                ctx.set_handled();
             }
         }
     }
@@ -653,11 +785,30 @@ impl Widget for TabbedContent {
     }
 
     fn binding_hints(&self) -> Vec<BindingHint> {
-        Vec::new()
+        if self.selectable_pane_count() <= 1 {
+            return Vec::new();
+        }
+        vec![
+            BindingHint::new("left/right", "Switch tab")
+                .with_key_display("←/→")
+                .hidden(true),
+        ]
     }
 
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.children_extracted.load(Ordering::SeqCst) {
+            return Segments::new();
+        }
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1).min(2);
+        let mut tabs = self.build_tabs();
+        tabs.set_focus(self.focused);
+        tabs.on_layout(width as u16, height as u16);
+        let mut tab_options = options.clone();
+        tab_options.size = (width, height);
+        tab_options.max_width = width;
+        tab_options.max_height = height;
+        Widget::render(&tabs, console, &tab_options)
     }
 
     fn style_classes(&self) -> &[String] {
@@ -704,7 +855,7 @@ mod tests {
     use rich_rs::Console;
 
     #[test]
-    fn keyboard_activation_posts_message_and_requests_repaint() {
+    fn keyboard_activation_handles_and_switches_active_pane_in_non_tree_mode() {
         let mut tabs = TabbedContent::new()
             .with_pane(TabPane::new("One", Label::new("first")).id("one"))
             .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
@@ -719,11 +870,12 @@ mod tests {
             &mut ctx,
         );
 
-        assert!(!ctx.handled());
+        assert!(ctx.handled());
+        assert_eq!(tabs.active_id(), Some("two"));
     }
 
     #[test]
-    fn clicking_active_tab_is_handled_but_emits_no_activation_message() {
+    fn clicking_active_tab_is_handled_without_switching_active_pane() {
         let mut tabs = TabbedContent::new()
             .with_pane(TabPane::new("One", Label::new("first")).id("one"))
             .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
@@ -740,7 +892,8 @@ mod tests {
             &mut ctx,
         );
 
-        assert!(!ctx.handled());
+        assert!(ctx.handled());
+        assert_eq!(tabs.active_id(), Some("one"));
     }
 
     fn apply_runtime_class_messages(tree: &mut WidgetTree, messages: Vec<MessageEvent>) {

@@ -4,7 +4,7 @@ use crate::debug::debug_message;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
+use super::helpers::{empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -420,7 +420,15 @@ impl Widget for Footer {
         let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
         let mut out = Segments::new();
         if let Some(line) = split.first() {
-            out.extend(adjust_line_length_no_bg(line, width));
+            // Footer should always paint a full-width background row. Padding with
+            // the footer base style avoids transient "black bar" artifacts when
+            // binding sets shrink/expand between frames.
+            out.extend(Segment::adjust_line_length(
+                line,
+                width,
+                Some(base_style),
+                false,
+            ));
         } else {
             out.push(Segment::styled(" ".repeat(width), base_style));
         }

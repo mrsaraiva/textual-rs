@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::css::set_style_context;
 use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -158,6 +159,61 @@ fn footer_compact_mode_tightens_spacing() {
     let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
     let line = &buf.as_plain_lines()[0];
     assert!(line.starts_with("ctrl+q quit tab next"));
+}
+
+#[test]
+fn footer_paints_full_row_background_when_bindings_change_shape() {
+    let css = r#"
+        Footer {
+            bg: #112233;
+            color: #ffffff;
+        }
+        Footer .footer-key--key {
+            bg: #223344;
+            color: #ffffff;
+        }
+        Footer .footer-key--description {
+            bg: #334455;
+            color: #ffffff;
+        }
+        Footer .footer-key--command-palette {
+            bg: #445566;
+            color: #ffffff;
+        }
+        Footer .footer-key--palette-separator {
+            bg: #112233;
+            color: #ffffff;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let width = 60usize;
+    let options = options_for(&console, width, 1);
+    let mut footer = Footer::new();
+    let mut ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("p", "Paul"),
+            BindingHint::new("ctrl+p", "palette")
+                .with_key_display("^p")
+                .with_group("command_palette"),
+        ]),
+        &mut ctx,
+    );
+    assert!(ctx.repaint_requested());
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    for x in 0..width {
+        let bg = buf.get(x, 0).style.and_then(|style| style.bgcolor);
+        assert!(
+            bg.is_some(),
+            "footer row cell x={} lost background style; plain_line={:?}",
+            x,
+            buf.as_plain_lines()[0]
+        );
+    }
 }
 
 #[test]

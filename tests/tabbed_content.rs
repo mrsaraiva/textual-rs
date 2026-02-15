@@ -6,7 +6,14 @@ use textual::css::{
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::style::parse_color_like;
+
+fn render_tabbed_frame(tabs: &mut TabbedContent, width: u16, height: u16) -> FrameBuffer {
+    let console = Console::new();
+    let mut tree = build_widget_tree_from_root(tabs).expect("tree should exist");
+    render_tree_to_frame(&mut tree, tabs, &console, width as usize, height as usize)
+}
 
 #[test]
 fn tabbed_content_honors_initial_pane_id() {
@@ -110,7 +117,7 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
     tabs.set_focus(true);
     tabs.on_layout(24, 2);
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+    let buf = render_tabbed_frame(&mut tabs, 24, 2);
 
     let active_tab_style = buf.get(1, 0).style.expect("active tab style");
     assert_eq!(
@@ -152,10 +159,10 @@ fn tabbed_content_default_css_styles_inactive_tab_differently_from_active_tab() 
     options.max_width = 24;
     options.max_height = 2;
 
-    let tabs = TabbedContent::new()
+    let mut tabs = TabbedContent::new()
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+    let buf = render_tabbed_frame(&mut tabs, 24, 2);
 
     let active_style = buf.get(1, 0).style.expect("active style");
     let inactive_style = buf.get(7, 0).style.expect("inactive style");
@@ -181,7 +188,7 @@ fn tabbed_content_ansi_uses_bright_blue_underline_and_no_active_tab_bg() {
     tabs.set_focus(true);
     tabs.on_layout(24, 2);
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+    let buf = render_tabbed_frame(&mut tabs, 24, 2);
     let active_tab_style = buf.get(1, 0).style.expect("active tab style");
     let active_underline_style = buf.get(1, 1).style.expect("active underline style");
 

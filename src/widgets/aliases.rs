@@ -32,6 +32,15 @@ fn align_line_horizontal(
     out
 }
 
+fn effective_rendered_height(lines: &[Vec<Segment>]) -> usize {
+    let last_non_blank = lines.iter().rposition(|line| {
+        line.iter()
+            .filter(|segment| !segment.is_control())
+            .any(|segment| segment.text.chars().any(|ch| ch != ' '))
+    });
+    last_non_blank.map(|idx| idx + 1).unwrap_or(1)
+}
+
 pub struct Horizontal {
     row: Row,
 }
@@ -493,15 +502,21 @@ impl Widget for CenterMiddle {
             .unwrap_or(width)
             .max(1)
             .min(width);
+        let intrinsic_height = self.child.layout_height().unwrap_or(height).max(1).min(height);
 
         let mut child_options = options.clone();
-        child_options.size = (child_width, height);
+        child_options.size = (child_width, intrinsic_height);
         child_options.max_width = child_width;
-        child_options.max_height = height;
+        child_options.max_height = intrinsic_height;
 
         let segments = self.child.render_styled(console, &child_options);
         let lines = Segment::split_and_crop_lines(segments, child_width, None, true, false);
-        let child_height = lines.len().max(1).min(height);
+        let child_height = self
+            .child
+            .layout_height()
+            .unwrap_or_else(|| effective_rendered_height(&lines))
+            .max(1)
+            .min(height);
         let top = height.saturating_sub(child_height) / 2;
         let left = width.saturating_sub(child_width) / 2;
 
@@ -693,15 +708,21 @@ impl Widget for Middle {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
+        let intrinsic_height = self.child.layout_height().unwrap_or(height).max(1).min(height);
 
         let mut child_options = options.clone();
-        child_options.size = (width, height);
+        child_options.size = (width, intrinsic_height);
         child_options.max_width = width;
-        child_options.max_height = height;
+        child_options.max_height = intrinsic_height;
 
         let segments = self.child.render_styled(console, &child_options);
         let lines = Segment::split_and_crop_lines(segments, width, None, true, false);
-        let child_height = lines.len().max(1).min(height);
+        let child_height = self
+            .child
+            .layout_height()
+            .unwrap_or_else(|| effective_rendered_height(&lines))
+            .max(1)
+            .min(height);
         let top = height.saturating_sub(child_height) / 2;
 
         let mut out_lines: Vec<Vec<Segment>> = Vec::with_capacity(height);

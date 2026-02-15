@@ -150,7 +150,12 @@ impl Widget for Label {
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
-        self.layout_width = usize::from(width).max(1);
+        // Hidden/disconnected nodes can transiently receive width=0/1 during
+        // tree display toggles. Keep the last stable width (>1) so wrapped-height
+        // calculations remain stable across tab switches.
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -346,7 +351,12 @@ impl Widget for Markdown {
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
-        self.layout_width = usize::from(width).max(1);
+        // Hidden/disconnected nodes can transiently receive width=0/1 during
+        // tree display toggles. Keep the last stable width (>1) so wrapped-height
+        // calculations remain stable across tab switches.
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -391,5 +401,61 @@ impl Widget for Markdown {
 impl Renderable for Markdown {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Label, Markdown};
+    use crate::widgets::Widget;
+
+    #[test]
+    fn markdown_layout_height_ignores_transient_zero_width_layout_updates() {
+        let mut markdown = Markdown::new(
+            r#"
+# Duke Leto I Atreides
+
+Head of House Atreides.
+"#,
+        );
+        markdown.on_layout(27, 8);
+        let stable = markdown.layout_height().expect("markdown height");
+        assert!(stable < 20, "sanity: wrapped markdown should stay compact");
+
+        markdown.on_layout(1, 0);
+        let after_one = markdown.layout_height().expect("markdown height");
+        assert_eq!(
+            after_one, stable,
+            "provisional width=1 updates must not inflate markdown height"
+        );
+
+        markdown.on_layout(0, 0);
+        let after_zero = markdown.layout_height().expect("markdown height");
+        assert_eq!(
+            after_zero, stable,
+            "zero-width hidden layout updates must not collapse width to 1 and inflate height"
+        );
+    }
+
+    #[test]
+    fn label_layout_height_ignores_transient_zero_width_layout_updates() {
+        let mut label = Label::new("Bene Gesserit and concubine of Leto, and mother of Paul.");
+        label.on_layout(32, 1);
+        let stable = label.layout_height().expect("label height");
+        assert!(stable < 10, "sanity: wrapped label should stay compact");
+
+        label.on_layout(1, 0);
+        let after_one = label.layout_height().expect("label height");
+        assert_eq!(
+            after_one, stable,
+            "provisional width=1 updates must not inflate label height"
+        );
+
+        label.on_layout(0, 0);
+        let after_zero = label.layout_height().expect("label height");
+        assert_eq!(
+            after_zero, stable,
+            "zero-width hidden layout updates must not collapse width to 1 and inflate height"
+        );
     }
 }

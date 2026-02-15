@@ -68,8 +68,8 @@ impl TextualApp for MissionControl {
 
         AppRoot::new()
             .with_child(Header::new().title("Mission Control — textual-rs"))
-            .with_child(Footer::new())
             .with_child(body)
+            .with_child(Footer::new())
     }
 
     fn css_path(&self) -> Option<&'static str> {

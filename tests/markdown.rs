@@ -45,7 +45,11 @@ fn markdown_h1_uses_default_component_style() {
     let style = heading_cell.style.expect("expected heading style");
     assert!(style.color.is_some());
     assert_eq!(style.bold, Some(true));
-    assert_eq!(style.underline, Some(true));
+    assert_ne!(
+        style.underline,
+        Some(true),
+        "h1 text-style token should not force underline"
+    );
 }
 
 #[test]
@@ -77,7 +81,11 @@ fn markdown_heading_style_matches_emoji_heading_text() {
     let styled_cell = styled_cell.expect("expected heading text cell");
     let style = styled_cell.style.expect("expected heading style");
     assert_eq!(style.bold, Some(true));
-    assert_eq!(style.underline, Some(true));
+    assert_ne!(
+        style.underline,
+        Some(true),
+        "h1 text-style token should not force underline"
+    );
 }
 
 #[test]
@@ -142,5 +150,9 @@ fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
         .style
         .expect("expected style on wrapped heading cell");
     assert_eq!(style.bold, Some(true));
-    assert_eq!(style.underline, Some(true));
+    assert_ne!(
+        style.underline,
+        Some(true),
+        "h1 wrapped lines should keep h1 text-style (bold without underline)"
+    );
 }

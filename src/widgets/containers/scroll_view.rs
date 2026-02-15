@@ -250,6 +250,19 @@ impl ScrollView {
         (track_style, thumb_style, thumb_active_style)
     }
 
+    /// Compute visual content height while ignoring probe-introduced trailing blank lines.
+    ///
+    /// Some auto-height/fill containers render into an oversized probe height and emit
+    /// whitespace-only tail rows. Those rows should not trigger vertical scrollbar visibility.
+    fn effective_content_height(lines: &[Vec<Segment>]) -> usize {
+        let last_non_blank = lines.iter().rposition(|line| {
+            line.iter()
+                .filter(|segment| !segment.is_control())
+                .any(|segment| segment.text.chars().any(|ch| ch != ' '))
+        });
+        last_non_blank.map(|idx| idx + 1).unwrap_or(1)
+    }
+
     fn max_offset(&self) -> usize {
         Self::line_max_offset(
             self.content_height.load(Ordering::Relaxed),
@@ -799,7 +812,11 @@ impl Widget for ScrollView {
             }
             candidate = pad_lines_to_width(candidate, render_width);
 
-            let candidate_height = candidate.len().max(viewport_h);
+            let candidate_height = if fixed_height.is_some() {
+                candidate.len().max(1)
+            } else {
+                Self::effective_content_height(&candidate)
+            };
             let candidate_width = candidate
                 .iter()
                 .map(|line| Segment::get_line_length(line))
