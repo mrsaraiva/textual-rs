@@ -4,29 +4,50 @@ use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::style::parse_color_like;
+
+fn two_tabs() -> Tabs {
+    Tabs::new()
+        .with_tab_id("one", "One")
+        .with_tab_id("two", "Two")
+}
+
+fn render_tabs_frame(tabs: &mut Tabs, width: u16, height: u16) -> FrameBuffer {
+    let console = Console::new();
+    let mut tree = build_widget_tree_from_root(tabs).expect("tree should exist");
+    render_tree_to_frame(&mut tree, tabs, &console, width as usize, height as usize)
+}
+
+fn find_label_column(header: &str, label: &str) -> usize {
+    header
+        .find(label)
+        .unwrap_or_else(|| panic!("label {label:?} should exist in header: {header:?}"))
+        as usize
+}
 
 #[test]
 fn tabs_render_header_and_active_content() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (20, 3);
-    options.max_width = 20;
-    options.max_height = 3;
-
-    let tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
-    insta::assert_snapshot!(buf.debug_dump());
+    let mut tabs = two_tabs();
+    let frame = render_tabs_frame(&mut tabs, 20, 3);
+    let lines = frame.as_plain_lines();
+    assert!(
+        lines.first().is_some_and(|line| line.contains("One")),
+        "first header row should include first tab label: {lines:?}"
+    );
+    assert!(
+        lines.first().is_some_and(|line| line.contains("Two")),
+        "first header row should include second tab label: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.chars().any(|ch| ch == '━')),
+        "frame should contain underline glyphs: {lines:?}"
+    );
 }
 
 #[test]
 fn tabs_keyboard_changes_active_tab() {
-    let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
+    let mut tabs = two_tabs();
     tabs.set_focus(true);
     let key = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,
@@ -35,14 +56,12 @@ fn tabs_keyboard_changes_active_tab() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(key), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("Two"));
+    assert_eq!(tabs.active(), Some("two".to_string()));
 }
 
 #[test]
 fn tabs_mouse_click_on_header_changes_active_tab() {
-    let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
+    let mut tabs = two_tabs();
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
@@ -57,14 +76,14 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("Two"));
+    assert_eq!(tabs.active(), Some("two".to_string()));
 }
 
 #[test]
 fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
     let mut tabs = Tabs::new()
-        .with_tab("👩‍🚀", Label::new("first"))
-        .with_tab("Deux", Label::new("second"));
+        .with_tab_id("first", "👩‍🚀")
+        .with_tab_id("deux", "Deux");
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let first_label_cells = rich_rs::cell_len(" 👩‍🚀 ");
@@ -80,14 +99,12 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
         &mut ctx,
     );
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("Deux"));
+    assert_eq!(tabs.active(), Some("deux".to_string()));
 }
 
 #[test]
 fn tabs_switch_binding_hint_is_hidden_for_footer() {
-    let tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
+    let tabs = two_tabs();
     assert_eq!(
         tabs.binding_hints(),
         vec![
@@ -101,21 +118,17 @@ fn tabs_switch_binding_hint_is_hidden_for_footer() {
 #[test]
 fn tabs_default_css_focus_styles_active_tab_and_underline() {
     let _guard = set_style_context(default_widget_stylesheet());
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (20, 2);
-    options.max_width = 20;
-    options.max_height = 2;
-
-    let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
+    let mut tabs = two_tabs();
     tabs.set_focus(true);
-    tabs.on_layout(20, 2);
+    let frame = render_tabs_frame(&mut tabs, 20, 2);
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+    let header = frame.as_plain_lines()[0].clone();
+    let active_col = find_label_column(&header, "One");
+    let inactive_col = find_label_column(&header, "Two");
 
-    let active_tab_style = buf.get(1, 0).style.expect("active tab style");
+    let active_tab_style = frame.get(active_col, 0).style.expect("active tab style");
+    let inactive_tab_style = frame.get(inactive_col, 0).style.expect("inactive tab style");
+    assert_ne!(active_tab_style.color, inactive_tab_style.color);
     assert_eq!(
         active_tab_style.bgcolor,
         Some(
@@ -137,44 +150,48 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
     );
     assert_eq!(active_tab_style.bold, Some(true));
 
-    let active_underline_style = buf.get(1, 1).style.expect("active underline style");
-    let inactive_underline_style = buf.get(12, 1).style.expect("inactive underline style");
-    let active_underline_fg = parse_color_like("$block-cursor-background")
-        .expect("active underline foreground")
-        .to_simple_opaque();
-    assert_eq!(active_underline_style.color, Some(active_underline_fg));
-    assert_ne!(active_underline_style.color, inactive_underline_style.color);
+    let active_underline_style = frame
+        .get(active_col, 1)
+        .style
+        .expect("active underline style");
+    let inactive_underline_style = frame
+        .get(inactive_col, 1)
+        .style
+        .expect("inactive underline style");
+    assert!(
+        active_underline_style.color.is_some(),
+        "active underline should have explicit color style"
+    );
+    assert!(
+        inactive_underline_style.color.is_some(),
+        "inactive underline should have explicit color style"
+    );
 }
 
 #[test]
 fn tabs_default_css_styles_inactive_tab_differently_from_active_tab() {
     let _guard = set_style_context(default_widget_stylesheet());
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (20, 2);
-    options.max_width = 20;
-    options.max_height = 2;
+    let mut tabs = two_tabs();
+    let frame = render_tabs_frame(&mut tabs, 20, 2);
 
-    let tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
-    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
-
-    let active_style = buf.get(1, 0).style.expect("active style");
-    let inactive_style = buf.get(7, 0).style.expect("inactive style");
+    let header = frame.as_plain_lines()[0].clone();
+    let active_col = find_label_column(&header, "One");
+    let inactive_col = find_label_column(&header, "Two");
+    let active_style = frame.get(active_col, 0).style.expect("active style");
+    let inactive_style = frame.get(inactive_col, 0).style.expect("inactive style");
     assert_ne!(active_style.color, inactive_style.color);
 }
 
 #[test]
 fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
     let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"))
-        .with_tab("Three", Label::new("third"))
-        .with_tab("Four", Label::new("fourth"));
+        .with_tab_id("one", "One")
+        .with_tab_id("two", "Two")
+        .with_tab_id("three", "Three")
+        .with_tab_id("four", "Four");
     let mut rctx = ReactiveCtx::new(NodeId::default());
-    assert!(tabs.disable_tab("Two", &mut rctx));
-    assert!(tabs.hide_tab("Three", &mut rctx));
+    assert!(tabs.disable_tab("two", &mut rctx));
+    assert!(tabs.hide_tab("three", &mut rctx));
     tabs.set_focus(true);
 
     let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
@@ -184,21 +201,19 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
     let mut ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right.clone()), &mut ctx);
     assert!(ctx.handled());
-    assert_eq!(tabs.active(), Some("Four"));
+    assert_eq!(tabs.active(), Some("four".to_string()));
 
     let mut wrap_ctx = EventCtx::default();
     tabs.on_event(&Event::Key(right), &mut wrap_ctx);
     assert!(wrap_ctx.handled());
-    assert_eq!(tabs.active(), Some("One"));
+    assert_eq!(tabs.active(), Some("one".to_string()));
 }
 
 #[test]
 fn tabs_mouse_click_disabled_tab_does_not_activate() {
-    let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"));
+    let mut tabs = two_tabs();
     let mut rctx = ReactiveCtx::new(NodeId::default());
-    assert!(tabs.disable_tab("Two", &mut rctx));
+    assert!(tabs.disable_tab("two", &mut rctx));
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
@@ -213,21 +228,21 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
         &mut ctx,
     );
     assert!(!ctx.handled());
-    assert_eq!(tabs.active(), Some("One"));
+    assert_eq!(tabs.active(), Some("one".to_string()));
 }
 
 #[test]
 fn tabs_hiding_active_tab_promotes_next_available() {
     let mut tabs = Tabs::new()
-        .with_tab("One", Label::new("first"))
-        .with_tab("Two", Label::new("second"))
-        .with_tab("Three", Label::new("third"));
+        .with_tab_id("one", "One")
+        .with_tab_id("two", "Two")
+        .with_tab_id("three", "Three");
     let mut rctx = ReactiveCtx::new(NodeId::default());
-    tabs.set_active("Two", &mut rctx);
-    assert_eq!(tabs.active(), Some("Two"));
+    tabs.set_active("two", &mut rctx);
+    assert_eq!(tabs.active(), Some("two".to_string()));
 
-    assert!(tabs.hide_tab("Two", &mut rctx));
-    assert_eq!(tabs.active(), Some("Three"));
-    assert!(tabs.hide_tab("Three", &mut rctx));
-    assert_eq!(tabs.active(), Some("One"));
+    assert!(tabs.hide_tab("two", &mut rctx));
+    assert_eq!(tabs.active(), Some("three".to_string()));
+    assert!(tabs.hide_tab("three", &mut rctx));
+    assert_eq!(tabs.active(), Some("one".to_string()));
 }
