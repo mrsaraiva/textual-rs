@@ -1,7 +1,7 @@
 use crate::css::{
     AppRuntimePseudos, begin_style_render_pass, pop_style_context, push_style_context,
-    resolve_style, selector_meta_generic, set_app_active, set_app_runtime_pseudos,
-    set_style_context, take_layout_affected_style_changes,
+    resolve_style, selector_meta_generic, selector_meta_generic_with_classes,
+    set_app_active, set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::{debug_layout, debug_render};
 use crate::node_id::NodeId;
@@ -103,6 +103,7 @@ impl App {
             if let Some(tree) = self.widget_tree.as_mut() {
                 let (w, h) = self.options.size;
                 run_layout_pass(tree, (w as u16, h as u16));
+                apply_layout_info_tree_from_layout_rects(tree);
                 let render_nodes = collect_render_nodes(tree);
                 debug_render(&format!(
                     "[layout_pass] viewport={}x{} render_nodes={}",
@@ -567,7 +568,10 @@ fn render_tree_node(
     let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
 
     // Resolve style early — needed for outline, hatch, overlay, and children.
-    let meta = selector_meta_generic(node.widget.as_ref());
+    let meta = selector_meta_generic_with_classes(
+        node.widget.as_ref(),
+        node.classes.iter().cloned(),
+    );
     let resolved = resolve_style(node.widget.as_ref(), &meta);
 
     if should_render {
@@ -590,9 +594,29 @@ fn render_tree_node(
         // render_styled_dyn_obj handles CSS resolution, border composition,
         // segment tagging with the real arena NodeId, and style stack
         // push/pop for this node's own content rendering.
-        let segments = node
-            .widget
-            .render_styled_dyn_obj(console, &opts, None, node_id);
+        let segments = crate::widgets::render_widget_with_meta(
+            node.widget.as_ref(),
+            console,
+            &opts,
+            None,
+            node_id,
+            &meta,
+            &resolved,
+            &format!(
+                "{}{}{}",
+                node.widget.style_type(),
+                node.widget
+                    .style_id()
+                    .map(|id| format!("#{id}"))
+                    .unwrap_or_default(),
+                node.widget
+                    .style_classes()
+                    .iter()
+                    .map(|class| format!(".{class}"))
+                    .collect::<Vec<_>>()
+                    .join("")
+            ),
+        );
 
         // P2-31: When text-wrap is nowrap with an overflow mode, don't pre-crop
         // lines so that apply_text_overflow_to_line can handle truncation with
@@ -1351,6 +1375,7 @@ pub fn render_tree_to_frame(
 
     // Run layout so all tree nodes get their layout_rect populated.
     run_layout_pass(tree, (width as u16, height as u16));
+    apply_layout_info_tree_from_layout_rects(tree);
 
     let mut frame = FrameBuffer::new(width, height, None);
 
@@ -1523,7 +1548,10 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
 fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]) -> Vec<NodeId> {
     // Resolve the parent's `layers` declaration.
     let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|node| {
-        let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+        let meta = crate::css::selector_meta_generic_with_classes(
+            node.widget.as_ref(),
+            node.classes.iter().cloned(),
+        );
         let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
         style.layers
     });
@@ -1538,7 +1566,10 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         .iter()
         .map(|&child| {
             tree.get(child).and_then(|node| {
-                let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+                let meta = crate::css::selector_meta_generic_with_classes(
+                    node.widget.as_ref(),
+                    node.classes.iter().cloned(),
+                );
                 let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
                 style.layer
             })
@@ -1590,7 +1621,10 @@ pub(crate) fn apply_layout_info_tree(tree: &mut WidgetTree, hit_test: &NodeHitTe
         let Some(node) = tree.get(node_id) else {
             continue;
         };
-        let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+        let meta = crate::css::selector_meta_generic_with_classes(
+            node.widget.as_ref(),
+            node.classes.iter().cloned(),
+        );
         let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
         let line_pad = resolved.line_pad.unwrap_or(0) as usize;
         let (top, bottom, left, right) = border_spacing_from_style(&resolved);
@@ -1603,6 +1637,48 @@ pub(crate) fn apply_layout_info_tree(tree: &mut WidgetTree, hit_test: &NodeHitTe
         let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
 
         // Re-borrow mutably for on_layout.
+        if let Some(node) = tree.get_mut(node_id) {
+            node.widget.on_layout(content_w, content_h);
+        }
+    }
+}
+
+/// Distribute layout information to widgets using precomputed `layout_rect`s.
+///
+/// This is the pre-render companion to [`apply_layout_info_tree`]: after
+/// `run_layout_pass` but before paint, widgets receive `on_layout(...)` based
+/// on their solved tree geometry so layout-dependent render state is correct on
+/// the first rendered frame.
+pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
+    let root = match tree.root() {
+        Some(r) => r,
+        None => return,
+    };
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        let (full_w, full_h, line_pad, top, bottom, left, right) = {
+            let Some(node) = tree.get(node_id) else {
+                continue;
+            };
+            let rect = node.layout_rect;
+            let meta = crate::css::selector_meta_generic_with_classes(
+                node.widget.as_ref(),
+                node.classes.iter().cloned(),
+            );
+            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+            let line_pad = resolved.line_pad.unwrap_or(0) as usize;
+            let (top, bottom, left, right) = border_spacing_from_style(&resolved);
+            let full_w = rect.x1.saturating_sub(rect.x0) as usize;
+            let full_h = rect.y1.saturating_sub(rect.y0) as usize;
+            (full_w, full_h, line_pad, top, bottom, left, right)
+        };
+
+        let content_w = full_w
+            .saturating_sub(left + right)
+            .saturating_sub(line_pad.saturating_mul(2))
+            .max(1) as u16;
+        let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
+
         if let Some(node) = tree.get_mut(node_id) {
             node.widget.on_layout(content_w, content_h);
         }

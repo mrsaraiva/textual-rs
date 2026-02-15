@@ -106,6 +106,17 @@ until the API stabilizes.
   - Updated layout tests for border-box default behavior.
 
 ### 2026-02-16
+- **fix(runtime/tabbed-content): normalize class-aware tree style resolution across render/layout/event-loop paths**
+  - Root cause addressed: tree runtime was resolving styles with mixed metadata sources (some paths ignored `WidgetTree` runtime classes while paint paths consumed them), which could desync `-active` class visuals from logical tab activation.
+  - Updated tree style resolution callsites to use class-aware selector metadata (`selector_meta_generic_with_classes`) in:
+    - render-time layer ordering (`sort_children_by_layer`),
+    - layout info propagation (`apply_layout_info_tree`),
+    - style snapshot collection for transition dispatch (`collect_current_resolved_styles`),
+    - hit-test local coordinate inset calculation (`NodeHitTestMap::content_local_coords`).
+  - Added parity regression gate covering app action path (not only direct setter path):
+    - `tree_mode_show_tab_action_moves_active_highlight_style` ensures `show_tab(...)` moves active tab highlight/background.
+  - Removed temporary debug instrumentation used during bug hunt from runtime render/event loop paths.
+
 - **fix(layout): wire `expand` into flow sizing and clamp absolute min/max constraints**
   - `layout_vertical()` and `layout_horizontal()` now treat `expand: true` as a flex-grow signal on the layout axis, so intrinsic `auto` widgets can participate in remaining-space distribution.
   - `layout_absolute()` now applies `min-width` / `max-width` / `min-height` / `max-height` constraints (with box-sizing-aware outer-size math) for absolutely positioned children.

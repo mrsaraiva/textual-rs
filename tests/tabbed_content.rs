@@ -234,8 +234,8 @@ fn tabbed_content_set_active_id_rejects_disabled_or_hidden_panes() {
     assert!(tabs.disable_pane("two"));
     assert!(tabs.hide_pane("three"));
 
-    assert!(!tabs.set_active_id("two"));
-    assert!(!tabs.set_active_id("three"));
+    assert!(!tabs.set_active_id("two", None));
+    assert!(!tabs.set_active_id("three", None));
     assert_eq!(tabs.active_id(), Some("one"));
 }
 
@@ -245,7 +245,7 @@ fn tabbed_content_hiding_active_pane_promotes_next_available() {
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"))
         .with_pane(TabPane::new("Three", Label::new("third")).id("three"));
-    assert!(tabs.set_active_id("two"));
+    assert!(tabs.set_active_id("two", None));
     assert_eq!(tabs.active_id(), Some("two"));
 
     assert!(tabs.hide_pane("two"));

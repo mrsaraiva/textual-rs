@@ -572,7 +572,7 @@ impl Widget for TabbedContent {
     }
 
     fn focusable(&self) -> bool {
-        true
+        false
     }
 
     fn set_focus(&mut self, focused: bool) {
@@ -680,7 +680,11 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
-    use crate::prelude::Label;
+    use crate::message::{Message, MessageEvent};
+    use crate::prelude::{Label, Markdown};
+    use crate::runtime::{build_widget_tree_from_root, render_tree_to_frame};
+    use crate::widget_tree::WidgetTree;
+    use rich_rs::Console;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -721,5 +725,233 @@ mod tests {
         );
 
         assert!(!ctx.handled());
+    }
+
+    fn apply_runtime_class_messages(tree: &mut WidgetTree, messages: Vec<MessageEvent>) {
+        for event in messages {
+            match event.message {
+                Message::AppAddClass(payload) => {
+                    let matches = tree.query(&payload.selector).expect("selector should parse");
+                    for node in matches {
+                        tree.add_class(node, &payload.class_name);
+                    }
+                }
+                Message::AppRemoveClass(payload) => {
+                    let matches = tree.query(&payload.selector).expect("selector should parse");
+                    for node in matches {
+                        tree.remove_class(node, &payload.class_name);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn find_label_column(line: &str, label: &str) -> usize {
+        line.find(label)
+            .unwrap_or_else(|| panic!("missing label '{label}' in line: {line:?}"))
+    }
+
+    #[test]
+    fn tree_mode_initial_active_tab_style_and_underline_are_distinct() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let console = Console::new();
+        let frame = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let lines = frame.as_plain_lines();
+        let header = lines.first().expect("tab header row");
+        let leto_col = find_label_column(header, "Leto");
+        let jessica_col = find_label_column(header, "Jessica");
+
+        let leto_style = frame.get(leto_col, 0).style.expect("inactive tab style");
+        let jessica_style = frame
+            .get(jessica_col, 0)
+            .style
+            .expect("active tab style");
+        assert_ne!(
+            leto_style.color, jessica_style.color,
+            "active and inactive tabs must render with different colors in tree mode"
+        );
+
+        let inactive_underline = frame
+            .get(leto_col, 1)
+            .style
+            .expect("inactive underline style");
+        let active_underline = frame
+            .get(jessica_col, 1)
+            .style
+            .expect("active underline style");
+        assert_ne!(
+            inactive_underline.color, active_underline.color,
+            "active underline color must differ from inactive underline in tree mode"
+        );
+    }
+
+    #[test]
+    fn tree_mode_switching_active_tab_moves_active_class_visuals() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let console = Console::new();
+
+        let before = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let before_header = before.as_plain_lines()[0].clone();
+        let jessica_col = find_label_column(&before_header, "Jessica");
+        let paul_col = find_label_column(&before_header, "Paul");
+        let before_jessica_color = before
+            .get(jessica_col, 0)
+            .style
+            .expect("before jessica style")
+            .color;
+        let before_paul_color = before.get(paul_col, 0).style.expect("before paul style").color;
+        assert_ne!(
+            before_jessica_color, before_paul_color,
+            "sanity: initial active tab must differ from inactive tab"
+        );
+
+        let mut ctx = EventCtx::default();
+        assert!(tabs.set_active_id("paul", Some(&mut ctx)));
+        apply_runtime_class_messages(&mut tree, ctx.take_messages());
+
+        let after = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let after_jessica_color = after
+            .get(jessica_col, 0)
+            .style
+            .expect("after jessica style")
+            .color;
+        let after_paul_color = after.get(paul_col, 0).style.expect("after paul style").color;
+
+        assert_ne!(
+            after_jessica_color, after_paul_color,
+            "active/inactive tab styles must still differ after switching"
+        );
+        assert_eq!(
+            after_paul_color, before_jessica_color,
+            "active style color should move from Jessica to Paul when switching tabs"
+        );
+    }
+
+    #[test]
+    fn tree_mode_show_tab_action_moves_active_highlight_style() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let tab_nodes = tree.query("Tabs").expect("Tabs selector should parse");
+        let tabs_id = *tab_nodes.first().expect("expected top Tabs node");
+        tree.get_mut(tabs_id)
+            .expect("tabs node should exist")
+            .widget
+            .set_focus(true);
+
+        let console = Console::new();
+        let before = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let before_header = before.as_plain_lines()[0].clone();
+        let jessica_col = find_label_column(&before_header, "Jessica");
+        let paul_col = find_label_column(&before_header, "Paul");
+
+        let before_jessica_style = before.get(jessica_col, 0).style.expect("before jessica style");
+        let before_paul_style = before.get(paul_col, 0).style.expect("before paul style");
+        assert_ne!(
+            before_jessica_style.bgcolor,
+            before_paul_style.bgcolor,
+            "sanity: initial active tab should have distinct background"
+        );
+
+        let parsed = ParsedAction {
+            namespace: None,
+            name: "show_tab".to_string(),
+            arguments: vec!["paul".to_string()],
+        };
+        let mut ctx = EventCtx::default();
+        assert!(tabs.execute_action(&parsed, &mut ctx));
+        apply_runtime_class_messages(&mut tree, ctx.take_messages());
+
+        let after = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let after_jessica_style = after.get(jessica_col, 0).style.expect("after jessica style");
+        let after_paul_style = after.get(paul_col, 0).style.expect("after paul style");
+
+        assert_ne!(
+            after_jessica_style.bgcolor, after_paul_style.bgcolor,
+            "active/inactive tab backgrounds must differ after show_tab action"
+        );
+        assert_eq!(
+            after_paul_style.bgcolor, before_jessica_style.bgcolor,
+            "show_tab action should move active background from Jessica to Paul"
+        );
+    }
+
+    #[test]
+    fn tree_mode_markdown_line_does_not_wrap_when_viewport_has_room() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(
+                TabPane::new(
+                    "Jessica",
+                    Markdown::new(
+                        "# Lady Jessica\n\nBene Gesserit and concubine of Leto, and mother of Paul and Alia.",
+                    ),
+                )
+                .id("jessica"),
+            )
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let console = Console::new();
+        let frame = render_tree_to_frame(&mut tree, &mut tabs, &console, 80, 10);
+        let lines = frame.as_plain_lines();
+        let sentence = "Bene Gesserit and concubine of Leto, and mother of Paul and Alia.";
+        assert!(
+            lines.iter().any(|line| line.contains(sentence)),
+            "expected full sentence on one rendered line, got lines: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tree_mode_focused_tabs_apply_active_highlight_style() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let tab_nodes = tree.query("Tabs").expect("Tabs selector should parse");
+        let tabs_id = *tab_nodes.first().expect("expected top Tabs node");
+        tree.get_mut(tabs_id)
+            .expect("tabs node should exist")
+            .widget
+            .set_focus(true);
+
+        let console = Console::new();
+        let frame = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let header = frame.as_plain_lines()[0].clone();
+        let active_col = find_label_column(&header, "Jessica");
+        let active_style = frame
+            .get(active_col, 0)
+            .style
+            .expect("active tab style should exist");
+
+        let expected_bg = crate::style::parse_color_like("$block-cursor-background")
+            .expect("block-cursor bg")
+            .to_simple_opaque();
+        assert_eq!(
+            active_style.bgcolor,
+            Some(expected_bg),
+            "focused Tabs should apply active tab background highlight"
+        );
     }
 }

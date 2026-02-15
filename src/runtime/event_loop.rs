@@ -2765,7 +2765,10 @@ impl App {
                     let Some(node) = tree.get(node_id) else {
                         continue;
                     };
-                    let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+                    let meta = crate::css::selector_meta_generic_with_classes(
+                        node.widget.as_ref(),
+                        node.classes.iter().cloned(),
+                    );
                     out.insert(
                         node_id,
                         crate::css::resolve_style(node.widget.as_ref(), &meta),

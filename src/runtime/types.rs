@@ -170,7 +170,10 @@ impl NodeHitTestMap {
         };
 
         let (inset_x, inset_y) = if let Some(node) = tree.get(target) {
-            let meta = crate::css::selector_meta_generic(node.widget.as_ref());
+            let meta = crate::css::selector_meta_generic_with_classes(
+                node.widget.as_ref(),
+                node.classes.iter().cloned(),
+            );
             let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
             let line_pad = resolved.line_pad.unwrap_or(0) as usize;
             let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
