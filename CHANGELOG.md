@@ -39,6 +39,11 @@ until the API stabilizes.
     - `Tabs::is_active(&str) -> bool`,
     - `Tabs::with_active_id(|Option<&str>| ...)`.
   - Updated tabs integration assertions to use non-allocating active-id checks.
+  - Runtime message-chain fix for tree mode:
+    - `dispatch_message_queue_with_runtime()` now recursively drains messages emitted during message handling (instead of dropping follow-up messages), restoring parity between keyboard and mouse tab switch paths when class/style updates are emitted indirectly via message handlers.
+  - Nested TabbedContent routing fix:
+    - parent `TabbedContent` no longer marks `TabActivated` as handled when the pane id does not belong to that instance, preventing nested subtab activation from being swallowed.
+  - Added targeted regression gates for both runtime message chaining and unknown nested `TabActivated` handling.
 
 ### 2026-02-15
 - **[wip] fix(tabbed-content parity): align tab state styling, underline behavior, footer hints/separator, and markdown heading surfaces**

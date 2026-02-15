@@ -622,8 +622,9 @@ impl Widget for TabbedContent {
         match &message.message {
             Message::TabActivated(TabActivated { id, .. }) => {
                 if let Some(pane_id) = Self::sans_content_tab_id(id) {
-                    let _ = self.set_active_id(&pane_id, Some(ctx));
-                    ctx.set_handled();
+                    if self.set_active_id(&pane_id, Some(ctx)) {
+                        ctx.set_handled();
+                    }
                 }
             }
             Message::TabsCleared(TabsCleared) => {
@@ -981,6 +982,38 @@ mod tests {
             active_style.bgcolor,
             Some(expected_bg),
             "focused Tabs should apply active tab background highlight"
+        );
+    }
+
+    #[test]
+    fn tab_activated_message_with_unknown_pane_id_is_not_handled() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+        let active_before = tabs.active_id().map(str::to_string);
+
+        let event = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::TabActivated(TabActivated {
+                id: "--content-tab-child-two".to_string(),
+                index: 1,
+                title: "Alia".to_string(),
+            }),
+            control: Some(crate::node_id::NodeId::default()),
+        };
+        let mut ctx = EventCtx::default();
+        tabs.on_message(&event, &mut ctx);
+
+        assert!(
+            !ctx.handled(),
+            "unknown tab IDs must not be marked handled; otherwise parent tabbed-content can swallow nested tab activation"
+        );
+        assert_eq!(
+            tabs.active_id().map(str::to_string),
+            active_before,
+            "unknown tab IDs must not mutate active pane"
         );
     }
 }

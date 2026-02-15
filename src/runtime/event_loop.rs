@@ -1378,9 +1378,9 @@ impl App {
             let pass = split_runtime_control_messages(self, root, queue);
             aggregate.repaint_requested |= pass.repaint_requested;
             aggregate.invalidation.merge(pass.invalidation);
-            let mut runtime_messages =
+            let mut next_queue =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
-            runtime_messages.extend(pass.generated);
+            next_queue.extend(pass.generated);
             let mut outcome = if pass.deliver.is_empty() {
                 DispatchOutcome::default()
             } else {
@@ -1391,18 +1391,22 @@ impl App {
             aggregate.invalidation.merge(outcome.invalidation);
             aggregate.stop_requested |= outcome.stop_requested;
             aggregate.default_prevented |= outcome.default_prevented;
-            aggregate.messages.append(&mut outcome.messages);
             aggregate
                 .animation_requests
                 .append(&mut outcome.animation_requests);
             aggregate
                 .worker_requests
                 .append(&mut outcome.worker_requests);
+            let emitted = std::mem::take(&mut outcome.messages);
+            if !emitted.is_empty() {
+                aggregate.messages.extend(emitted.iter().cloned());
+                next_queue.extend(emitted);
+            }
 
-            if aggregate.stop_requested || runtime_messages.is_empty() {
+            if aggregate.stop_requested || next_queue.is_empty() {
                 break;
             }
-            queue = runtime_messages;
+            queue = next_queue;
         }
         aggregate
     }
@@ -4483,6 +4487,53 @@ mod tests {
         assert!(outcome.invalidation.layout);
         let highlighted = app.query(".highlight").expect("selector parses");
         assert_eq!(highlighted.len(), 1);
+    }
+
+    struct ChainedAppSelectorEmitter;
+
+    impl Widget for ChainedAppSelectorEmitter {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+            if matches!(message.message, Message::FooterBindingsUpdated(..)) {
+                ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                    selector: "Button".to_string(),
+                    class_name: "from-chained-message".to_string(),
+                }));
+                ctx.set_handled();
+            }
+        }
+    }
+
+    #[test]
+    fn runtime_dispatch_processes_messages_emitted_during_message_handling() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let emitter_id = tree.mount(root_id, Box::new(ChainedAppSelectorEmitter));
+        tree.mount(root_id, Box::new(crate::widgets::Button::new("go")));
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+
+        let initial = vec![MessageEvent {
+            sender: emitter_id,
+            message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
+                count: 0,
+            }),
+            control: Some(emitter_id),
+        }];
+        let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, initial);
+        assert!(outcome.repaint_requested);
+        assert!(outcome.invalidation.layout);
+        let highlighted = app
+            .query(".from-chained-message")
+            .expect("selector should parse");
+        assert_eq!(
+            highlighted.len(),
+            1,
+            "messages emitted from on_message handlers must flow back through runtime control routing"
+        );
     }
 
     struct FocusIdProbe {
