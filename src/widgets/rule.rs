@@ -173,7 +173,17 @@ impl Widget for Rule {
     fn content_width(&self) -> Option<usize> {
         match self.orientation {
             RuleOrientation::Horizontal => None, // expand to fill
-            RuleOrientation::Vertical => Some(1),
+            RuleOrientation::Vertical => {
+                let meta = crate::css::selector_meta_generic(self);
+                let resolved = crate::css::resolve_style(self, &meta);
+                let padding = resolved.effective_padding();
+                let (_, _, border_left, border_right) =
+                    super::helpers::border_spacing_from_style(&resolved);
+                let chrome_lr = usize::from(padding.left.saturating_add(padding.right))
+                    + border_left
+                    + border_right;
+                Some(1usize.saturating_add(chrome_lr).max(1))
+            }
         }
     }
 

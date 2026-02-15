@@ -191,7 +191,6 @@ pub trait Widget: Send + Sync + Any {
 
         // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
         // checks this value, so it must match the tag used here.
-        let meta = crate::css::selector_meta_generic(self);
         let debug_widget_label = {
             let mut label = self.style_type().to_string();
             if let Some(id) = self.style_id() {
@@ -216,68 +215,18 @@ pub trait Widget: Send + Sync + Any {
             }
             label
         };
+        let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
-        let parent_style = crate::css::current_parent_style();
-        let line_pad = resolved.line_pad.unwrap_or(0) as usize;
-        let full_width = options.size.0.max(1);
-        let full_height = options.size.1.max(1);
-        let (border_top, border_bottom, border_left, border_right) =
-            helpers::border_spacing_from_style(&resolved);
-
-        let content_width = full_width
-            .saturating_sub(border_left + border_right)
-            .saturating_sub(line_pad.saturating_mul(2))
-            .max(1);
-        let content_height = full_height
-            .saturating_sub(border_top + border_bottom)
-            .max(1);
-
-        // Textual's `line-pad` is horizontal padding applied to each line. To model this, render the
-        // widget into a smaller content width and then wrap each line with `line_pad` spaces.
-        let mut content_options = options.clone();
-        content_options.size = (content_width, content_height);
-        content_options.max_width = content_width;
-        content_options.max_height = content_height;
-
-        let segments = crate::css::with_style_stack(meta, resolved.clone(), || match debug {
-            Some(debug) => self.render_with_debug(console, &content_options, debug),
-            None => self.render(console, &content_options),
-        });
-        let segments = tag_widget_meta(_node_id, segments);
-
-        let inner_width = content_width
-            .saturating_add(line_pad.saturating_mul(2))
-            .max(1);
-        let segments = if line_pad > 0 {
-            let padded = helpers::apply_line_pad(segments, content_width, inner_width, line_pad);
-            tag_widget_meta(_node_id, padded)
-        } else {
-            segments
-        };
-
-        let styled = crate::css::apply_style_to_segments(
+        render_widget_with_meta(
+            self,
+            console,
+            options,
+            debug,
             _node_id,
-            segments,
-            resolved.clone(),
-            parent_style.clone(),
-        );
-        let segments = helpers::apply_border_edges(
-            styled,
-            inner_width,
-            resolved.clone(),
-            parent_style.clone(),
-            full_width,
-            full_height,
+            &meta,
+            &resolved,
             &debug_widget_label,
-            self.border_title(),
-            self.border_subtitle(),
-        );
-        let segments = if let Some(opacity) = resolved.opacity {
-            crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)
-        } else {
-            segments
-        };
-        tag_widget_meta(_node_id, segments)
+        )
     }
     fn render_with_debug(
         &self,
@@ -476,8 +425,7 @@ pub trait Widget: Send + Sync + Any {
             .unwrap_or("Widget")
     }
     fn style_id(&self) -> Option<&str> {
-        self.styles()
-            .and_then(|styles| styles.style_id.as_deref())
+        self.styles().and_then(|styles| styles.style_id.as_deref())
     }
     fn style_classes(&self) -> &[String] {
         helpers::empty_classes()
@@ -599,6 +547,162 @@ pub struct LayoutConstraints {
     pub max_width: Option<usize>,
     pub min_height: Option<usize>,
     pub max_height: Option<usize>,
+}
+
+pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
+    widget: &W,
+    console: &Console,
+    options: &ConsoleOptions,
+    debug: Option<&DebugLayout>,
+    node_id: NodeId,
+    meta: &crate::css::SelectorMeta,
+    resolved: &Style,
+    debug_widget_label: &str,
+) -> Segments {
+    let parent_style = crate::css::current_parent_style();
+    let line_pad = resolved.line_pad.unwrap_or(0) as usize;
+    let full_width = options.size.0.max(1);
+    let full_height = options.size.1.max(1);
+    let (border_top, border_bottom, border_left, border_right) =
+        helpers::border_spacing_from_style(resolved);
+    let padding = resolved.effective_padding();
+
+    let content_width = full_width
+        .saturating_sub(border_left + border_right)
+        .saturating_sub(line_pad.saturating_mul(2))
+        .saturating_sub(padding.left as usize + padding.right as usize)
+        .max(1);
+    let content_height = full_height
+        .saturating_sub(border_top + border_bottom)
+        .saturating_sub(padding.top as usize + padding.bottom as usize)
+        .max(1);
+
+    // Textual's `line-pad` is horizontal padding applied to each line. To model this, render the
+    // widget into a smaller content width and then wrap each line with `line_pad` spaces.
+    let mut content_options = options.clone();
+    content_options.size = (content_width, content_height);
+    content_options.max_width = content_width;
+    content_options.max_height = content_height;
+
+    let segments = crate::css::with_style_stack(meta.clone(), resolved.clone(), || match debug {
+        Some(debug) => widget.render_with_debug(console, &content_options, debug),
+        None => widget.render(console, &content_options),
+    });
+    let segments = tag_widget_meta(node_id, segments);
+
+    let inner_width = content_width
+        .saturating_add(line_pad.saturating_mul(2))
+        .saturating_add(padding.left as usize + padding.right as usize)
+        .max(1);
+    let mut lines = if line_pad > 0 {
+        let padded = helpers::apply_line_pad(
+            segments,
+            content_width,
+            content_width + line_pad * 2,
+            line_pad,
+        );
+        rich_rs::Segment::split_and_crop_lines(
+            padded,
+            content_width + line_pad * 2,
+            None,
+            false,
+            false,
+        )
+    } else {
+        rich_rs::Segment::split_and_crop_lines(segments, content_width, None, false, false)
+    };
+
+    // Ensure content height is respected before padding.
+    let mut fill = rich_rs::Style::new();
+    let fallback_bg =
+        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    let parent_bg = parent_style
+        .clone()
+        .and_then(|s| s.bg)
+        .unwrap_or(fallback_bg);
+    let inner_bg = resolved
+        .bg
+        .map(|c| c.flatten_over(parent_bg))
+        .unwrap_or(parent_bg);
+    fill = fill.with_bgcolor(inner_bg.to_simple_opaque());
+    if let Some(fg) = resolved.fg {
+        fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
+    }
+    lines = rich_rs::Segment::set_shape(
+        &lines,
+        content_width + line_pad * 2,
+        Some(content_height),
+        Some(fill),
+        false,
+    );
+
+    // Apply left/right padding.
+    let pad_left = padding.left as usize;
+    let pad_right = padding.right as usize;
+    let mut padded_lines: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let mut out = Vec::new();
+        if pad_left > 0 {
+            out.push(rich_rs::Segment::styled(" ".repeat(pad_left), fill));
+        }
+        out.extend(line);
+        if pad_right > 0 {
+            out.push(rich_rs::Segment::styled(" ".repeat(pad_right), fill));
+        }
+        padded_lines.push(out);
+    }
+
+    // Apply top/bottom padding.
+    let pad_top = padding.top as usize;
+    let pad_bottom = padding.bottom as usize;
+    let mut final_lines: Vec<Vec<rich_rs::Segment>> = Vec::new();
+    let padded_width = content_width + line_pad * 2 + pad_left + pad_right;
+    if pad_top > 0 {
+        let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+        for _ in 0..pad_top {
+            final_lines.push(blank.clone());
+        }
+    }
+    final_lines.extend(padded_lines);
+    if pad_bottom > 0 {
+        let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+        for _ in 0..pad_bottom {
+            final_lines.push(blank.clone());
+        }
+    }
+
+    let mut segments = Segments::new();
+    let line_count = final_lines.len();
+    for (idx, line) in final_lines.into_iter().enumerate() {
+        segments.extend(line);
+        if idx + 1 < line_count {
+            segments.push(rich_rs::Segment::line());
+        }
+    }
+
+    let styled = crate::css::apply_style_to_segments(
+        node_id,
+        segments,
+        resolved.clone(),
+        parent_style.clone(),
+    );
+    let segments = helpers::apply_border_edges(
+        styled,
+        inner_width,
+        resolved.clone(),
+        parent_style.clone(),
+        full_width,
+        full_height,
+        debug_widget_label,
+        widget.border_title(),
+        widget.border_subtitle(),
+    );
+    let segments = if let Some(opacity) = resolved.opacity {
+        crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)
+    } else {
+        segments
+    };
+    tag_widget_meta(node_id, segments)
 }
 
 impl LayoutConstraints {

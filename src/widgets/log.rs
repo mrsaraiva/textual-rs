@@ -870,7 +870,15 @@ impl Widget for Log {
     }
 
     fn content_width(&self) -> Option<usize> {
-        Some(self.max_line_width.max(1))
+        let content_width = self.max_line_width.max(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn layout_height(&self) -> Option<usize> {

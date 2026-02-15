@@ -5,8 +5,8 @@ use crate::message::{Message, TabActivated, TabsCleared};
 use crate::reactive::ReactiveCtx;
 use crate::widgets::{Container, Widget, WidgetStyles, helpers::empty_classes};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::tabs::{Tab, Tabs};
 
@@ -325,13 +325,13 @@ impl TabbedContent {
     pub fn with_pane(mut self, mut pane: TabPane) -> Self {
         let id = self.ensure_pane_id(&mut pane);
         self.push_meta(&pane, id);
-        self.panes
-            .lock()
-            .expect("tabbed panes lock")
-            .push(pane);
+        self.panes.lock().expect("tabbed panes lock").push(pane);
         if self.active.is_none() {
             let panes = self.panes.lock().expect("tabbed panes lock");
-            self.active = panes.last().and_then(|p| p.pane_id()).map(|id| id.to_string());
+            self.active = panes
+                .last()
+                .and_then(|p| p.pane_id())
+                .map(|id| id.to_string());
         }
         self
     }
@@ -339,10 +339,7 @@ impl TabbedContent {
     pub fn add_pane(&mut self, mut pane: TabPane) {
         let id = self.ensure_pane_id(&mut pane);
         self.push_meta(&pane, id);
-        self.panes
-            .lock()
-            .expect("tabbed panes lock")
-            .push(pane);
+        self.panes.lock().expect("tabbed panes lock").push(pane);
         if self.active.is_none() {
             let panes = self.panes.lock().expect("tabbed panes lock");
             if let Some(id) = panes.last().and_then(|p| p.pane_id()) {
@@ -370,7 +367,12 @@ impl TabbedContent {
         }
         self.active = Some(pane_id.to_string());
         let mut ctx_opt = ctx;
-        if let Some(tabs) = self.tabs_handle.lock().expect("tabbed tabs handle lock").as_mut() {
+        if let Some(tabs) = self
+            .tabs_handle
+            .lock()
+            .expect("tabbed tabs handle lock")
+            .as_mut()
+        {
             let _ = tabs.set_active_id(&Self::content_tab_id(pane_id), ctx_opt.as_deref_mut());
         }
         if let Some(ctx) = ctx_opt {
@@ -443,7 +445,12 @@ impl TabbedContent {
             return false;
         };
         pane.disabled = disabled;
-        if let Some(tabs) = self.tabs_handle.lock().expect("tabbed tabs handle lock").as_mut() {
+        if let Some(tabs) = self
+            .tabs_handle
+            .lock()
+            .expect("tabbed tabs handle lock")
+            .as_mut()
+        {
             let mut rctx = ReactiveCtx::new(tabs.node_id());
             if disabled {
                 let _ = tabs.disable_tab(&Self::content_tab_id(pane_id), &mut rctx);
@@ -460,7 +467,12 @@ impl TabbedContent {
             return false;
         };
         pane.hidden = hidden;
-        if let Some(tabs) = self.tabs_handle.lock().expect("tabbed tabs handle lock").as_mut() {
+        if let Some(tabs) = self
+            .tabs_handle
+            .lock()
+            .expect("tabbed tabs handle lock")
+            .as_mut()
+        {
             let mut rctx = ReactiveCtx::new(tabs.node_id());
             if hidden {
                 let _ = tabs.hide_tab(&Self::content_tab_id(pane_id), &mut rctx);
@@ -482,12 +494,15 @@ impl TabbedContent {
     }
 
     fn push_meta(&mut self, pane: &TabPane, id: String) {
-        self.pane_meta.lock().expect("tabbed meta lock").push(TabPaneMeta {
-            id,
-            title: pane.title().to_string(),
-            disabled: pane.disabled(),
-            hidden: pane.hidden(),
-        });
+        self.pane_meta
+            .lock()
+            .expect("tabbed meta lock")
+            .push(TabPaneMeta {
+                id,
+                title: pane.title().to_string(),
+                disabled: pane.disabled(),
+                hidden: pane.hidden(),
+            });
     }
 
     fn content_tab_id(pane_id: &str) -> String {
@@ -684,8 +699,8 @@ mod tests {
     use crate::prelude::{Label, Markdown};
     use crate::runtime::{build_widget_tree_from_root, render_tree_to_frame};
     use crate::widget_tree::WidgetTree;
-    use rich_rs::Console;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rich_rs::Console;
 
     #[test]
     fn keyboard_activation_posts_message_and_requests_repaint() {
@@ -731,13 +746,17 @@ mod tests {
         for event in messages {
             match event.message {
                 Message::AppAddClass(payload) => {
-                    let matches = tree.query(&payload.selector).expect("selector should parse");
+                    let matches = tree
+                        .query(&payload.selector)
+                        .expect("selector should parse");
                     for node in matches {
                         tree.add_class(node, &payload.class_name);
                     }
                 }
                 Message::AppRemoveClass(payload) => {
-                    let matches = tree.query(&payload.selector).expect("selector should parse");
+                    let matches = tree
+                        .query(&payload.selector)
+                        .expect("selector should parse");
                     for node in matches {
                         tree.remove_class(node, &payload.class_name);
                     }
@@ -769,10 +788,7 @@ mod tests {
         let jessica_col = find_label_column(header, "Jessica");
 
         let leto_style = frame.get(leto_col, 0).style.expect("inactive tab style");
-        let jessica_style = frame
-            .get(jessica_col, 0)
-            .style
-            .expect("active tab style");
+        let jessica_style = frame.get(jessica_col, 0).style.expect("active tab style");
         assert_ne!(
             leto_style.color, jessica_style.color,
             "active and inactive tabs must render with different colors in tree mode"
@@ -812,7 +828,11 @@ mod tests {
             .style
             .expect("before jessica style")
             .color;
-        let before_paul_color = before.get(paul_col, 0).style.expect("before paul style").color;
+        let before_paul_color = before
+            .get(paul_col, 0)
+            .style
+            .expect("before paul style")
+            .color;
         assert_ne!(
             before_jessica_color, before_paul_color,
             "sanity: initial active tab must differ from inactive tab"
@@ -828,7 +848,11 @@ mod tests {
             .style
             .expect("after jessica style")
             .color;
-        let after_paul_color = after.get(paul_col, 0).style.expect("after paul style").color;
+        let after_paul_color = after
+            .get(paul_col, 0)
+            .style
+            .expect("after paul style")
+            .color;
 
         assert_ne!(
             after_jessica_color, after_paul_color,
@@ -862,11 +886,13 @@ mod tests {
         let jessica_col = find_label_column(&before_header, "Jessica");
         let paul_col = find_label_column(&before_header, "Paul");
 
-        let before_jessica_style = before.get(jessica_col, 0).style.expect("before jessica style");
+        let before_jessica_style = before
+            .get(jessica_col, 0)
+            .style
+            .expect("before jessica style");
         let before_paul_style = before.get(paul_col, 0).style.expect("before paul style");
         assert_ne!(
-            before_jessica_style.bgcolor,
-            before_paul_style.bgcolor,
+            before_jessica_style.bgcolor, before_paul_style.bgcolor,
             "sanity: initial active tab should have distinct background"
         );
 
@@ -880,7 +906,10 @@ mod tests {
         apply_runtime_class_messages(&mut tree, ctx.take_messages());
 
         let after = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
-        let after_jessica_style = after.get(jessica_col, 0).style.expect("after jessica style");
+        let after_jessica_style = after
+            .get(jessica_col, 0)
+            .style
+            .expect("after jessica style");
         let after_paul_style = after.get(paul_col, 0).style.expect("after paul style");
 
         assert_ne!(

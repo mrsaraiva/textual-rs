@@ -605,14 +605,21 @@ impl Widget for ListView {
     }
 
     fn content_width(&self) -> Option<usize> {
-        let width = self
+        let content_width = self
             .items
             .iter()
             .map(|item| rich_rs::cell_len(item).saturating_add(2))
             .max()
             .unwrap_or(2)
             .max(1);
-        Some(width)
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn style_classes(&self) -> &[String] {

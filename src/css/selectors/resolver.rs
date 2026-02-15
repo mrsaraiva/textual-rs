@@ -87,6 +87,19 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
     }
 }
 
+pub(crate) fn selector_meta_generic_with_classes<T: Widget + ?Sized>(
+    widget: &T,
+    extra_classes: impl IntoIterator<Item = String>,
+) -> SelectorMeta {
+    let mut meta = selector_meta_generic(widget);
+    for class in extra_classes {
+        if !meta.classes.iter().any(|existing| existing == &class) {
+            meta.classes.push(class);
+        }
+    }
+    meta
+}
+
 pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
     SelectorMeta {
         type_name: parent_type.to_string(),
@@ -118,7 +131,6 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
         },
     }
 }
-
 
 pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().cloned())
@@ -309,7 +321,10 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
-            let mut meta = selector_meta_generic(node.widget.as_ref());
+            let mut meta = selector_meta_generic_with_classes(
+                node.widget.as_ref(),
+                node.classes.iter().cloned(),
+            );
             meta.states.focus_within = is_focus_within(node_id);
             let style = resolve_style(node.widget.as_ref(), &meta);
             (style.display, style.visibility)

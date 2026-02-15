@@ -122,12 +122,18 @@ impl Widget for CollapsibleTitle {
     fn content_width(&self) -> Option<usize> {
         let symbol_width = rich_rs::cell_len(self.current_symbol());
         let title_width = rich_rs::cell_len(&self.title);
-        Some(
-            symbol_width
-                .saturating_add(1)
-                .saturating_add(title_width)
-                .max(1),
-        )
+        let content_width = symbol_width
+            .saturating_add(1)
+            .saturating_add(title_width)
+            .max(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -331,7 +337,15 @@ impl Widget for Collapsible {
     }
 
     fn content_width(&self) -> Option<usize> {
-        self.title_widget.content_width()
+        let content_width = self.title_widget.content_width().unwrap_or(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn on_mount(&mut self) {

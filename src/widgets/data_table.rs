@@ -1798,7 +1798,15 @@ impl Widget for DataTable {
         let widths = self.column_widths();
         let cells_width = widths.iter().copied().sum::<usize>();
         let gaps_width = columns.saturating_sub(1).saturating_mul(2);
-        Some(cells_width.saturating_add(gaps_width).max(1))
+        let content_width = cells_width.saturating_add(gaps_width).max(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn style_classes(&self) -> &[String] {

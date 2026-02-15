@@ -7,6 +7,35 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-16
+- **[wip] fix(widget render + tabs parity): restore chrome-aware intrinsic sizing, scoped tab state classes, and tab/button interaction regressions**
+  - Added a shared widget render path (`render_widget_with_meta`) that consistently applies:
+    - CSS style stack context,
+    - line-pad and CSS padding composition,
+    - fill/background shaping to content height,
+    - border/title/subtitle + opacity pass,
+    - stable node metadata tagging.
+  - Intrinsic sizing parity fixes across core widgets:
+    - `content_width()` hints now include horizontal chrome (CSS padding + border spacing) for auto-sizing widgets including `Button`, `Checkbox`, `Collapsible`, `ContentSwitcher`, `DataTable`, `DirectoryTree`, `Link`, `ListView`, `Log`, `OptionList`, `RadioButton`, `RadioSet`, `Rule` (vertical), `Select`, `SelectionList`, `Switch`, `Tabs::Tab`, `Text::Markdown`, `Toast`, `Tooltip`, and `Tree`.
+    - `Panel` intrinsic width/height now include resolved CSS chrome in addition to panel-local border/padding behavior.
+  - CSS selector/runtime consistency:
+    - added `selector_meta_generic_with_classes(...)` and wired display/visibility tree pass to resolve styles with runtime tree classes attached to nodes.
+  - Tabs parity fixes:
+    - introduced per-instance scoped `Tabs` style IDs so runtime class/disabled mutations target the correct tabs instance (`#<tabs-scope> #tabs-list > #<tab-id>`),
+    - moved initial active/hidden/disabled tab state to declarative child classes in `tab_decls()` (avoids mount-time class replay races),
+    - click-on-tab now requests runtime focus and treats clicking the already-active tab as handled,
+    - underline base/active style composition corrected for Python-like line appearance,
+    - intrinsic tab width now accounts for resolved CSS padding (`width: auto` spacing parity).
+  - Button interaction parity:
+    - `MouseUp` message emission now occurs before clearing pressed state, so click-generated `ButtonPressed` descriptions include `-active` consistently.
+  - Added broad regression coverage in new `tests/intrinsic_size_contract.rs`:
+    - locks border-box/content-box auto-size contracts,
+    - verifies no-wrap markdown line behavior in wide viewport,
+    - verifies widget padding deltas are reflected in intrinsic width for a large cross-widget matrix,
+    - verifies tab header auto-width keeps expected horizontal gaps.
+  - Added button regression test:
+    - `mouse_click_message_description_includes_active_class`.
+
 ### 2026-02-15
 - **[wip] fix(tabbed-content parity): align tab state styling, underline behavior, footer hints/separator, and markdown heading surfaces**
   - Runtime/tree binding hints: root app bindings and hints are now preserved in tree mode, and key dispatch falls back to root action execution when tree-target handling doesn’t consume the action.

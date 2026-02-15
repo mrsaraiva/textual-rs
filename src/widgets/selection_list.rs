@@ -543,7 +543,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     fn content_width(&self) -> Option<usize> {
         // OptionList's content_width includes a 2-cell indent prefix. We replace that
         // with our 4-cell button prefix (▐X▌ + space), so add 2 to OptionList width.
-        self.inner.content_width().map(|w| w.saturating_add(2))
+        let content_width = self.inner.content_width().unwrap_or(1).saturating_add(2);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn style_classes(&self) -> &[String] {

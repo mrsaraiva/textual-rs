@@ -475,8 +475,6 @@ impl Widget for Button {
             }
             Event::MouseUp(mouse) => {
                 if self.pressed == PressedState::Mouse {
-                    self.pressed = PressedState::None;
-                    ctx.request_repaint();
                     // Activate only on click (mouse released while still over the button).
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
                         debug_message(&format!(
@@ -491,6 +489,8 @@ impl Widget for Button {
                             0u64, self.label, mouse.target
                         ));
                     }
+                    self.pressed = PressedState::None;
+                    ctx.request_repaint();
                 }
             }
             Event::Action(Action::Toggle) if self.focused => {
@@ -815,6 +815,47 @@ mod tests {
         assert!(
             button.is_active(),
             "mouse down should produce active visual state immediately"
+        );
+    }
+
+    #[test]
+    fn mouse_click_message_description_includes_active_class() {
+        let mut button = Button::new("Run");
+        let mut ctx = EventCtx::default();
+
+        button.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 1,
+                screen_y: 1,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+        button.on_event(
+            &Event::MouseUp(crate::event::MouseUpEvent {
+                target: Some(NodeId::default()),
+                screen_x: 1,
+                screen_y: 1,
+                x: 0,
+                y: 0,
+            }),
+            &mut ctx,
+        );
+
+        let description = ctx
+            .take_messages()
+            .into_iter()
+            .find_map(|event| match event.message {
+                Message::ButtonPressed(payload) => Some(payload.description),
+                _ => None,
+            })
+            .expect("mouse click should emit ButtonPressed");
+
+        assert!(
+            description.contains("-active"),
+            "mouse click ButtonPressed description should include -active; got: {description}"
         );
     }
 

@@ -137,8 +137,16 @@ impl Widget for RadioButton {
     }
 
     fn content_width(&self) -> Option<usize> {
-        // "● " + label = 2 chars for glyph+space, plus label width
-        Some(rich_rs::cell_len(&self.label).saturating_add(4).max(1))
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        // Rendered content is "▐●▌ " + label.
+        let content = rich_rs::cell_len(&self.label).saturating_add(4);
+        Some(content.saturating_add(chrome_lr).max(1))
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {

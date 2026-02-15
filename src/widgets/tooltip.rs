@@ -361,7 +361,15 @@ impl Widget for Tooltip {
     }
 
     fn content_width(&self) -> Option<usize> {
-        self.child.content_width()
+        let child_width = self.child.content_width().unwrap_or(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(child_width.saturating_add(chrome_lr).max(1))
     }
 
     fn on_mount(&mut self) {

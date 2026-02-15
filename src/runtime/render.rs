@@ -1,7 +1,7 @@
 use crate::css::{
     AppRuntimePseudos, begin_style_render_pass, pop_style_context, push_style_context,
-    resolve_style, selector_meta_generic, selector_meta_generic_with_classes,
-    set_app_active, set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
+    resolve_style, selector_meta_generic, selector_meta_generic_with_classes, set_app_active,
+    set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::{debug_layout, debug_render};
 use crate::node_id::NodeId;
@@ -568,10 +568,8 @@ fn render_tree_node(
     let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
 
     // Resolve style early — needed for outline, hatch, overlay, and children.
-    let meta = selector_meta_generic_with_classes(
-        node.widget.as_ref(),
-        node.classes.iter().cloned(),
-    );
+    let meta =
+        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
     let resolved = resolve_style(node.widget.as_ref(), &meta);
 
     if should_render {

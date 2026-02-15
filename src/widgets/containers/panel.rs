@@ -247,14 +247,30 @@ impl Widget for Panel {
         }
         self.child.layout_height().map(|child| {
             let border = if self.border { 2 } else { 0 };
-            child + self.padding * 2 + border
+            let meta = crate::css::selector_meta_generic(self);
+            let resolved = crate::css::resolve_style(self, &meta);
+            let padding = resolved.effective_padding();
+            let (border_top, border_bottom, _border_left, _border_right) =
+                crate::widgets::helpers::border_spacing_from_style(&resolved);
+            let chrome_tb = usize::from(padding.top.saturating_add(padding.bottom))
+                + border_top
+                + border_bottom;
+            child + self.padding * 2 + border + chrome_tb
         })
     }
 
     fn content_width(&self) -> Option<usize> {
         self.child.content_width().map(|child| {
             let border = if self.border { 2 } else { 0 };
-            child + self.padding * 2 + border
+            let meta = crate::css::selector_meta_generic(self);
+            let resolved = crate::css::resolve_style(self, &meta);
+            let padding = resolved.effective_padding();
+            let (_border_top, _border_bottom, border_left, border_right) =
+                crate::widgets::helpers::border_spacing_from_style(&resolved);
+            let chrome_lr = usize::from(padding.left.saturating_add(padding.right))
+                + border_left
+                + border_right;
+            child + self.padding * 2 + border + chrome_lr
         })
     }
 

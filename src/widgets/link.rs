@@ -164,7 +164,18 @@ impl Widget for Link {
     }
 
     fn content_width(&self) -> Option<usize> {
-        Some(rich_rs::cell_len(&self.text).max(1))
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(
+            rich_rs::cell_len(&self.text)
+                .saturating_add(chrome_lr)
+                .max(1),
+        )
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {

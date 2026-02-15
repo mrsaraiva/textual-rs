@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -100,7 +101,9 @@ impl Widget for Tab {
     }
 
     fn style_id(&self) -> Option<&str> {
-        self.id.as_deref().or_else(|| self.styles.style_id.as_deref())
+        self.id
+            .as_deref()
+            .or_else(|| self.styles.style_id.as_deref())
     }
 
     fn style_classes(&self) -> &[String] {
@@ -109,6 +112,20 @@ impl Widget for Tab {
         } else {
             &self.classes
         }
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        // Mirror Textual sizing: intrinsic tab width includes horizontal padding
+        // from resolved CSS so `width: auto` leaves visual gaps between tabs.
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let pad_lr = usize::from(padding.left.saturating_add(padding.right));
+        Some(
+            rich_rs::cell_len(self.label.as_str())
+                .saturating_add(pad_lr)
+                .max(1),
+        )
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -265,9 +282,17 @@ impl Widget for Underline {
         let bar_style = crate::css::resolve_component_style(self, &["underline--bar"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let mut base_style = bar_style;
-        base_style.color = None;
-        let line = Self::render_underline_line(width, start, end, base_style, bar_style);
+        let mut base_style = rich_rs::Style::new();
+        if let Some(bg) = bar_style.bgcolor {
+            base_style = base_style.with_color(bg);
+        } else if let Some(fg) = bar_style.color {
+            base_style = base_style.with_color(fg);
+        }
+        let mut active_style = rich_rs::Style::new();
+        if let Some(fg) = bar_style.color {
+            active_style = active_style.with_color(fg);
+        }
+        let line = Self::render_underline_line(width, start, end, base_style, active_style);
         let mut out = Segments::new();
         out.extend(line);
         out
@@ -279,6 +304,8 @@ impl Renderable for Underline {
         Widget::render(self, console, options)
     }
 }
+
+static NEXT_TABS_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct Tabs {
     state: Arc<Mutex<TabsState>>,
@@ -301,6 +328,11 @@ impl Tabs {
     const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
 
     pub fn new() -> Self {
+        let mut styles = WidgetStyles::default();
+        styles.style_id = Some(format!(
+            "__tabs-{}",
+            NEXT_TABS_SCOPE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
         Self {
             state: Arc::new(Mutex::new(TabsState {
                 tabs: Vec::new(),
@@ -318,7 +350,7 @@ impl Tabs {
             })),
             classes: Vec::new(),
             focused_classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            styles,
             pending_messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -543,6 +575,22 @@ impl Tabs {
         state.tabs.get(index)
     }
 
+    fn scoped_tab_selector(&self, tab_id: &str) -> String {
+        if let Some(scope_id) = self.style_id() {
+            format!("#{scope_id} #tabs-list > #{tab_id}")
+        } else {
+            format!("#tabs-list > #{tab_id}")
+        }
+    }
+
+    fn request_runtime_focus(&self, ctx: &mut EventCtx) {
+        if let Some(widget_id) = self.style_id() {
+            ctx.post_message(Message::AppFocus(crate::message::AppFocus {
+                widget_id: widget_id.to_string(),
+            }));
+        }
+    }
+
     fn set_tab_disabled_index(
         &self,
         state: &mut TabsState,
@@ -580,7 +628,7 @@ impl Tabs {
             .lock()
             .expect("tabs pending lock")
             .push(Message::AppSetDisabled(crate::message::AppSetDisabled {
-                selector: format!("#tabs-list > #{tab_id}"),
+                selector: self.scoped_tab_selector(&tab_id),
                 disabled,
             }));
         if state.active.is_none() {
@@ -622,14 +670,14 @@ impl Tabs {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             pending.push(Message::TabHidden(TabHidden { id: tab_id.clone() }));
             pending.push(Message::AppAddClass(crate::message::AppAddClass {
-                selector: format!("#tabs-list > #{tab_id}"),
+                selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
             }));
         } else {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             pending.push(Message::TabShown(TabShown { id: tab_id.clone() }));
             pending.push(Message::AppRemoveClass(crate::message::AppRemoveClass {
-                selector: format!("#tabs-list > #{tab_id}"),
+                selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
             }));
         }
@@ -648,7 +696,7 @@ impl Tabs {
                     .lock()
                     .expect("tabs pending lock")
                     .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
-                        selector: format!("#tabs-list > #{prev}"),
+                        selector: self.scoped_tab_selector(&prev),
                         class_name: "-active".to_string(),
                     }));
             }
@@ -657,7 +705,7 @@ impl Tabs {
                     .lock()
                     .expect("tabs pending lock")
                     .push(Message::AppAddClass(crate::message::AppAddClass {
-                        selector: format!("#tabs-list > #{next}"),
+                        selector: self.scoped_tab_selector(&next),
                         class_name: "-active".to_string(),
                     }));
             }
@@ -677,7 +725,8 @@ impl Tabs {
         if !self.is_activatable(&state, next) {
             return false;
         }
-        let previous_active_index = self.index_for_id(&state, state.active.as_deref().unwrap_or(""));
+        let previous_active_index =
+            self.index_for_id(&state, state.active.as_deref().unwrap_or(""));
         if Some(next) != previous_active_index {
             let new_id = state.tabs[next].tab_id.clone();
             let prev_id = previous_active_index.map(|idx| state.tabs[idx].tab_id.clone());
@@ -686,12 +735,12 @@ impl Tabs {
             if let Some(ctx) = ctx.as_mut() {
                 if let Some(prev) = prev_id {
                     ctx.post_message(Message::AppRemoveClass(crate::message::AppRemoveClass {
-                        selector: format!("#tabs-list > #{prev}"),
+                        selector: self.scoped_tab_selector(&prev),
                         class_name: "-active".to_string(),
                     }));
                 }
                 ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
-                    selector: format!("#tabs-list > #{new_id}"),
+                    selector: self.scoped_tab_selector(&new_id),
                     class_name: "-active".to_string(),
                 }));
             } else {
@@ -700,7 +749,7 @@ impl Tabs {
                         .lock()
                         .expect("tabs pending lock")
                         .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
-                            selector: format!("#tabs-list > #{prev}"),
+                            selector: self.scoped_tab_selector(&prev),
                             class_name: "-active".to_string(),
                         }));
                 }
@@ -708,7 +757,7 @@ impl Tabs {
                     .lock()
                     .expect("tabs pending lock")
                     .push(Message::AppAddClass(crate::message::AppAddClass {
-                        selector: format!("#tabs-list > #{new_id}"),
+                        selector: self.scoped_tab_selector(&new_id),
                         class_name: "-active".to_string(),
                     }));
             }
@@ -1012,7 +1061,23 @@ impl Tabs {
         state
             .tabs
             .iter()
-            .map(|entry| ChildDecl::from(Tab::new(entry.label.clone()).id(entry.tab_id.clone())))
+            .map(|entry| {
+                let tab = Tab::new(entry.label.clone())
+                    .id(entry.tab_id.clone())
+                    .disabled(entry.disabled);
+                let mut classes: Vec<&str> = Vec::new();
+                if entry.hidden {
+                    classes.push("-hidden");
+                }
+                if state.active.as_deref() == Some(entry.tab_id.as_str()) {
+                    classes.push("-active");
+                }
+                let mut decl = ChildDecl::from(tab);
+                if !classes.is_empty() {
+                    decl = decl.with_classes(&classes);
+                }
+                decl
+            })
             .collect()
     }
 }
@@ -1046,36 +1111,6 @@ impl Widget for Tabs {
         self.ensure_active_exists(&mut state);
         drop(state);
         self.sync_underline_to_active();
-        if let Some(active) = self.active() {
-            self.pending_messages
-                .lock()
-                .expect("tabs pending lock")
-                .push(Message::AppAddClass(crate::message::AppAddClass {
-                    selector: format!("#tabs-list > #{active}"),
-                    class_name: "-active".to_string(),
-                }));
-        }
-        let state = self.state.lock().expect("tabs state lock");
-        for tab in &state.tabs {
-            if tab.hidden {
-                self.pending_messages
-                    .lock()
-                    .expect("tabs pending lock")
-                    .push(Message::AppAddClass(crate::message::AppAddClass {
-                        selector: format!("#tabs-list > #{}", tab.tab_id),
-                        class_name: "-hidden".to_string(),
-                    }));
-            }
-            if tab.disabled {
-                self.pending_messages
-                    .lock()
-                    .expect("tabs pending lock")
-                    .push(Message::AppSetDisabled(crate::message::AppSetDisabled {
-                        selector: format!("#tabs-list > #{}", tab.tab_id),
-                        disabled: true,
-                    }));
-            }
-        }
     }
 
     fn on_unmount(&mut self) {
@@ -1193,7 +1228,9 @@ impl Widget for Tabs {
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.node_id() {
                 if let Some(index) = self.hit_tab(mouse.x as usize, mouse.y as usize) {
-                    if self.activate(index, Some(ctx)) {
+                    self.request_runtime_focus(ctx);
+                    let clicked_active = self.active_index() == Some(index);
+                    if self.activate(index, Some(ctx)) || clicked_active {
                         ctx.set_handled();
                         return;
                     }
@@ -1212,6 +1249,7 @@ impl Widget for Tabs {
                 let index = self.index_for_id(&state, &clicked.id);
                 drop(state);
                 if let Some(index) = index {
+                    self.request_runtime_focus(ctx);
                     if self.activate(index, Some(ctx)) {
                         ctx.set_handled();
                     }
@@ -1363,7 +1401,11 @@ mod tests {
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(m.message, Message::TabActivated(..))));
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::TabActivated(..)))
+        );
     }
 
     #[test]
@@ -1385,6 +1427,10 @@ mod tests {
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(messages.iter().all(|m| !matches!(m.message, Message::TabActivated(..))));
+        assert!(
+            messages
+                .iter()
+                .all(|m| !matches!(m.message, Message::TabActivated(..)))
+        );
     }
 }

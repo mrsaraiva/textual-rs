@@ -48,6 +48,14 @@ impl Widget for IdTaggedChild {
         self.child.has_focus()
     }
 
+    fn content_width(&self) -> Option<usize> {
+        self.child.content_width()
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.child.layout_height()
+    }
+
     fn is_hovered(&self) -> bool {
         self.child.is_hovered()
     }
@@ -324,10 +332,19 @@ impl Widget for ContentSwitcher {
         let meta = css::selector_meta_generic(child);
         let resolved = css::resolve_style(child, &meta);
         let margin = margin_from_style(&resolved);
-        child.content_width().map(|w| {
+        let content_width = child.content_width().map(|w| {
             w.saturating_add(margin.left as usize + margin.right as usize)
                 .max(1)
-        })
+        })?;
+        let self_meta = css::selector_meta_generic(self);
+        let self_resolved = css::resolve_style(self, &self_meta);
+        let self_padding = self_resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&self_resolved);
+        let chrome_lr = usize::from(self_padding.left.saturating_add(self_padding.right))
+            + border_left
+            + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

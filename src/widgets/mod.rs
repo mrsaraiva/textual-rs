@@ -60,6 +60,7 @@ pub use containers::{
     AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
 };
 pub use content_switcher::ContentSwitcher;
+pub(crate) use core::render_widget_with_meta;
 pub use core::{
     BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetStyles, classify_style_change,
 };

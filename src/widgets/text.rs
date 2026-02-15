@@ -321,7 +321,8 @@ impl Widget for Markdown {
                 .to_rich()
                 .unwrap_or_else(rich_rs::Style::new);
             for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
-                segment.style = Some(segment.style.unwrap_or_default().combine(&style));
+                // Override markdown heading style to match CSS, avoid inheriting rich heading underline.
+                segment.style = Some(style);
             }
             if let Some(content_align) = component_style.content_align {
                 Self::apply_horizontal_alignment(
@@ -362,14 +363,20 @@ impl Widget for Markdown {
     }
 
     fn content_width(&self) -> Option<usize> {
-        let width = self
+        let content_width = self
             .markup
             .lines()
             .map(rich_rs::cell_len)
             .max()
             .unwrap_or(0)
             .max(1);
-        Some(width)
+        // Keep `width: auto` consistent with Textual defaults: intrinsic width
+        // should include horizontal padding from resolved CSS.
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let pad_lr = usize::from(padding.left.saturating_add(padding.right));
+        Some(content_width.saturating_add(pad_lr))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
