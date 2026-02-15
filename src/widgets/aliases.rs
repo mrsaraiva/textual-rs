@@ -11,20 +11,6 @@ use super::{Container, Grid, Node, Row, RowAlign, Widget, WidgetStyles};
 use crate::compose::ComposeResult;
 use crate::widgets::containers::ScrollView;
 
-fn scrollbar_thumb(
-    track_len: usize,
-    virtual_len: usize,
-    window_len: usize,
-    position: usize,
-) -> (usize, usize) {
-    ScrollView::line_scrollbar_thumb(track_len, virtual_len, window_len, position)
-}
-
-fn scrollbar_styles() -> (rich_rs::Style, rich_rs::Style) {
-    let (track_style, thumb_style, _thumb_active_style) = ScrollView::line_scrollbar_styles();
-    (track_style, thumb_style)
-}
-
 fn align_line_horizontal(
     line: &[Segment],
     width: usize,
@@ -1029,11 +1015,12 @@ impl Widget for VerticalScroll {
                 .collect();
 
             if show_v {
-                let (track_style, thumb_style) = scrollbar_styles();
+                let (track_style, thumb_style, _thumb_active_style) =
+                    ScrollView::line_scrollbar_styles();
                 let track_len = viewport_height.max(1);
                 let offset = self.offset_y.min(self.max_offset());
                 let (thumb_start, thumb_len) =
-                    scrollbar_thumb(track_len, content_h, viewport_height, offset);
+                    ScrollView::line_scrollbar_thumb(track_len, content_h, viewport_height, offset);
                 let bar_width = width.saturating_sub(content_viewport_w).max(1);
                 for (row, line) in slice.iter_mut().enumerate() {
                     let style =
@@ -1063,7 +1050,7 @@ impl Widget for VerticalScroll {
         let constraints = self.child.layout_constraints();
         const V_SCROLLBAR_SIZE: usize = 2;
         let child_layout_height = self.child.layout_height();
-        let (track_style, thumb_style) = scrollbar_styles();
+        let (track_style, thumb_style, _thumb_active_style) = ScrollView::line_scrollbar_styles();
 
         let mut show_v = false;
         let mut content_viewport_w = width;
@@ -1149,8 +1136,12 @@ impl Widget for VerticalScroll {
 
         if show_v {
             let track_len = viewport_height.max(1);
-            let (thumb_start, thumb_len) =
-                scrollbar_thumb(track_len, content_height, viewport_height, offset);
+            let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                track_len,
+                content_height,
+                viewport_height,
+                offset,
+            );
             let bar_width = width.saturating_sub(content_viewport_w).max(1);
             for (row, line) in slice.iter_mut().enumerate() {
                 let style =
@@ -1597,10 +1588,15 @@ impl Widget for HorizontalScroll {
                 .collect();
 
             if show_h {
-                let (track_style, thumb_style) = scrollbar_styles();
+                let (track_style, thumb_style, _thumb_active_style) =
+                    ScrollView::line_scrollbar_styles();
                 let offset = self.offset_x.min(self.max_offset());
-                let (thumb_start, thumb_len) =
-                    scrollbar_thumb(viewport_width, content_w, viewport_width, offset);
+                let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                    viewport_width,
+                    content_w,
+                    viewport_width,
+                    offset,
+                );
                 let mut row = Vec::new();
                 for col in 0..viewport_width {
                     let style = if col >= thumb_start && col < thumb_start + thumb_len {
@@ -1628,7 +1624,7 @@ impl Widget for HorizontalScroll {
 
         const H_SCROLLBAR_SIZE: usize = 1;
         let constraints = self.child.layout_constraints();
-        let (track_style, thumb_style) = scrollbar_styles();
+        let (track_style, thumb_style, _thumb_active_style) = ScrollView::line_scrollbar_styles();
 
         let mut show_h = false;
         let mut content_viewport_h = viewport_height;
@@ -1709,8 +1705,12 @@ impl Widget for HorizontalScroll {
         );
 
         if show_h {
-            let (thumb_start, thumb_len) =
-                scrollbar_thumb(viewport_width, content_width, viewport_width, offset);
+            let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
+                viewport_width,
+                content_width,
+                viewport_width,
+                offset,
+            );
             let mut row = Vec::new();
             for col in 0..viewport_width {
                 let style = if col >= thumb_start && col < thumb_start + thumb_len {

@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-15
+- **[wip] fix(tabbed-content parity): align tab state styling, underline behavior, footer hints/separator, and markdown heading surfaces**
+  - Runtime/tree binding hints: root app bindings and hints are now preserved in tree mode, and key dispatch falls back to root action execution when tree-target handling doesn’t consume the action.
+  - Tabs/TabbedContent parity pass:
+    - switched tab underline rendering to Python-style half-cell bar math (`╺/━/╸`) in both `Tabs` and `TabbedContent`,
+    - aligned component CSS defaults for active/inactive/hover/disabled tab state and ANSI dim/not-dim semantics,
+    - hid left/right "Switch tab" binding hints by default to match Python’s `show=False` behavior.
+  - Color/style conversion parity:
+    - `Style::to_rich()` now treats fully transparent fg/bg as unset and flattens semi-transparent fg/bg against effective surface background for parity-friendly contrast.
+  - Footer parity:
+    - command-palette hint now renders with a visible, styleable separator segment before the right-docked `^p palette` item.
+  - Markdown heading pass:
+    - added markdown heading component default CSS hooks and heading content alignment wiring for centered h1 rendering parity.
+  - Added/updated parity regression coverage in `tests/tabs.rs`, `tests/tabbed_content.rs`, `tests/header_footer.rs`, `tests/markdown.rs`, plus style conversion tests in `src/style.rs`.
+
 ### 2026-02-14
 - **feat(parity): close App/runtime API parity gaps for actions, DOM query mutations, lifecycle events, and controller aliases**
   - Expanded app action parity from partial adapter coverage to full Python action matrix coverage in `TextualApp` (`23/23` actions in `APP_ACTIONS` with adapter execution paths and argument validation).

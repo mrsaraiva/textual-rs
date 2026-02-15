@@ -1,6 +1,8 @@
 use rich_rs::Console;
 use textual::action::ParsedAction;
-use textual::css::{default_widget_stylesheet, set_style_context};
+use textual::css::{
+    AppRuntimePseudos, default_widget_stylesheet, set_app_runtime_pseudos, set_style_context,
+};
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -79,7 +81,11 @@ fn tabbed_content_exposes_switch_tab_binding_hint_when_multiple_panes() {
     let hints = tabs.binding_hints();
     assert_eq!(
         hints,
-        vec![BindingHint::new("left/right", "Switch tab").with_key_display("←/→")]
+        vec![
+            BindingHint::new("left/right", "Switch tab")
+                .with_key_display("←/→")
+                .hidden(true)
+        ]
     );
 }
 
@@ -120,6 +126,9 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
         Some(
             parse_color_like("$block-cursor-foreground")
                 .expect("block cursor foreground")
+                .flatten_over(
+                    parse_color_like("$block-cursor-background").expect("block cursor background"),
+                )
                 .to_simple_opaque()
         )
     );
@@ -127,15 +136,67 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
 
     let active_underline_style = buf.get(1, 1).style.expect("active underline style");
     let inactive_underline_style = buf.get(16, 1).style.expect("inactive underline style");
-    let focused_underline_bg = parse_color_like("$surface-lighten-1")
-        .expect("focused underline background")
-        .to_simple_opaque();
     let active_underline_fg = parse_color_like("$block-cursor-background")
         .expect("active underline foreground")
         .to_simple_opaque();
-    assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
-    assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(active_underline_style.color, Some(active_underline_fg));
+    assert_ne!(active_underline_style.color, inactive_underline_style.color);
+}
+
+#[test]
+fn tabbed_content_default_css_styles_inactive_tab_differently_from_active_tab() {
+    let _guard = set_style_context(default_widget_stylesheet());
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (24, 2);
+    options.max_width = 24;
+    options.max_height = 2;
+
+    let tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+
+    let active_style = buf.get(1, 0).style.expect("active style");
+    let inactive_style = buf.get(7, 0).style.expect("inactive style");
+    assert_ne!(active_style.color, inactive_style.color);
+}
+
+#[test]
+fn tabbed_content_ansi_uses_bright_blue_underline_and_no_active_tab_bg() {
+    let _guard = set_style_context(default_widget_stylesheet());
+    let _pseudos = set_app_runtime_pseudos(AppRuntimePseudos {
+        ansi: true,
+        ..Default::default()
+    });
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (24, 2);
+    options.max_width = 24;
+    options.max_height = 2;
+
+    let mut tabs = TabbedContent::new()
+        .with_pane(TabPane::new("One", Label::new("first")).id("one"))
+        .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
+    tabs.set_focus(true);
+    tabs.on_layout(24, 2);
+
+    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+    let active_tab_style = buf.get(1, 0).style.expect("active tab style");
+    let active_underline_style = buf.get(1, 1).style.expect("active underline style");
+
+    let block_cursor_bg = parse_color_like("$block-cursor-background")
+        .expect("block cursor background")
+        .to_simple_opaque();
+    assert_ne!(active_tab_style.bgcolor, Some(block_cursor_bg));
+    assert_eq!(
+        active_underline_style.color,
+        Some(
+            parse_color_like("ansi_bright_blue")
+                .expect("ansi bright blue")
+                .to_simple_opaque()
+        )
+    );
 }
 
 #[test]

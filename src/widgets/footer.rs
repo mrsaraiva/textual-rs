@@ -135,6 +135,10 @@ impl Footer {
         self.component_style(&["footer-key--command-palette"], self.description_style())
     }
 
+    fn palette_separator_style(&self) -> rich_rs::Style {
+        self.component_style(&["footer-key--palette-separator"], self.base_style())
+    }
+
     fn render_binding(
         &self,
         binding: &FooterBinding,
@@ -349,6 +353,7 @@ impl Widget for Footer {
         let key_style = self.key_style();
         let description_style = self.description_style();
         let command_palette_style = self.command_palette_style();
+        let palette_separator_style = self.palette_separator_style();
 
         let (left_bindings, palette) = self.split_bindings();
 
@@ -382,12 +387,15 @@ impl Widget for Footer {
         if let Some(palette_binding) = palette {
             let mut right_segments =
                 self.render_binding(&palette_binding, key_style, command_palette_style);
-            // Keep command palette hint docked at the right with a subtle separator.
-            let right_separator = if self.compact { " " } else { "  " };
-            right_segments.insert(
-                0,
-                Segment::styled(right_separator.to_string(), command_palette_style),
-            );
+            // Keep command palette hint docked at the right with a subtle visible separator.
+            if self.compact {
+                right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
+            } else {
+                right_segments.insert(
+                    0,
+                    Segment::styled(" │ ".to_string(), palette_separator_style),
+                );
+            }
 
             let left_width = Segment::get_line_length(&line_segments);
             let right_width = Segment::get_line_length(&right_segments);

@@ -21,6 +21,14 @@ Son of Leto and Jessica.
 struct TabbedContentApp;
 
 impl TextualApp for TabbedContentApp {
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![
+            BindingDecl::new("l", "show_tab('leto')", "Leto"),
+            BindingDecl::new("j", "show_tab('jessica')", "Jessica"),
+            BindingDecl::new("p", "show_tab('paul')", "Paul"),
+        ]
+    }
+
     fn compose(&mut self) -> AppRoot {
         let nested = TabbedContent::new()
             .with_pane(TabPane::new("Paul", Label::new("First child")))
@@ -41,14 +49,6 @@ impl TextualApp for TabbedContentApp {
             .with_pane(TabPane::new("Paul", Markdown::new(PAUL)).id("paul"));
 
         AppRoot::new().with_child(Footer::new()).with_child(tabs)
-    }
-
-    fn bindings(&self) -> Vec<BindingDecl> {
-        vec![
-            BindingDecl::new("l", "show_tab('leto')", "Leto"),
-            BindingDecl::new("j", "show_tab('jessica')", "Jessica"),
-            BindingDecl::new("p", "show_tab('paul')", "Paul"),
-        ]
     }
 }
 

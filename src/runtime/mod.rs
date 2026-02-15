@@ -31,14 +31,17 @@ use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
 use crate::style::{Color, Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
-use crate::widgets::{HelpPanel, ToastSeverity, Widget, WidgetStyles};
+use crate::widgets::{BindingDecl, HelpPanel, ToastSeverity, Widget, WidgetStyles};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
 use std::any::Any;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
+use std::io;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
@@ -52,6 +55,29 @@ use helpers::{
     ClickTracker, apply_size, collect_focus_chain_tree, default_action_map,
     tree_content_local_coords, widget_at_tree_layout,
 };
+
+type SuspendProcessFn = fn() -> io::Result<()>;
+
+#[cfg(unix)]
+fn suspend_process_default() -> io::Result<()> {
+    let pid = std::process::id().to_string();
+    let status = Command::new("kill").arg("-TSTP").arg(&pid).status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "`kill -TSTP {pid}` exited with status {status}"
+        )))
+    }
+}
+
+#[cfg(not(unix))]
+fn suspend_process_default() -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "app.suspend_process is not supported on this platform",
+    ))
+}
 
 /// Snapshot-style query result over arena node ids.
 #[derive(Debug, Clone)]
@@ -345,7 +371,7 @@ impl<'a> DomQueryMut<'a> {
     }
 
     pub fn refresh(self) -> Self {
-        self.app.clear_on_next_render = true;
+        self.app.request_query_refresh(&self.nodes);
         self
     }
 }
@@ -394,6 +420,10 @@ pub struct App {
     /// Last resolved CSS style per node, used for automatic style-transition
     /// dispatch (P2-36).
     style_snapshot_cache: HashMap<NodeId, crate::style::Style>,
+    /// Pending refresh targets requested via `DomQueryMut::refresh()`.
+    pending_query_refresh_nodes: Vec<NodeId>,
+    /// Runtime hook used by `action_suspend_process()` (injectable in tests).
+    suspend_process_impl: SuspendProcessFn,
     /// Pending highlight clear: (node_id, clear_at_instant).
     /// Set by HIGHLIGHT devtools command, cleared after timeout.
     pending_highlight_clear: Option<(NodeId, std::time::Instant)>,
@@ -488,6 +518,8 @@ impl App {
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
+            pending_query_refresh_nodes: Vec::new(),
+            suspend_process_impl: suspend_process_default,
             pending_highlight_clear: None,
             widget_tree: None,
             screen_stack: ScreenStack::new(),
@@ -888,6 +920,58 @@ impl App {
         self.console.write_str("\x07").is_ok()
     }
 
+    pub fn action_suspend_process(&mut self) -> bool {
+        let was_started = self.driver.started();
+        if was_started && self.driver.stop().is_err() {
+            self.action_notify(
+                "Failed to suspend process: could not stop terminal driver cleanly",
+                "Suspend process",
+                "error",
+            );
+            return true;
+        }
+
+        let suspend = (self.suspend_process_impl)();
+
+        if was_started {
+            if let Err(err) = self.driver.start() {
+                self.action_notify(
+                    &format!("Failed to resume terminal after suspend: {err}"),
+                    "Suspend process",
+                    "error",
+                );
+                return true;
+            }
+            if let Err(err) = self.refresh_size() {
+                self.action_notify(
+                    &format!("Failed to refresh terminal size after resume: {err}"),
+                    "Suspend process",
+                    "error",
+                );
+                return true;
+            }
+            let _ = self.set_pointer_shape(PointerShape::Default);
+            self.clear_on_next_render = true;
+        }
+
+        match suspend {
+            Ok(()) => true,
+            Err(err) => {
+                let severity = if err.kind() == io::ErrorKind::Unsupported {
+                    "warning"
+                } else {
+                    "error"
+                };
+                self.action_notify(
+                    &format!("Process suspend is unavailable: {err}"),
+                    "Suspend process",
+                    severity,
+                );
+                true
+            }
+        }
+    }
+
     pub fn action_screenshot(&mut self, filename: Option<&str>, path: Option<&str>) -> bool {
         let file_name = filename
             .filter(|value| !value.trim().is_empty())
@@ -923,6 +1007,44 @@ impl App {
                 true
             }
         }
+    }
+
+    fn request_query_refresh(&mut self, nodes: &[NodeId]) {
+        let queued: Vec<NodeId> = {
+            let Some(tree) = self.widget_tree.as_ref() else {
+                self.clear_on_next_render = true;
+                return;
+            };
+
+            let mut queued = Vec::new();
+            for &id in nodes {
+                if !tree.contains(id) {
+                    continue;
+                }
+                queued.extend(tree.walk_depth_first(id));
+            }
+            queued
+        };
+
+        if queued.is_empty() {
+            self.clear_on_next_render = true;
+            return;
+        }
+
+        for id in queued {
+            if !self.pending_query_refresh_nodes.contains(&id) {
+                self.pending_query_refresh_nodes.push(id);
+            }
+        }
+    }
+
+    pub(super) fn take_pending_query_refresh_nodes(&mut self) -> Vec<NodeId> {
+        std::mem::take(&mut self.pending_query_refresh_nodes)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_suspend_process_impl_for_test(&mut self, f: SuspendProcessFn) {
+        self.suspend_process_impl = f;
     }
 
     /// Borrow a widget mutably by node id for a scoped update.
@@ -1956,12 +2078,16 @@ pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> 
 /// are handled — those are forwarded to the real root widget.
 struct TreeStubWidget {
     type_name: &'static str,
+    bindings: Vec<BindingDecl>,
+    binding_hints: Vec<BindingHint>,
 }
 
 impl TreeStubWidget {
     fn from_widget(w: &dyn Widget) -> Self {
         Self {
             type_name: w.style_type(),
+            bindings: w.bindings(),
+            binding_hints: w.binding_hints(),
         }
     }
 }
@@ -1974,14 +2100,22 @@ impl Widget for TreeStubWidget {
     fn style_type(&self) -> &'static str {
         self.type_name
     }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        self.bindings.clone()
+    }
+
+    fn binding_hints(&self) -> Vec<BindingHint> {
+        self.binding_hints.clone()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::EventCtx;
+    use crate::event::{BindingHint, EventCtx};
     use crate::widget_tree::QueryError;
-    use crate::widgets::{AppRoot, Button, Label};
+    use crate::widgets::{AppRoot, BindingDecl, Button, Label};
     use rich_rs::Segments;
     use rich_rs::{Console, ConsoleOptions};
 
@@ -2004,6 +2138,34 @@ mod tests {
 
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
+        }
+    }
+
+    #[derive(Default)]
+    struct RootBindingsProbe {
+        extracted: bool,
+    }
+
+    impl Widget for RootBindingsProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn bindings(&self) -> Vec<BindingDecl> {
+            vec![BindingDecl::new("l", "show_tab('leto')", "Leto")]
+        }
+
+        fn binding_hints(&self) -> Vec<BindingHint> {
+            vec![BindingHint::new("x", "extra").with_key_display("x")]
+        }
+
+        fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+            if self.extracted {
+                Vec::new()
+            } else {
+                self.extracted = true;
+                vec![Box::new(Label::new("child"))]
+            }
         }
     }
 
@@ -2104,6 +2266,26 @@ mod tests {
         ));
         assert!(matches!(app.query_one("Button"), Err(QueryError::NoMatch)));
         assert_eq!(app.query_one_optional("Button"), Ok(None));
+    }
+
+    #[test]
+    fn tree_stub_preserves_root_bindings_and_binding_hints() {
+        let mut app = App::new().expect("app should initialize");
+        let mut root = RootBindingsProbe::default();
+        app.build_widget_tree(&mut root);
+
+        let tree = app.widget_tree.as_ref().expect("tree should be built");
+        let root_id = tree.root().expect("root node should exist");
+        let root_node = tree.get(root_id).expect("root node should exist");
+        let bindings = root_node.widget.bindings();
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].key, "l");
+        assert_eq!(bindings[0].description, "Leto");
+
+        let hints = root_node.widget.binding_hints();
+        assert_eq!(hints.len(), 1);
+        assert_eq!(hints[0].description, "extra");
+        assert_eq!(hints[0].key_display.as_deref(), Some("x"));
     }
 
     #[test]
@@ -2335,7 +2517,60 @@ mod tests {
         assert_eq!(tree.visibility(second), Visibility::Hidden);
         assert!(first_node.widget.has_focus());
         assert!(!second_node.widget.has_focus());
-        assert!(app.clear_on_next_render);
+        assert!(!app.clear_on_next_render);
+        assert_eq!(app.pending_query_refresh_nodes.len(), 2);
+        assert!(app.pending_query_refresh_nodes.contains(&first));
+        assert!(app.pending_query_refresh_nodes.contains(&second));
+    }
+
+    #[test]
+    fn dom_query_refresh_targets_subtrees_and_falls_back_without_tree() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let parent = tree.mount(root, Box::new(Label::new("parent")));
+        let child = tree.mount(parent, Box::new(Button::new("child")));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.query_mut("Label").expect("query mut").refresh();
+        assert!(!app.clear_on_next_render);
+        assert!(app.pending_query_refresh_nodes.contains(&parent));
+        assert!(app.pending_query_refresh_nodes.contains(&child));
+
+        let mut no_tree = App::new().expect("app should initialize");
+        DomQueryMut::new(&mut no_tree, vec![node_id_from_ffi(1)]).refresh();
+        assert!(no_tree.clear_on_next_render);
+    }
+
+    #[test]
+    fn action_suspend_process_uses_runtime_hook_and_reports_errors() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static SUSPEND_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn suspend_ok() -> io::Result<()> {
+            SUSPEND_CALLS.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn suspend_unsupported() -> io::Result<()> {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "unsupported in test",
+            ))
+        }
+
+        let mut app = App::new().expect("app should initialize");
+        app.set_suspend_process_impl_for_test(suspend_ok);
+        assert!(app.action_suspend_process());
+        assert_eq!(SUSPEND_CALLS.load(Ordering::Relaxed), 1);
+        assert!(app.notifications.is_empty());
+
+        app.set_suspend_process_impl_for_test(suspend_unsupported);
+        assert!(app.action_suspend_process());
+        let last = app.notifications.last().expect("warning notification");
+        assert_eq!(last.title, "Suspend process");
+        assert_eq!(last.severity, ToastSeverity::Warning);
     }
 
     #[test]
@@ -2568,7 +2803,19 @@ mod tests {
         assert_eq!(app.action_hide_help_panel(), Ok(true));
         assert!(app.action_change_theme());
         assert!(app.action_toggle_dark());
-        assert!(app.action_screenshot(Some("test.svg"), None));
+        let screenshot_filename = format!(
+            "textual-rs-test-{}.svg",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_nanos()
+        );
+        let screenshot_dir = std::env::temp_dir();
+        let screenshot_path = screenshot_dir.join(&screenshot_filename);
+        let screenshot_dir_str = screenshot_dir.to_string_lossy().to_string();
+        assert!(app.action_screenshot(Some(&screenshot_filename), Some(&screenshot_dir_str)));
+        assert!(screenshot_path.exists());
+        let _ = std::fs::remove_file(&screenshot_path);
 
         app.add_mode("one", || Box::new(RuntimeModeScreen));
         app.add_mode("two", || Box::new(RuntimeModeScreen));

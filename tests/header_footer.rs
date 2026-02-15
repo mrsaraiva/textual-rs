@@ -83,6 +83,7 @@ fn footer_docks_command_palette_binding_to_right_slot() {
     let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
     let line = &buf.as_plain_lines()[0];
     assert!(line.contains("Jessica"));
+    assert!(line.contains("│"));
     assert!(line.trim_end().ends_with("^p palette"));
 }
 

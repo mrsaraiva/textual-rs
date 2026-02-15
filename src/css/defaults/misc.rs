@@ -10,6 +10,43 @@ Markdown {
     layout: vertical;
     fg: $foreground;
     overflow-y: hidden;
+
+    & .markdown--h1 {
+        content-align: center middle;
+        fg: $markdown-h1-color;
+        bg: $markdown-h1-background;
+        text-style: $markdown-h1-text-style;
+    }
+
+    & .markdown--h2 {
+        fg: $markdown-h2-color;
+        bg: $markdown-h2-background;
+        text-style: $markdown-h2-text-style;
+    }
+
+    & .markdown--h3 {
+        fg: $markdown-h3-color;
+        bg: $markdown-h3-background;
+        text-style: $markdown-h3-text-style;
+    }
+
+    & .markdown--h4 {
+        fg: $markdown-h4-color;
+        bg: $markdown-h4-background;
+        text-style: $markdown-h4-text-style;
+    }
+
+    & .markdown--h5 {
+        fg: $markdown-h5-color;
+        bg: $markdown-h5-background;
+        text-style: $markdown-h5-text-style;
+    }
+
+    & .markdown--h6 {
+        fg: $markdown-h6-color;
+        bg: $markdown-h6-background;
+        text-style: $markdown-h6-text-style;
+    }
 }
 
 MarkdownBlock {

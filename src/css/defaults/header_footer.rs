@@ -119,6 +119,11 @@ Footer {
         border-left: vkey $foreground 20%;
     }
 
+    .footer-key--palette-separator {
+        color: $foreground 20%;
+        bg: $footer-background;
+    }
+
     HorizontalGroup.binding-group {
         width: auto;
         height: 1;
@@ -169,6 +174,11 @@ Footer {
         FooterKey.-command-palette {
             bg: ansi_default;
             border-left: vkey ansi_black;
+        }
+
+        .footer-key--palette-separator {
+            color: ansi_black;
+            bg: ansi_default;
         }
     }
 }

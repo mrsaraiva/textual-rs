@@ -643,63 +643,52 @@ impl TabbedContent {
         if width == 0 {
             return Vec::new();
         }
-
-        let mut cells = vec![('─', false); width];
-        let start = start.clamp(0.0, width as f32);
-        let end = end.clamp(0.0, width as f32);
-        if end > start {
-            let start = (start * 2.0).round() / 2.0;
-            let end = (end * 2.0).round() / 2.0;
-
-            let full_start = start.ceil() as usize;
-            let full_end = end.floor() as usize;
-            for idx in full_start..full_end.min(width) {
-                cells[idx] = ('━', true);
-            }
-
-            if start.fract().abs() > f32::EPSILON {
-                let idx = start.floor() as usize;
-                if idx < width {
-                    cells[idx] = ('╺', true);
-                }
-            }
-
-            if end.fract().abs() > f32::EPSILON {
-                let idx = end.floor() as usize;
-                if idx < width {
-                    cells[idx] = if cells[idx].1 {
-                        ('━', true)
-                    } else {
-                        ('╸', true)
-                    };
-                }
-            }
+        let mut start = start.max(0.0);
+        let mut end = end.min(width as f32);
+        if (start == 0.0 && end == 0.0) || end < 0.0 || start > end {
+            return vec![Segment::styled("━".repeat(width), base_style)];
         }
+        start = (start * 2.0).round() / 2.0;
+        end = (end * 2.0).round() / 2.0;
 
+        let half_start = (start - start.trunc()).abs() > f32::EPSILON;
+        let half_end = (end - end.trunc()).abs() > f32::EPSILON;
         let mut out = Vec::new();
-        let mut current_active = cells[0].1;
-        let mut buffer = String::new();
-        for (ch, active) in cells {
-            if active == current_active {
-                buffer.push(ch);
-            } else {
-                let style = if current_active {
-                    active_style.clone()
-                } else {
-                    base_style.clone()
-                };
-                out.push(Segment::styled(std::mem::take(&mut buffer), style));
-                buffer.push(ch);
-                current_active = active;
-            }
+
+        let initial_len = (start - 0.5) as i32;
+        if initial_len > 0 {
+            out.push(Segment::styled(
+                "━".repeat(initial_len as usize),
+                base_style.clone(),
+            ));
         }
-        if !buffer.is_empty() {
-            let style = if current_active {
-                active_style
-            } else {
-                base_style
-            };
-            out.push(Segment::styled(buffer, style));
+        if !half_start && start > 0.0 {
+            out.push(Segment::styled("╸".to_string(), base_style.clone()));
+        }
+
+        let bar_width = (end as i32) - (start as i32);
+        if half_start {
+            let mut highlight = String::from("╺");
+            if bar_width > 1 {
+                highlight.push_str(&"━".repeat((bar_width - 1) as usize));
+            }
+            out.push(Segment::styled(highlight, active_style.clone()));
+        } else if bar_width > 0 {
+            out.push(Segment::styled(
+                "━".repeat(bar_width as usize),
+                active_style.clone(),
+            ));
+        }
+        if half_end {
+            out.push(Segment::styled("╸".to_string(), active_style.clone()));
+        }
+
+        if !half_end && (end - width as f32).abs() > f32::EPSILON {
+            out.push(Segment::styled("╺".to_string(), base_style.clone()));
+        }
+        let tail_len = (width as i32) - (end as i32) - 1;
+        if tail_len > 0 {
+            out.push(Segment::styled("━".repeat(tail_len as usize), base_style));
         }
         out
     }
@@ -989,7 +978,11 @@ impl Widget for TabbedContent {
         if self.potential_active_indices().len() <= 1 {
             return Vec::new();
         }
-        vec![BindingHint::new("left/right", "Switch tab").with_key_display("←/→")]
+        vec![
+            BindingHint::new("left/right", "Switch tab")
+                .with_key_display("←/→")
+                .hidden(true),
+        ]
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {

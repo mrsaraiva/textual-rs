@@ -81,6 +81,33 @@ fn markdown_heading_style_matches_emoji_heading_text() {
 }
 
 #[test]
+fn markdown_h1_content_align_centers_heading_text() {
+    let _guard = set_style_context(default_widget_stylesheet());
+
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (32, 3);
+    options.max_width = 32;
+    options.max_height = 3;
+
+    let mut markdown = Markdown::new("# Lady Jessica");
+    markdown.on_layout(32, 3);
+    let buf =
+        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+
+    let expected_start = (32 - rich_rs::cell_len("Lady Jessica")) / 2;
+    let mut actual_start = None;
+    for x in 0..buf.width {
+        let cell = buf.get(x, 0);
+        if cell.text == "L" {
+            actual_start = Some(x);
+            break;
+        }
+    }
+    assert_eq!(actual_start, Some(expected_start));
+}
+
+#[test]
 fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
     let _guard = set_style_context(default_widget_stylesheet());
 

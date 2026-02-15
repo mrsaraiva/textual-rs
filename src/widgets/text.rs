@@ -2,6 +2,8 @@ use rich_rs::markdown::Markdown as RichMarkdown;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use std::collections::VecDeque;
 
+use crate::style::HorizontalAlign;
+
 use super::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
@@ -217,6 +219,30 @@ impl Markdown {
         }
         remaining.strip_prefix(fragment)
     }
+
+    fn apply_horizontal_alignment(
+        line: &mut Vec<rich_rs::Segment>,
+        width: usize,
+        align: HorizontalAlign,
+        style: rich_rs::Style,
+    ) {
+        if matches!(align, HorizontalAlign::Left) || line.is_empty() {
+            return;
+        }
+        let line_width = rich_rs::Segment::get_line_length(line);
+        if line_width >= width {
+            return;
+        }
+        let left_pad = match align {
+            HorizontalAlign::Left => 0,
+            HorizontalAlign::Center => (width - line_width) / 2,
+            HorizontalAlign::Right => width - line_width,
+        };
+        if left_pad == 0 {
+            return;
+        }
+        line.insert(0, rich_rs::Segment::styled(" ".repeat(left_pad), style));
+    }
 }
 
 impl Widget for Markdown {
@@ -290,11 +316,20 @@ impl Widget for Markdown {
 
             let level = matched_level.expect("matched heading level must be set");
             let class_name = format!("markdown--h{level}");
-            let style = crate::css::resolve_component_style(self, &[class_name.as_str()])
+            let component_style = crate::css::resolve_component_style(self, &[class_name.as_str()]);
+            let style = component_style
                 .to_rich()
                 .unwrap_or_else(rich_rs::Style::new);
             for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
                 segment.style = Some(segment.style.unwrap_or_default().combine(&style));
+            }
+            if let Some(content_align) = component_style.content_align {
+                Self::apply_horizontal_alignment(
+                    line,
+                    options.size.0.max(1),
+                    content_align.horizontal,
+                    style,
+                );
             }
         }
 

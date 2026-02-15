@@ -2163,12 +2163,25 @@ impl Style {
         if !self.has_rich_text_attrs() {
             return None;
         }
+        let default_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
         let mut style = rich_rs::Style::new();
-        if let Some(fg) = self.fg {
-            style = style.with_color(fg.to_simple_opaque());
-        }
+        let mut effective_bg = default_bg;
         if let Some(bg) = self.bg {
-            style = style.with_bgcolor(bg.to_simple_opaque());
+            if bg.a == 255 {
+                effective_bg = bg;
+                style = style.with_bgcolor(bg.to_simple_opaque());
+            } else if bg.a > 0 {
+                let flat = bg.flatten_over(default_bg);
+                effective_bg = flat;
+                style = style.with_bgcolor(flat.to_simple_opaque());
+            }
+        }
+        if let Some(fg) = self.fg {
+            if fg.a == 255 {
+                style = style.with_color(fg.to_simple_opaque());
+            } else if fg.a > 0 {
+                style = style.with_color(fg.flatten_over(effective_bg).to_simple_opaque());
+            }
         }
         if let Some(bold) = self.bold {
             style = style.with_bold(bold);
@@ -2843,6 +2856,37 @@ mod tests {
         let combined = base.combine(&variant);
         assert_eq!(combined.fg, Some(Color::rgb(20, 20, 20)));
         assert_eq!(combined.fg_auto, None);
+    }
+
+    #[test]
+    fn to_rich_ignores_fully_transparent_fg_and_bg() {
+        let style = Style::new()
+            .fg(Color::rgba(10, 20, 30, 0))
+            .bg(Color::rgba(40, 50, 60, 0))
+            .underline(true);
+
+        let rich = style.to_rich().expect("style should map to rich style");
+        assert_eq!(rich.color, None);
+        assert_eq!(rich.bgcolor, None);
+        assert_eq!(rich.underline, Some(true));
+    }
+
+    #[test]
+    fn to_rich_flattens_semi_transparent_colors_against_default_background() {
+        let style = Style::new()
+            .bg(Color::rgba(255, 255, 255, 51)) // 20%
+            .fg(Color::rgba(255, 255, 255, 128)); // 50%
+        let rich = style.to_rich().expect("style should map to rich style");
+        assert!(rich.bgcolor.is_some());
+        assert!(rich.color.is_some());
+        assert_ne!(
+            rich.bgcolor,
+            Some(Color::rgb(255, 255, 255).to_simple_opaque())
+        );
+        assert_ne!(
+            rich.color,
+            Some(Color::rgb(255, 255, 255).to_simple_opaque())
+        );
     }
 
     // ---- Scalar resolve_scalar tests ----

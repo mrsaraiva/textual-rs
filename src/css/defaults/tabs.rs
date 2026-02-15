@@ -46,7 +46,23 @@ Tabs {
     height: 2;
 
     & > .tabs--underline {
-        color: $foreground 30%;
+        color: $foreground 10%;
+    }
+
+    & > .tabs--tab {
+        color: $foreground 50%;
+    }
+
+    & > .tabs--tab.-hover {
+        color: $foreground;
+    }
+
+    & > .tabs--tab.-disabled {
+        color: $foreground 25%;
+    }
+
+    & > .tabs--tab.-active {
+        color: $foreground;
     }
 
     & > #tabs-scroll {
@@ -73,23 +89,22 @@ Tabs {
     }
 
     &:ansi {
-        #tabs-list {
+        #tabs-list, & > .tabs--tab {
             text-style: dim;
         }
 
-        & #tabs-list > .-active {
+        & #tabs-list > .-active, & > .tabs--tab.-active {
             text-style: not dim;
         }
 
         &:focus {
-            #tabs-list > .-active {
+            #tabs-list > .-active, & > .tabs--tab.-active {
                 text-style: bold not dim;
             }
         }
 
         & > .tabs--underline {
             color: ansi_bright_blue;
-            bg: ansi_default;
         }
 
         & .-active {
@@ -105,7 +120,7 @@ Tabs {
     }
 
     & > .tabs--underline.-focus {
-        bg: $surface-lighten-1;
+        color: $foreground 30%;
     }
 
     & > .tabs--underline.-active {
@@ -113,7 +128,6 @@ Tabs {
     }
 
     & > .tabs--underline.-active.-focus {
-        bg: $surface-lighten-1;
         color: $block-cursor-background;
     }
 }
@@ -130,7 +144,23 @@ TabbedContent {
     }
 
     & > .tabbed-content--underline {
-        color: $foreground 30%;
+        color: $foreground 10%;
+    }
+
+    & > .tabbed-content--tab {
+        color: $foreground 50%;
+    }
+
+    & > .tabbed-content--tab.-hover {
+        color: $foreground;
+    }
+
+    & > .tabbed-content--tab.-disabled {
+        color: $foreground 25%;
+    }
+
+    & > .tabbed-content--tab.-active {
+        color: $foreground;
     }
 
     & > .tabbed-content--tab.-active.-focus {
@@ -140,7 +170,7 @@ TabbedContent {
     }
 
     & > .tabbed-content--underline.-focus {
-        bg: $surface-lighten-1;
+        color: $foreground 30%;
     }
 
     & > .tabbed-content--underline.-active {
@@ -148,8 +178,45 @@ TabbedContent {
     }
 
     & > .tabbed-content--underline.-active.-focus {
-        bg: $surface-lighten-1;
         color: $block-cursor-background;
+    }
+
+    &:ansi {
+        & > .tabbed-content--tab {
+            text-style: dim;
+        }
+
+        & > .tabbed-content--tab.-active {
+            text-style: not dim;
+        }
+
+        &:focus {
+            & > .tabbed-content--tab.-active {
+                text-style: bold not dim;
+            }
+        }
+
+        & > .tabbed-content--underline {
+            color: ansi_bright_blue;
+        }
+
+        & > .tabbed-content--underline.-active {
+            color: ansi_bright_blue;
+        }
+
+        & > .tabbed-content--underline.-active.-focus {
+            color: ansi_bright_blue;
+        }
+
+        & > .tabbed-content--tab.-active {
+            color: transparent;
+            bg: transparent;
+        }
+
+        & > .tabbed-content--tab.-active.-focus {
+            color: transparent;
+            bg: transparent;
+        }
     }
 }
 "#;

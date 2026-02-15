@@ -563,12 +563,7 @@ fn split_runtime_control_messages(
                 }
             }
             Message::AppSuspendProcess(crate::message::AppSuspendProcess) => {
-                app.action_notify(
-                    "Process suspend is not implemented yet in textual-rs runtime",
-                    "Suspend process",
-                    "warning",
-                );
-                pass.repaint_requested = true;
+                pass.repaint_requested |= app.action_suspend_process();
             }
             Message::AppSwitchMode(crate::message::AppSwitchMode { mode }) => {
                 if app.switch_mode(&mode) {
@@ -1730,6 +1725,35 @@ impl App {
                                             }
                                         }
                                     }
+                                    let mut root_ctx = EventCtx::default();
+                                    let handled = root.execute_action(&parsed, &mut root_ctx);
+                                    debug_input(&format!(
+                                        "[input] binding action={action_str:?} root_handled={handled}"
+                                    ));
+                                    if handled || root_ctx.handled() {
+                                        if root_ctx.repaint_requested() {
+                                            pending_invalidation.request_full_content();
+                                        }
+                                        let messages = root_ctx.take_messages();
+                                        if !messages.is_empty() {
+                                            let mut msg_outcome = self
+                                                .dispatch_message_queue_with_runtime(
+                                                    root, messages,
+                                                );
+                                            self.absorb_outcome(
+                                                &mut msg_outcome,
+                                                &mut pending_invalidation,
+                                                InvalidationScope::Global,
+                                            );
+                                            if msg_outcome.stop_requested {
+                                                break 'event_loop;
+                                            }
+                                        }
+                                        if root_ctx.stop_requested() {
+                                            break 'event_loop;
+                                        }
+                                        continue;
+                                    }
                                 }
                             }
                         }
@@ -2424,6 +2448,7 @@ impl App {
                 pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                 pending_invalidation.request_full_content();
             }
+            self.absorb_pending_query_refreshes(&mut pending_invalidation);
 
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
                 let regions = pending_invalidation
@@ -2519,6 +2544,7 @@ impl App {
                     pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                     pending_invalidation.request_full_content();
                 }
+                self.absorb_pending_query_refreshes(&mut pending_invalidation);
                 if pending_invalidation.is_dirty()
                     || self.resized_since_last_render
                     || any_active
@@ -2687,6 +2713,26 @@ impl App {
         }
         for id in affected {
             pending.request_widget_rect(&self.hit_test, id);
+        }
+    }
+
+    fn absorb_pending_query_refreshes(&mut self, pending: &mut PendingInvalidation) {
+        let queued = self.take_pending_query_refresh_nodes();
+        if queued.is_empty() {
+            return;
+        }
+
+        let mut missing_rect = false;
+        for id in queued {
+            if self.hit_test.rect(id).is_some() {
+                pending.request_widget_rect(&self.hit_test, id);
+            } else {
+                missing_rect = true;
+            }
+        }
+
+        if missing_rect {
+            pending.request_full_content();
         }
     }
 
@@ -3265,7 +3311,7 @@ mod tests {
         take_runtime_reactive_entries,
     };
     use crate::style::{Offset, OffsetValue, PropertyTransition, Style, TransitionTiming};
-    use crate::widgets::{AppRoot, Widget};
+    use crate::widgets::{AppRoot, BindingDecl, Widget};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::collections::VecDeque;
@@ -3289,6 +3335,46 @@ mod tests {
 
         fn paste(&mut self) -> Option<String> {
             self.paste_results.pop_front().unwrap_or(None)
+        }
+    }
+
+    #[derive(Default)]
+    struct RootBindingsHost {
+        extracted: bool,
+    }
+
+    impl Widget for RootBindingsHost {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn bindings(&self) -> Vec<BindingDecl> {
+            vec![BindingDecl::new("l", "show_tab('leto')", "Leto")]
+        }
+
+        fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+            if self.extracted {
+                Vec::new()
+            } else {
+                self.extracted = true;
+                vec![Box::new(FocusedProbe)]
+            }
+        }
+    }
+
+    struct FocusedProbe;
+
+    impl Widget for FocusedProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn has_focus(&self) -> bool {
+            true
         }
     }
 
@@ -3603,6 +3689,22 @@ mod tests {
         assert!(!should_dispatch_binding_hints(
             &hints, &sources, &hints, &sources,
         ));
+    }
+
+    #[test]
+    fn dispatch_binding_hints_changed_includes_root_bindings_in_tree_mode() {
+        let mut app = App::new().expect("app should initialize");
+        let mut root = RootBindingsHost::default();
+        app.build_widget_tree(&mut root);
+        assert!(app.widget_tree.is_some(), "tree mode should be active");
+
+        let _ = app.dispatch_binding_hints_changed(&mut root);
+        assert!(
+            app.last_binding_hints
+                .iter()
+                .any(|hint| hint.key == "l" && hint.description == "Leto"),
+            "root-declared app bindings should be present in computed binding hints"
+        );
     }
 
     #[test]
@@ -4420,6 +4522,16 @@ mod tests {
         app.add_mode("home", || Box::new(RuntimeModeScreen));
         app.add_mode("main", || Box::new(RuntimeModeScreen));
         let mut runtime_root = StyleNode::new("RuntimeRoot");
+        let screenshot_filename = format!(
+            "textual-rs-test-{}.svg",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_nanos()
+        );
+        let screenshot_dir = std::env::temp_dir();
+        let screenshot_path = screenshot_dir.join(&screenshot_filename);
+        let screenshot_dir_str = screenshot_dir.to_string_lossy().to_string();
 
         let messages = vec![
             MessageEvent {
@@ -4512,8 +4624,8 @@ mod tests {
             MessageEvent {
                 sender: node_id_from_ffi(1),
                 message: Message::AppScreenshot(crate::message::AppScreenshot {
-                    filename: None,
-                    path: None,
+                    filename: Some(screenshot_filename.clone()),
+                    path: Some(screenshot_dir_str.clone()),
                 }),
                 control: Some(node_id_from_ffi(1)),
             },
@@ -4547,6 +4659,8 @@ mod tests {
             "one probe widget should stay focused"
         );
         assert!(app.screen_count() >= 1);
+        assert!(screenshot_path.exists());
+        let _ = std::fs::remove_file(&screenshot_path);
     }
 
     struct AppActionHost;

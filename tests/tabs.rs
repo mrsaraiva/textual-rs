@@ -84,6 +84,21 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
 }
 
 #[test]
+fn tabs_switch_binding_hint_is_hidden_for_footer() {
+    let tabs = Tabs::new()
+        .with_tab("One", Label::new("first"))
+        .with_tab("Two", Label::new("second"));
+    assert_eq!(
+        tabs.binding_hints(),
+        vec![
+            BindingHint::new("left/right", "Switch tab")
+                .with_key_display("←/→")
+                .hidden(true)
+        ]
+    );
+}
+
+#[test]
 fn tabs_default_css_focus_styles_active_tab_and_underline() {
     let _guard = set_style_context(default_widget_stylesheet());
     let console = Console::new();
@@ -114,6 +129,9 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
         Some(
             parse_color_like("$block-cursor-foreground")
                 .expect("block cursor foreground")
+                .flatten_over(
+                    parse_color_like("$block-cursor-background").expect("block cursor background"),
+                )
                 .to_simple_opaque()
         )
     );
@@ -121,15 +139,30 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
 
     let active_underline_style = buf.get(1, 1).style.expect("active underline style");
     let inactive_underline_style = buf.get(12, 1).style.expect("inactive underline style");
-    let focused_underline_bg = parse_color_like("$surface-lighten-1")
-        .expect("focused underline background")
-        .to_simple_opaque();
     let active_underline_fg = parse_color_like("$block-cursor-background")
         .expect("active underline foreground")
         .to_simple_opaque();
-    assert_eq!(active_underline_style.bgcolor, Some(focused_underline_bg));
-    assert_eq!(inactive_underline_style.bgcolor, Some(focused_underline_bg));
     assert_eq!(active_underline_style.color, Some(active_underline_fg));
+    assert_ne!(active_underline_style.color, inactive_underline_style.color);
+}
+
+#[test]
+fn tabs_default_css_styles_inactive_tab_differently_from_active_tab() {
+    let _guard = set_style_context(default_widget_stylesheet());
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (20, 2);
+    options.max_width = 20;
+    options.max_height = 2;
+
+    let tabs = Tabs::new()
+        .with_tab("One", Label::new("first"))
+        .with_tab("Two", Label::new("second"));
+    let buf = FrameBuffer::from_renderable(&console, &options, &tabs, None);
+
+    let active_style = buf.get(1, 0).style.expect("active style");
+    let inactive_style = buf.get(7, 0).style.expect("inactive style");
+    assert_ne!(active_style.color, inactive_style.color);
 }
 
 #[test]
