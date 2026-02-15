@@ -67,7 +67,7 @@ pub use core::{
 pub use data_table::{CursorType, DataTable};
 pub use digits::Digits;
 pub use directory_tree::DirectoryTree;
-pub use footer::{Footer, FooterBinding};
+pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};
 pub use header::Header;
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;

@@ -1,8 +1,10 @@
 use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
+use textual::node_id::NodeId;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::style::Color;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -85,7 +87,10 @@ fn footer_docks_command_palette_binding_to_right_slot() {
     let line = &buf.as_plain_lines()[0];
     assert!(line.contains("Jessica"));
     assert!(line.contains("│"));
-    assert!(line.trim_end().ends_with("^p palette"));
+    let left = line.find("Jessica").expect("left binding should exist");
+    let palette = line.find("^p").expect("palette key should exist");
+    assert!(palette > left);
+    assert!(line.contains("palette"));
 }
 
 #[test]
@@ -111,7 +116,11 @@ fn footer_groups_consecutive_bindings_with_same_group() {
     assert!(line.contains("Move"));
     assert!(!line.contains("move left"));
     assert!(!line.contains("move right"));
-    assert!(line.contains("enter submit"));
+    let enter = line.find("enter").expect("enter key should render");
+    let submit = line
+        .find("submit")
+        .expect("submit description should render");
+    assert!(submit > enter);
 }
 
 #[test]
@@ -151,14 +160,198 @@ fn footer_applies_deferred_bindings_on_focus_gain() {
 fn footer_compact_mode_tightens_spacing() {
     let console = Console::new();
     let options = options_for(&console, 60, 1);
+    let non_compact = Footer::new()
+        .with_binding("ctrl+q", "quit")
+        .with_binding("tab", "next");
     let footer = Footer::new()
         .with_binding("ctrl+q", "quit")
         .with_binding("tab", "next")
         .compact(true);
 
+    let non_compact_buf = FrameBuffer::from_renderable(&console, &options, &non_compact, None);
+    let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = buf.as_plain_lines()[0].trim_end().to_string();
+    let non_compact_line = non_compact_buf.as_plain_lines()[0].trim_end().to_string();
+    assert!(line.contains("ctrl+q"));
+    assert!(line.contains("quit"));
+    assert!(line.contains("tab"));
+    assert!(line.contains("next"));
+    assert!(line.len() <= non_compact_line.len());
+}
+
+#[test]
+fn footer_key_type_selector_styles_key_hint_cells() {
+    let css = r#"
+        Footer {
+            bg: #101010;
+            color: #ffffff;
+        }
+        FooterKey .footer-key--key {
+            color: #ff8800;
+            bg: #202020;
+        }
+        FooterKey .footer-key--description {
+            color: #00ff88;
+            bg: #303030;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let options = options_for(&console, 32, 1);
+    let footer = Footer::new().with_binding("j", "Jessica");
     let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
     let line = &buf.as_plain_lines()[0];
-    assert!(line.starts_with("ctrl+q quit tab next"));
+    let key_x = line.find('j').expect("rendered footer key");
+    let desc_x = line.find('J').expect("rendered footer description");
+
+    let expected_key = Color::parse("#ff8800").unwrap().to_simple_opaque();
+    let expected_desc = Color::parse("#00ff88").unwrap().to_simple_opaque();
+    assert_eq!(
+        buf.get(key_x, 0).style.and_then(|style| style.color),
+        Some(expected_key)
+    );
+    assert_eq!(
+        buf.get(desc_x, 0).style.and_then(|style| style.color),
+        Some(expected_desc)
+    );
+}
+
+#[test]
+fn footer_key_hover_selector_styles_when_mouse_moves_over_binding() {
+    let css = r#"
+        Footer {
+            bg: #101010;
+            color: #ffffff;
+        }
+        FooterKey .footer-key--key {
+            color: #999999;
+            bg: #202020;
+        }
+        FooterKey:hover .footer-key--key {
+            color: #ff8800;
+            bg: #404040;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let options = options_for(&console, 32, 1);
+    let mut footer = Footer::new().with_binding("j", "Jessica");
+
+    let before = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &before.as_plain_lines()[0];
+    let key_x = line.find('j').expect("rendered footer key");
+    let normal_color = Color::parse("#999999").unwrap().to_simple_opaque();
+    let hover_color = Color::parse("#ff8800").unwrap().to_simple_opaque();
+    assert_eq!(
+        before.get(key_x, 0).style.and_then(|style| style.color),
+        Some(normal_color)
+    );
+
+    assert!(footer.on_mouse_move(key_x as u16, 0));
+    let after = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    assert_eq!(
+        after.get(key_x, 0).style.and_then(|style| style.color),
+        Some(hover_color)
+    );
+}
+
+#[test]
+fn footer_key_hover_background_applies_across_entire_item() {
+    let css = r#"
+        Footer {
+            bg: #101010;
+            color: #ffffff;
+        }
+        FooterKey {
+            bg: #111111;
+        }
+        FooterKey .footer-key--key {
+            color: #aaaaaa;
+            bg: transparent;
+        }
+        FooterKey .footer-key--description {
+            color: #bbbbbb;
+            bg: transparent;
+        }
+        FooterKey:hover {
+            bg: #404040;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let options = options_for(&console, 32, 1);
+    let mut footer = Footer::new().with_binding("j", "Jessica");
+
+    let before = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &before.as_plain_lines()[0];
+    let desc_x = line.find('J').expect("rendered footer description");
+    let base_bg = Color::parse("#111111").unwrap().to_simple_opaque();
+    let hover_bg = Color::parse("#404040").unwrap().to_simple_opaque();
+    assert_eq!(
+        before.get(desc_x, 0).style.and_then(|style| style.bgcolor),
+        Some(base_bg)
+    );
+
+    assert!(footer.on_mouse_move(desc_x as u16, 0));
+    let after = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    assert_eq!(
+        after.get(desc_x, 0).style.and_then(|style| style.bgcolor),
+        Some(hover_bg)
+    );
+}
+
+#[test]
+fn footer_key_hover_applies_to_command_palette_item() {
+    let css = r#"
+        Footer {
+            bg: #101010;
+            color: #ffffff;
+        }
+        FooterKey {
+            bg: transparent;
+        }
+        FooterKey:hover {
+            bg: #404040;
+        }
+    "#;
+    let sheet = StyleSheet::parse(css);
+    let _guard = set_style_context(sheet);
+
+    let console = Console::new();
+    let width = 64usize;
+    let options = options_for(&console, width, 1);
+    let mut footer = Footer::new();
+    let mut ctx = EventCtx::default();
+    footer.on_event(
+        &Event::BindingsChanged(vec![
+            BindingHint::new("j", "Jessica"),
+            BindingHint::new("ctrl+p", "palette")
+                .with_key_display("^p")
+                .with_group("command_palette"),
+        ]),
+        &mut ctx,
+    );
+    footer.on_layout(width as u16, 1);
+    let before = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let line = &before.as_plain_lines()[0];
+    let palette_x = line.find('^').expect("palette key should be visible");
+
+    assert!(footer.on_mouse_move(palette_x as u16, 0));
+    let after = FrameBuffer::from_renderable(&console, &options, &footer, None);
+    let hover_bg = Color::parse("#404040").unwrap().to_simple_opaque();
+    assert_eq!(
+        after
+            .get(palette_x, 0)
+            .style
+            .and_then(|style| style.bgcolor),
+        Some(hover_bg)
+    );
 }
 
 #[test]

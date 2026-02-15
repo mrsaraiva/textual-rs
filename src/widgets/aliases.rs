@@ -502,7 +502,12 @@ impl Widget for CenterMiddle {
             .unwrap_or(width)
             .max(1)
             .min(width);
-        let intrinsic_height = self.child.layout_height().unwrap_or(height).max(1).min(height);
+        let intrinsic_height = self
+            .child
+            .layout_height()
+            .unwrap_or(height)
+            .max(1)
+            .min(height);
 
         let mut child_options = options.clone();
         child_options.size = (child_width, intrinsic_height);
@@ -708,7 +713,12 @@ impl Widget for Middle {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let intrinsic_height = self.child.layout_height().unwrap_or(height).max(1).min(height);
+        let intrinsic_height = self
+            .child
+            .layout_height()
+            .unwrap_or(height)
+            .max(1)
+            .min(height);
 
         let mut child_options = options.clone();
         child_options.size = (width, intrinsic_height);

@@ -2160,10 +2160,14 @@ impl Style {
     }
 
     pub fn to_rich(&self) -> Option<rich_rs::Style> {
+        let default_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
+        self.to_rich_over(default_bg)
+    }
+
+    pub fn to_rich_over(&self, default_bg: Color) -> Option<rich_rs::Style> {
         if !self.has_rich_text_attrs() {
             return None;
         }
-        let default_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
         let mut style = rich_rs::Style::new();
         let mut effective_bg = default_bg;
         if let Some(bg) = self.bg {

@@ -127,7 +127,10 @@ fn tabs_default_css_focus_styles_active_tab_and_underline() {
     let inactive_col = find_label_column(&header, "Two");
 
     let active_tab_style = frame.get(active_col, 0).style.expect("active tab style");
-    let inactive_tab_style = frame.get(inactive_col, 0).style.expect("inactive tab style");
+    let inactive_tab_style = frame
+        .get(inactive_col, 0)
+        .style
+        .expect("inactive tab style");
     assert_ne!(active_tab_style.color, inactive_tab_style.color);
     assert_eq!(
         active_tab_style.bgcolor,

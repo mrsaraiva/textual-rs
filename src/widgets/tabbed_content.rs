@@ -707,7 +707,9 @@ impl Widget for TabbedContent {
         if self.children_extracted.load(Ordering::SeqCst) {
             return;
         }
-        if self.focused && let Event::Key(key) = event {
+        if self.focused
+            && let Event::Key(key) = event
+        {
             match key.code {
                 crossterm::event::KeyCode::Left | crossterm::event::KeyCode::Char('h') => {
                     if let Some(next) = self.next_selectable_pane_id(self.active.as_deref(), false)

@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(footer parity): Python-style FooterKey hover/click semantics including command palette**
+  - Aligned footer key interaction behavior with Python Textual:
+    - click on any footer key hint now flows through the same binding/action pipeline as real key presses (`AppSimulateKey` runtime dispatch parity),
+    - footer hit-testing now resolves rendered binding regions (including grouped keys) instead of coarse width heuristics.
+  - Restored item-level `FooterKey:hover` visuals by fixing background composition against the footer surface (not global app background), so hover reads as a full key-item highlight.
+  - Added command-palette (`^p`) parity handling in footer hover/click hit routing so the right-docked key now responds like other footer keys.
+  - Added regression coverage for:
+    - simulated key parsing and dispatch path behavior,
+    - per-binding click resolution (`l/j/p`) and grouped-key click targeting,
+    - footer hover background behavior including the command-palette item.
+
 - **[wip] fix(tabbed-content + layout/test regressions): restore stable fallback behavior and remove false `cargo test` blocker**
   - Fixed `ScrollView` content-height inference to ignore trailing blank probe rows from oversized auto/fill renders, preventing false vertical scrollbar activation and viewport width shrink in focus/layout paths.
   - Restored `Middle` / `CenterMiddle` vertical-centering behavior to use intrinsic child height (with non-blank rendered fallback) instead of shaped full-height output.

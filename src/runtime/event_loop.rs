@@ -8,7 +8,9 @@ use crate::event::{
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
 use crate::worker::{WorkerRegistry, WorkerRequest, process_worker_requests};
-use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind, MouseEventKind};
+use crossterm::event::{
+    self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
+};
 use rich_rs::Renderable;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -98,6 +100,174 @@ fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
             ),
             control: Some(sender),
         }
+    }
+}
+
+fn parse_simulated_key(spec: &str) -> Option<KeyEventData> {
+    let spec = spec.trim().to_ascii_lowercase();
+    if spec.is_empty() {
+        return None;
+    }
+
+    let (modifiers, key_token) = if let Some(chord) = spec.strip_prefix('^') {
+        if chord.chars().count() == 1 {
+            (KeyModifiers::CONTROL, chord.to_string())
+        } else {
+            return None;
+        }
+    } else {
+        let mut modifiers = KeyModifiers::NONE;
+        let mut key_token = None::<String>;
+        for token in spec
+            .split('+')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+        {
+            match token {
+                "ctrl" | "control" => modifiers |= KeyModifiers::CONTROL,
+                "alt" => modifiers |= KeyModifiers::ALT,
+                "shift" => modifiers |= KeyModifiers::SHIFT,
+                "super" | "meta" => modifiers |= KeyModifiers::SUPER,
+                other => key_token = Some(other.to_string()),
+            }
+        }
+        (modifiers, key_token?)
+    };
+
+    let code = match key_token.as_str() {
+        "enter" | "return" => KeyCode::Enter,
+        "tab" => KeyCode::Tab,
+        "backspace" => KeyCode::Backspace,
+        "delete" => KeyCode::Delete,
+        "escape" | "esc" => KeyCode::Esc,
+        "up" => KeyCode::Up,
+        "down" => KeyCode::Down,
+        "left" => KeyCode::Left,
+        "right" => KeyCode::Right,
+        "home" => KeyCode::Home,
+        "end" => KeyCode::End,
+        "pageup" | "page_up" => KeyCode::PageUp,
+        "pagedown" | "page_down" => KeyCode::PageDown,
+        "insert" => KeyCode::Insert,
+        "space" => KeyCode::Char(' '),
+        token if token.starts_with('f') && token.len() > 1 => {
+            let number = token[1..].parse::<u8>().ok()?;
+            KeyCode::F(number)
+        }
+        token if token.chars().count() == 1 => KeyCode::Char(token.chars().next().unwrap()),
+        _ => return None,
+    };
+
+    Some(KeyEventData::from_crossterm(KeyEvent::new(code, modifiers)))
+}
+
+fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut DispatchOutcome) {
+    pass.repaint_requested |= outcome.repaint_requested;
+    pass.invalidation.merge(outcome.invalidation);
+    pass.generated.append(&mut outcome.messages);
+}
+
+fn dispatch_simulated_key_like_input(
+    app: &mut App,
+    root: &mut dyn Widget,
+    key: KeyEventData,
+    pass: &mut RuntimeMessagePass,
+) {
+    // App-level key hook.
+    let mut app_key_ctx = EventCtx::default();
+    root.on_app_key(app, &key, &mut app_key_ctx);
+    pass.repaint_requested |= app_key_ctx.repaint_requested();
+    pass.invalidation.merge(app_key_ctx.invalidation());
+    pass.generated.extend(app_key_ctx.take_messages());
+    if app_key_ctx.handled() {
+        return;
+    }
+
+    let bind = crate::event::KeyBind::from_event(&key);
+    let mapped_action = app.action_map.lookup(&bind);
+
+    // Priority actions first (e.g. command palette).
+    if let Some(action) = mapped_action.filter(|a| is_priority_action(*a)) {
+        let mut outcome = app.dispatch_event_auto(root, Event::Action(action));
+        let handled = outcome.handled;
+        merge_outcome_into_runtime_pass(pass, &mut outcome);
+        if handled {
+            return;
+        }
+    }
+
+    // Declarative bindings before raw key dispatch.
+    if let Some(tree) = app.widget_tree.as_ref()
+        && let Some((_node_id, action_str)) = match_binding_tree(tree, &key)
+        && let Some(parsed) = crate::action::parse_action(&action_str)
+    {
+        if let Some(tree_mut) = app.widget_tree.as_mut() {
+            let focused = focused_node_id_tree(tree_mut);
+            let resolved = {
+                let tree_ref = &*tree_mut;
+                focused.and_then(|fid| {
+                    crate::action::resolve_action(&parsed, tree_ref, fid, |nid| {
+                        tree_ref
+                            .get(nid)
+                            .map(|n| (n.widget.action_namespace(), n.widget.action_registry()))
+                    })
+                })
+            };
+            if let Some(ra) = resolved
+                && let Some(node) = tree_mut.get_mut(ra.node)
+            {
+                let mut ctx = EventCtx::default();
+                if node.widget.execute_action(&parsed, &mut ctx) || ctx.handled() {
+                    pass.repaint_requested |= ctx.repaint_requested();
+                    pass.invalidation.merge(ctx.invalidation());
+                    pass.generated.extend(ctx.take_messages());
+                    return;
+                }
+            }
+        }
+
+        let mut root_ctx = EventCtx::default();
+        if root.execute_action(&parsed, &mut root_ctx) || root_ctx.handled() {
+            pass.repaint_requested |= root_ctx.repaint_requested();
+            pass.invalidation.merge(root_ctx.invalidation());
+            pass.generated.extend(root_ctx.take_messages());
+            return;
+        }
+    }
+
+    // Raw key dispatch.
+    let mut key_outcome = app.dispatch_event_auto(root, Event::Key(key.clone()));
+    let key_handled = key_outcome.handled;
+    merge_outcome_into_runtime_pass(pass, &mut key_outcome);
+    if key_handled {
+        return;
+    }
+
+    // Fallback action-map behavior.
+    if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a)) {
+        if action == Action::HelpQuit {
+            app.notify_help_quit();
+            pass.repaint_requested = true;
+            return;
+        }
+        if matches!(action, Action::FocusNext | Action::FocusPrev) {
+            let mut focus_outcome = app.dispatch_event_auto(root, Event::Action(action));
+            let focus_handled = focus_outcome.handled;
+            merge_outcome_into_runtime_pass(pass, &mut focus_outcome);
+            if focus_handled {
+                return;
+            }
+            if app.move_focus_auto(action) {
+                pass.repaint_requested = true;
+                return;
+            }
+        }
+        let mut outcome = if is_scroll_action(action) {
+            app.dispatch_scroll_action_auto(root, action, app.hovered)
+        } else {
+            app.dispatch_event_auto(root, Event::Action(action))
+        };
+        merge_outcome_into_runtime_pass(pass, &mut outcome);
     }
 }
 
@@ -538,46 +708,13 @@ fn split_runtime_control_messages(
                 }
             }
             Message::AppSimulateKey(crate::message::AppSimulateKey { key }) => {
-                let key = key.to_ascii_lowercase();
-                match key.as_str() {
-                    "tab" => {
-                        if app.action_focus_next() {
-                            pass.repaint_requested = true;
-                        }
-                    }
-                    "shift+tab" => {
-                        if app.action_focus_previous() {
-                            pass.repaint_requested = true;
-                        }
-                    }
-                    "ctrl+c" => {
-                        app.action_help_quit();
-                        pass.repaint_requested = true;
-                    }
-                    "ctrl+p" => {
-                        let sender = App::runtime_message_sender();
-                        pass.generated.push(MessageEvent {
-                            sender,
-                            message: Message::CommandPaletteOpened(
-                                crate::message::CommandPaletteOpened,
-                            ),
-                            control: Some(sender),
-                        });
-                    }
-                    _ => {
-                        // Fallback: route a synthetic key event through the
-                        // regular event pipeline for best-effort parity.
-                        let synthetic = Event::Key(KeyEventData::from_crossterm(
-                            crossterm::event::KeyEvent::new(
-                                crossterm::event::KeyCode::Null,
-                                crossterm::event::KeyModifiers::NONE,
-                            ),
-                        ));
-                        let mut outcome = app.dispatch_event_auto(root, synthetic);
-                        pass.repaint_requested |= outcome.repaint_requested;
-                        pass.invalidation.merge(outcome.invalidation);
-                        pass.generated.append(&mut outcome.messages);
-                    }
+                if let Some(synthetic) = parse_simulated_key(&key) {
+                    dispatch_simulated_key_like_input(app, root, synthetic, &mut pass);
+                } else {
+                    debug_input(&format!(
+                        "[runtime] app.simulate_key ignored invalid key spec {:?}",
+                        key
+                    ));
                 }
             }
             Message::AppSuspendProcess(crate::message::AppSuspendProcess) => {
@@ -3320,7 +3457,7 @@ impl App {
 mod tests {
     use super::{
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
-        collect_stylesheet_affected_widgets_root, focused_help_message,
+        collect_stylesheet_affected_widgets_root, focused_help_message, parse_simulated_key,
         set_overlay_modal_display_tree, should_dispatch_binding_hints,
         should_dispatch_focused_help, transition_requests_for_style_change,
     };
@@ -3344,6 +3481,21 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
+    #[test]
+    fn parse_simulated_key_ctrl_chord() {
+        let key = parse_simulated_key("^p").expect("parse ^p");
+        assert_eq!(key.code, KeyCode::Char('p'));
+        assert_eq!(key.modifiers, KeyModifiers::CONTROL);
+        assert_eq!(key.key, "ctrl+p");
+    }
+
+    #[test]
+    fn parse_simulated_key_shift_tab() {
+        let key = parse_simulated_key("shift+tab").expect("parse shift+tab");
+        assert_eq!(key.code, KeyCode::Tab);
+        assert_eq!(key.modifiers, KeyModifiers::SHIFT);
+    }
 
     #[derive(Default)]
     struct StubClipboardBackend {
@@ -3400,6 +3552,68 @@ mod tests {
 
         fn has_focus(&self) -> bool {
             true
+        }
+    }
+
+    struct SimulatedKeyBindingHost {
+        hits_l: Arc<AtomicUsize>,
+        hits_j: Arc<AtomicUsize>,
+        hits_p: Arc<AtomicUsize>,
+    }
+
+    impl Widget for SimulatedKeyBindingHost {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn focusable(&self) -> bool {
+            true
+        }
+
+        fn has_focus(&self) -> bool {
+            true
+        }
+
+        fn bindings(&self) -> Vec<BindingDecl> {
+            vec![
+                BindingDecl::new("l", "select('l')", "Leto"),
+                BindingDecl::new("j", "select('j')", "Jessica"),
+                BindingDecl::new("p", "select('p')", "Paul"),
+            ]
+        }
+
+        fn action_registry(&self) -> &[ActionDecl] {
+            const ACTIONS: &[ActionDecl] = &[ActionDecl {
+                name: "select",
+                namespace: "",
+                description: "select key",
+                default_binding: None,
+            }];
+            ACTIONS
+        }
+
+        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+            if action.name != "select" || action.arguments.len() != 1 {
+                return false;
+            }
+            match action.arguments[0].as_str() {
+                "l" => {
+                    self.hits_l.fetch_add(1, Ordering::SeqCst);
+                    ctx.set_handled();
+                    true
+                }
+                "j" => {
+                    self.hits_j.fetch_add(1, Ordering::SeqCst);
+                    ctx.set_handled();
+                    true
+                }
+                "p" => {
+                    self.hits_p.fetch_add(1, Ordering::SeqCst);
+                    ctx.set_handled();
+                    true
+                }
+                _ => false,
+            }
         }
     }
 
@@ -3730,6 +3944,40 @@ mod tests {
                 .any(|hint| hint.key == "l" && hint.description == "Leto"),
             "root-declared app bindings should be present in computed binding hints"
         );
+    }
+
+    #[test]
+    fn app_simulate_key_uses_binding_pipeline_before_action_map_fallback() {
+        let hits_l = Arc::new(AtomicUsize::new(0));
+        let hits_j = Arc::new(AtomicUsize::new(0));
+        let hits_p = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        tree.set_root(Box::new(SimulatedKeyBindingHost {
+            hits_l: Arc::clone(&hits_l),
+            hits_j: Arc::clone(&hits_j),
+            hits_p: Arc::clone(&hits_p),
+        }));
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+
+        for key in ["j", "p", "l"] {
+            let _outcome = app.dispatch_message_queue_with_runtime(
+                &mut runtime_root,
+                vec![MessageEvent {
+                    sender: node_id_from_ffi(1),
+                    message: Message::AppSimulateKey(crate::message::AppSimulateKey {
+                        key: key.to_string(),
+                    }),
+                    control: Some(node_id_from_ffi(1)),
+                }],
+            );
+        }
+
+        assert_eq!(hits_j.load(Ordering::SeqCst), 1, "j binding should fire");
+        assert_eq!(hits_p.load(Ordering::SeqCst), 1, "p binding should fire");
+        assert_eq!(hits_l.load(Ordering::SeqCst), 1, "l binding should fire");
     }
 
     #[test]
