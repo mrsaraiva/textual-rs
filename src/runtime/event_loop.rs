@@ -406,6 +406,24 @@ fn split_runtime_control_messages(
                     ));
                 }
             },
+            Message::AppSetDisabled(crate::message::AppSetDisabled { selector, disabled }) => {
+                match app.query_mut(&selector) {
+                    Ok(query) => {
+                        let matched = query.len();
+                        query.set(None, None, Some(disabled), None);
+                        if matched > 0 {
+                            pass.repaint_requested = true;
+                            pass.invalidation
+                                .merge(crate::event::InvalidationFlags::layout());
+                        }
+                    }
+                    Err(err) => {
+                        debug_input(&format!(
+                            "[runtime] app.set_disabled ignored selector={selector:?} disabled={disabled:?} err={err:?}"
+                        ));
+                    }
+                }
+            }
             Message::AppBack(crate::message::AppBack) => {
                 if app.action_back() {
                     pass.repaint_requested = true;

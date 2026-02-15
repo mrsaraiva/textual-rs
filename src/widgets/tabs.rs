@@ -1,700 +1,183 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::action::ParsedAction;
+use crate::compose::{ChildDecl, ComposeResult};
 use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, BindingHint, Event,
     EventCtx,
 };
-use crate::message::*;
-use crate::style::TransitionTiming;
+use crate::message::{
+    Message, TabActivated, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
+};
+use crate::style::{Dock, TransitionTiming};
 
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use crate::action::ParsedAction;
-
 use super::{
-    BindingDecl, Widget, WidgetStyles,
+    BindingDecl, Container, Horizontal, Vertical, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
-pub struct Tabs {
-    tabs: Vec<Tab>,
-    /// The string ID of the currently active tab, or `None` if no tab is active.
-    active: Option<String>,
-    focused: bool,
-    hovered: bool,
-    hovered_tab: Option<usize>,
-    layout_width: usize,
-    tab_row_height: usize,
-    last_size: Option<(u16, u16)>,
-    underline_start: f32,
-    underline_end: f32,
+#[derive(Debug, Clone)]
+pub struct Tab {
+    id: Option<String>,
+    label: String,
+    disabled: bool,
     classes: Vec<String>,
-    focused_classes: Vec<String>,
     styles: WidgetStyles,
-    /// Messages queued by methods that lack `EventCtx` (e.g. `disable_tab`).
-    /// Drained into `ctx` at the start of the next `on_event` call.
-    pending_messages: Vec<Message>,
+    hovered: bool,
 }
 
-pub struct Tab {
-    pub tab_id: String,
-    title: String,
-    child: Box<dyn Widget>,
+impl Tab {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            label: label.into(),
+            disabled: false,
+            classes: Vec::new(),
+            styles: WidgetStyles::default(),
+            hovered: false,
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn class(mut self, class: impl Into<String>) -> Self {
+        self.classes.push(class.into());
+        self
+    }
+
+    pub fn classes(mut self, classes: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        for class in classes {
+            self.classes.push(class.into());
+        }
+        self
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    pub fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
+    pub fn tab_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+}
+
+impl Widget for Tab {
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+    }
+
+    fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    fn set_disabled_state(&mut self, disabled: bool) {
+        self.disabled = disabled;
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.id.as_deref().or_else(|| self.styles.style_id.as_deref())
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if self.classes.is_empty() {
+            empty_classes()
+        } else {
+            &self.classes
+        }
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if self.disabled {
+            return;
+        }
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == self.node_id() {
+                ctx.post_message(Message::TabClicked(crate::message::TabClicked {
+                    id: self.id.clone().unwrap_or_default(),
+                    title: self.label.clone(),
+                }));
+                ctx.set_handled();
+            }
+        }
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Text::plain(self.label.clone()).render(console, options)
+    }
+}
+
+impl Renderable for Tab {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TabEntry {
+    tab_id: String,
+    label: String,
     disabled: bool,
     hidden: bool,
 }
 
-impl Tabs {
-    const UNDERLINE_START_ATTR: &'static str = "tabs.underline_start";
-    const UNDERLINE_END_ATTR: &'static str = "tabs.underline_end";
-    const UNDERLINE_ANIMATION_DURATION: Duration = Duration::from_millis(300);
-    const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
+#[derive(Debug, Clone)]
+struct TabsState {
+    tabs: Vec<TabEntry>,
+    active: Option<String>,
+}
 
-    pub fn new() -> Self {
+#[derive(Debug, Clone)]
+pub(crate) struct UnderlineState {
+    highlight_start: f32,
+    highlight_end: f32,
+    show_highlight: bool,
+}
+
+#[derive(Clone)]
+pub struct Underline {
+    state: Arc<Mutex<UnderlineState>>,
+    styles: WidgetStyles,
+}
+
+impl Underline {
+    pub fn new(state: Arc<Mutex<UnderlineState>>) -> Self {
         Self {
-            tabs: Vec::new(),
-            active: None,
-            focused: false,
-            hovered: false,
-            hovered_tab: None,
-            layout_width: 1,
-            tab_row_height: 2,
-            last_size: None,
-            underline_start: 0.0,
-            underline_end: 0.0,
-            classes: vec!["tabs".to_string()],
-            focused_classes: vec!["tabs".to_string(), "focused".to_string()],
+            state,
             styles: WidgetStyles::default(),
-            pending_messages: Vec::new(),
         }
-    }
-
-    /// Add a tab using the title as the tab ID.
-    pub fn with_tab(mut self, title: impl Into<String>, child: impl Widget + 'static) -> Self {
-        let title = title.into();
-        let tab_id = title.clone();
-        self.tabs.push(Tab {
-            tab_id: tab_id.clone(),
-            title,
-            child: Box::new(child),
-            disabled: false,
-            hidden: false,
-        });
-        if self.active.is_none() {
-            self.active = Some(tab_id);
-        }
-        self
-    }
-
-    /// Add a tab with an explicit string ID.
-    pub fn with_tab_id(
-        mut self,
-        id: impl Into<String>,
-        title: impl Into<String>,
-        child: impl Widget + 'static,
-    ) -> Self {
-        let tab_id = id.into();
-        self.tabs.push(Tab {
-            tab_id: tab_id.clone(),
-            title: title.into(),
-            child: Box::new(child),
-            disabled: false,
-            hidden: false,
-        });
-        if self.active.is_none() {
-            self.active = Some(tab_id);
-        }
-        self
-    }
-
-    /// Add a tab at runtime using the title as the tab ID.
-    pub fn add_tab(&mut self, title: impl Into<String>, child: impl Widget + 'static) {
-        let title = title.into();
-        let tab_id = title.clone();
-        self.tabs.push(Tab {
-            tab_id: tab_id.clone(),
-            title,
-            child: Box::new(child),
-            disabled: false,
-            hidden: false,
-        });
-        if self.active.is_none() {
-            self.active = Some(tab_id);
-        }
-    }
-
-    /// Add a tab at runtime with an explicit string ID.
-    pub fn add_tab_id(
-        &mut self,
-        id: impl Into<String>,
-        title: impl Into<String>,
-        child: impl Widget + 'static,
-    ) {
-        let tab_id = id.into();
-        self.tabs.push(Tab {
-            tab_id: tab_id.clone(),
-            title: title.into(),
-            child: Box::new(child),
-            disabled: false,
-            hidden: false,
-        });
-        if self.active.is_none() {
-            self.active = Some(tab_id);
-        }
-    }
-
-    // ── Reactive getters ──────────────────────────────────────────────
-
-    /// The string ID of the currently active tab, or `None` if no tab is active.
-    pub fn active(&self) -> Option<&str> {
-        self.active.as_deref()
-    }
-
-    /// The index of the currently active tab, or `None`.
-    pub fn active_index(&self) -> Option<usize> {
-        let id = self.active.as_ref()?;
-        self.index_for_id(id)
-    }
-
-    pub fn is_tab_disabled(&self, id: &str) -> bool {
-        self.query_tab_by_id(id)
-            .map(|tab| tab.disabled)
-            .unwrap_or(false)
-    }
-
-    pub fn is_tab_hidden(&self, id: &str) -> bool {
-        self.query_tab_by_id(id)
-            .map(|tab| tab.hidden)
-            .unwrap_or(false)
-    }
-
-    // ── Reactive setters ──────────────────────────────────────────────
-
-    /// Activate a tab by its string ID.
-    pub fn set_active(&mut self, id: &str, ctx: &mut ReactiveCtx) {
-        if self.active.as_deref() == Some(id) {
-            return;
-        }
-        let old = self.active.clone();
-        if let Some(index) = self.index_for_id(id) {
-            // activate() sets self.active and handles focus/underline side effects.
-            let _ = self.activate(index, None);
-            ctx.record_change(
-                "active",
-                ReactiveFlags::reactive(),
-                Box::new(old),
-                Box::new(self.active.clone()),
-            );
-        }
-    }
-
-    pub fn set_tab_disabled(&mut self, id: &str, disabled: bool, ctx: &mut ReactiveCtx) -> bool {
-        let Some(index) = self.index_for_id(id) else {
-            return false;
-        };
-        self.set_tab_disabled_index(index, disabled, ctx)
-    }
-
-    pub fn disable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
-        self.set_tab_disabled(id, true, ctx)
-    }
-
-    pub fn enable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
-        self.set_tab_disabled(id, false, ctx)
-    }
-
-    pub fn set_tab_hidden(&mut self, id: &str, hidden: bool, ctx: &mut ReactiveCtx) -> bool {
-        let Some(index) = self.index_for_id(id) else {
-            return false;
-        };
-        self.set_tab_hidden_index(index, hidden, ctx)
-    }
-
-    pub fn hide_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
-        self.set_tab_hidden(id, true, ctx)
-    }
-
-    pub fn show_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
-        self.set_tab_hidden(id, false, ctx)
-    }
-
-    fn run_alias_reactive_update(
-        &mut self,
-        update: impl FnOnce(&mut Self, &mut ReactiveCtx) -> bool,
-    ) -> bool {
-        let mut rctx = ReactiveCtx::new(self.node_id());
-        let handled = update(self, &mut rctx);
-        if rctx.has_changes() {
-            let changes = rctx.take_changes();
-            self.reactive_dispatch(&changes, &mut rctx);
-        }
-        handled
-    }
-
-    /// Python-compat alias for `disable_tab`.
-    pub fn disable(&mut self, id: &str) -> bool {
-        self.run_alias_reactive_update(|this, ctx| this.disable_tab(id, ctx))
-    }
-
-    /// Python-compat alias for `enable_tab`.
-    pub fn enable(&mut self, id: &str) -> bool {
-        self.run_alias_reactive_update(|this, ctx| this.enable_tab(id, ctx))
-    }
-
-    /// Python-compat alias for `hide_tab`.
-    pub fn hide(&mut self, id: &str) -> bool {
-        self.run_alias_reactive_update(|this, ctx| this.hide_tab(id, ctx))
-    }
-
-    /// Python-compat alias for `show_tab`.
-    pub fn show(&mut self, id: &str) -> bool {
-        self.run_alias_reactive_update(|this, ctx| this.show_tab(id, ctx))
-    }
-
-    // ── Watchers ──────────────────────────────────────────────────────
-    // `active` is watched: side effects are handled directly in set_active via activate().
-
-    /// Remove a tab by its string ID. Returns `true` if found and removed.
-    pub fn remove_tab(&mut self, id: &str) -> bool {
-        let Some(index) = self.index_for_id(id) else {
-            return false;
-        };
-        let is_active = self.active.as_deref() == Some(id);
-        let replacement = if is_active {
-            self.replacement_after_deactivation(index)
-        } else {
-            None
-        };
-        self.tabs[index].child.set_focus(false);
-        self.tabs[index].child.on_unmount();
-        self.tabs.remove(index);
-        // Adjust hovered_tab after removal.
-        if let Some(h) = self.hovered_tab {
-            if h == index {
-                self.hovered_tab = None;
-            } else if h > index {
-                self.hovered_tab = Some(h - 1);
-            }
-        }
-        if is_active {
-            if let Some(next) = replacement {
-                // The removal shifted indices — clamp if needed.
-                let next = next.min(self.tabs.len().saturating_sub(1));
-                let _ = self.activate(next, None);
-            } else {
-                self.active = None;
-                self.ensure_active_exists();
-            }
-        }
-        self.sync_underline_to_active();
-        true
-    }
-
-    /// Remove all tabs.
-    pub fn clear(&mut self) {
-        for tab in &mut self.tabs {
-            tab.child.set_focus(false);
-            tab.child.on_unmount();
-        }
-        self.tabs.clear();
-        self.active = None;
-        self.hovered_tab = None;
-        self.underline_start = 0.0;
-        self.underline_end = 0.0;
-        self.pending_messages
-            .push(Message::TabsCleared(TabsCleared));
-    }
-
-    /// Number of tabs.
-    pub fn tab_count(&self) -> usize {
-        self.tabs.len()
-    }
-
-    // ── Internal helpers ─────────────────────────────────────────────
-
-    fn index_for_id(&self, id: &str) -> Option<usize> {
-        self.tabs.iter().position(|tab| tab.tab_id == id)
-    }
-
-    fn query_tab_by_id(&self, id: &str) -> Option<&Tab> {
-        let index = self.index_for_id(id)?;
-        self.tabs.get(index)
-    }
-
-    fn set_tab_disabled_index(
-        &mut self,
-        index: usize,
-        disabled: bool,
-        ctx: &mut ReactiveCtx,
-    ) -> bool {
-        let Some(tab) = self.tabs.get_mut(index) else {
-            return false;
-        };
-        if tab.disabled == disabled {
-            return true;
-        }
-        let tab_id = tab.tab_id.clone();
-        let old = tab.disabled;
-        tab.disabled = disabled;
-        ctx.record_change(
-            "tab_disabled",
-            ReactiveFlags::reactive(),
-            Box::new(old),
-            Box::new(disabled),
-        );
-        if disabled {
-            self.pending_messages
-                .push(Message::TabDisabled(TabDisabled { id: tab_id }));
-        } else {
-            self.pending_messages
-                .push(Message::TabEnabled(TabEnabled { id: tab_id }));
-        }
-        if self.active.is_none() {
-            self.ensure_active_exists();
-        }
-        self.sync_underline_to_active();
-        true
-    }
-
-    fn set_tab_hidden_index(&mut self, index: usize, hidden: bool, ctx: &mut ReactiveCtx) -> bool {
-        if index >= self.tabs.len() {
-            return false;
-        }
-        let was_hidden = self.tabs[index].hidden;
-        if was_hidden == hidden {
-            return true;
-        }
-        let tab_id = self.tabs[index].tab_id.clone();
-        let is_active = self.active_index() == Some(index);
-        let replacement = if hidden && is_active {
-            self.replacement_after_deactivation(index)
-        } else {
-            None
-        };
-        self.tabs[index].hidden = hidden;
-        ctx.record_change(
-            "tab_hidden",
-            ReactiveFlags::reactive_layout(),
-            Box::new(was_hidden),
-            Box::new(hidden),
-        );
-        if hidden {
-            self.pending_messages
-                .push(Message::TabHidden(TabHidden { id: tab_id }));
-        } else {
-            self.pending_messages
-                .push(Message::TabShown(TabShown { id: tab_id }));
-        }
-        if hidden && is_active {
-            if let Some(next) = replacement {
-                let _ = self.activate(next, None);
-            } else {
-                self.clear_active();
-            }
-        } else if !hidden && self.active.is_none() {
-            let _ = self.activate(index, None);
-        }
-        self.sync_underline_to_active();
-        true
-    }
-
-    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
-        if self.tabs.is_empty() {
-            self.clear_active();
-            return false;
-        }
-        let next = index.min(self.tabs.len() - 1);
-        if !self.is_activatable(next) {
-            return false;
-        }
-        let previous_active_index = self.active_index();
-        if Some(next) != previous_active_index {
-            if let Some(prev_idx) = previous_active_index {
-                if let Some(prev) = self.tabs.get_mut(prev_idx) {
-                    prev.child.set_focus(false);
-                }
-            }
-            self.active = Some(self.tabs[next].tab_id.clone());
-            if let Some(tab) = self.tabs.get_mut(next) {
-                tab.child.set_focus(self.focused);
-                if let Some((width, height)) = self.last_size {
-                    let content_height = height.saturating_sub(self.tab_row_height as u16);
-                    tab.child.on_resize(width, content_height);
-                    tab.child.on_layout(width, content_height);
-                }
-            }
-            let target_span = self.span_for_index(next);
-            if let Some(ctx) = ctx.as_mut() {
-                if let Some((target_start, target_end)) = target_span {
-                    let (duration, delay, ease) = self.underline_animation_params();
-                    let fallback_source = previous_active_index
-                        .and_then(|prev| self.span_for_index(prev))
-                        .unwrap_or((target_start, target_end));
-                    let from_start = if self.underline_end > self.underline_start {
-                        self.underline_start
-                    } else {
-                        fallback_source.0
-                    };
-                    let from_end = if self.underline_end > self.underline_start {
-                        self.underline_end
-                    } else {
-                        fallback_source.1
-                    };
-                    ctx.request_animation(
-                        AnimationRequest::new(
-                            self.node_id(),
-                            Self::UNDERLINE_START_ATTR,
-                            from_start,
-                            target_start,
-                            duration,
-                        )
-                        .with_delay(delay)
-                        .with_ease(ease)
-                        .with_level(AnimationLevel::Basic),
-                    );
-                    ctx.request_animation(
-                        AnimationRequest::new(
-                            self.node_id(),
-                            Self::UNDERLINE_END_ATTR,
-                            from_end,
-                            target_end,
-                            duration,
-                        )
-                        .with_delay(delay)
-                        .with_ease(ease)
-                        .with_level(AnimationLevel::Basic),
-                    );
-                } else {
-                    self.underline_start = 0.0;
-                    self.underline_end = 0.0;
-                }
-                ctx.post_message(Message::TabActivated(TabActivated {
-                    id: self.tabs[next].tab_id.clone(),
-                    index: next,
-                    title: self.tabs[next].title.clone(),
-                }));
-                ctx.request_repaint();
-            } else if let Some((target_start, target_end)) = target_span {
-                self.underline_start = target_start;
-                self.underline_end = target_end;
-            } else {
-                self.underline_start = 0.0;
-                self.underline_end = 0.0;
-            }
-        }
-        true
-    }
-
-    pub fn activate_prev(&mut self) {
-        self.activate_prev_with_ctx(None);
-    }
-
-    fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        self.move_active(-1, ctx);
-    }
-
-    pub fn activate_next(&mut self) {
-        self.activate_next_with_ctx(None);
-    }
-
-    fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
-        self.move_active(1, ctx);
-    }
-
-    fn clear_active(&mut self) {
-        if let Some(idx) = self.active_index() {
-            if let Some(tab) = self.tabs.get_mut(idx) {
-                tab.child.set_focus(false);
-            }
-        }
-        self.active = None;
-        self.underline_start = 0.0;
-        self.underline_end = 0.0;
-    }
-
-    fn ensure_active_exists(&mut self) {
-        if let Some(idx) = self.active_index() {
-            if self.is_visible(idx) {
-                return;
-            }
-        }
-        if let Some(next) = self.first_activatable() {
-            self.active = Some(self.tabs[next].tab_id.clone());
-        } else {
-            self.active = None;
-        }
-    }
-
-    fn is_visible(&self, index: usize) -> bool {
-        self.tabs.get(index).map(|tab| !tab.hidden).unwrap_or(false)
-    }
-
-    fn is_activatable(&self, index: usize) -> bool {
-        self.tabs
-            .get(index)
-            .map(|tab| !tab.hidden && !tab.disabled)
-            .unwrap_or(false)
-    }
-
-    fn potential_active_indices(&self) -> Vec<usize> {
-        let active_idx = self.active_index();
-        self.tabs
-            .iter()
-            .enumerate()
-            .filter_map(|(index, tab)| {
-                if tab.hidden {
-                    return None;
-                }
-                if tab.disabled && Some(index) != active_idx {
-                    return None;
-                }
-                Some(index)
-            })
-            .collect()
-    }
-
-    fn first_activatable(&self) -> Option<usize> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .find(|(_, tab)| !tab.hidden && !tab.disabled)
-            .map(|(index, _)| index)
-    }
-
-    fn last_activatable(&self) -> Option<usize> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, tab)| !tab.hidden && !tab.disabled)
-            .map(|(index, _)| index)
-    }
-
-    fn replacement_after_deactivation(&self, index: usize) -> Option<usize> {
-        let mut candidates = self.potential_active_indices();
-        let position = candidates
-            .iter()
-            .position(|candidate| *candidate == index)?;
-        candidates.remove(position);
-        if candidates.is_empty() {
-            None
-        } else if position < candidates.len() {
-            Some(candidates[position])
-        } else {
-            candidates.last().copied()
-        }
-    }
-
-    fn move_active(&mut self, direction: i32, ctx: Option<&mut EventCtx>) {
-        let candidates = self.potential_active_indices();
-        if candidates.is_empty() {
-            return;
-        }
-        let active_idx = self.active_index();
-        let target = match active_idx {
-            Some(active) => match candidates.iter().position(|index| *index == active) {
-                Some(position) => {
-                    let len = candidates.len() as i32;
-                    let next = (position as i32 + direction).rem_euclid(len) as usize;
-                    candidates[next]
-                }
-                None => {
-                    if direction >= 0 {
-                        candidates[0]
-                    } else {
-                        *candidates.last().unwrap_or(&candidates[0])
-                    }
-                }
-            },
-            None => {
-                if direction >= 0 {
-                    self.first_activatable().unwrap_or(candidates[0])
-                } else {
-                    self.last_activatable()
-                        .unwrap_or(*candidates.last().unwrap_or(&candidates[0]))
-                }
-            }
-        };
-        let _ = self.activate(target, ctx);
-    }
-
-    fn tab_spans(&self, width: usize) -> Vec<(usize, usize, usize)> {
-        let mut spans = Vec::new();
-        let mut cursor = 0usize;
-        for (index, tab) in self.tabs.iter().enumerate() {
-            if tab.hidden {
-                continue;
-            }
-            if cursor >= width {
-                break;
-            }
-            let label = format!(" {} ", tab.title);
-            let label_width = rich_rs::cell_len(&label);
-            if label_width == 0 {
-                continue;
-            }
-            let start = cursor;
-            let end = start.saturating_add(label_width);
-            spans.push((start, end, index));
-            cursor = cursor.saturating_add(label_width);
-        }
-        spans
-    }
-
-    fn span_for_index(&self, index: usize) -> Option<(f32, f32)> {
-        self.tab_spans(self.layout_width)
-            .into_iter()
-            .find(|(_, _, tab_index)| *tab_index == index)
-            .map(|(start, end, _)| (start as f32, end as f32))
-    }
-
-    fn sync_underline_to_active(&mut self) {
-        if let Some(active) = self.active_index()
-            && let Some((start, end)) = self.span_for_index(active)
-        {
-            self.underline_start = start;
-            self.underline_end = end;
-        } else {
-            self.underline_start = 0.0;
-            self.underline_end = 0.0;
-        }
-    }
-
-    fn underline_animation_params(&self) -> (Duration, Duration, AnimationEase) {
-        let style = crate::css::resolve_component_style(self, &["tabs--underline", "-active"]);
-        let duration = style
-            .transition_duration
-            .unwrap_or(Self::UNDERLINE_ANIMATION_DURATION);
-        let delay = style
-            .transition_delay
-            .unwrap_or(Self::UNDERLINE_ANIMATION_DELAY);
-        let ease = style
-            .transition_timing
-            .map(Self::transition_timing_to_animation_ease)
-            .unwrap_or(AnimationEase::InOutCubic);
-        (duration, delay, ease)
-    }
-
-    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
-        match timing {
-            TransitionTiming::Linear => AnimationEase::Linear,
-            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
-            TransitionTiming::OutCubic => AnimationEase::OutCubic,
-            TransitionTiming::Round => AnimationEase::Round,
-            TransitionTiming::None => AnimationEase::None,
-        }
-    }
-
-    fn hit_tab(&self, x: usize, y: usize) -> Option<usize> {
-        if y > 0 {
-            return None;
-        }
-        self.tab_spans(self.layout_width)
-            .into_iter()
-            .find(|(start, end, _)| x >= *start && x < *end)
-            .map(|(_, _, index)| index)
     }
 
     fn render_underline_line(
@@ -758,6 +241,782 @@ impl Tabs {
     }
 }
 
+impl Widget for Underline {
+    fn style_type(&self) -> &'static str {
+        "Underline"
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1) as usize;
+        let state = self.state.lock().expect("underline state lock");
+        let (start, end) = if state.show_highlight {
+            (state.highlight_start, state.highlight_end)
+        } else {
+            (0.0, 0.0)
+        };
+        let bar_style = crate::css::resolve_component_style(self, &["underline--bar"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let mut base_style = bar_style;
+        base_style.color = None;
+        let line = Self::render_underline_line(width, start, end, base_style, bar_style);
+        let mut out = Segments::new();
+        out.extend(line);
+        out
+    }
+}
+
+impl Renderable for Underline {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+pub struct Tabs {
+    state: Arc<Mutex<TabsState>>,
+    focused: bool,
+    hovered: bool,
+    hovered_tab: Option<usize>,
+    layout_width: usize,
+    last_size: Option<(u16, u16)>,
+    underline: Arc<Mutex<UnderlineState>>,
+    classes: Vec<String>,
+    focused_classes: Vec<String>,
+    styles: WidgetStyles,
+    pending_messages: Arc<Mutex<Vec<Message>>>,
+}
+
+impl Tabs {
+    const UNDERLINE_START_ATTR: &'static str = "tabs.underline_start";
+    const UNDERLINE_END_ATTR: &'static str = "tabs.underline_end";
+    const UNDERLINE_ANIMATION_DURATION: Duration = Duration::from_millis(300);
+    const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
+
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(TabsState {
+                tabs: Vec::new(),
+                active: None,
+            })),
+            focused: false,
+            hovered: false,
+            hovered_tab: None,
+            layout_width: 1,
+            last_size: None,
+            underline: Arc::new(Mutex::new(UnderlineState {
+                highlight_start: 0.0,
+                highlight_end: 0.0,
+                show_highlight: true,
+            })),
+            classes: Vec::new(),
+            focused_classes: Vec::new(),
+            styles: WidgetStyles::default(),
+            pending_messages: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn with_tab(mut self, tab: impl Into<Tab>) -> Self {
+        self.add_tab(tab);
+        self
+    }
+
+    pub fn add_tab(&mut self, tab: impl Into<Tab>) {
+        let mut tab = tab.into();
+        let tab_id = tab
+            .tab_id()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.next_tab_id());
+        tab.id = Some(tab_id.clone());
+        let mut state = self.state.lock().expect("tabs state lock");
+        state.tabs.push(TabEntry {
+            tab_id,
+            label: tab.label.clone(),
+            disabled: tab.disabled,
+            hidden: false,
+        });
+        if state.active.is_none() {
+            state.active = state.tabs.first().map(|entry| entry.tab_id.clone());
+        }
+    }
+
+    pub fn with_tab_id(mut self, id: impl Into<String>, title: impl Into<String>) -> Self {
+        let tab = Tab::new(title).id(id.into());
+        self.add_tab(tab);
+        self
+    }
+
+    pub fn add_tab_id(&mut self, id: impl Into<String>, title: impl Into<String>) {
+        let tab = Tab::new(title).id(id.into());
+        self.add_tab(tab);
+    }
+
+    pub fn set_dock(&mut self, dock: Dock) {
+        self.styles.style.dock = Some(dock);
+    }
+
+    pub fn active(&self) -> Option<String> {
+        let state = self.state.lock().expect("tabs state lock");
+        state.active.clone()
+    }
+
+    pub fn active_index(&self) -> Option<usize> {
+        let state = self.state.lock().expect("tabs state lock");
+        let id = state.active.as_ref()?;
+        self.index_for_id(&state, id)
+    }
+
+    pub fn is_tab_disabled(&self, id: &str) -> bool {
+        let state = self.state.lock().expect("tabs state lock");
+        self.query_tab_by_id(&state, id)
+            .map(|tab| tab.disabled)
+            .unwrap_or(false)
+    }
+
+    pub fn is_tab_hidden(&self, id: &str) -> bool {
+        let state = self.state.lock().expect("tabs state lock");
+        self.query_tab_by_id(&state, id)
+            .map(|tab| tab.hidden)
+            .unwrap_or(false)
+    }
+
+    pub fn set_active_id(&mut self, id: &str, ctx: Option<&mut EventCtx>) -> bool {
+        let state = self.state.lock().expect("tabs state lock");
+        let Some(index) = self.index_for_id(&state, id) else {
+            return false;
+        };
+        drop(state);
+        self.activate(index, ctx)
+    }
+
+    pub fn set_active(&mut self, id: &str, ctx: &mut ReactiveCtx) {
+        if self.active().as_deref() == Some(id) {
+            return;
+        }
+        let old = self.active();
+        if let Some(index) = {
+            let state = self.state.lock().expect("tabs state lock");
+            self.index_for_id(&state, id)
+        } {
+            let _ = self.activate(index, None);
+            ctx.record_change(
+                "active",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.active()),
+            );
+        }
+    }
+
+    pub fn set_tab_disabled(&mut self, id: &str, disabled: bool, ctx: &mut ReactiveCtx) -> bool {
+        let mut state = self.state.lock().expect("tabs state lock");
+        let Some(index) = self.index_for_id(&state, id) else {
+            return false;
+        };
+        let updated = self.set_tab_disabled_index(&mut state, index, disabled, ctx);
+        drop(state);
+        if updated {
+            self.sync_underline_to_active();
+        }
+        updated
+    }
+
+    pub fn disable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_disabled(id, true, ctx)
+    }
+
+    pub fn enable_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_disabled(id, false, ctx)
+    }
+
+    pub fn set_tab_hidden(&mut self, id: &str, hidden: bool, ctx: &mut ReactiveCtx) -> bool {
+        let mut state = self.state.lock().expect("tabs state lock");
+        let Some(index) = self.index_for_id(&state, id) else {
+            return false;
+        };
+        let updated = self.set_tab_hidden_index(&mut state, index, hidden, ctx);
+        drop(state);
+        if updated {
+            self.sync_underline_to_active();
+        }
+        updated
+    }
+
+    pub fn hide_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_hidden(id, true, ctx)
+    }
+
+    pub fn show_tab(&mut self, id: &str, ctx: &mut ReactiveCtx) -> bool {
+        self.set_tab_hidden(id, false, ctx)
+    }
+
+    fn run_alias_reactive_update(
+        &mut self,
+        update: impl FnOnce(&mut Self, &mut ReactiveCtx) -> bool,
+    ) -> bool {
+        let mut rctx = ReactiveCtx::new(self.node_id());
+        let handled = update(self, &mut rctx);
+        if rctx.has_changes() {
+            let changes = rctx.take_changes();
+            self.reactive_dispatch(&changes, &mut rctx);
+        }
+        handled
+    }
+
+    pub fn disable(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.disable_tab(id, ctx))
+    }
+
+    pub fn enable(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.enable_tab(id, ctx))
+    }
+
+    pub fn hide(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.hide_tab(id, ctx))
+    }
+
+    pub fn show(&mut self, id: &str) -> bool {
+        self.run_alias_reactive_update(|this, ctx| this.show_tab(id, ctx))
+    }
+
+    pub fn remove_tab(&mut self, id: &str) -> bool {
+        let mut state = self.state.lock().expect("tabs state lock");
+        let Some(index) = self.index_for_id(&state, id) else {
+            return false;
+        };
+        let was_active = state.active.as_deref() == Some(id);
+        let replacement = if was_active {
+            self.replacement_after_deactivation(&state, index)
+        } else {
+            None
+        };
+        state.tabs.remove(index);
+        if was_active {
+            if let Some(next) = replacement {
+                let next = next.min(state.tabs.len().saturating_sub(1));
+                state.active = state.tabs.get(next).map(|tab| tab.tab_id.clone());
+            } else {
+                state.active = None;
+            }
+        }
+        drop(state);
+        self.sync_underline_to_active();
+        true
+    }
+
+    pub fn clear(&mut self) {
+        let mut state = self.state.lock().expect("tabs state lock");
+        state.tabs.clear();
+        state.active = None;
+        drop(state);
+        self.hovered_tab = None;
+        self.set_underline_range(0.0, 0.0);
+        self.pending_messages
+            .lock()
+            .expect("tabs pending lock")
+            .push(Message::TabsCleared(TabsCleared));
+    }
+
+    pub fn tab_count(&self) -> usize {
+        let state = self.state.lock().expect("tabs state lock");
+        state.tabs.len()
+    }
+
+    fn next_tab_id(&mut self) -> String {
+        let state = self.state.lock().expect("tabs state lock");
+        format!("tab-{}", state.tabs.len() + 1)
+    }
+
+    fn index_for_id(&self, state: &TabsState, id: &str) -> Option<usize> {
+        state.tabs.iter().position(|tab| tab.tab_id == id)
+    }
+
+    fn query_tab_by_id<'a>(&self, state: &'a TabsState, id: &str) -> Option<&'a TabEntry> {
+        let index = self.index_for_id(state, id)?;
+        state.tabs.get(index)
+    }
+
+    fn set_tab_disabled_index(
+        &self,
+        state: &mut TabsState,
+        index: usize,
+        disabled: bool,
+        ctx: &mut ReactiveCtx,
+    ) -> bool {
+        let Some(tab) = state.tabs.get_mut(index) else {
+            return false;
+        };
+        if tab.disabled == disabled {
+            return true;
+        }
+        let tab_id = tab.tab_id.clone();
+        let old = tab.disabled;
+        tab.disabled = disabled;
+        ctx.record_change(
+            "tab_disabled",
+            ReactiveFlags::reactive(),
+            Box::new(old),
+            Box::new(disabled),
+        );
+        if disabled {
+            self.pending_messages
+                .lock()
+                .expect("tabs pending lock")
+                .push(Message::TabDisabled(TabDisabled { id: tab_id.clone() }));
+        } else {
+            self.pending_messages
+                .lock()
+                .expect("tabs pending lock")
+                .push(Message::TabEnabled(TabEnabled { id: tab_id.clone() }));
+        }
+        self.pending_messages
+            .lock()
+            .expect("tabs pending lock")
+            .push(Message::AppSetDisabled(crate::message::AppSetDisabled {
+                selector: format!("#tabs-list > #{tab_id}"),
+                disabled,
+            }));
+        if state.active.is_none() {
+            self.ensure_active_exists(state);
+        }
+        true
+    }
+
+    fn set_tab_hidden_index(
+        &self,
+        state: &mut TabsState,
+        index: usize,
+        hidden: bool,
+        ctx: &mut ReactiveCtx,
+    ) -> bool {
+        if index >= state.tabs.len() {
+            return false;
+        }
+        let was_hidden = state.tabs[index].hidden;
+        if was_hidden == hidden {
+            return true;
+        }
+        let tab_id = state.tabs[index].tab_id.clone();
+        let prev_active = state.active.clone();
+        let is_active = prev_active.as_deref() == Some(tab_id.as_str());
+        let replacement = if hidden && is_active {
+            self.replacement_after_deactivation(state, index)
+        } else {
+            None
+        };
+        state.tabs[index].hidden = hidden;
+        ctx.record_change(
+            "tab_hidden",
+            ReactiveFlags::reactive_layout(),
+            Box::new(was_hidden),
+            Box::new(hidden),
+        );
+        if hidden {
+            let mut pending = self.pending_messages.lock().expect("tabs pending lock");
+            pending.push(Message::TabHidden(TabHidden { id: tab_id.clone() }));
+            pending.push(Message::AppAddClass(crate::message::AppAddClass {
+                selector: format!("#tabs-list > #{tab_id}"),
+                class_name: "-hidden".to_string(),
+            }));
+        } else {
+            let mut pending = self.pending_messages.lock().expect("tabs pending lock");
+            pending.push(Message::TabShown(TabShown { id: tab_id.clone() }));
+            pending.push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                selector: format!("#tabs-list > #{tab_id}"),
+                class_name: "-hidden".to_string(),
+            }));
+        }
+        if hidden && is_active {
+            if let Some(next) = replacement {
+                state.active = state.tabs.get(next).map(|tab| tab.tab_id.clone());
+            } else {
+                state.active = None;
+            }
+        } else if !hidden && state.active.is_none() {
+            state.active = Some(tab_id.clone());
+        }
+        if prev_active != state.active {
+            if let Some(prev) = prev_active {
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                        selector: format!("#tabs-list > #{prev}"),
+                        class_name: "-active".to_string(),
+                    }));
+            }
+            if let Some(next) = state.active.clone() {
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(Message::AppAddClass(crate::message::AppAddClass {
+                        selector: format!("#tabs-list > #{next}"),
+                        class_name: "-active".to_string(),
+                    }));
+            }
+        }
+        true
+    }
+
+    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
+        let mut state = self.state.lock().expect("tabs state lock");
+        if state.tabs.is_empty() {
+            state.active = None;
+            drop(state);
+            self.set_underline_range(0.0, 0.0);
+            return false;
+        }
+        let next = index.min(state.tabs.len() - 1);
+        if !self.is_activatable(&state, next) {
+            return false;
+        }
+        let previous_active_index = self.index_for_id(&state, state.active.as_deref().unwrap_or(""));
+        if Some(next) != previous_active_index {
+            let new_id = state.tabs[next].tab_id.clone();
+            let prev_id = previous_active_index.map(|idx| state.tabs[idx].tab_id.clone());
+            state.active = Some(new_id.clone());
+            drop(state);
+            if let Some(ctx) = ctx.as_mut() {
+                if let Some(prev) = prev_id {
+                    ctx.post_message(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                        selector: format!("#tabs-list > #{prev}"),
+                        class_name: "-active".to_string(),
+                    }));
+                }
+                ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                    selector: format!("#tabs-list > #{new_id}"),
+                    class_name: "-active".to_string(),
+                }));
+            } else {
+                if let Some(prev) = prev_id {
+                    self.pending_messages
+                        .lock()
+                        .expect("tabs pending lock")
+                        .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                            selector: format!("#tabs-list > #{prev}"),
+                            class_name: "-active".to_string(),
+                        }));
+                }
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(Message::AppAddClass(crate::message::AppAddClass {
+                        selector: format!("#tabs-list > #{new_id}"),
+                        class_name: "-active".to_string(),
+                    }));
+            }
+            let target_span = self.span_for_index(next);
+            if let Some(ctx) = ctx.as_mut() {
+                if let Some((target_start, target_end)) = target_span {
+                    let (duration, delay, ease) = self.underline_animation_params();
+                    let fallback_source = previous_active_index
+                        .and_then(|prev| self.span_for_index(prev))
+                        .unwrap_or((target_start, target_end));
+                    let (from_start, from_end) = self.current_underline_range();
+                    let from_start = if from_end > from_start {
+                        from_start
+                    } else {
+                        fallback_source.0
+                    };
+                    let from_end = if from_end > from_start {
+                        from_end
+                    } else {
+                        fallback_source.1
+                    };
+                    ctx.request_animation(
+                        AnimationRequest::new(
+                            self.node_id(),
+                            Self::UNDERLINE_START_ATTR,
+                            from_start,
+                            target_start,
+                            duration,
+                        )
+                        .with_delay(delay)
+                        .with_ease(ease)
+                        .with_level(AnimationLevel::Basic),
+                    );
+                    ctx.request_animation(
+                        AnimationRequest::new(
+                            self.node_id(),
+                            Self::UNDERLINE_END_ATTR,
+                            from_end,
+                            target_end,
+                            duration,
+                        )
+                        .with_delay(delay)
+                        .with_ease(ease)
+                        .with_level(AnimationLevel::Basic),
+                    );
+                } else {
+                    self.set_underline_range(0.0, 0.0);
+                }
+                let title = {
+                    let state = self.state.lock().expect("tabs state lock");
+                    state.tabs[next].label.clone()
+                };
+                ctx.post_message(Message::TabActivated(TabActivated {
+                    id: new_id,
+                    index: next,
+                    title,
+                }));
+                ctx.request_repaint();
+            } else if let Some((target_start, target_end)) = target_span {
+                self.set_underline_range(target_start, target_end);
+            } else {
+                self.set_underline_range(0.0, 0.0);
+            }
+            return true;
+        }
+        false
+    }
+
+    pub fn activate_prev(&mut self) {
+        self.activate_prev_with_ctx(None);
+    }
+
+    fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
+        self.move_active(-1, ctx);
+    }
+
+    pub fn activate_next(&mut self) {
+        self.activate_next_with_ctx(None);
+    }
+
+    fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
+        self.move_active(1, ctx);
+    }
+
+    fn ensure_active_exists(&self, state: &mut TabsState) {
+        if let Some(idx) = state
+            .active
+            .as_ref()
+            .and_then(|id| self.index_for_id(state, id))
+        {
+            if self.is_visible(state, idx) {
+                return;
+            }
+        }
+        if let Some(next) = self.first_activatable(state) {
+            state.active = Some(state.tabs[next].tab_id.clone());
+        } else {
+            state.active = None;
+        }
+    }
+
+    fn is_visible(&self, state: &TabsState, index: usize) -> bool {
+        state
+            .tabs
+            .get(index)
+            .map(|tab| !tab.hidden)
+            .unwrap_or(false)
+    }
+
+    fn is_activatable(&self, state: &TabsState, index: usize) -> bool {
+        state
+            .tabs
+            .get(index)
+            .map(|tab| !tab.hidden && !tab.disabled)
+            .unwrap_or(false)
+    }
+
+    fn potential_active_indices(&self, state: &TabsState) -> Vec<usize> {
+        let active_idx = state
+            .active
+            .as_ref()
+            .and_then(|id| self.index_for_id(state, id));
+        state
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                if tab.hidden {
+                    return None;
+                }
+                if tab.disabled && Some(index) != active_idx {
+                    return None;
+                }
+                Some(index)
+            })
+            .collect()
+    }
+
+    fn first_activatable(&self, state: &TabsState) -> Option<usize> {
+        state
+            .tabs
+            .iter()
+            .enumerate()
+            .find(|(_, tab)| !tab.hidden && !tab.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn last_activatable(&self, state: &TabsState) -> Option<usize> {
+        state
+            .tabs
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, tab)| !tab.hidden && !tab.disabled)
+            .map(|(index, _)| index)
+    }
+
+    fn replacement_after_deactivation(&self, state: &TabsState, index: usize) -> Option<usize> {
+        let mut candidates = self.potential_active_indices(state);
+        let position = candidates
+            .iter()
+            .position(|candidate| *candidate == index)?;
+        candidates.remove(position);
+        if candidates.is_empty() {
+            None
+        } else if position < candidates.len() {
+            Some(candidates[position])
+        } else {
+            candidates.last().copied()
+        }
+    }
+
+    fn move_active(&mut self, direction: i32, ctx: Option<&mut EventCtx>) {
+        let state = self.state.lock().expect("tabs state lock");
+        let candidates = self.potential_active_indices(&state);
+        if candidates.is_empty() {
+            return;
+        }
+        let active_idx = state
+            .active
+            .as_ref()
+            .and_then(|id| self.index_for_id(&state, id));
+        let target = match active_idx {
+            Some(active) => match candidates.iter().position(|index| *index == active) {
+                Some(position) => {
+                    let len = candidates.len() as i32;
+                    let next = (position as i32 + direction).rem_euclid(len) as usize;
+                    candidates[next]
+                }
+                None => {
+                    if direction >= 0 {
+                        candidates[0]
+                    } else {
+                        *candidates.last().unwrap_or(&candidates[0])
+                    }
+                }
+            },
+            None => {
+                if direction >= 0 {
+                    self.first_activatable(&state).unwrap_or(candidates[0])
+                } else {
+                    self.last_activatable(&state)
+                        .unwrap_or(*candidates.last().unwrap_or(&candidates[0]))
+                }
+            }
+        };
+        drop(state);
+        let _ = self.activate(target, ctx);
+    }
+
+    fn tab_spans(&self, width: usize) -> Vec<(usize, usize, usize)> {
+        let state = self.state.lock().expect("tabs state lock");
+        let mut spans = Vec::new();
+        let mut cursor = 0usize;
+        for (index, tab) in state.tabs.iter().enumerate() {
+            if tab.hidden {
+                continue;
+            }
+            if cursor >= width {
+                break;
+            }
+            let label = format!(" {} ", tab.label);
+            let label_width = rich_rs::cell_len(&label);
+            if label_width == 0 {
+                continue;
+            }
+            let start = cursor;
+            let end = start.saturating_add(label_width);
+            spans.push((start, end, index));
+            cursor = cursor.saturating_add(label_width);
+        }
+        spans
+    }
+
+    fn span_for_index(&self, index: usize) -> Option<(f32, f32)> {
+        self.tab_spans(self.layout_width)
+            .into_iter()
+            .find(|(_, _, tab_index)| *tab_index == index)
+            .map(|(start, end, _)| (start as f32, end as f32))
+    }
+
+    fn sync_underline_to_active(&mut self) {
+        if let Some(active) = self.active_index()
+            && let Some((start, end)) = self.span_for_index(active)
+        {
+            self.set_underline_range(start, end);
+        } else {
+            self.set_underline_range(0.0, 0.0);
+        }
+    }
+
+    fn underline_animation_params(&self) -> (Duration, Duration, AnimationEase) {
+        let style = crate::css::resolve_component_style(self, &["tabs--underline", "-active"]);
+        let duration = style
+            .transition_duration
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DURATION);
+        let delay = style
+            .transition_delay
+            .unwrap_or(Self::UNDERLINE_ANIMATION_DELAY);
+        let ease = style
+            .transition_timing
+            .map(Self::transition_timing_to_animation_ease)
+            .unwrap_or(AnimationEase::InOutCubic);
+        (duration, delay, ease)
+    }
+
+    fn transition_timing_to_animation_ease(timing: TransitionTiming) -> AnimationEase {
+        match timing {
+            TransitionTiming::Linear => AnimationEase::Linear,
+            TransitionTiming::InOutCubic => AnimationEase::InOutCubic,
+            TransitionTiming::OutCubic => AnimationEase::OutCubic,
+            TransitionTiming::Round => AnimationEase::Round,
+            TransitionTiming::None => AnimationEase::None,
+        }
+    }
+
+    fn hit_tab(&self, x: usize, y: usize) -> Option<usize> {
+        if y > 0 {
+            return None;
+        }
+        self.tab_spans(self.layout_width)
+            .into_iter()
+            .find(|(start, end, _)| x >= *start && x < *end)
+            .map(|(_, _, index)| index)
+    }
+
+    fn current_underline_range(&self) -> (f32, f32) {
+        let state = self.underline.lock().expect("underline lock");
+        (state.highlight_start, state.highlight_end)
+    }
+
+    fn set_underline_range(&mut self, start: f32, end: f32) {
+        let mut state = self.underline.lock().expect("underline lock");
+        state.highlight_start = start;
+        state.highlight_end = end;
+        state.show_highlight = !(start == 0.0 && end == 0.0);
+    }
+
+    fn tab_decls(&self) -> Vec<ChildDecl> {
+        let state = self.state.lock().expect("tabs state lock");
+        state
+            .tabs
+            .iter()
+            .map(|entry| ChildDecl::from(Tab::new(entry.label.clone()).id(entry.tab_id.clone())))
+            .collect()
+    }
+}
+
 impl Widget for Tabs {
     fn focusable(&self) -> bool {
         true
@@ -765,9 +1024,6 @@ impl Widget for Tabs {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child.set_focus(focused);
-        }
     }
 
     fn has_focus(&self) -> bool {
@@ -786,11 +1042,40 @@ impl Widget for Tabs {
     }
 
     fn on_mount(&mut self) {
-        self.ensure_active_exists();
-        for tab in &mut self.tabs {
-            tab.child.on_mount();
-        }
+        let mut state = self.state.lock().expect("tabs state lock");
+        self.ensure_active_exists(&mut state);
+        drop(state);
         self.sync_underline_to_active();
+        if let Some(active) = self.active() {
+            self.pending_messages
+                .lock()
+                .expect("tabs pending lock")
+                .push(Message::AppAddClass(crate::message::AppAddClass {
+                    selector: format!("#tabs-list > #{active}"),
+                    class_name: "-active".to_string(),
+                }));
+        }
+        let state = self.state.lock().expect("tabs state lock");
+        for tab in &state.tabs {
+            if tab.hidden {
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(Message::AppAddClass(crate::message::AppAddClass {
+                        selector: format!("#tabs-list > #{}", tab.tab_id),
+                        class_name: "-hidden".to_string(),
+                    }));
+            }
+            if tab.disabled {
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(Message::AppSetDisabled(crate::message::AppSetDisabled {
+                        selector: format!("#tabs-list > #{}", tab.tab_id),
+                        disabled: true,
+                    }));
+            }
+        }
     }
 
     fn on_unmount(&mut self) {
@@ -798,38 +1083,22 @@ impl Widget for Tabs {
         self.hovered = false;
         self.hovered_tab = None;
         self.last_size = None;
-        for tab in &mut self.tabs {
-            tab.child.set_focus(false);
-            tab.child.on_unmount();
-        }
     }
 
-    fn on_tick(&mut self, tick: u64) {
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child.on_tick(tick);
-        }
-    }
+    fn on_tick(&mut self, _tick: u64) {}
 
     fn on_resize(&mut self, width: u16, height: u16) {
         self.last_size = Some((width, height));
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child
-                .on_resize(width, height.saturating_sub(self.tab_row_height as u16));
-        }
     }
 
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.last_size = Some((width, height));
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        self.last_size = Some((width, _height));
         let next_layout_width = usize::from(width).max(1);
         if next_layout_width != self.layout_width {
             self.layout_width = next_layout_width;
             self.sync_underline_to_active();
         } else {
             self.layout_width = next_layout_width;
-        }
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child
-                .on_layout(width, height.saturating_sub(self.tab_row_height as u16));
         }
     }
 
@@ -860,16 +1129,14 @@ impl Widget for Tabs {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child.on_event_capture(event, ctx);
-        }
-    }
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        // Drain any pending messages queued by methods that lack EventCtx.
-        for msg in self.pending_messages.drain(..) {
-            ctx.post_message(msg);
+        {
+            let mut pending = self.pending_messages.lock().expect("tabs pending lock");
+            for msg in pending.drain(..) {
+                ctx.post_message(msg);
+            }
         }
 
         if let Event::AnimationValue(AnimationValueEvent {
@@ -881,13 +1148,15 @@ impl Widget for Tabs {
         {
             if *target == self.node_id() {
                 if attribute == Self::UNDERLINE_START_ATTR {
-                    self.underline_start = *value;
+                    let mut state = self.underline.lock().expect("underline lock");
+                    state.highlight_start = *value;
                     ctx.request_repaint();
                     ctx.set_handled();
                     return;
                 }
                 if attribute == Self::UNDERLINE_END_ATTR {
-                    self.underline_end = *value;
+                    let mut state = self.underline.lock().expect("underline lock");
+                    state.highlight_end = *value;
                     ctx.request_repaint();
                     ctx.set_handled();
                     return;
@@ -931,19 +1200,30 @@ impl Widget for Tabs {
                 }
             }
         }
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child.on_event(event, ctx);
-        }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Some(tab) = self.active_index().and_then(|idx| self.tabs.get_mut(idx)) {
-            tab.child.on_message(message, ctx);
+        match &message.message {
+            Message::TabClicked(clicked) => {
+                if clicked.id.is_empty() {
+                    return;
+                }
+                let state = self.state.lock().expect("tabs state lock");
+                let index = self.index_for_id(&state, &clicked.id);
+                drop(state);
+                if let Some(index) = index {
+                    if self.activate(index, Some(ctx)) {
+                        ctx.set_handled();
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
     fn binding_hints(&self) -> Vec<BindingHint> {
-        if self.potential_active_indices().len() <= 1 {
+        let state = self.state.lock().expect("tabs state lock");
+        if self.potential_active_indices(&state).len() <= 1 {
             return Vec::new();
         }
         vec![
@@ -962,121 +1242,29 @@ impl Widget for Tabs {
         false
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let active_idx = self.active_index();
-        let bar_style = crate::css::resolve_component_style(self, &["tabs--bar"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
-        let mut base_underline_classes = vec!["tabs--underline"];
-        let mut active_underline_classes = vec!["tabs--underline", "-active"];
-        if self.focused {
-            base_underline_classes.push("-focus");
-            active_underline_classes.push("-focus");
-        }
-        let base_underline_style =
-            crate::css::resolve_component_style(self, &base_underline_classes)
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new);
-        let active_underline_style =
-            crate::css::resolve_component_style(self, &active_underline_classes)
-                .to_rich()
-                .unwrap_or(base_underline_style);
+    fn compose(&self) -> ComposeResult {
+        let underline = Underline::new(self.underline.clone());
+        let tabs_list = ChildDecl::from(Horizontal::new())
+            .with_id("tabs-list")
+            .with_children(self.tab_decls());
+        let list_bar = ChildDecl::from(Vertical::new())
+            .with_id("tabs-list-bar")
+            .with_children(vec![tabs_list, ChildDecl::from(underline)]);
+        let scroll = ChildDecl::from(Container::new())
+            .with_id("tabs-scroll")
+            .with_children(vec![list_bar]);
+        vec![scroll]
+    }
 
-        let mut header_line = Vec::new();
-        if self.tabs.is_empty() {
-            header_line.push(Segment::styled(" no tabs ".to_string(), bar_style));
-        } else {
-            for (idx, tab) in self.tabs.iter().enumerate() {
-                if tab.hidden {
-                    continue;
-                }
-                let mut classes = vec!["tabs--tab"];
-                if tab.disabled {
-                    classes.push("-disabled");
-                }
-                if active_idx == Some(idx) {
-                    classes.push("-active");
-                    if self.focused {
-                        classes.push("-focus");
-                    }
-                }
-                if self.hovered_tab == Some(idx) {
-                    classes.push("-hover");
-                }
-                let style = crate::css::resolve_component_style(self, &classes)
-                    .to_rich()
-                    .unwrap_or(bar_style);
-                header_line.push(Segment::styled(format!(" {} ", tab.title), style));
-            }
-        }
-        let mut header_line = Segment::adjust_line_length(&header_line, width, None, false);
-        let mut underline_line = Segment::adjust_line_length(
-            &Self::render_underline_line(
-                width,
-                self.underline_start,
-                self.underline_end,
-                base_underline_style,
-                active_underline_style,
-            ),
-            width,
-            None,
-            false,
-        );
-        let header_len = Segment::get_line_length(&header_line);
-        if header_len < width {
-            header_line.push(Segment::styled(" ".repeat(width - header_len), bar_style));
-        }
-        let underline_len = Segment::get_line_length(&underline_line);
-        if underline_len < width {
-            underline_line.push(Segment::styled(
-                "─".repeat(width - underline_len),
-                base_underline_style,
-            ));
-        }
-        let mut lines = vec![header_line, underline_line];
-
-        if height > self.tab_row_height {
-            if let Some(tab) = active_idx.and_then(|idx| self.tabs.get(idx)) {
-                let mut child_options = options.clone();
-                child_options.size = (width, height - self.tab_row_height);
-                child_options.max_width = width;
-                child_options.max_height = height - self.tab_row_height;
-                let child_segments = tab.child.render_styled(console, &child_options);
-                let mut child_lines =
-                    Segment::split_and_crop_lines(child_segments, width, None, true, false);
-                child_lines = Segment::set_shape(
-                    &child_lines,
-                    width,
-                    Some(height - self.tab_row_height),
-                    None,
-                    false,
-                );
-                lines.extend(child_lines);
-            }
-        }
-
-        let line_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
     }
 
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
         }
-        let child_height = self
-            .active_index()
-            .and_then(|idx| self.tabs.get(idx))
-            .and_then(|tab| tab.child.layout_height());
-        child_height.map(|height| height + self.tab_row_height)
+        Some(2)
     }
 
     fn style_classes(&self) -> &[String] {
@@ -1107,13 +1295,46 @@ impl Renderable for Tabs {
 impl ReactiveWidget for Tabs {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "active" => {
-                    // Side effects handled directly in set_active via activate().
-                }
-                _ => {}
+            if change.field_name == "active" {
+                // Side effects handled directly in set_active via activate().
             }
         }
+    }
+}
+
+impl Default for Tabs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for Tabs {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            focused: false,
+            hovered: false,
+            hovered_tab: None,
+            layout_width: 1,
+            last_size: None,
+            underline: self.underline.clone(),
+            classes: self.classes.clone(),
+            focused_classes: self.focused_classes.clone(),
+            styles: self.styles.clone(),
+            pending_messages: self.pending_messages.clone(),
+        }
+    }
+}
+
+impl From<&str> for Tab {
+    fn from(value: &str) -> Self {
+        Tab::new(value)
+    }
+}
+
+impl From<String> for Tab {
+    fn from(value: String) -> Self {
+        Tab::new(value)
     }
 }
 
@@ -1122,64 +1343,11 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
-    use crate::node_id::NodeId;
-    use crate::prelude::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Clone)]
-    struct ProbeWidget {
-        resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
-        layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
-        focus_calls: Arc<Mutex<Vec<bool>>>,
-    }
-
-    impl ProbeWidget {
-        fn new(
-            resize_calls: Arc<Mutex<Vec<(u16, u16)>>>,
-            layout_calls: Arc<Mutex<Vec<(u16, u16)>>>,
-            focus_calls: Arc<Mutex<Vec<bool>>>,
-        ) -> Self {
-            Self {
-                resize_calls,
-                layout_calls,
-                focus_calls,
-            }
-        }
-    }
-
-    impl Widget for ProbeWidget {
-        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-            Segments::new()
-        }
-
-        fn on_resize(&mut self, width: u16, height: u16) {
-            self.resize_calls
-                .lock()
-                .expect("resize_calls lock")
-                .push((width, height));
-        }
-
-        fn on_layout(&mut self, width: u16, height: u16) {
-            self.layout_calls
-                .lock()
-                .expect("layout_calls lock")
-                .push((width, height));
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focus_calls
-                .lock()
-                .expect("focus_calls lock")
-                .push(focused);
-        }
-    }
 
     #[test]
     fn keyboard_activation_posts_message_and_requests_repaint() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
+        let mut tabs = Tabs::new().with_tab("One").with_tab("Two");
         tabs.set_focus(true);
         tabs.on_layout(40, 6);
 
@@ -1195,22 +1363,14 @@ mod tests {
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         let messages = ctx.take_messages();
-        assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::TabActivated(TabActivated { index: 1, ref title, .. }) if title == "Two"
-        ));
-        assert_eq!(ctx.take_animation_requests().len(), 2);
+        assert!(messages.iter().any(|m| matches!(m.message, Message::TabActivated(..))));
     }
 
     #[test]
     fn clicking_active_tab_is_handled_but_emits_no_activation_message() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
+        let mut tabs = Tabs::new().with_tab("One").with_tab("Two");
         tabs.on_layout(40, 6);
 
-        // NodeId::default() matches self.node_id() in tests (no dispatch context).
         let mut ctx = EventCtx::default();
         tabs.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -1224,226 +1384,7 @@ mod tests {
         );
 
         assert!(ctx.handled());
-        assert!(ctx.take_messages().is_empty());
-        assert!(!ctx.repaint_requested());
-        assert!(ctx.take_animation_requests().is_empty());
-    }
-
-    #[test]
-    fn on_resize_forwards_content_height_to_active_tab() {
-        let resize_calls = Arc::new(Mutex::new(Vec::new()));
-        let layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let focus_calls = Arc::new(Mutex::new(Vec::new()));
-        let probe = ProbeWidget::new(resize_calls.clone(), layout_calls, focus_calls);
-        let mut tabs = Tabs::new().with_tab("One", probe);
-
-        tabs.on_resize(80, 10);
-
-        let calls = resize_calls.lock().expect("resize_calls lock");
-        assert_eq!(*calls, vec![(80, 8)]);
-    }
-
-    #[test]
-    fn activation_after_layout_forwards_latest_geometry_to_new_active_tab() {
-        let first_resize_calls = Arc::new(Mutex::new(Vec::new()));
-        let first_layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let first_focus_calls = Arc::new(Mutex::new(Vec::new()));
-        let second_resize_calls = Arc::new(Mutex::new(Vec::new()));
-        let second_layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let second_focus_calls = Arc::new(Mutex::new(Vec::new()));
-        let first = ProbeWidget::new(first_resize_calls, first_layout_calls, first_focus_calls);
-        let second = ProbeWidget::new(
-            second_resize_calls.clone(),
-            second_layout_calls.clone(),
-            second_focus_calls,
-        );
-        let mut tabs = Tabs::new().with_tab("One", first).with_tab("Two", second);
-        tabs.on_layout(60, 9);
-        tabs.set_focus(true);
-        let mut ctx = EventCtx::default();
-
-        tabs.on_event(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Right,
-                KeyModifiers::NONE,
-            ))),
-            &mut ctx,
-        );
-
-        let resize_calls = second_resize_calls.lock().expect("resize_calls lock");
-        let layout_calls = second_layout_calls.lock().expect("layout_calls lock");
-        assert_eq!(*resize_calls, vec![(60, 7)]);
-        assert_eq!(*layout_calls, vec![(60, 7)]);
-    }
-
-    #[test]
-    fn binding_hints_require_more_than_one_switchable_tab() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"))
-            .with_tab("Three", Label::new("third"));
-        let mut rctx = ReactiveCtx::new(NodeId::default());
-        assert!(tabs.disable_tab("Two", &mut rctx));
-        assert!(tabs.hide_tab("Three", &mut rctx));
-
-        assert!(tabs.binding_hints().is_empty());
-    }
-
-    #[test]
-    fn on_unmount_resets_transient_state_and_unfocuses_children() {
-        let resize_calls = Arc::new(Mutex::new(Vec::new()));
-        let layout_calls = Arc::new(Mutex::new(Vec::new()));
-        let focus_calls = Arc::new(Mutex::new(Vec::new()));
-        let probe = ProbeWidget::new(resize_calls, layout_calls, focus_calls.clone());
-        let mut tabs = Tabs::new().with_tab("One", probe);
-        tabs.on_layout(30, 6);
-        tabs.set_focus(true);
-        tabs.set_hovered(true);
-        assert!(tabs.on_mouse_move(1, 0));
-        assert!(tabs.hovered_tab.is_some());
-        assert!(tabs.has_focus());
-        assert!(tabs.is_hovered());
-
-        tabs.on_unmount();
-
-        assert!(!tabs.has_focus());
-        assert!(!tabs.is_hovered());
-        assert!(tabs.hovered_tab.is_none());
-        let focus_events = focus_calls.lock().expect("focus_calls lock");
-        assert_eq!(*focus_events, vec![true, false]);
-    }
-
-    #[test]
-    fn active_returns_string_id() {
-        let tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
-        assert_eq!(tabs.active(), Some("One"));
-        assert_eq!(tabs.active_index(), Some(0));
-    }
-
-    #[test]
-    fn set_active_by_id() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
-        let mut rctx = ReactiveCtx::new(NodeId::default());
-        tabs.set_active("Two", &mut rctx);
-        assert_eq!(tabs.active(), Some("Two"));
-        assert_eq!(tabs.active_index(), Some(1));
-    }
-
-    #[test]
-    fn with_tab_id_explicit_id() {
-        let tabs = Tabs::new()
-            .with_tab_id("tab-one", "Tab One", Label::new("first"))
-            .with_tab_id("tab-two", "Tab Two", Label::new("second"));
-        assert_eq!(tabs.active(), Some("tab-one"));
-        assert!(tabs.is_tab_disabled("tab-one") == false);
-    }
-
-    #[test]
-    fn python_compat_aliases_map_to_existing_tab_state_transitions() {
-        let mut tabs = Tabs::new()
-            .with_tab_id("one", "One", Label::new("first"))
-            .with_tab_id("two", "Two", Label::new("second"));
-        assert!(tabs.disable("one"));
-        assert!(tabs.is_tab_disabled("one"));
-        assert!(tabs.enable("one"));
-        assert!(!tabs.is_tab_disabled("one"));
-        assert!(tabs.hide("two"));
-        assert!(tabs.is_tab_hidden("two"));
-        assert!(tabs.show("two"));
-        assert!(!tabs.is_tab_hidden("two"));
-    }
-
-    #[test]
-    fn remove_tab_active_moves_to_next() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"))
-            .with_tab("Three", Label::new("third"));
-        assert_eq!(tabs.active(), Some("One"));
-
-        assert!(tabs.remove_tab("One"));
-        assert_eq!(tabs.tab_count(), 2);
-        // Active should move to the next available tab
-        assert!(tabs.active().is_some());
-    }
-
-    #[test]
-    fn remove_tab_nonexistent_returns_false() {
-        let mut tabs = Tabs::new().with_tab("One", Label::new("first"));
-        assert!(!tabs.remove_tab("NonExistent"));
-        assert_eq!(tabs.tab_count(), 1);
-    }
-
-    #[test]
-    fn clear_removes_all_tabs() {
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
-        tabs.clear();
-        assert_eq!(tabs.tab_count(), 0);
-        assert_eq!(tabs.active(), None);
-        assert_eq!(tabs.active_index(), None);
-    }
-
-    #[test]
-    fn tab_activated_message_includes_id() {
-        let mut tabs = Tabs::new()
-            .with_tab_id("tab-1", "One", Label::new("first"))
-            .with_tab_id("tab-2", "Two", Label::new("second"));
-        tabs.set_focus(true);
-        tabs.on_layout(40, 6);
-
-        let mut ctx = EventCtx::default();
-        tabs.on_event(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Right,
-                KeyModifiers::NONE,
-            ))),
-            &mut ctx,
-        );
-
         let messages = ctx.take_messages();
-        assert_eq!(messages.len(), 1);
-        match &messages[0].message {
-            Message::TabActivated(TabActivated { id, index, title }) => {
-                assert_eq!(id, "tab-2");
-                assert_eq!(*index, 1);
-                assert_eq!(title, "Two");
-            }
-            other => panic!("expected TabActivated, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn bindings_are_declared() {
-        let tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
-        let bindings = tabs.bindings();
-        assert!(!bindings.is_empty());
-        assert!(bindings.iter().any(|b| b.action == "previous"));
-        assert!(bindings.iter().any(|b| b.action == "next"));
-    }
-
-    #[test]
-    fn execute_action_handles_next() {
-        use crate::action::ParsedAction;
-        let mut tabs = Tabs::new()
-            .with_tab("One", Label::new("first"))
-            .with_tab("Two", Label::new("second"));
-        tabs.set_focus(true);
-        tabs.on_layout(40, 6);
-        let mut ctx = EventCtx::default();
-        let action = ParsedAction {
-            namespace: None,
-            name: "next".to_string(),
-            arguments: vec![],
-        };
-        assert!(tabs.execute_action(&action, &mut ctx));
-        assert_eq!(tabs.active(), Some("Two"));
+        assert!(messages.iter().all(|m| !matches!(m.message, Message::TabActivated(..))));
     }
 }

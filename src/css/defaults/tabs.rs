@@ -8,7 +8,7 @@ Underline {
 
     & > .underline--bar {
         color: $block-cursor-background;
-        bg: $foreground 10%;
+        background: $foreground 10%;
     }
 
     &:ansi {
@@ -45,24 +45,16 @@ Tabs {
     width: 100%;
     height: 2;
 
-    & > .tabs--underline {
-        color: $foreground 10%;
-    }
+    &:focus {
+        .underline--bar {
+            background: $foreground 30%;
+        }
 
-    & > .tabs--tab {
-        color: $foreground 50%;
-    }
-
-    & > .tabs--tab.-hover {
-        color: $foreground;
-    }
-
-    & > .tabs--tab.-disabled {
-        color: $foreground 25%;
-    }
-
-    & > .tabs--tab.-active {
-        color: $foreground;
+        & .-active {
+            text-style: $block-cursor-text-style;
+            color: $block-cursor-foreground;
+            background: $block-cursor-background;
+        }
     }
 
     & > #tabs-scroll {
@@ -80,55 +72,30 @@ Tabs {
         overflow: hidden hidden;
     }
 
-    &:focus {
-        & .-active {
-            text-style: $block-cursor-text-style;
-            color: $block-cursor-foreground;
-            bg: $block-cursor-background;
-        }
-    }
-
     &:ansi {
-        #tabs-list, & > .tabs--tab {
+        #tabs-list {
             text-style: dim;
         }
 
-        & #tabs-list > .-active, & > .tabs--tab.-active {
+        & #tabs-list > .-active {
             text-style: not dim;
         }
 
         &:focus {
-            #tabs-list > .-active, & > .tabs--tab.-active {
+            #tabs-list > .-active {
                 text-style: bold not dim;
             }
         }
 
-        & > .tabs--underline {
+        & .underline--bar {
             color: ansi_bright_blue;
+            background: ansi_default;
         }
 
         & .-active {
             color: transparent;
-            bg: transparent;
+            background: transparent;
         }
-    }
-
-    & > .tabs--tab.-active.-focus {
-        text-style: $block-cursor-text-style;
-        color: $block-cursor-foreground;
-        bg: $block-cursor-background;
-    }
-
-    & > .tabs--underline.-focus {
-        color: $foreground 30%;
-    }
-
-    & > .tabs--underline.-active {
-        color: $block-cursor-background;
-    }
-
-    & > .tabs--underline.-active.-focus {
-        color: $block-cursor-background;
     }
 }
 
@@ -139,84 +106,8 @@ TabPane {
 TabbedContent {
     height: auto;
 
-    & > ContentTabs {
+    &> ContentTabs {
         dock: top;
-    }
-
-    & > .tabbed-content--underline {
-        color: $foreground 10%;
-    }
-
-    & > .tabbed-content--tab {
-        color: $foreground 50%;
-    }
-
-    & > .tabbed-content--tab.-hover {
-        color: $foreground;
-    }
-
-    & > .tabbed-content--tab.-disabled {
-        color: $foreground 25%;
-    }
-
-    & > .tabbed-content--tab.-active {
-        color: $foreground;
-    }
-
-    & > .tabbed-content--tab.-active.-focus {
-        text-style: $block-cursor-text-style;
-        color: $block-cursor-foreground;
-        bg: $block-cursor-background;
-    }
-
-    & > .tabbed-content--underline.-focus {
-        color: $foreground 30%;
-    }
-
-    & > .tabbed-content--underline.-active {
-        color: $block-cursor-background;
-    }
-
-    & > .tabbed-content--underline.-active.-focus {
-        color: $block-cursor-background;
-    }
-
-    &:ansi {
-        & > .tabbed-content--tab {
-            text-style: dim;
-        }
-
-        & > .tabbed-content--tab.-active {
-            text-style: not dim;
-        }
-
-        &:focus {
-            & > .tabbed-content--tab.-active {
-                text-style: bold not dim;
-            }
-        }
-
-        & > .tabbed-content--underline {
-            color: ansi_bright_blue;
-        }
-
-        & > .tabbed-content--underline.-active {
-            color: ansi_bright_blue;
-        }
-
-        & > .tabbed-content--underline.-active.-focus {
-            color: ansi_bright_blue;
-        }
-
-        & > .tabbed-content--tab.-active {
-            color: transparent;
-            bg: transparent;
-        }
-
-        & > .tabbed-content--tab.-active.-focus {
-            color: transparent;
-            bg: transparent;
-        }
     }
 }
 "#;

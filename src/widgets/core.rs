@@ -476,10 +476,17 @@ pub trait Widget: Send + Sync + Any {
             .unwrap_or("Widget")
     }
     fn style_id(&self) -> Option<&str> {
-        None
+        self.styles()
+            .and_then(|styles| styles.style_id.as_deref())
     }
     fn style_classes(&self) -> &[String] {
         helpers::empty_classes()
+    }
+    /// Set this widget's CSS id (if backed by WidgetStyles).
+    fn set_style_id(&mut self, id: Option<String>) {
+        if let Some(styles) = self.styles_mut() {
+            styles.style_id = id;
+        }
     }
     /// Optional text rendered on the top border when border-title styling is active.
     fn border_title(&self) -> Option<&str> {
@@ -624,6 +631,7 @@ impl LayoutConstraints {
 pub struct WidgetStyles {
     pub style: Style,
     pub layout: LayoutConstraints,
+    pub style_id: Option<String>,
 }
 
 impl WidgetStyles {
@@ -694,6 +702,14 @@ impl WidgetStyles {
         self.style = std::mem::take(&mut self.style).border(value);
     }
 
+    pub fn set_style_id(&mut self, id: impl Into<String>) {
+        self.style_id = Some(id.into());
+    }
+
+    pub fn clear_style_id(&mut self) {
+        self.style_id = None;
+    }
+
     pub fn width(mut self, value: usize) -> Self {
         let value = value.max(1);
         self.layout.min_width = Some(value);
@@ -759,6 +775,9 @@ impl WidgetStyles {
     /// Compare with another set of widget styles and classify the change
     /// for invalidation purposes.
     pub fn invalidation_kind(&self, other: &WidgetStyles) -> StyleChangeKind {
+        if self.style_id != other.style_id {
+            return StyleChangeKind::Layout;
+        }
         classify_style_change(&self.style, &other.style)
     }
 }

@@ -199,6 +199,12 @@ pub struct TabActivated {
 }
 
 #[derive(Debug, Clone)]
+pub struct TabClicked {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct TabDisabled {
     pub id: String,
 }
@@ -404,6 +410,12 @@ pub struct AppRemoveClass {
 pub struct AppToggleClass {
     pub selector: String,
     pub class_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppSetDisabled {
+    pub selector: String,
+    pub disabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -685,6 +697,7 @@ pub enum Message {
     SelectionListToggled(SelectionListToggled),
     // Tabs
     TabActivated(TabActivated),
+    TabClicked(TabClicked),
     TabDisabled(TabDisabled),
     TabEnabled(TabEnabled),
     TabHidden(TabHidden),
@@ -727,6 +740,7 @@ pub enum Message {
     AppAddClass(AppAddClass),
     AppRemoveClass(AppRemoveClass),
     AppToggleClass(AppToggleClass),
+    AppSetDisabled(AppSetDisabled),
     AppNotify(AppNotify),
     AppPopScreen(AppPopScreen),
     AppPushScreen(AppPushScreen),
@@ -800,6 +814,7 @@ impl_message_from!(
     SelectChanged,
     SelectionListToggled,
     TabActivated,
+    TabClicked,
     TabDisabled,
     TabEnabled,
     TabHidden,
@@ -837,6 +852,7 @@ impl_message_from!(
     AppAddClass,
     AppRemoveClass,
     AppToggleClass,
+    AppSetDisabled,
     AppNotify,
     AppPopScreen,
     AppPushScreen,

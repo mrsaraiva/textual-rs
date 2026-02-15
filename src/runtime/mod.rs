@@ -1181,13 +1181,11 @@ impl App {
             // Extract children from declared widgets too.
             let extracted = widget.take_composed_children();
             let child_compose = widget.compose();
-            let node_id = tree.mount(parent, widget);
-            // Apply CSS id/classes from the declaration.
+            // Apply CSS id/classes from the declaration before mount.
             if let Some(id_str) = &decl.id {
-                // CSS id is stored on the widget itself (style_id), not
-                // on the tree node. Tree-level classes are separate.
-                let _ = id_str; // Reserved for future tree-level id support.
+                widget.set_style_id(Some(id_str.clone()));
             }
+            let node_id = tree.mount(parent, widget);
             for class in &decl.classes {
                 tree.add_class(node_id, class);
             }

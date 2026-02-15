@@ -119,29 +119,6 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
     }
 }
 
-pub(crate) fn selector_meta_component_for_with_id<T: Widget + ?Sized>(
-    widget: &T,
-    id: Option<&str>,
-    classes: &[&str],
-) -> SelectorMeta {
-    let pseudos = app_runtime_pseudos();
-    SelectorMeta {
-        type_name: widget.style_type().to_string(),
-        id: id.map(str::to_string),
-        classes: classes.iter().map(|s| (*s).to_string()).collect(),
-        states: SelectorStates {
-            disabled: widget.is_disabled(),
-            focused: widget.has_focus() && app_is_active(),
-            hovered: widget.is_hovered(),
-            active: widget.is_active(),
-            inline: pseudos.inline,
-            ansi: pseudos.ansi,
-            nocolor: pseudos.nocolor,
-            can_focus: widget.can_focus(),
-            ..SelectorStates::default()
-        },
-    }
-}
 
 pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().cloned())
@@ -203,21 +180,6 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
 pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
     let parent_meta = selector_meta_generic(widget);
     let meta = selector_meta_component_for(widget, classes);
-    SELECTOR_STACK.with(|stack| {
-        stack.borrow_mut().push(parent_meta);
-        let out = resolve_style_for_meta(&meta);
-        stack.borrow_mut().pop();
-        out
-    })
-}
-
-pub(crate) fn resolve_component_style_with_id<T: Widget + ?Sized>(
-    widget: &T,
-    id: Option<&str>,
-    classes: &[&str],
-) -> Style {
-    let parent_meta = selector_meta_generic(widget);
-    let meta = selector_meta_component_for_with_id(widget, id, classes);
     SELECTOR_STACK.with(|stack| {
         stack.borrow_mut().push(parent_meta);
         let out = resolve_style_for_meta(&meta);
