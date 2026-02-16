@@ -1,20 +1,21 @@
 ---
 source: tests/command_palette_snapshot.rs
+assertion_line: 35
 expression: buf.debug_dump()
 ---
 lines:
-0: " 🔎 Search for commands...                                              "
+0: " 🔎 Search for commands…                                                "
 1: "                                                                        "
 2: " Keys                                                                   "
-3: " Show help for the focused widget and available keys                    "
+3: " Show help for the focused widget and a summary of available keys       "
 4: " Maximize                                                               "
 5: " Maximize the focused widget                                            "
 6: " Quit                                                                   "
 7: " Quit the application as soon as possible                               "
 8: " Screenshot                                                             "
 9: " Save an SVG screenshot of the current screen                           "
-10: "                                                                        "
+10: " ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁ "
 11: "                                                                        "
-12: "────────────────────────────────────────────────────────────────────────"
+12: "                                                                        "
 13: "                                                                        "
 meta:

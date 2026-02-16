@@ -4108,8 +4108,8 @@ mod tests {
         if let Some(tree) = app.widget_tree.as_mut() {
             let changed = sync_widget_controlled_child_display_tree(tree, &root);
             assert!(
-                changed,
-                "opening palette should toggle root child display in tree mode"
+                !changed,
+                "opening palette should preserve wrapped subtree display in tree mode"
             );
         }
 

@@ -742,13 +742,18 @@ CommandInput, CommandInput:focus {
 
 CommandList {
     visibility: hidden;
-    border-top: none;
-    border-bottom: none;
+    border-top: blank;
+    border-bottom: hkey black;
     border-left: none;
     border-right: none;
     height: auto;
+    max-height: 70vh;
     bg: transparent;
     padding: 0;
+}
+
+CommandList:focus {
+    border: blank;
 }
 
 CommandList.--visible {
@@ -772,7 +777,12 @@ CommandList > .command-palette--help-text {
 }
 
 CommandList > .option-list--option-highlighted {
-    fg: $text;
-    bg: $primary;
+    fg: $block-cursor-blurred-foreground;
+    bg: $block-cursor-blurred-background;
+    text-style: $block-cursor-blurred-text-style;
+}
+
+CommandList:nocolor > .option-list--option-highlighted {
+    text-style: reverse;
 }
 "#;

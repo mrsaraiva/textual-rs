@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette overlay/render parity): preserve underlay in tree mode and align Python defaults**
+  - Command palette now behaves as a true overlay in tree mode by preserving wrapped subtree display while the palette is open (instead of toggling wrapped child visibility off).
+  - Fixed palette surface composition so copied input/result cells retain panel background styling, eliminating black-hole sections inside the panel body.
+  - Removed manual hardcoded separator line painting in palette render path; border/separator visuals now come from CSS/widget styling as in Python.
+  - Synced built-in command palette copy to Python:
+    - placeholder now uses `Search for commands…` (ellipsis),
+    - default "Keys" help text now matches Python wording.
+  - Aligned `CommandList` defaults closer to Python (`border-top`, `border-bottom`, `max-height`, focus border, highlighted-option token mapping).
+  - Updated command palette snapshot and tree-mode runtime assertion to reflect overlay-preserving behavior.
+
 - **[wip] refactor(command-palette): decompose monolith into Python-style subwidgets (`SearchIcon`, `CommandInput`, `CommandList`)**
   - Split internal command-palette rendering responsibilities into dedicated widget types inside `src/widgets/command_palette.rs`, mirroring Python Textual structure while keeping Rust-idiomatic internals.
   - Updated `CommandPalette` to compose and drive those widgets for search icon/input/result-list behavior instead of hand-rolled per-section rendering logic.

@@ -611,7 +611,7 @@ impl CommandPalette {
             PaletteCommand::new(
                 "keys",
                 "Keys",
-                "Show help for the focused widget and available keys",
+                "Show help for the focused widget and a summary of available keys",
             ),
             PaletteCommand::new("maximize", "Maximize", "Maximize the focused widget"),
             PaletteCommand::new("quit", "Quit", "Quit the application as soon as possible"),
@@ -628,7 +628,7 @@ impl CommandPalette {
             open: false,
             show_key_panel: false,
             search_icon: SearchIcon::new(),
-            query: CommandInput::new("Search for commands..."),
+            query: CommandInput::new("Search for commands…"),
             list: CommandList::new(),
             key_panel: KeyPanel::new(),
             system_provider: SystemCommandsProvider::new(commands),
@@ -970,9 +970,9 @@ impl Widget for CommandPalette {
         if !self.is_tree_mode() || child_index != 0 {
             return None;
         }
-        // Tree mode: palette paints as a modal overlay when open, so hide the
-        // wrapped child subtree while the panel is visible.
-        Some(!(self.open || self.panel_visible))
+        // Keep the wrapped child subtree rendered in tree mode so the command
+        // palette behaves as a true overlay/modal over the existing UI.
+        Some(true)
     }
 
     fn preserve_underlay(&self) -> bool {
@@ -1043,6 +1043,13 @@ impl Widget for CommandPalette {
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
+        let apply_panel_surface = |mut cell: Cell| -> Cell {
+            cell.style = Some(match cell.style {
+                Some(style) => panel_style.combine(&style),
+                None => panel_style,
+            });
+            cell
+        };
 
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
@@ -1082,7 +1089,8 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, search_y) = icon_buffer.get(sx, 0).clone();
+                *overlay.get_mut(tx, search_y) =
+                    apply_panel_surface(icon_buffer.get(sx, 0).clone());
             }
         }
         if search_y < height {
@@ -1091,7 +1099,8 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, search_y) = search_buffer.get(sx, 0).clone();
+                *overlay.get_mut(tx, search_y) =
+                    apply_panel_surface(search_buffer.get(sx, 0).clone());
             }
         }
 
@@ -1117,7 +1126,7 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, ty) = results_buffer.get(x, y).clone();
+                *overlay.get_mut(tx, ty) = apply_panel_surface(results_buffer.get(x, y).clone());
             }
         }
         for ty in results_y..results_y.saturating_add(results_h).min(height) {
@@ -1129,22 +1138,6 @@ impl Widget for CommandPalette {
                 {
                     *overlay.get_mut(tx, ty) = Cell::blank(Some(panel_style));
                 }
-            }
-        }
-
-        if panel_y.saturating_add(panel_height) < height {
-            let border_style =
-                crate::css::resolve_component_style(self, &["command-palette--border"])
-                    .to_rich()
-                    .unwrap_or(panel_style);
-            let border_y = panel_y.saturating_add(panel_height);
-            for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                *overlay.get_mut(x, border_y) = Cell {
-                    text: "─".to_string(),
-                    style: Some(border_style),
-                    meta: None,
-                    continuation: false,
-                };
             }
         }
 
@@ -1161,7 +1154,7 @@ impl Widget for CommandPalette {
                 }
                 let cell = search_buffer.get(sx, sy).clone();
                 if cell.meta.is_some() {
-                    *overlay.get_mut(tx, ty) = cell;
+                    *overlay.get_mut(tx, ty) = apply_panel_surface(cell);
                 }
             }
         }
@@ -1171,12 +1164,7 @@ impl Widget for CommandPalette {
         } else {
             // Tree-mode overlay path: emit sparse lines only up to the palette
             // region. This preserves the underlay for untouched rows.
-            let border_y = panel_y.saturating_add(panel_height);
-            let row_end = if border_y < height {
-                border_y.saturating_add(1)
-            } else {
-                panel_y.saturating_add(panel_height).min(height)
-            };
+            let row_end = panel_y.saturating_add(panel_height).min(height);
             let mut lines: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(row_end.max(1));
             for y in 0..row_end {
                 if y < panel_y {
@@ -1265,6 +1253,10 @@ impl Widget for CommandPalette {
             self.panel_render_y = self
                 .panel_render_y
                 .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+            if self.panel_render_y <= Self::CLOSED_PANEL_Y && panel_target_y > Self::CLOSED_PANEL_Y
+            {
+                self.panel_render_y = panel_target_y;
+            }
         } else if !self.panel_visible {
             self.panel_render_y = Self::CLOSED_PANEL_Y;
         } else {
@@ -1302,6 +1294,10 @@ impl Widget for CommandPalette {
             self.panel_render_y = self
                 .panel_render_y
                 .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
+            if self.panel_render_y <= Self::CLOSED_PANEL_Y && panel_target_y > Self::CLOSED_PANEL_Y
+            {
+                self.panel_render_y = panel_target_y;
+            }
         } else if !self.panel_visible {
             self.panel_render_y = Self::CLOSED_PANEL_Y;
         } else {
