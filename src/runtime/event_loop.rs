@@ -453,12 +453,20 @@ fn set_overlay_modal_display_tree(
     changed
 }
 
-fn sync_widget_controlled_child_display_tree(tree: &mut crate::widget_tree::WidgetTree) -> bool {
+fn sync_widget_controlled_child_display_tree(
+    tree: &mut crate::widget_tree::WidgetTree,
+    root_widget: &dyn Widget,
+) -> bool {
     let Some(root) = tree.root() else {
         return false;
     };
 
     let mut updates: Vec<(NodeId, bool)> = Vec::new();
+    for (idx, child_id) in tree.children(root).iter().copied().enumerate() {
+        if let Some(display) = root_widget.child_display_for_tree(idx) {
+            updates.push((child_id, display));
+        }
+    }
     for parent_id in tree.walk_depth_first(root) {
         let child_ids = tree.children(parent_id).to_vec();
         if child_ids.is_empty() {
@@ -610,12 +618,12 @@ fn split_runtime_control_messages(
                 }
             }
             Message::AppCommandPalette(crate::message::AppCommandPalette) => {
-                let sender = App::runtime_message_sender();
-                pass.generated.push(MessageEvent {
-                    sender,
-                    message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                    control: Some(sender),
-                });
+                // Python parity: action_command_palette opens UI by dispatching
+                // the command-palette action, not by emitting lifecycle messages
+                // directly. Lifecycle messages are posted by the palette widget.
+                let mut outcome =
+                    app.dispatch_event_auto(root, Event::Action(Action::CommandPalette));
+                merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
             }
             Message::AppFocus(crate::message::AppFocus { widget_id }) => {
                 match app.action_focus(&widget_id) {
@@ -1617,7 +1625,7 @@ impl App {
         // tree mode becomes active; otherwise runtime stays in root-only mode.
         self.build_widget_tree(root);
         if let Some(tree) = self.widget_tree.as_mut() {
-            let _ = sync_widget_controlled_child_display_tree(tree);
+            let _ = sync_widget_controlled_child_display_tree(tree, root);
         }
         self.style_snapshot_cache.clear();
 
@@ -2602,7 +2610,7 @@ impl App {
             self.dispatch_style_transition_requests(root);
 
             if let Some(tree) = self.widget_tree.as_mut()
-                && sync_widget_controlled_child_display_tree(tree)
+                && sync_widget_controlled_child_display_tree(tree, root)
             {
                 pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                 pending_invalidation.request_full_content();
@@ -2698,7 +2706,7 @@ impl App {
 
                 let any_active = self.any_widget_active_auto(root);
                 if let Some(tree) = self.widget_tree.as_mut()
-                    && sync_widget_controlled_child_display_tree(tree)
+                    && sync_widget_controlled_child_display_tree(tree, root)
                 {
                     pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                     pending_invalidation.request_full_content();
@@ -3183,40 +3191,51 @@ impl App {
                 }
             }
 
-            // Preserve root-level action fallback in tree mode:
-            // run root.on_event only when tree dispatch didn't handle Action.
+            // Preserve runtime-root fallback in tree mode for events that
+            // wrappers may handle outside the arena tree (e.g. command palette
+            // key/mouse handling).
+            if !outcome.handled
+                && matches!(
+                    &event,
+                    Event::Action(_)
+                        | Event::Key(_)
+                        | Event::MouseDown(_)
+                        | Event::MouseUp(_)
+                        | Event::MouseScroll(_)
+                        | Event::AppFocus(_)
+                )
+            {
+                let mut root_event_ctx = EventCtx::default();
+                root.on_event(&event, &mut root_event_ctx);
+                outcome.handled |= root_event_ctx.handled();
+                outcome.repaint_requested |= root_event_ctx.repaint_requested();
+                outcome.invalidation.merge(root_event_ctx.invalidation());
+                outcome.stop_requested |= root_event_ctx.stop_requested();
+                outcome.messages.extend(root_event_ctx.take_messages());
+                outcome
+                    .animation_requests
+                    .extend(root_event_ctx.take_animation_requests());
+                outcome
+                    .worker_requests
+                    .extend(root_event_ctx.take_worker_requests());
+            }
+
             if !outcome.handled
                 && let Event::Action(action) = &event
             {
-                let mut root_action_ctx = EventCtx::default();
-                root.on_event(&event, &mut root_action_ctx);
-                outcome.handled |= root_action_ctx.handled();
-                outcome.repaint_requested |= root_action_ctx.repaint_requested();
-                outcome.invalidation.merge(root_action_ctx.invalidation());
-                outcome.stop_requested |= root_action_ctx.stop_requested();
-                outcome.messages.extend(root_action_ctx.take_messages());
+                let mut app_action_ctx = EventCtx::default();
+                root.on_app_action(self, *action, &mut app_action_ctx);
+                outcome.handled |= app_action_ctx.handled();
+                outcome.repaint_requested |= app_action_ctx.repaint_requested();
+                outcome.invalidation.merge(app_action_ctx.invalidation());
+                outcome.stop_requested |= app_action_ctx.stop_requested();
+                outcome.messages.extend(app_action_ctx.take_messages());
                 outcome
                     .animation_requests
-                    .extend(root_action_ctx.take_animation_requests());
+                    .extend(app_action_ctx.take_animation_requests());
                 outcome
                     .worker_requests
-                    .extend(root_action_ctx.take_worker_requests());
-
-                if !outcome.handled {
-                    let mut app_action_ctx = EventCtx::default();
-                    root.on_app_action(self, *action, &mut app_action_ctx);
-                    outcome.handled |= app_action_ctx.handled();
-                    outcome.repaint_requested |= app_action_ctx.repaint_requested();
-                    outcome.invalidation.merge(app_action_ctx.invalidation());
-                    outcome.stop_requested |= app_action_ctx.stop_requested();
-                    outcome.messages.extend(app_action_ctx.take_messages());
-                    outcome
-                        .animation_requests
-                        .extend(app_action_ctx.take_animation_requests());
-                    outcome
-                        .worker_requests
-                        .extend(app_action_ctx.take_worker_requests());
-                }
+                    .extend(app_action_ctx.take_worker_requests());
             }
 
             outcome
@@ -3459,7 +3478,8 @@ mod tests {
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
         collect_stylesheet_affected_widgets_root, focused_help_message, parse_simulated_key,
         set_overlay_modal_display_tree, should_dispatch_binding_hints,
-        should_dispatch_focused_help, transition_requests_for_style_change,
+        should_dispatch_focused_help, sync_widget_controlled_child_display_tree,
+        transition_requests_for_style_change,
     };
     use crate::App;
     use crate::action::{ActionDecl, ParsedAction, parse_action, resolve_action};
@@ -3873,6 +3893,85 @@ mod tests {
         assert_eq!(root_action_hits.load(Ordering::SeqCst), 1);
         assert_eq!(app_action_hits.load(Ordering::SeqCst), 1);
         assert!(outcome.handled);
+    }
+
+    #[test]
+    fn dispatch_event_auto_tree_runs_root_key_fallback_when_unhandled() {
+        struct RootKeyFallbackProbe {
+            on_event_key_hits: Arc<AtomicUsize>,
+        }
+
+        impl Widget for RootKeyFallbackProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+                if matches!(event, Event::Key(..)) {
+                    self.on_event_key_hits.fetch_add(1, Ordering::SeqCst);
+                    ctx.set_handled();
+                }
+            }
+        }
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        tree.set_root(Box::new(TreeEventProbe {
+            focused: true,
+            capture_hits: Arc::new(AtomicUsize::new(0)),
+        }));
+
+        let mut app = test_app_with_tree(tree);
+        let key_hits = Arc::new(AtomicUsize::new(0));
+        let mut runtime_root = RootKeyFallbackProbe {
+            on_event_key_hits: Arc::clone(&key_hits),
+        };
+
+        let outcome = app.dispatch_event_auto(
+            &mut runtime_root,
+            Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))),
+        );
+
+        assert!(outcome.handled);
+        assert_eq!(key_hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn command_palette_renders_from_runtime_root_in_tree_mode() {
+        let mut app = super::App::new().expect("app should initialize");
+        let mut root = crate::widgets::CommandPalette::new(crate::widgets::Label::new("body"));
+
+        app.build_widget_tree(&mut root);
+        assert!(app.widget_tree.is_some(), "tree mode should be active");
+
+        if let Some(tree) = app.widget_tree.as_mut() {
+            let _ = sync_widget_controlled_child_display_tree(tree, &root);
+        }
+
+        let outcome = app.dispatch_event_auto(&mut root, Event::Action(Action::CommandPalette));
+        assert!(
+            outcome.handled,
+            "open action should be handled by runtime root"
+        );
+        let msg_outcome = app.dispatch_message_queue_with_runtime(&mut root, outcome.messages);
+        assert!(!msg_outcome.stop_requested);
+
+        if let Some(tree) = app.widget_tree.as_mut() {
+            let changed = sync_widget_controlled_child_display_tree(tree, &root);
+            assert!(
+                changed,
+                "opening palette should toggle root child display in tree mode"
+            );
+        }
+
+        app.render_widget(&mut root).expect("render should succeed");
+        let lines = app.frame.as_plain_lines().join("\n");
+        assert!(
+            lines.contains("Search for commands"),
+            "opened palette UI should render in tree mode"
+        );
     }
 
     #[test]
@@ -5073,6 +5172,36 @@ mod tests {
         assert!(outcome.invalidation.layout);
         let mutated = app.query(".from-action").expect("selector should parse");
         assert_eq!(mutated.len(), 1);
+    }
+
+    #[test]
+    fn app_command_palette_message_dispatches_action_instead_of_synthetic_open_message() {
+        let mut app = super::App::new().expect("app should initialize");
+        let mut root = crate::widgets::CommandPalette::new(crate::widgets::Label::new("body"));
+        let sender = node_id_from_ffi(1);
+
+        let outcome = app.dispatch_message_queue_with_runtime(
+            &mut root,
+            vec![MessageEvent {
+                sender,
+                message: Message::AppCommandPalette(crate::message::AppCommandPalette),
+                control: Some(sender),
+            }],
+        );
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (80, 20);
+        options.max_width = 80;
+        options.max_height = 20;
+        let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &root, None);
+        let lines = buf.as_plain_lines().join("\n");
+
+        assert!(
+            lines.contains("Search for commands"),
+            "runtime should dispatch Action::CommandPalette and open the palette UI"
+        );
+        assert!(outcome.repaint_requested);
     }
 
     struct ReactivePhaseProbeWidget {

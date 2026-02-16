@@ -12,7 +12,7 @@ use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::validation::ValidationResult;
-use crate::widgets::{AppRoot, BindingDecl, Spacer, Widget};
+use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
 use crate::{App, Result};
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
@@ -246,6 +246,14 @@ struct TextualAppAdapter<T: TextualApp> {
     child_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
+}
+
+fn build_textual_app_runtime_root<T: TextualApp>(
+    state: Arc<Mutex<T>>,
+    composed: AppRoot,
+) -> CommandPalette {
+    let adapter = TextualAppAdapter::new(state, composed);
+    CommandPalette::new(adapter)
 }
 
 impl<T: TextualApp> TextualAppAdapter<T> {
@@ -770,7 +778,7 @@ pub async fn run_with_output<T: TextualApp>(definition: T) -> Result<Option<Stri
         .unwrap_or_else(|e| e.into_inner())
         .configure(&mut app)?;
     let composed = state.lock().unwrap_or_else(|e| e.into_inner()).compose();
-    let mut root = TextualAppAdapter::new(state.clone(), composed);
+    let mut root = build_textual_app_runtime_root(state.clone(), composed);
     app.run_widget_tree(&mut root).await?;
     Ok(state
         .lock()
@@ -1840,6 +1848,30 @@ mod tests {
                 "expected invalid arity for {action}"
             );
         }
+    }
+
+    #[test]
+    fn textual_app_runtime_root_dispatches_command_palette_action() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut root = build_textual_app_runtime_root(app, crate::widgets::AppRoot::new());
+        let mut ctx = EventCtx::default();
+
+        root.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+
+        let messages = ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::CommandPaletteOpened(_))),
+            "runtime root should include a live CommandPalette host"
+        );
     }
 
     #[test]

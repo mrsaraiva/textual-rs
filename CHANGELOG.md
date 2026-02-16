@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette tree runtime): restore global `^p` open path without footer-binding leakage**
+  - Fixed tree-mode runtime fallback so unhandled key/mouse/action events still reach the runtime root wrapper (`on_event`) when needed by non-arena wrapper behavior (for example command palette open/close handling).
+  - Extended widget-controlled tree display sync to also apply root-wrapper `child_display_for_tree(...)` policy, so wrapper-controlled visibility toggles correctly affect arena children.
+  - Kept Python-style action flow for `AppCommandPalette`: runtime dispatches `Action::CommandPalette`, while palette lifecycle messages are emitted by the widget itself.
+  - Added regression gates covering:
+    - root key fallback in tree mode,
+    - command palette rendering/open visibility in tree mode,
+    - action-based command palette open dispatch path.
+
 - **[wip] fix(footer parity): Python-style FooterKey hover/click semantics including command palette**
   - Aligned footer key interaction behavior with Python Textual:
     - click on any footer key hint now flows through the same binding/action pipeline as real key presses (`AppSimulateKey` runtime dispatch parity),

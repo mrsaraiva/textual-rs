@@ -13,7 +13,7 @@ use crate::node_id::NodeId;
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Input, KeyPanel, ListView, Overlay, Widget, WidgetRenderable, WidgetStyles,
+    BindingDecl, Input, KeyPanel, ListView, Overlay, Spacer, Widget, WidgetRenderable, WidgetStyles,
 };
 
 // ---------------------------------------------------------------------------
@@ -198,6 +198,7 @@ impl PaletteCommand {
 
 pub struct CommandPalette {
     child: Box<dyn Widget>,
+    child_extracted: bool,
     open: bool,
     show_key_panel: bool,
     query: Input,
@@ -241,6 +242,7 @@ impl CommandPalette {
         ];
         let mut out = Self {
             child: Box::new(child),
+            child_extracted: false,
             open: false,
             show_key_panel: false,
             query: Input::new().with_placeholder("Search for commands..."),
@@ -551,6 +553,10 @@ impl CommandPalette {
         }
         self.set_open(false, ctx);
     }
+
+    fn is_tree_mode(&self) -> bool {
+        self.child_extracted
+    }
 }
 
 impl Widget for CommandPalette {
@@ -558,10 +564,33 @@ impl Widget for CommandPalette {
         "CommandPalette"
     }
 
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![child]
+    }
+
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.is_tree_mode() || child_index != 0 {
+            return None;
+        }
+        // Tree mode: palette paints as a modal overlay when open, so hide the
+        // wrapped child subtree while the panel is visible.
+        Some(!(self.open || self.panel_visible))
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let (width, height) = options.size;
+        let tree_mode = self.is_tree_mode();
 
-        if !self.open && !self.panel_visible {
+        if tree_mode && !self.open && !self.panel_visible {
+            return Segments::new();
+        }
+
+        if !tree_mode && !self.open && !self.panel_visible {
             let key_width = self.visible_key_panel_width(width);
             if key_width == 0 {
                 return self.child.render_styled(console, options);
@@ -597,12 +626,14 @@ impl Widget for CommandPalette {
             return merged.to_segments();
         }
 
-        let base = FrameBuffer::from_renderable(
-            console,
-            options,
-            &WidgetRenderable::new(self.child.as_ref()),
-            None,
-        );
+        let base = (!tree_mode).then(|| {
+            FrameBuffer::from_renderable(
+                console,
+                options,
+                &WidgetRenderable::new(self.child.as_ref()),
+                None,
+            )
+        });
         let mut overlay = FrameBuffer::new(width, height, None);
         let (panel_x, target_panel_y, panel_width, panel_height) =
             self.palette_geometry(width, height);
@@ -776,18 +807,26 @@ impl Widget for CommandPalette {
             }
         }
 
-        Overlay::compose_overlay(&base, &overlay).to_segments()
+        if let Some(base) = base {
+            Overlay::compose_overlay(&base, &overlay).to_segments()
+        } else {
+            overlay.to_segments()
+        }
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.is_tree_mode() {
+            self.child.on_mount();
+        }
         self.query.on_mount();
         self.list.on_mount();
         self.key_panel.on_mount();
     }
 
     fn on_unmount(&mut self) {
-        self.child.on_unmount();
+        if !self.is_tree_mode() {
+            self.child.on_unmount();
+        }
         self.query.on_unmount();
         self.list.on_unmount();
         self.key_panel.on_unmount();
@@ -805,7 +844,9 @@ impl Widget for CommandPalette {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.is_tree_mode() {
+            self.child.on_tick(tick);
+        }
         self.key_panel.on_tick(tick);
         if self.open {
             self.query.on_tick(tick);
@@ -833,7 +874,9 @@ impl Widget for CommandPalette {
         }
         let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
-        self.child.on_resize(child_width, height);
+        if !self.is_tree_mode() {
+            self.child.on_resize(child_width, height);
+        }
         if key_width > 0 {
             self.key_panel.on_resize(key_width as u16, height);
         }
@@ -868,7 +911,9 @@ impl Widget for CommandPalette {
         }
         let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
-        self.child.on_layout(child_width, height);
+        if !self.is_tree_mode() {
+            self.child.on_layout(child_width, height);
+        }
         if key_width > 0 {
             self.key_panel.on_layout(key_width as u16, height);
         }
@@ -885,7 +930,9 @@ impl Widget for CommandPalette {
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         if matches!(event, Event::AppFocus(..)) {
-            self.child.on_event_capture(event, ctx);
+            if !self.is_tree_mode() {
+                self.child.on_event_capture(event, ctx);
+            }
             self.query.on_event_capture(event, ctx);
             self.list.on_event_capture(event, ctx);
             return;
@@ -895,7 +942,7 @@ impl Widget for CommandPalette {
             if !ctx.handled() {
                 self.list.on_event_capture(event, ctx);
             }
-        } else {
+        } else if !self.is_tree_mode() {
             self.child.on_event_capture(event, ctx);
         }
     }
@@ -905,6 +952,9 @@ impl Widget for CommandPalette {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
+        if !self.open {
+            return Vec::new();
+        }
         vec![
             BindingDecl::new("escape", "dismiss", "Dismiss command palette"),
             BindingDecl::new(
@@ -963,7 +1013,9 @@ impl Widget for CommandPalette {
         if let Event::AppFocus(active) = event {
             self.query.on_event(event, ctx);
             self.list.on_event(event, ctx);
-            self.child.on_event(event, ctx);
+            if !self.is_tree_mode() {
+                self.child.on_event(event, ctx);
+            }
             if self.open && !*active {
                 self.set_open(false, ctx);
             }
@@ -1016,7 +1068,9 @@ impl Widget for CommandPalette {
                     _ => {}
                 }
             }
-            self.child.on_event(event, ctx);
+            if !self.is_tree_mode() {
+                self.child.on_event(event, ctx);
+            }
             return;
         }
 
@@ -1136,7 +1190,9 @@ impl Widget for CommandPalette {
                 return;
             }
         }
-        self.child.on_message(message, ctx);
+        if !self.is_tree_mode() {
+            self.child.on_message(message, ctx);
+        }
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -1152,7 +1208,9 @@ impl Widget for CommandPalette {
                     return;
                 }
             }
-            self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+            if !self.is_tree_mode() {
+                self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+            }
         }
     }
 
@@ -1789,8 +1847,11 @@ mod tests {
     }
 
     #[test]
-    fn bindings_are_declared() {
-        let palette = CommandPalette::new(Label::new("body"));
+    fn bindings_hidden_while_closed_and_exposed_when_open() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        assert!(palette.bindings().is_empty());
+
+        palette.set_open(true, &mut EventCtx::default());
         let bindings = palette.bindings();
         assert!(!bindings.is_empty());
         assert!(bindings.iter().any(|b| b.action == "dismiss"));
