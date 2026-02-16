@@ -3285,6 +3285,7 @@ impl App {
                         | Event::MouseDown(_)
                         | Event::MouseUp(_)
                         | Event::MouseScroll(_)
+                        | Event::Tick(_)
                 )
             {
                 let tree = self.widget_tree.as_mut().expect("tree should exist");
@@ -3446,6 +3447,7 @@ impl App {
                         | Event::MouseDown(_)
                         | Event::MouseUp(_)
                         | Event::MouseScroll(_)
+                        | Event::Tick(_)
                 )
             {
                 return dispatch_event_to_target_tree(tree, palette_target, event);
@@ -4158,6 +4160,65 @@ mod tests {
         assert!(
             lines.contains("Search for commands"),
             "opened palette UI should render in tree mode"
+        );
+    }
+
+    #[test]
+    fn open_command_palette_routes_tick_away_from_focused_tree_widget() {
+        struct TickSwallowProbe {
+            ticks: Arc<AtomicUsize>,
+        }
+
+        impl Widget for TickSwallowProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+                if matches!(event, Event::Tick(_)) {
+                    self.ticks.fetch_add(1, Ordering::SeqCst);
+                    ctx.set_handled();
+                }
+            }
+
+            fn focusable(&self) -> bool {
+                true
+            }
+        }
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let tick_hits = Arc::new(AtomicUsize::new(0));
+        let probe_id = tree.mount(
+            root_id,
+            Box::new(TickSwallowProbe {
+                ticks: Arc::clone(&tick_hits),
+            }),
+        );
+        if let Some(node) = tree.get_mut(probe_id) {
+            node.widget.set_focus(true);
+        }
+        tree.mount(
+            root_id,
+            Box::new(crate::widgets::CommandPalette::new(crate::widgets::Label::new(
+                "body",
+            ))),
+        );
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+
+        let open = app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::CommandPalette));
+        assert!(open.handled, "open action should be handled by command palette");
+        let msg_outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, open.messages);
+        assert!(!msg_outcome.stop_requested);
+
+        let tick = app.dispatch_event_auto(&mut runtime_root, Event::Tick(1));
+        assert!(tick.handled, "open palette should handle tick in tree mode");
+        assert_eq!(
+            tick_hits.load(Ordering::SeqCst),
+            0,
+            "focused underlay widget should not receive tick while palette is open"
         );
     }
 

@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette interaction parity): two-row hit mapping, hover-selection sync, and tick modal routing**
+  - `CommandList` now maps mouse-down `y` coordinates from two-row visual layout (title + help) back to underlying option rows, so clicks on help rows resolve to the correct command entry.
+  - Mouse move over `CommandList` now synchronizes keyboard selection with hovered command row, keeping pointer and keyboard interaction paths aligned.
+  - Runtime tree dispatch now routes `Event::Tick` to the open `CommandPalette` target (same modal routing policy as key/mouse), so palette-local tick-driven behavior such as input caret blinking is not starved by focused underlay widgets.
+  - Added regressions for:
+    - command-list help-row click row mapping,
+    - hover-to-selection synchronization,
+    - tree-mode tick routing while command palette is open.
+
 - **[wip] tune(command-palette list block alignment): post-search gap + horizontal indent parity**
   - Added an explicit extra spacer row between the search prompt row and command list rows to match Python command palette vertical rhythm.
   - Shifted command palette search prompt and command list content one column to the right for closer text-block alignment with Python screenshots.

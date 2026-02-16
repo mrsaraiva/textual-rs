@@ -662,7 +662,21 @@ impl Widget for CommandList {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.list.on_event(event, ctx);
+        match event {
+            Event::MouseDown(mouse) => {
+                // CommandList renders each entry as two visual rows
+                // (title + help). Map pointer Y back to OptionList row space.
+                let mapped = Event::MouseDown(crate::event::MouseDownEvent {
+                    target: mouse.target,
+                    screen_x: mouse.screen_x,
+                    screen_y: mouse.screen_y,
+                    x: mouse.x,
+                    y: mouse.y / 2,
+                });
+                self.list.on_event(&mapped, ctx);
+            }
+            _ => self.list.on_event(event, ctx),
+        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
@@ -670,7 +684,14 @@ impl Widget for CommandList {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.list.on_mouse_move(x, y / 2)
+        let mut changed = self.list.on_mouse_move(x, y / 2);
+        let row = (y as usize) / 2;
+        let index = self.offset().saturating_add(row);
+        if index < self.entries.len() && self.selected() != index {
+            self.set_selected(index);
+            changed = true;
+        }
+        changed
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -2494,6 +2515,69 @@ mod tests {
                 Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected { .. })
             )
         }));
+    }
+
+    #[test]
+    fn command_list_mouse_down_on_help_row_selects_same_command() {
+        let mut list = CommandList::new();
+        list.set_entries(vec![
+            CommandListEntry {
+                title: "One".to_string(),
+                help: "First".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+            CommandListEntry {
+                title: "Two".to_string(),
+                help: "Second".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+        ]);
+        list.on_layout(40, 8);
+        list.set_selected(0);
+
+        let mut ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: list.node_id(),
+                screen_x: 2,
+                screen_y: 3,
+                x: 2,
+                // Help row for the first command in two-row rendering.
+                y: 1,
+            }),
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(list.selected(), 0);
+    }
+
+    #[test]
+    fn command_list_mouse_move_syncs_selected_with_hovered_row() {
+        let mut list = CommandList::new();
+        list.set_entries(vec![
+            CommandListEntry {
+                title: "One".to_string(),
+                help: "First".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+            CommandListEntry {
+                title: "Two".to_string(),
+                help: "Second".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+            CommandListEntry {
+                title: "Three".to_string(),
+                help: "Third".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+        ]);
+        list.on_layout(40, 8);
+        list.set_selected(0);
+
+        // y=4 corresponds to row 2 (third command title) in two-row layout.
+        assert!(list.on_mouse_move(0, 4));
+        assert_eq!(list.selected(), 2);
     }
 
     #[test]
