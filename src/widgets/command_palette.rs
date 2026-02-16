@@ -267,7 +267,9 @@ pub struct CommandInput {
 impl CommandInput {
     pub fn new(placeholder: impl Into<String>) -> Self {
         Self {
-            input: Input::new().with_placeholder(placeholder),
+            input: Input::new()
+                .class("command-palette--input")
+                .with_placeholder(placeholder),
             styles: WidgetStyles::default(),
         }
     }
@@ -483,11 +485,7 @@ impl Widget for CommandList {
                 } else {
                     base_title_style
                 };
-                let help_line_style = if active {
-                    selected_style.combine(&help_style)
-                } else {
-                    help_style
-                };
+                let help_line_style = help_style;
                 let text = if is_help { &entry.help } else { &entry.title };
                 let style = if is_help {
                     help_line_style
@@ -796,9 +794,11 @@ impl CommandPalette {
             .saturating_mul(2)
             .saturating_add(1)
             .max(1);
-        let results_height = desired_results_height
-            .min(max_panel_height.saturating_sub(2).max(1));
-        let panel_height = 2usize.saturating_add(results_height).min(max_panel_height).max(1);
+        let results_height = desired_results_height.min(max_panel_height.saturating_sub(2).max(1));
+        let panel_height = 2usize
+            .saturating_add(results_height)
+            .min(max_panel_height)
+            .max(1);
         (panel_x, panel_y, panel_width, panel_height)
     }
 
@@ -1044,16 +1044,14 @@ impl Widget for CommandPalette {
         let mut overlay = FrameBuffer::new(width, height, None);
         let (panel_x, target_panel_y, panel_width, panel_height) =
             self.palette_geometry(width, height);
-        let panel_y = if self.open
-            && self.panel_render_y <= Self::CLOSED_PANEL_Y
-            && target_panel_y > 0
-        {
-            target_panel_y
-        } else {
-            self.panel_render_y
-                .round()
-                .clamp(0.0, target_panel_y as f32) as usize
-        };
+        let panel_y =
+            if self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y && target_panel_y > 0 {
+                target_panel_y
+            } else {
+                self.panel_render_y
+                    .round()
+                    .clamp(0.0, target_panel_y as f32) as usize
+            };
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);

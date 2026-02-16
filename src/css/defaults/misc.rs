@@ -740,6 +740,11 @@ CommandInput, CommandInput:focus {
     bg: transparent;
 }
 
+Input.command-palette--input > .input--placeholder {
+    fg: $text-muted;
+    text-style: dim;
+}
+
 CommandList {
     visibility: hidden;
     border-top: blank;
@@ -773,7 +778,7 @@ CommandList > .option-list--option {
 CommandList > .command-palette--help-text {
     fg: $text-muted;
     bg: transparent;
-    text-style: not bold;
+    text-style: dim not bold;
 }
 
 CommandList > .option-list--option-highlighted {

@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette list/input styling parity): dim help/placeholder and title-only highlight emphasis**
+  - `CommandInput` now tags the underlying `Input` with a dedicated class (`command-palette--input`) so palette-specific placeholder styling can be targeted via CSS.
+  - Added command palette placeholder CSS (`Input.command-palette--input > .input--placeholder`) with muted/dim appearance.
+  - Aligned command help-row rendering so highlighted command selection emphasizes the title row while help text remains in help style (muted/dim), closer to Python presentation.
+
 - **[wip] fix(command-palette layout parity): content-driven panel sizing + stable open placement**
   - Command palette panel geometry now sizes results area from command content (including list chrome row), instead of using static height assumptions.
   - Opened palette now renders with a stable top offset in render-time fallback (even when `on_layout` has not run yet), preventing top-left/stale-position placement.
