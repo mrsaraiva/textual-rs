@@ -3612,6 +3612,15 @@ impl App {
     /// pipeline (`render.rs`). This method handles only the tree-based path
     /// so compose()-created widgets also receive layout geometry.
     fn apply_layout_info_to_tree(&mut self) {
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        let _active = set_app_active(self.app_active);
+        let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            inline: self.app_inline,
+            ansi: self.app_ansi,
+            nocolor: self.app_nocolor,
+        });
+        let _guard = set_style_context(sheet);
         if let Some(tree) = self.widget_tree.as_mut() {
             let node_hit_test = super::types::NodeHitTestMap::from_frame(&self.frame);
             apply_layout_info_tree(tree, &node_hit_test);

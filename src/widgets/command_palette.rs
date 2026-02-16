@@ -1344,19 +1344,12 @@ impl Widget for CommandPalette {
         let panel_target_y = self.panel_target_y();
         if self.open {
             self.panel_visible = true;
-            self.panel_render_y = self
-                .panel_render_y
-                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
             if self.panel_render_y <= Self::CLOSED_PANEL_Y && panel_target_y > Self::CLOSED_PANEL_Y
             {
                 self.panel_render_y = panel_target_y;
             }
         } else if !self.panel_visible {
             self.panel_render_y = Self::CLOSED_PANEL_Y;
-        } else {
-            self.panel_render_y = self
-                .panel_render_y
-                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
         }
         let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
@@ -1386,19 +1379,12 @@ impl Widget for CommandPalette {
         let panel_target_y = self.panel_target_y();
         if self.open {
             self.panel_visible = true;
-            self.panel_render_y = self
-                .panel_render_y
-                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
             if self.panel_render_y <= Self::CLOSED_PANEL_Y && panel_target_y > Self::CLOSED_PANEL_Y
             {
                 self.panel_render_y = panel_target_y;
             }
         } else if !self.panel_visible {
             self.panel_render_y = Self::CLOSED_PANEL_Y;
-        } else {
-            self.panel_render_y = self
-                .panel_render_y
-                .clamp(Self::CLOSED_PANEL_Y, panel_target_y);
         }
         let key_width = self.visible_key_panel_width(total_width);
         let child_width = total_width.saturating_sub(key_width).max(1) as u16;
@@ -2111,6 +2097,24 @@ mod tests {
         assert_eq!(close_requests.len(), 1);
         assert_eq!(close_requests[0].attribute, CommandPalette::PANEL_Y_ATTR);
         assert!(close_requests[0].end <= close_requests[0].start);
+    }
+
+    #[test]
+    fn command_palette_layout_passes_do_not_force_panel_y_downward() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+        assert_eq!(palette.panel_render_y, 3.0);
+
+        // Simulate a transient constrained layout pass (smaller height) after open.
+        // Runtime render still uses viewport-space geometry, so this pass must not
+        // overwrite panel animation state and pin the panel too high.
+        palette.on_layout(80, 2);
+        assert_eq!(palette.panel_render_y, 3.0);
     }
 
     #[test]
