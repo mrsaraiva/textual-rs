@@ -3239,7 +3239,10 @@ impl App {
                 && let Ok(target) = self.query_one("CommandPalette")
             {
                 let tree = self.widget_tree.as_mut().expect("tree should exist");
-                return dispatch_event_to_target_tree(tree, target, &event);
+                let direct = dispatch_event_to_target_tree(tree, target, &event);
+                if direct.handled {
+                    return direct;
+                }
             }
 
             if let Some(target) = palette_target
@@ -3395,7 +3398,10 @@ impl App {
             && let Ok(target) = self.query_one("CommandPalette")
         {
             let tree = self.widget_tree.as_mut().expect("tree should exist");
-            return dispatch_event_to_target_tree(tree, target, event);
+            let direct = dispatch_event_to_target_tree(tree, target, event);
+            if direct.handled {
+                return direct;
+            }
         }
 
         let palette_target = self.open_command_palette_target();

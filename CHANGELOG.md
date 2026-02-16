@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] refactor(command-palette): decompose monolith into Python-style subwidgets (`SearchIcon`, `CommandInput`, `CommandList`)**
+  - Split internal command-palette rendering responsibilities into dedicated widget types inside `src/widgets/command_palette.rs`, mirroring Python Textual structure while keeping Rust-idiomatic internals.
+  - Updated `CommandPalette` to compose and drive those widgets for search icon/input/result-list behavior instead of hand-rolled per-section rendering logic.
+  - Exported new widget types via `widgets::mod` (`SearchIcon`, `CommandInput`, `CommandList`) for API parity and reuse.
+  - Aligned default CSS wiring to target the decomposed widgets (`SearchIcon`, `CommandInput`, `CommandList`, option/help/highlight selectors), reducing component-style special cases.
+  - Preserved tree-mode `Action::CommandPalette` behavior by keeping root fallback routing when direct target dispatch is unhandled.
+  - Regression coverage validated with `command_palette_snapshot`, `command_palette_lifecycle`, footer tests, and tree render tests.
+
 - **[wip] fix(command-palette overlay/tree parity): host palette as sibling overlay + modal event routing in TextualApp runtime**
   - Reworked `TextualApp` runtime root composition so `CommandPalette` is a sibling child of the app content inside `TextualAppAdapter` (instead of wrapping the whole app tree as parent chrome).
   - Result: command palette now renders as a true layered overlay in tree mode, rather than replacing/hiding the entire app subtree.

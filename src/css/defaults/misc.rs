@@ -712,8 +712,8 @@ Digits {
 }
 
 CommandPalette {
-    bg: $surface;
     fg: $foreground;
+    bg: $background 60%;
     align-horizontal: center;
 }
 
@@ -726,20 +726,52 @@ CommandPalette > .command-palette--border {
     fg: $primary;
 }
 
-CommandPalette > .command-palette--search-icon {
+SearchIcon {
     fg: $primary;
+    margin-left: 1;
+    margin-top: 1;
+    width: 2;
 }
 
-CommandPalette > .command-palette--item-title {
+CommandInput, CommandInput:focus {
+    border: none;
+    width: 1fr;
+    padding-left: 0;
+    bg: transparent;
+}
+
+CommandList {
+    visibility: hidden;
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    height: auto;
+    bg: transparent;
+    padding: 0;
+}
+
+CommandList.--visible {
+    visibility: visible;
+}
+
+CommandList.--populating {
+    border-bottom: none;
+}
+
+CommandList > .option-list--option {
+    padding: 0 2;
     fg: $foreground;
     text-style: bold;
 }
 
-CommandPalette > .command-palette--item-help {
+CommandList > .command-palette--help-text {
     fg: $text-muted;
+    bg: transparent;
+    text-style: not bold;
 }
 
-CommandPalette > .command-palette--item-selected {
+CommandList > .option-list--option-highlighted {
     fg: $text;
     bg: $primary;
 }

@@ -1,4 +1,4 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use std::time::Duration;
 
 use crate::event::{
@@ -13,7 +13,8 @@ use crate::node_id::NodeId;
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Input, KeyPanel, ListView, Overlay, Spacer, Widget, WidgetRenderable, WidgetStyles,
+    BindingDecl, Input, KeyPanel, ListView, Overlay, Spacer, Widget, WidgetRenderable,
+    WidgetStyles, helpers::adjust_line_length_no_bg,
 };
 
 // ---------------------------------------------------------------------------
@@ -196,13 +197,394 @@ impl PaletteCommand {
     }
 }
 
+#[derive(Debug, Clone)]
+struct CommandListEntry {
+    title: String,
+    help: String,
+}
+
+/// Widget for displaying a search icon before the command input.
+#[derive(Debug, Clone)]
+pub struct SearchIcon {
+    icon: String,
+    styles: WidgetStyles,
+}
+
+impl SearchIcon {
+    pub fn new() -> Self {
+        Self {
+            icon: "🔎".to_string(),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn set_icon(&mut self, icon: impl Into<String>) {
+        self.icon = icon.into();
+    }
+}
+
+impl Default for SearchIcon {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Widget for SearchIcon {
+    fn style_type(&self) -> &'static str {
+        "SearchIcon"
+    }
+
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let line = adjust_line_length_no_bg(
+            &[Segment::new(self.icon.clone())],
+            width.max(rich_rs::cell_len(&self.icon)),
+        );
+        line.into_iter().collect()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for SearchIcon {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+/// Command palette input control (`CommandInput` in Python Textual).
+pub struct CommandInput {
+    input: Input,
+    styles: WidgetStyles,
+}
+
+impl CommandInput {
+    pub fn new(placeholder: impl Into<String>) -> Self {
+        Self {
+            input: Input::new().with_placeholder(placeholder),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn text(&self) -> &str {
+        self.input.text()
+    }
+
+    pub fn set_text(&mut self, value: impl Into<String>) {
+        self.input.set_text(value);
+    }
+}
+
+impl Widget for CommandInput {
+    fn style_type(&self) -> &'static str {
+        "CommandInput"
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(&self.input, console, options)
+    }
+
+    fn on_mount(&mut self) {
+        self.input.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.input.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.input.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.input.on_resize(width, height);
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.input.on_layout(width, height);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.input.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.input.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.input.on_message(message, ctx);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.input.on_mouse_move(x, y)
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.input.on_mouse_scroll(delta_x, delta_y, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.input.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.input.set_focus(focused);
+    }
+
+    fn has_focus(&self) -> bool {
+        self.input.has_focus()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        self.input.style_classes()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for CommandInput {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+/// Command result list widget mirroring Python's `CommandList`.
+#[derive(Debug, Clone)]
+pub struct CommandList {
+    list: ListView,
+    entries: Vec<CommandListEntry>,
+    visible: bool,
+    populating: bool,
+    classes: Vec<String>,
+    styles: WidgetStyles,
+}
+
+impl CommandList {
+    pub fn new() -> Self {
+        Self {
+            list: ListView::new(Vec::new()).scroll_step(2),
+            entries: Vec::new(),
+            visible: false,
+            populating: false,
+            classes: vec!["command-list".to_string()],
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn selected(&self) -> usize {
+        self.list.selected()
+    }
+
+    pub fn offset(&self) -> usize {
+        self.list.offset()
+    }
+
+    pub fn set_selected(&mut self, index: usize) {
+        self.list.set_selected(index);
+    }
+
+    fn set_entries(&mut self, entries: Vec<CommandListEntry>) {
+        let labels = entries.iter().map(|entry| entry.title.clone()).collect();
+        self.entries = entries;
+        self.list.set_items(labels);
+        self.list.set_selected(0);
+        self.visible = !self.entries.is_empty();
+        self.rebuild_classes();
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+        self.rebuild_classes();
+    }
+
+    fn set_populating(&mut self, populating: bool) {
+        self.populating = populating;
+        self.rebuild_classes();
+    }
+
+    fn rebuild_classes(&mut self) {
+        self.classes.clear();
+        self.classes.push("command-list".to_string());
+        if self.visible {
+            self.classes.push("--visible".to_string());
+        }
+        if self.populating {
+            self.classes.push("--populating".to_string());
+        }
+    }
+}
+
+impl Default for CommandList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Widget for CommandList {
+    fn style_type(&self) -> &'static str {
+        "CommandList"
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let mut out = Segments::new();
+
+        let base_title_style = crate::css::resolve_component_style(self, &["option-list--option"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let selected_style =
+            crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
+                .to_rich()
+                .unwrap_or(base_title_style);
+        let help_style = crate::css::resolve_component_style(self, &["command-palette--help-text"])
+            .to_rich()
+            .unwrap_or(base_title_style);
+
+        let visible_items = (height / 2).max(1);
+        let start = self
+            .offset()
+            .min(self.entries.len().saturating_sub(visible_items));
+        let selected = self.selected().min(self.entries.len().saturating_sub(1));
+
+        for visual_row in 0..height {
+            let entry_row = visual_row / 2;
+            let is_help = visual_row % 2 == 1;
+            let index = if visual_row >= visible_items.saturating_mul(2) {
+                self.entries.len()
+            } else {
+                start.saturating_add(entry_row)
+            };
+
+            let line = if index >= self.entries.len() {
+                adjust_line_length_no_bg(&[], width)
+            } else {
+                let entry = &self.entries[index];
+                let active = index == selected;
+                let title_style = if active {
+                    selected_style
+                } else {
+                    base_title_style
+                };
+                let help_line_style = if active {
+                    selected_style.combine(&help_style)
+                } else {
+                    help_style
+                };
+                let text = if is_help { &entry.help } else { &entry.title };
+                let style = if is_help {
+                    help_line_style
+                } else {
+                    title_style
+                };
+                let mut rich_text = console.render_str(text, Some(true), None, None, None);
+                rich_text.stylize_before(style, 0, None);
+                let rendered = rich_text.render(console, options);
+                let lines = rich_rs::Segment::split_lines(rendered);
+                let first_line = lines.into_iter().next().unwrap_or_default();
+                adjust_line_length_no_bg(&first_line, width)
+            };
+            out.extend(line);
+            if visual_row + 1 < height {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn on_mount(&mut self) {
+        self.list.on_mount();
+    }
+
+    fn on_unmount(&mut self) {
+        self.list.on_unmount();
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        self.list.on_tick(tick);
+    }
+
+    fn on_resize(&mut self, _width: u16, height: u16) {
+        self.list.on_resize(1, (height / 2).max(1));
+    }
+
+    fn on_layout(&mut self, _width: u16, height: u16) {
+        self.list.on_layout(1, (height / 2).max(1));
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.list.on_event_capture(event, ctx);
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.list.on_event(event, ctx);
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.list.on_message(message, ctx);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        self.list.on_mouse_move(x, y / 2)
+    }
+
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        self.list
+            .on_mouse_scroll(delta_x, delta_y.saturating_mul(2), ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        self.list.focusable()
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.list.set_focus(focused);
+    }
+
+    fn has_focus(&self) -> bool {
+        self.list.has_focus()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for CommandList {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
 pub struct CommandPalette {
     child: Box<dyn Widget>,
     child_extracted: bool,
     open: bool,
     show_key_panel: bool,
-    query: Input,
-    list: ListView,
+    search_icon: SearchIcon,
+    query: CommandInput,
+    list: CommandList,
     key_panel: KeyPanel,
     /// Built-in system commands served via the Provider pattern.
     system_provider: SystemCommandsProvider,
@@ -245,8 +627,9 @@ impl CommandPalette {
             child_extracted: false,
             open: false,
             show_key_panel: false,
-            query: Input::new().with_placeholder("Search for commands..."),
-            list: ListView::new(Vec::new()).scroll_step(2),
+            search_icon: SearchIcon::new(),
+            query: CommandInput::new("Search for commands..."),
+            list: CommandList::new(),
             key_panel: KeyPanel::new(),
             system_provider: SystemCommandsProvider::new(commands),
             key_panel_render_width: 0.0,
@@ -451,13 +834,15 @@ impl CommandPalette {
 
         self.provider_results = all;
 
-        let list_items = self
+        let entries = self
             .provider_results
             .iter()
-            .map(|r| r.title.clone())
+            .map(|r| CommandListEntry {
+                title: r.title.clone(),
+                help: r.help.clone(),
+            })
             .collect::<Vec<_>>();
-        self.list.set_items(list_items);
-        self.list.set_selected(0);
+        self.list.set_entries(entries);
     }
 
     fn focused_widget_id(widget: &dyn Widget) -> Option<NodeId> {
@@ -494,6 +879,8 @@ impl CommandPalette {
             self.query.set_text("");
             self.query.set_focus(true);
             self.list.set_focus(true);
+            self.list.set_visible(true);
+            self.list.set_populating(false);
             self.rebuild_results();
             let target_y = self.panel_target_y();
             let start_y = if was_visible {
@@ -509,6 +896,8 @@ impl CommandPalette {
             }
             self.query.set_focus(false);
             self.list.set_focus(false);
+            self.list.set_visible(false);
+            self.list.set_populating(false);
             self.restore_child_focus();
             let start_y = self.panel_render_y;
             if was_visible {
@@ -654,21 +1043,6 @@ impl Widget for CommandPalette {
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let search_icon_style =
-            crate::css::resolve_component_style(self, &["command-palette--search-icon"])
-                .to_rich()
-                .unwrap_or(panel_style);
-        let title_style =
-            crate::css::resolve_component_style(self, &["command-palette--item-title"])
-                .to_rich()
-                .unwrap_or(panel_style);
-        let help_style = crate::css::resolve_component_style(self, &["command-palette--item-help"])
-            .to_rich()
-            .unwrap_or(panel_style);
-        let selected_style =
-            crate::css::resolve_component_style(self, &["command-palette--item-selected"])
-                .to_rich()
-                .unwrap_or(panel_style);
 
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
@@ -683,22 +1057,37 @@ impl Widget for CommandPalette {
         search_options.size = (search_width, 1);
         search_options.max_width = search_width;
         search_options.max_height = 1;
-        let search_buffer =
-            FrameBuffer::from_renderable(console, &search_options, &self.query, None);
+        let search_buffer = FrameBuffer::from_renderable(
+            console,
+            &search_options,
+            &WidgetRenderable::new(&self.query),
+            None,
+        );
+        let mut icon_options = options.clone();
+        icon_options.size = (2, 1);
+        icon_options.max_width = 2;
+        icon_options.max_height = 1;
+        let icon_buffer = FrameBuffer::from_renderable(
+            console,
+            &icon_options,
+            &WidgetRenderable::new(&self.search_icon),
+            None,
+        );
 
         let search_y = panel_y;
         let search_icon_x = panel_x.saturating_add(1);
-        if search_y < height && search_icon_x < width {
-            *overlay.get_mut(search_icon_x, search_y) = Cell {
-                text: "🔎".to_string(),
-                style: Some(search_icon_style),
-                meta: None,
-                continuation: false,
-            };
+        if search_y < height {
+            for sx in 0..icon_buffer.width.min(2) {
+                let tx = search_icon_x.saturating_add(sx);
+                if tx >= width {
+                    break;
+                }
+                *overlay.get_mut(tx, search_y) = icon_buffer.get(sx, 0).clone();
+            }
         }
         if search_y < height {
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(3).saturating_add(sx);
+                let tx = panel_x.saturating_add(4).saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -708,67 +1097,27 @@ impl Widget for CommandPalette {
 
         let (results_x, results_y, results_w, results_h) =
             self.palette_results_geometry(panel_x, panel_y, panel_width, panel_height);
-        let mut result_line_options = options.clone();
-        result_line_options.size = (results_w.max(1), 1);
-        result_line_options.max_width = results_w.max(1);
-        result_line_options.max_height = 1;
-        let visible_items = (results_h / 2).max(1);
-        let selected = self
-            .list
-            .selected()
-            .min(self.provider_results.len().saturating_sub(1));
-        let start = self
-            .list
-            .offset()
-            .min(self.provider_results.len().saturating_sub(visible_items));
-        for row in 0..visible_items {
-            let index = start.saturating_add(row);
-            let ty_title = results_y.saturating_add(row.saturating_mul(2));
-            let ty_help = ty_title.saturating_add(1);
-            if index >= self.provider_results.len() || ty_title >= height {
+        let mut results_options = options.clone();
+        results_options.size = (results_w.max(1), results_h.max(1));
+        results_options.max_width = results_w.max(1);
+        results_options.max_height = results_h.max(1);
+        let results_buffer = FrameBuffer::from_renderable(
+            console,
+            &results_options,
+            &WidgetRenderable::new(&self.list),
+            None,
+        );
+        for y in 0..results_buffer.height.min(results_h) {
+            let ty = results_y.saturating_add(y);
+            if ty >= height {
                 break;
             }
-            let result = &self.provider_results[index];
-            let active = index == selected;
-            let title_cell_style = if active { selected_style } else { title_style };
-            let help_cell_style = if active { selected_style } else { help_style };
-            let mut title_text = console.render_str(&result.title, Some(true), None, None, None);
-            title_text.stylize_before(title_cell_style, 0, None);
-            let title_buffer =
-                FrameBuffer::from_renderable(console, &result_line_options, &title_text, None);
-            for col in 0..results_w {
-                let tx = results_x.saturating_add(col);
+            for x in 0..results_buffer.width.min(results_w) {
+                let tx = results_x.saturating_add(x);
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, ty_title) = Cell::blank(Some(title_cell_style));
-            }
-            for col in 0..title_buffer.width.min(results_w) {
-                let tx = results_x.saturating_add(col);
-                if tx >= width {
-                    break;
-                }
-                *overlay.get_mut(tx, ty_title) = title_buffer.get(col, 0).clone();
-            }
-            if ty_help < height {
-                let mut help_text = console.render_str(&result.help, Some(true), None, None, None);
-                help_text.stylize_before(help_cell_style, 0, None);
-                let help_buffer =
-                    FrameBuffer::from_renderable(console, &result_line_options, &help_text, None);
-                for col in 0..results_w {
-                    let tx = results_x.saturating_add(col);
-                    if tx >= width {
-                        break;
-                    }
-                    *overlay.get_mut(tx, ty_help) = Cell::blank(Some(help_cell_style));
-                }
-                for col in 0..help_buffer.width.min(results_w) {
-                    let tx = results_x.saturating_add(col);
-                    if tx >= width {
-                        break;
-                    }
-                    *overlay.get_mut(tx, ty_help) = help_buffer.get(col, 0).clone();
-                }
+                *overlay.get_mut(tx, ty) = results_buffer.get(x, y).clone();
             }
         }
         for ty in results_y..results_y.saturating_add(results_h).min(height) {
@@ -806,7 +1155,7 @@ impl Widget for CommandPalette {
                 break;
             }
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(3).saturating_add(sx);
+                let tx = panel_x.saturating_add(4).saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -937,9 +1286,9 @@ impl Widget for CommandPalette {
             .saturating_sub(2)
             .max(1);
         self.query.on_resize(query_width as u16, 1);
-        let result_rows = panel_h.saturating_sub(3).max(1);
-        let visible_items = (result_rows / 2).max(1);
-        self.list.on_resize(1, visible_items as u16);
+        let (_, _, results_w, results_h) = self.palette_results_geometry(0, 0, panel_w, panel_h);
+        self.list
+            .on_resize(results_w.max(1) as u16, results_h.max(1) as u16);
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -974,9 +1323,9 @@ impl Widget for CommandPalette {
             .saturating_sub(2)
             .max(1);
         self.query.on_layout(query_width as u16, 1);
-        let result_rows = panel_h.saturating_sub(3).max(1);
-        let visible_items = (result_rows / 2).max(1);
-        self.list.on_layout(1, visible_items as u16);
+        let (_, _, results_w, results_h) = self.palette_results_geometry(0, 0, panel_w, panel_h);
+        self.list
+            .on_layout(results_w.max(1) as u16, results_h.max(1) as u16);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1233,13 +1582,14 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        if self.open && message.sender == self.node_id() {
-            if let Message::InputChanged(..) = &message.message {
-                self.rebuild_results();
-                ctx.request_repaint();
-                ctx.set_handled();
-                return;
-            }
+        if self.open
+            && message.sender == self.query.node_id()
+            && matches!(message.message, Message::InputChanged(..))
+        {
+            self.rebuild_results();
+            ctx.request_repaint();
+            ctx.set_handled();
+            return;
         }
         if !self.is_tree_mode() {
             self.child.on_message(message, ctx);
