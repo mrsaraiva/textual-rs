@@ -539,11 +539,13 @@ impl CommandList {
             crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
                 .to_rich_over(default_bg)
                 .unwrap_or(base_title_style);
-        let help_style = help_style_override.unwrap_or_else(|| {
+        let mut help_style = help_style_override.unwrap_or_else(|| {
             crate::css::resolve_component_style(self, &["command-palette--help-text"])
                 .to_rich_over(default_bg)
                 .unwrap_or(base_title_style)
         });
+        help_style.dim = Some(true);
+        help_style.bold = Some(false);
         let highlight_style = self
             .highlight_style_override
             .lock()
@@ -729,6 +731,9 @@ impl CommandPalette {
     const KEY_PANEL_WIDTH_ATTR: &'static str = "command_palette.key_panel_width";
     const PANEL_Y_ATTR: &'static str = "command_palette.panel_y";
     const CLOSED_PANEL_Y: f32 = 0.0;
+    const SEARCH_ROW_OFFSET: usize = 2;
+    const RESULTS_ROW_OFFSET: usize = 4;
+    const HEADER_ROWS: usize = Self::RESULTS_ROW_OFFSET;
 
     pub fn new(child: impl Widget + 'static) -> Self {
         let commands = vec![
@@ -924,8 +929,6 @@ impl CommandPalette {
             .min(height.saturating_sub(1));
         let panel_width = width.max(1);
         let max_panel_height = height.saturating_sub(panel_y).max(1);
-        // Command palette input block: one breathing row + one search row + one separator row.
-        let header_rows = 3usize;
         let desired_results_height = self
             .provider_results
             .len()
@@ -933,8 +936,8 @@ impl CommandPalette {
             .saturating_add(1)
             .max(1);
         let results_height =
-            desired_results_height.min(max_panel_height.saturating_sub(header_rows).max(1));
-        let panel_height = header_rows
+            desired_results_height.min(max_panel_height.saturating_sub(Self::HEADER_ROWS).max(1));
+        let panel_height = Self::HEADER_ROWS
             .saturating_add(results_height)
             .min(max_panel_height)
             .max(1);
@@ -953,9 +956,9 @@ impl CommandPalette {
         panel_height: usize,
     ) -> (usize, usize, usize, usize) {
         let content_x = panel_x.saturating_add(1);
-        let content_y = panel_y.saturating_add(3);
+        let content_y = panel_y.saturating_add(Self::RESULTS_ROW_OFFSET);
         let content_width = Self::palette_content_width(panel_width);
-        let content_height = panel_height.saturating_sub(3).max(1);
+        let content_height = panel_height.saturating_sub(Self::RESULTS_ROW_OFFSET).max(1);
         (content_x, content_y, content_width, content_height)
     }
 
@@ -1242,7 +1245,7 @@ impl Widget for CommandPalette {
             None,
         );
 
-        let search_y = panel_y.saturating_add(1);
+        let search_y = panel_y.saturating_add(Self::SEARCH_ROW_OFFSET);
         let search_icon_x = panel_x.saturating_add(1);
         if search_y < height {
             for sx in 0..icon_buffer.width.min(2) {

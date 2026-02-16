@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] tune(command-palette geometry + typography parity): lower search/results block and enforce help-row contrast**
+  - Shifted command palette search/results geometry down by one row to better align with Python command palette vertical spacing.
+  - Updated palette header/results row math to use explicit offsets (`SEARCH_ROW_OFFSET`, `RESULTS_ROW_OFFSET`) so spacing is stable and testable.
+  - Ensured command help rows render with dim + not-bold styling regardless of inherited option emphasis, preserving Python-style title-vs-help contrast hierarchy.
+  - Updated command palette open snapshot gate to lock the adjusted layout.
+
 - **[wip] fix(command-palette keys command parity): route `Keys` selection to app help panel**
   - Selecting `Keys` from `CommandPalette` now posts `AppShowHelpPanel`, so TextualApp runtimes open the real help sidebar (matching Python command behavior) instead of only closing the palette.
   - Added regression assertion in command-palette widget tests to ensure `AppShowHelpPanel` is emitted alongside the selection event.
