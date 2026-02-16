@@ -126,6 +126,58 @@ impl Provider for SystemCommandsProvider {
 pub struct FuzzyMatcher;
 
 impl FuzzyMatcher {
+    /// Return matched character indices when `query` is a subsequence of `text`.
+    /// Matching is case-insensitive.
+    pub fn match_indices(query: &str, text: &str) -> Option<Vec<usize>> {
+        if query.is_empty() {
+            return Some(Vec::new());
+        }
+        let query_chars: Vec<char> = query.chars().map(|ch| ch.to_ascii_lowercase()).collect();
+        let text_chars: Vec<char> = text.chars().map(|ch| ch.to_ascii_lowercase()).collect();
+        if query_chars.len() > text_chars.len() {
+            return None;
+        }
+
+        let mut qi = 0usize;
+        let mut indices = Vec::with_capacity(query_chars.len());
+        for (ti, tc) in text_chars.iter().enumerate() {
+            if qi < query_chars.len() && *tc == query_chars[qi] {
+                indices.push(ti);
+                qi += 1;
+            }
+        }
+        if qi == query_chars.len() {
+            Some(indices)
+        } else {
+            None
+        }
+    }
+
+    /// Convert matched indices into contiguous `[start, end)` character ranges.
+    pub fn highlight_ranges(query: &str, text: &str) -> Vec<(usize, usize)> {
+        let Some(indices) = Self::match_indices(query, text) else {
+            return Vec::new();
+        };
+        if indices.is_empty() {
+            return Vec::new();
+        }
+
+        let mut ranges = Vec::new();
+        let mut start = indices[0];
+        let mut prev = indices[0];
+        for &idx in indices.iter().skip(1) {
+            if idx == prev + 1 {
+                prev = idx;
+                continue;
+            }
+            ranges.push((start, prev + 1));
+            start = idx;
+            prev = idx;
+        }
+        ranges.push((start, prev + 1));
+        ranges
+    }
+
     /// Returns a score if all characters in `query` appear (in order) in `text`.
     /// Higher score = better match. Returns `None` if no match.
     pub fn score(query: &str, text: &str) -> Option<u32> {
@@ -202,6 +254,7 @@ impl PaletteCommand {
 struct CommandListEntry {
     title: String,
     help: String,
+    title_highlight_ranges: Vec<(usize, usize)>,
 }
 
 /// Widget for displaying a search icon before the command input.
@@ -282,6 +335,10 @@ impl CommandInput {
 
     pub fn set_text(&mut self, value: impl Into<String>) {
         self.input.set_text(value);
+    }
+
+    pub fn input_node_id(&self) -> NodeId {
+        self.input.node_id()
     }
 }
 
@@ -374,6 +431,7 @@ pub struct CommandList {
     populating: bool,
     surface_bg: Option<crate::style::Color>,
     help_style_override: Mutex<Option<rich_rs::Style>>,
+    highlight_style_override: Mutex<Option<rich_rs::Style>>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -387,6 +445,7 @@ impl CommandList {
             populating: false,
             surface_bg: None,
             help_style_override: Mutex::new(None),
+            highlight_style_override: Mutex::new(None),
             classes: vec!["command-list".to_string()],
             styles: WidgetStyles::default(),
         }
@@ -443,6 +502,12 @@ impl CommandList {
             *guard = style;
         }
     }
+
+    fn set_highlight_style_override(&self, style: Option<rich_rs::Style>) {
+        if let Ok(mut guard) = self.highlight_style_override.lock() {
+            *guard = style;
+        }
+    }
 }
 
 impl Default for CommandList {
@@ -479,6 +544,15 @@ impl CommandList {
                 .to_rich_over(default_bg)
                 .unwrap_or(base_title_style)
         });
+        let highlight_style = self
+            .highlight_style_override
+            .lock()
+            .ok()
+            .and_then(|guard| *guard)
+            .or_else(|| {
+                crate::css::resolve_component_style(self, &["command-palette--highlight"])
+                    .to_rich_without_colors()
+            });
 
         let visible_items = (height / 2).max(1);
         let start = self
@@ -524,6 +598,11 @@ impl CommandList {
                 };
                 let mut rich_text = console.render_str(text, Some(true), None, None, None);
                 rich_text.stylize_before(style, 0, None);
+                if !is_help && let Some(highlight_style) = highlight_style {
+                    for &(start, end) in &entry.title_highlight_ranges {
+                        rich_text.stylize(start, end, highlight_style);
+                    }
+                }
                 let rendered = rich_text.render(console, options);
                 let lines = rich_rs::Segment::split_lines(rendered);
                 let first_line = lines.into_iter().next().unwrap_or_default();
@@ -598,15 +677,13 @@ impl Widget for CommandList {
     }
 
     fn focusable(&self) -> bool {
-        self.list.focusable()
+        false
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.list.set_focus(focused);
-    }
+    fn set_focus(&mut self, _focused: bool) {}
 
     fn has_focus(&self) -> bool {
-        self.list.has_focus()
+        false
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -910,6 +987,7 @@ impl CommandPalette {
             .map(|r| CommandListEntry {
                 title: r.title.clone(),
                 help: r.help.clone(),
+                title_highlight_ranges: FuzzyMatcher::highlight_ranges(&query, &r.title),
             })
             .collect::<Vec<_>>();
         self.list.set_entries(entries);
@@ -949,7 +1027,6 @@ impl CommandPalette {
             }
             self.query.set_text("");
             self.query.set_focus(true);
-            self.list.set_focus(true);
             self.list.set_visible(true);
             self.list.set_populating(false);
             self.rebuild_results();
@@ -966,7 +1043,6 @@ impl CommandPalette {
                 provider.shutdown();
             }
             self.query.set_focus(false);
-            self.list.set_focus(false);
             self.list.set_visible(false);
             self.list.set_populating(false);
             self.restore_child_focus();
@@ -1200,7 +1276,11 @@ impl Widget for CommandPalette {
                     .bg
                     .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0)),
             );
+        let highlight_style =
+            crate::css::resolve_component_style(self, &["command-palette--highlight"])
+                .to_rich_without_colors();
         self.list.set_help_style_override(help_style);
+        self.list.set_highlight_style_override(highlight_style);
         let results_buffer = FrameBuffer::from_renderable(
             console,
             &results_options,
@@ -1208,6 +1288,7 @@ impl Widget for CommandPalette {
             None,
         );
         self.list.set_help_style_override(None);
+        self.list.set_highlight_style_override(None);
         for y in 0..results_buffer.height.min(results_h) {
             let ty = results_y.saturating_add(y);
             if ty >= height {
@@ -1557,6 +1638,64 @@ impl Widget for CommandPalette {
                 ctx.set_handled();
                 return;
             }
+            match key.code {
+                crossterm::event::KeyCode::Up => {
+                    self.list
+                        .set_selected(self.list.selected().saturating_sub(1));
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+                crossterm::event::KeyCode::Down => {
+                    if !self.provider_results.is_empty() {
+                        let next = self
+                            .list
+                            .selected()
+                            .saturating_add(1)
+                            .min(self.provider_results.len().saturating_sub(1));
+                        self.list.set_selected(next);
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+                crossterm::event::KeyCode::Home => {
+                    self.list.set_selected(0);
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+                crossterm::event::KeyCode::End => {
+                    if !self.provider_results.is_empty() {
+                        self.list
+                            .set_selected(self.provider_results.len().saturating_sub(1));
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+                crossterm::event::KeyCode::PageUp => {
+                    let next = self.list.selected().saturating_sub(5);
+                    self.list.set_selected(next);
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return;
+                }
+                crossterm::event::KeyCode::PageDown => {
+                    if !self.provider_results.is_empty() {
+                        let next = self
+                            .list
+                            .selected()
+                            .saturating_add(5)
+                            .min(self.provider_results.len().saturating_sub(1));
+                        self.list.set_selected(next);
+                        ctx.request_repaint();
+                    }
+                    ctx.set_handled();
+                    return;
+                }
+                _ => {}
+            }
             if key.code == crossterm::event::KeyCode::Enter {
                 self.execute_selected(ctx);
                 ctx.set_handled();
@@ -1590,30 +1729,31 @@ impl Widget for CommandPalette {
                 return;
             }
 
-            if mouse.target == self.node_id() {
-                // Let Input handle cursor placement/focus details.
-            } else {
-                let (results_x, results_y, results_w, results_h) =
-                    self.palette_results_geometry(panel_x, panel_y, panel_w, panel_h);
-                if x >= results_x
-                    && x < results_x.saturating_add(results_w)
-                    && y >= results_y
-                    && y < results_y.saturating_add(results_h)
-                {
-                    let row = y.saturating_sub(results_y) / 2;
-                    let visible_items = (results_h / 2).max(1);
-                    let start = self
-                        .list
-                        .offset()
-                        .min(self.provider_results.len().saturating_sub(visible_items));
-                    let index = start.saturating_add(row);
-                    if index < self.provider_results.len() {
-                        self.list.set_selected(index);
-                        self.execute_selected(ctx);
-                        ctx.set_handled();
-                        return;
-                    }
+            let (results_x, results_y, results_w, results_h) =
+                self.palette_results_geometry(panel_x, panel_y, panel_w, panel_h);
+            if x >= results_x
+                && x < results_x.saturating_add(results_w)
+                && y >= results_y
+                && y < results_y.saturating_add(results_h)
+            {
+                let row = y.saturating_sub(results_y) / 2;
+                let visible_items = (results_h / 2).max(1);
+                let start = self
+                    .list
+                    .offset()
+                    .min(self.provider_results.len().saturating_sub(visible_items));
+                let index = start.saturating_add(row);
+                if index < self.provider_results.len() {
+                    self.list.set_selected(index);
+                    self.execute_selected(ctx);
+                    ctx.set_handled();
+                    return;
                 }
+                ctx.set_handled();
+                return;
+            }
+
+            if mouse.target != self.node_id() {
                 ctx.set_handled();
                 return;
             }
@@ -1659,10 +1799,10 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        if self.open
-            && message.sender == self.query.node_id()
-            && matches!(message.message, Message::InputChanged(..))
-        {
+        if self.open && matches!(message.message, Message::InputChanged(..)) {
+            // In tree mode, InputChanged sender may be the focused branch node
+            // rather than the inline query widget node. The open palette owns
+            // query updates, so rebuild on any InputChanged while open.
             self.rebuild_results();
             ctx.request_repaint();
             ctx.set_handled();
@@ -1795,8 +1935,10 @@ mod tests {
     use crate::event::{Action, Event, EventCtx};
     use crate::message::{CommandPaletteCommand, Message};
     use crate::node_id::NodeId;
+    use crate::render::FrameBuffer;
     use crate::widgets::Label;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rich_rs::Console;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -1887,6 +2029,49 @@ mod tests {
                 .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected(..)))
         );
         assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn command_palette_down_key_moves_selection_while_input_has_focus() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        assert!(palette.is_open());
+        assert_eq!(palette.list.selected(), 0);
+
+        let down = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        ));
+        let mut nav_ctx = EventCtx::default();
+        palette.on_event(&Event::Key(down), &mut nav_ctx);
+        assert!(nav_ctx.handled());
+        assert_eq!(palette.list.selected(), 1);
+    }
+
+    #[test]
+    fn command_palette_input_changed_rebuilds_results_even_with_non_query_sender() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+        assert!(!palette.provider_results.is_empty());
+
+        palette.query.set_text("zzzzzzzz");
+        let mut msg_ctx = EventCtx::default();
+        palette.on_message(
+            &MessageEvent {
+                sender: crate::node_id::node_id_from_ffi(77),
+                message: Message::InputChanged(InputChanged {
+                    value: "zzzzzzzz".to_string(),
+                    validation: crate::validation::ValidationResult::success(),
+                }),
+                control: None,
+            },
+            &mut msg_ctx,
+        );
+        assert!(msg_ctx.handled());
+        assert!(palette.provider_results.is_empty());
     }
 
     #[test]
@@ -2268,6 +2453,38 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_row_click_selects_when_target_is_self() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        // row 0 in results block with default panel geometry:
+        // panel_y=3, results_y=6, each entry consumes two rows.
+        let mut click_ctx = EventCtx::default();
+        palette.on_event(
+            &Event::MouseDown(crate::event::MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 4,
+                screen_y: 6,
+                x: 4,
+                y: 6,
+            }),
+            &mut click_ctx,
+        );
+        assert!(click_ctx.handled());
+        assert!(!palette.is_open());
+        let messages = click_ctx.take_messages();
+        assert!(messages.iter().any(|event| {
+            matches!(
+                event.message,
+                Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected { .. })
+            )
+        }));
+    }
+
+    #[test]
     fn command_palette_blocks_child_clicks_while_close_animation_visible() {
         let _guard = set_style_context(StyleSheet::parse(
             "CommandPalette > .command-palette--panel { transition: command-palette.panel-y 180ms ease-out; }",
@@ -2579,5 +2796,76 @@ mod tests {
         palette.on_unmount();
         assert_eq!(shutdown.load(Ordering::Relaxed), 1);
         assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn fuzzy_matcher_highlight_ranges_follow_matched_subsequence() {
+        assert_eq!(FuzzyMatcher::highlight_ranges("ey", "Keys"), vec![(1, 3)]);
+        assert_eq!(
+            FuzzyMatcher::highlight_ranges("ss", "Screenshot"),
+            vec![(0, 1), (5, 6)]
+        );
+        assert!(FuzzyMatcher::highlight_ranges("zzz", "Keys").is_empty());
+    }
+
+    #[test]
+    fn command_palette_match_highlight_underlines_matched_chars() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(open_ctx.handled());
+
+        for ch in ['e', 'y'] {
+            let key = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::NONE,
+            ));
+            let mut key_ctx = EventCtx::default();
+            palette.on_event(&Event::Key(key), &mut key_ctx);
+            for message in key_ctx.take_messages() {
+                let mut msg_ctx = EventCtx::default();
+                palette.on_message(&message, &mut msg_ctx);
+            }
+        }
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (72, 14);
+        options.max_width = 72;
+        options.max_height = 14;
+        let buf = FrameBuffer::from_renderable(
+            &console,
+            &options,
+            &WidgetRenderable::new(&palette),
+            None,
+        );
+        let lines = buf.as_plain_lines();
+        let (keys_y, keys_x) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(y, line)| line.find("Keys").map(|x| (y, x)))
+            .expect("Keys row should be present");
+
+        let e_style = buf
+            .get(keys_x + 1, keys_y)
+            .style
+            .as_ref()
+            .expect("matched 'e' should have style");
+        let y_style = buf
+            .get(keys_x + 2, keys_y)
+            .style
+            .as_ref()
+            .expect("matched 'y' should have style");
+        let k_style = buf
+            .get(keys_x, keys_y)
+            .style
+            .as_ref()
+            .expect("base title character should have style");
+
+        assert_eq!(e_style.underline, Some(true));
+        assert_eq!(y_style.underline, Some(true));
+        assert_eq!(e_style.bgcolor, k_style.bgcolor);
+        assert_eq!(y_style.bgcolor, k_style.bgcolor);
     }
 }

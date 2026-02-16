@@ -1886,6 +1886,37 @@ impl App {
                             }
                         }
 
+                        // When command palette is open, route all non-priority keys
+                        // directly through event dispatch and skip declarative/app
+                        // bindings for normal app actions. This matches modal input
+                        // capture semantics (typing should search, not switch tabs).
+                        if self.open_command_palette_target().is_some() {
+                            let mut key_outcome =
+                                self.dispatch_event_auto(root, Event::Key(key.clone()));
+                            debug_input(&format!(
+                                "[input] palette-open key dispatch handled={} repaint={} messages={}",
+                                key_outcome.handled,
+                                key_outcome.repaint_requested,
+                                key_outcome.messages.len()
+                            ));
+                            self.absorb_outcome(
+                                &mut key_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
+                            let mut msg_outcome = self
+                                .dispatch_message_queue_with_runtime(root, key_outcome.messages);
+                            self.absorb_outcome(
+                                &mut msg_outcome,
+                                &mut pending_invalidation,
+                                InvalidationScope::Global,
+                            );
+                            if key_outcome.stop_requested || msg_outcome.stop_requested {
+                                break 'event_loop;
+                            }
+                            continue;
+                        }
+
                         // Declarative BINDINGS: check focused widget chain for matching binding.
                         let binding_match = self.widget_tree.as_ref().and_then(|tree| {
                             match_binding_tree(tree, &key).map(|(node_id, action_str)| {

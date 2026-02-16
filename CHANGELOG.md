@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette interaction parity): modal key capture, list navigation, row selection, and non-destructive fuzzy highlights**
+  - When command palette is open, runtime now routes non-priority keys directly through event dispatch and skips normal declarative/app binding execution, so typed keys update search instead of triggering underlying app shortcuts.
+  - `CommandPalette` now handles list navigation keys (`Up`/`Down`/`Home`/`End`/`PageUp`/`PageDown`) while input remains focused, matching Python-style command-list traversal.
+  - Row click execution now resolves from palette results geometry directly, ensuring row selection/activation works even when click targets are palette-local.
+  - Added fuzzy-match highlight ranges and title-segment underlining for matched characters; highlight styling now preserves row background color (underline emphasis only), avoiding surface overwrite artifacts.
+  - Added regression tests for:
+    - palette list navigation under focused input,
+    - sender-agnostic `InputChanged` rebuild while open,
+    - row-click selection path,
+    - fuzzy range extraction and underline/background-preservation rendering semantics.
+
 - **[wip] fix(command-input subclass parity): support Python-style type inheritance in CSS selector matching**
   - Added CSS selector type-alias support in selector metadata/matching so widgets can match both concrete and base type selectors (e.g. `CommandInput` matching `Input` rules).
   - Added `Widget::style_type_aliases()` hook (default empty) and wired selector meta generation to include aliases for both full widget and component selector resolution.
