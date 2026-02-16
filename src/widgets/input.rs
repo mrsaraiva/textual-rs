@@ -149,6 +149,8 @@ pub struct Input {
     validation_result: ValidationResult,
     chrome: InputChrome,
     styles: WidgetStyles,
+    style_type_name: &'static str,
+    style_type_aliases: Vec<&'static str>,
     suggester: Option<Box<dyn Suggester>>,
     suggestion: String,
 }
@@ -169,9 +171,26 @@ impl Input {
             validation_result: ValidationResult::success(),
             chrome: InputChrome::new(),
             styles: WidgetStyles::default(),
+            style_type_name: "Input",
+            style_type_aliases: Vec::new(),
             suggester: None,
             suggestion: String::new(),
         }
+    }
+
+    /// Override the CSS style type and optional base-type aliases.
+    ///
+    /// This enables Python-style subclass selector behavior. For example,
+    /// `CommandInput` can use `style_type_name="CommandInput"` while still
+    /// inheriting `Input` selector rules via aliases.
+    pub fn with_style_type(
+        mut self,
+        style_type_name: &'static str,
+        aliases: impl IntoIterator<Item = &'static str>,
+    ) -> Self {
+        self.style_type_name = style_type_name;
+        self.style_type_aliases = aliases.into_iter().collect();
+        self
     }
 
     pub fn with_placeholder(mut self, value: impl Into<String>) -> Self {
@@ -620,6 +639,14 @@ impl ReactiveWidget for Input {
 }
 
 impl Widget for Input {
+    fn style_type(&self) -> &'static str {
+        self.style_type_name
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        self.style_type_aliases.as_slice()
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -955,7 +982,11 @@ impl Widget for Input {
         let base_meta = crate::css::selector_meta_generic(self);
         let base_style = crate::css::resolve_style(self, &base_meta);
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-        let base_bg = base_style.bg.unwrap_or(fallback_bg);
+        let base_bg = match base_style.bg {
+            Some(bg) if bg.a == 0 => fallback_bg,
+            Some(bg) => bg,
+            None => fallback_bg,
+        };
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
             let style = crate::css::resolve_component_style(self, &[class]);
@@ -965,6 +996,9 @@ impl Widget for Input {
             let mut under_bg = base_bg;
 
             if let Some(bg) = style.bg {
+                if bg.a == 0 {
+                    return rich;
+                }
                 let flat = bg.flatten_over(under_bg);
                 under_bg = flat;
                 rich = rich.with_bgcolor(flat.to_simple_opaque());

@@ -269,6 +269,7 @@ impl CommandInput {
     pub fn new(placeholder: impl Into<String>) -> Self {
         Self {
             input: Input::new()
+                .with_style_type("CommandInput", ["Input"])
                 .class("command-palette--input")
                 .with_placeholder(placeholder),
             styles: WidgetStyles::default(),

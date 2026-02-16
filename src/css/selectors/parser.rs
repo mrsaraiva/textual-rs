@@ -2621,6 +2621,7 @@ mod tests {
         let sheet = StyleSheet::parse(".foo { color: red !important; } #bar { color: green; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
+            type_aliases: Vec::new(),
             id: Some("bar".to_string()),
             classes: vec!["foo".to_string()],
             states: SelectorStates::default(),
@@ -2638,6 +2639,7 @@ mod tests {
             StyleSheet::parse(".foo { color: red !important; } #bar { color: green !important; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
+            type_aliases: Vec::new(),
             id: Some("bar".to_string()),
             classes: vec!["foo".to_string()],
             states: SelectorStates::default(),
@@ -2653,6 +2655,7 @@ mod tests {
         let sheet = StyleSheet::parse(".a { color: red; } .b { color: green; }");
         let meta = SelectorMeta {
             type_name: "Widget".to_string(),
+            type_aliases: Vec::new(),
             id: None,
             classes: vec!["a".to_string(), "b".to_string()],
             states: SelectorStates::default(),

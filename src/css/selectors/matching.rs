@@ -4,7 +4,9 @@ use super::context::SELECTOR_STACK;
 impl StyleSelector {
     pub(crate) fn matches(&self, meta: &SelectorMeta) -> bool {
         if let Some(type_name) = &self.type_name {
-            if meta.type_name != *type_name {
+            if meta.type_name != *type_name
+                && !meta.type_aliases.iter().any(|alias| alias == type_name)
+            {
                 return false;
             }
         }
@@ -134,6 +136,7 @@ mod tests {
     fn meta_with_states(states: SelectorStates) -> SelectorMeta {
         SelectorMeta {
             type_name: "Widget".to_string(),
+            type_aliases: Vec::new(),
             id: None,
             classes: Vec::new(),
             states,
@@ -195,6 +198,19 @@ mod tests {
             inline: true,
             ..Default::default()
         })));
+    }
+
+    #[test]
+    fn type_selector_matches_type_aliases_for_subclass_semantics() {
+        let selector = StyleSelector::new("Input");
+        let meta = SelectorMeta {
+            type_name: "CommandInput".to_string(),
+            type_aliases: vec!["Input".to_string()],
+            id: None,
+            classes: Vec::new(),
+            states: SelectorStates::default(),
+        };
+        assert!(selector.matches(&meta));
     }
 
     #[test]

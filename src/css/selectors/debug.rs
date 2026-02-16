@@ -186,6 +186,7 @@ mod tests {
     fn style_debug_meta_label_includes_new_active_states_and_blur() {
         let meta = SelectorMeta {
             type_name: "App".to_string(),
+            type_aliases: Vec::new(),
             id: None,
             classes: Vec::new(),
             states: SelectorStates {

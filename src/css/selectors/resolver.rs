@@ -71,6 +71,11 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
     let pseudos = app_runtime_pseudos();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
+        type_aliases: widget
+            .style_type_aliases()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
         id: widget.style_id().map(|value| value.to_string()),
         classes: widget.style_classes().to_vec(),
         states: SelectorStates {
@@ -103,6 +108,7 @@ pub(crate) fn selector_meta_generic_with_classes<T: Widget + ?Sized>(
 pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
     SelectorMeta {
         type_name: parent_type.to_string(),
+        type_aliases: Vec::new(),
         id: None,
         classes: classes.iter().map(|s| (*s).to_string()).collect(),
         states: SelectorStates::default(),
@@ -116,6 +122,11 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
     let pseudos = app_runtime_pseudos();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
+        type_aliases: widget
+            .style_type_aliases()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
         id: None,
         classes: classes.iter().map(|s| (*s).to_string()).collect(),
         states: SelectorStates {

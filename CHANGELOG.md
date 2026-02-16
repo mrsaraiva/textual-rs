@@ -8,6 +8,16 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-input subclass parity): support Python-style type inheritance in CSS selector matching**
+  - Added CSS selector type-alias support in selector metadata/matching so widgets can match both concrete and base type selectors (e.g. `CommandInput` matching `Input` rules).
+  - Added `Widget::style_type_aliases()` hook (default empty) and wired selector meta generation to include aliases for both full widget and component selector resolution.
+  - Extended `Input` with `with_style_type(...)` so wrapper/subclass-style widgets can set a concrete style type plus base-type aliases.
+  - Wired command palette input to render as concrete `CommandInput` with `Input` alias, enabling Python-style `CommandInput` selectors to apply naturally without losing base `Input` style rules.
+  - Fixed transparent color composition in `Input` render path to avoid collapsing transparent backgrounds into opaque black during component style flattening.
+  - Added regression coverage for:
+    - selector type-alias matching semantics,
+    - command-palette search-row surface parity with list/panel background.
+
 - **[wip] fix(command-palette geometry/surface parity): panel top offset + panel-surface composition across rows**
   - `CommandPalette` panel Y placement now honors component CSS (`.command-palette--panel { margin-top: ... }`) instead of a hardcoded offset, matching Python structure more closely.
   - Added default `margin-top: 3` for `.command-palette--panel` in widget defaults.

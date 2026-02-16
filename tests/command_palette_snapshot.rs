@@ -103,6 +103,40 @@ fn command_palette_placeholder_uses_dim_style() {
 }
 
 #[test]
+fn command_palette_search_row_uses_panel_surface_background() {
+    let mut palette = CommandPalette::new(Label::new("Body content"));
+    let mut ctx = EventCtx::default();
+    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    assert!(ctx.handled());
+
+    let buf = render_buffer(&palette);
+    let lines = buf.as_plain_lines();
+    let (search_y, search_x) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Search for commands").map(|x| (y, x)))
+        .expect("search placeholder row should be present");
+
+    let search_style = buf
+        .get(search_x.saturating_add(3), search_y)
+        .style
+        .as_ref()
+        .expect("search placeholder should have style");
+    let list_bg_style = buf
+        .as_plain_lines()
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Maximize").map(|x| (y, x)))
+        .and_then(|(y, x)| buf.get(x, y).style.as_ref().cloned())
+        .expect("list row should have style");
+
+    assert_eq!(
+        search_style.bgcolor, list_bg_style.bgcolor,
+        "search input row should share the panel/list surface background"
+    );
+}
+
+#[test]
 fn command_palette_unselected_rows_use_panel_surface_background() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     let mut ctx = EventCtx::default();

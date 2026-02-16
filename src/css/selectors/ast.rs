@@ -152,6 +152,7 @@ impl SelectorChain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectorMeta {
     pub(super) type_name: String,
+    pub(super) type_aliases: Vec<String>,
     pub(super) id: Option<String>,
     pub(super) classes: Vec<String>,
     pub(super) states: SelectorStates,
@@ -165,6 +166,7 @@ impl SelectorMeta {
     pub(crate) fn new(type_name: String, id: Option<String>, classes: Vec<String>) -> Self {
         Self {
             type_name,
+            type_aliases: Vec::new(),
             id,
             classes,
             states: SelectorStates::default(),

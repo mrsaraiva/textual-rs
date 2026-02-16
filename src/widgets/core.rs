@@ -434,6 +434,14 @@ pub trait Widget: Send + Sync + Any {
             .next()
             .unwrap_or("Widget")
     }
+    /// Optional super-type aliases used for CSS type selector matching.
+    ///
+    /// This enables Python-style subclass selector behavior where a widget can
+    /// match both its concrete type and a base type selector (e.g.
+    /// `CommandInput` also matching `Input` rules).
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &[]
+    }
     fn style_id(&self) -> Option<&str> {
         self.styles().and_then(|styles| styles.style_id.as_deref())
     }
