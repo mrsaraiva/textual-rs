@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette css parity): honor Python `CommandPalette` component selectors without local fallback rules**
+  - `CommandList` now accepts render-time help-style injection from its `CommandPalette` parent render path, so Python selector `CommandPalette > .command-palette--help-text` is applied in-context (instead of relying on `CommandList`-local fallback selectors).
+  - Removed `CommandList > .command-palette--help-text` fallback default CSS rule; `CommandPalette` component selector is now the source of truth.
+  - Improved panel surface composition so cells with `bg=default` are treated as transparent and composed over panel background, eliminating dark leaks in command rows.
+  - `Input` component styling now resolves through `resolve_component_style(...)`, enabling selectors like `Input.command-palette--input > .input--placeholder` to apply correctly.
+  - Added regression tests for help-row surface/dim semantics and placeholder dim styling in `tests/command_palette_snapshot.rs`.
+
 - **[wip] fix(command-palette color composition parity): resolve list component styles over panel surface**
   - Command palette list component styles are now resolved over the panel surface color (instead of global default background), so alpha/transparent tokens compose against the correct local surface.
   - Added explicit command-palette surface propagation into `CommandList` and refreshed it on mount/layout/open transitions.

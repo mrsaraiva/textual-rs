@@ -958,8 +958,7 @@ impl Widget for Input {
         let base_bg = base_style.bg.unwrap_or(fallback_bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            let meta = crate::css::selector_meta_component(self.style_type(), &[class]);
-            let style = crate::css::resolve_style_for_meta(&meta);
+            let style = crate::css::resolve_component_style(self, &[class]);
             let mut rich = style
                 .to_rich_without_colors()
                 .unwrap_or_else(rich_rs::Style::new);

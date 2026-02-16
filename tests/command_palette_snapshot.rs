@@ -36,6 +36,61 @@ fn command_palette_open_snapshot() {
 }
 
 #[test]
+fn command_palette_help_rows_keep_panel_surface_and_dim_style() {
+    let mut palette = CommandPalette::new(Label::new("Body content"));
+    let mut ctx = EventCtx::default();
+    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    assert!(ctx.handled());
+
+    let buf = render_buffer(&palette);
+
+    // "Show help..." row in the open snapshot.
+    let help_text = buf.get(1, 4);
+    let help_pad = buf.get(40, 4);
+
+    let text_style = help_text
+        .style
+        .as_ref()
+        .expect("help text cell should carry style");
+    let pad_style = help_pad
+        .style
+        .as_ref()
+        .expect("help row padding cell should carry panel style");
+
+    assert_eq!(
+        text_style.bgcolor, pad_style.bgcolor,
+        "help text and trailing padding should share panel surface background"
+    );
+    assert_eq!(
+        text_style.dim,
+        Some(true),
+        "help description should use dim text style"
+    );
+}
+
+#[test]
+fn command_palette_placeholder_uses_dim_style() {
+    let mut palette = CommandPalette::new(Label::new("Body content"));
+    let mut ctx = EventCtx::default();
+    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    assert!(ctx.handled());
+
+    let buf = render_buffer(&palette);
+    // Search prompt starts at row 1 with icon at x=1..2 and input text at x=4...
+    // x=4 is the focused cursor cell; check a later placeholder cell.
+    let placeholder_cell = buf.get(7, 1);
+    let style = placeholder_cell
+        .style
+        .as_ref()
+        .expect("placeholder cell should have style");
+    assert_eq!(
+        style.dim,
+        Some(true),
+        "placeholder text should be rendered dim"
+    );
+}
+
+#[test]
 fn command_palette_renders_markup_commands_without_literal_tags() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     palette.set_commands(vec![PaletteCommand::new(

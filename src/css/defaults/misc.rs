@@ -726,6 +726,20 @@ CommandPalette > .command-palette--border {
     fg: $primary;
 }
 
+CommandPalette > .command-palette--help-text {
+    fg: $text-muted;
+    bg: transparent;
+    text-style: dim not bold;
+}
+
+CommandPalette > .command-palette--highlight {
+    text-style: bold underline;
+}
+
+CommandPalette:nocolor > .command-palette--highlight {
+    text-style: underline;
+}
+
 SearchIcon {
     fg: $primary;
     margin-left: 1;
@@ -773,12 +787,6 @@ CommandList > .option-list--option {
     padding: 0 2;
     fg: $foreground;
     text-style: bold;
-}
-
-CommandList > .command-palette--help-text {
-    fg: $text-muted;
-    bg: transparent;
-    text-style: dim not bold;
 }
 
 CommandList > .option-list--option-highlighted {

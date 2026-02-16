@@ -1,4 +1,5 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::event::{
@@ -364,13 +365,14 @@ impl Renderable for CommandInput {
 }
 
 /// Command result list widget mirroring Python's `CommandList`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CommandList {
     list: ListView,
     entries: Vec<CommandListEntry>,
     visible: bool,
     populating: bool,
     surface_bg: Option<crate::style::Color>,
+    help_style_override: Mutex<Option<rich_rs::Style>>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -383,6 +385,7 @@ impl CommandList {
             visible: false,
             populating: false,
             surface_bg: None,
+            help_style_override: Mutex::new(None),
             classes: vec!["command-list".to_string()],
             styles: WidgetStyles::default(),
         }
@@ -433,6 +436,12 @@ impl CommandList {
             self.classes.push("--populating".to_string());
         }
     }
+
+    fn set_help_style_override(&self, style: Option<rich_rs::Style>) {
+        if let Ok(mut guard) = self.help_style_override.lock() {
+            *guard = style;
+        }
+    }
 }
 
 impl Default for CommandList {
@@ -441,16 +450,13 @@ impl Default for CommandList {
     }
 }
 
-impl Widget for CommandList {
-    fn style_type(&self) -> &'static str {
-        "CommandList"
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+impl CommandList {
+    fn render_with_help_style(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        help_style_override: Option<rich_rs::Style>,
+    ) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         let mut out = Segments::new();
@@ -467,15 +473,27 @@ impl Widget for CommandList {
             crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
                 .to_rich_over(default_bg)
                 .unwrap_or(base_title_style);
-        let help_style = crate::css::resolve_component_style(self, &["command-palette--help-text"])
-            .to_rich_over(default_bg)
-            .unwrap_or(base_title_style);
+        let help_style = help_style_override.unwrap_or_else(|| {
+            crate::css::resolve_component_style(self, &["command-palette--help-text"])
+                .to_rich_over(default_bg)
+                .unwrap_or(base_title_style)
+        });
 
         let visible_items = (height / 2).max(1);
         let start = self
             .offset()
             .min(self.entries.len().saturating_sub(visible_items));
         let selected = self.selected().min(self.entries.len().saturating_sub(1));
+
+        let pad_row = |line: &[Segment], pad_style: rich_rs::Style| -> Vec<Segment> {
+            let mut adjusted =
+                rich_rs::Segment::adjust_line_length(line, width, Some(pad_style), false);
+            let len = rich_rs::Segment::get_line_length(&adjusted);
+            if len < width {
+                adjusted.push(rich_rs::Segment::styled(" ".repeat(width - len), pad_style));
+            }
+            adjusted
+        };
 
         for visual_row in 0..height {
             let entry_row = visual_row / 2;
@@ -508,7 +526,7 @@ impl Widget for CommandList {
                 let rendered = rich_text.render(console, options);
                 let lines = rich_rs::Segment::split_lines(rendered);
                 let first_line = lines.into_iter().next().unwrap_or_default();
-                adjust_line_length_no_bg(&first_line, width)
+                pad_row(&first_line, style)
             };
             out.extend(line);
             if visual_row + 1 < height {
@@ -516,6 +534,25 @@ impl Widget for CommandList {
             }
         }
         out
+    }
+}
+
+impl Widget for CommandList {
+    fn style_type(&self) -> &'static str {
+        "CommandList"
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let help_style_override = self
+            .help_style_override
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        self.render_with_help_style(console, options, help_style_override)
     }
 
     fn on_mount(&mut self) {
@@ -1073,10 +1110,16 @@ impl Widget for CommandPalette {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
         let apply_panel_surface = |mut cell: Cell| -> Cell {
-            cell.style = Some(match cell.style {
+            let mut composed = match cell.style {
                 Some(style) => panel_style.combine(&style),
                 None => panel_style,
-            });
+            };
+            if composed.bgcolor.is_none()
+                || matches!(composed.bgcolor, Some(rich_rs::SimpleColor::Default))
+            {
+                composed.bgcolor = panel_style.bgcolor;
+            }
+            cell.style = Some(composed);
             cell
         };
 
@@ -1139,12 +1182,20 @@ impl Widget for CommandPalette {
         results_options.size = (results_w.max(1), results_h.max(1));
         results_options.max_width = results_w.max(1);
         results_options.max_height = results_h.max(1);
+        let help_style = crate::css::resolve_component_style(self, &["command-palette--help-text"])
+            .to_rich_over(
+                crate::css::resolve_component_style(self, &["command-palette--panel"])
+                    .bg
+                    .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0)),
+            );
+        self.list.set_help_style_override(help_style);
         let results_buffer = FrameBuffer::from_renderable(
             console,
             &results_options,
             &WidgetRenderable::new(&self.list),
             None,
         );
+        self.list.set_help_style_override(None);
         for y in 0..results_buffer.height.min(results_h) {
             let ty = results_y.saturating_add(y);
             if ty >= height {
