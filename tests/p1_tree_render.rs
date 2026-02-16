@@ -9,6 +9,7 @@ use rich_rs::Console;
 use textual::compose;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::style::{Offset, OffsetValue, Position, Scalar};
 
 // ===========================================================================
 // Helpers
@@ -826,4 +827,101 @@ Horizontal > VerticalScroll {
         })
         .collect();
     assert_eq!(widths, vec![24, 24, 24, 24]);
+}
+
+/// Overlay regression guard: a visible modal layer must not erase base content
+/// outside the modal rectangle in tree mode.
+#[test]
+fn p1g15_overlay_modal_preserves_underlay_outside_modal_bounds() {
+    let base_bg = Color::parse("#224466").unwrap().to_simple_opaque();
+    let base = Styled::new(
+        Static::new("BASE_MARKER"),
+        Style::new()
+            .width(Scalar::Percent(100.0))
+            .height(Scalar::Percent(100.0))
+            .bg(Color::parse("#224466").unwrap()),
+    );
+
+    let mut modal_layer = Container::new().with_child(Static::new("MODAL_CARD"));
+    {
+        let style = &mut modal_layer.styles_mut().expect("modal styles").style;
+        style.position = Some(Position::Absolute);
+        style.offset = Some(Offset {
+            x: OffsetValue::Cells(2),
+            y: OffsetValue::Cells(1),
+        });
+        style.width = Some(Scalar::Cells(14));
+        style.height = Some(Scalar::Cells(3));
+    }
+
+    let mut root = Dock::new()
+        .push_fill(Overlay::new(base, modal_layer).visible(true))
+        .push_bottom(Some(1), Static::new("FOOTER_SENTINEL"));
+
+    let (_tree, frame, lines) = tree_render(&mut root, 50, 10);
+
+    assert!(
+        lines_contain(&lines, "MODAL_CARD"),
+        "modal content should be visible; lines={lines:?}"
+    );
+    assert!(
+        lines_contain(&lines, "BASE_MARKER"),
+        "base marker should remain visible when modal is shown; lines={lines:?}"
+    );
+    assert!(
+        lines_contain(&lines, "FOOTER_SENTINEL"),
+        "footer sibling should still render; lines={lines:?}"
+    );
+    // Outside modal rect (x >= 20, y >= 4) must keep base background.
+    assert_eq!(
+        frame.get(20, 4).style.and_then(|s| s.bgcolor),
+        Some(base_bg),
+        "transparent modal wrapper must not wipe base surface outside modal bounds"
+    );
+}
+
+/// Layout regression guard: toggling overlay visibility must not change sibling
+/// geometry (footer row stays stable between hidden and visible states).
+#[test]
+fn p1g15_overlay_visibility_toggle_does_not_shift_footer_layout() {
+    let build_root = |overlay_visible: bool| {
+        let base = Container::new().with_compose(compose![
+            Static::new("BASE_LINE_1"),
+            Static::new("BASE_LINE_2"),
+            Static::new("BASE_LINE_3"),
+        ]);
+
+        let mut modal_layer = Container::new().with_child(Static::new("MODAL_CARD"));
+        {
+            let style = &mut modal_layer.styles_mut().expect("modal styles").style;
+            style.position = Some(Position::Absolute);
+            style.offset = Some(Offset {
+                x: OffsetValue::Cells(1),
+                y: OffsetValue::Cells(1),
+            });
+            style.width = Some(Scalar::Cells(12));
+            style.height = Some(Scalar::Cells(2));
+        }
+
+        Dock::new()
+            .push_fill(Overlay::new(base, modal_layer).visible(overlay_visible))
+            .push_bottom(Some(1), Static::new("FOOTER_SENTINEL"))
+    };
+
+    let mut hidden_root = build_root(false);
+    let (_tree_hidden, _frame_hidden, hidden_lines) = tree_render(&mut hidden_root, 50, 10);
+    let (hidden_footer_row, hidden_footer_col) = find_text(&hidden_lines, "FOOTER_SENTINEL");
+
+    let mut visible_root = build_root(true);
+    let (_tree_visible, _frame_visible, visible_lines) = tree_render(&mut visible_root, 50, 10);
+    let (visible_footer_row, visible_footer_col) = find_text(&visible_lines, "FOOTER_SENTINEL");
+
+    assert_eq!(
+        hidden_footer_row, visible_footer_row,
+        "overlay visibility toggle must not move footer row"
+    );
+    assert_eq!(
+        hidden_footer_col, visible_footer_col,
+        "overlay visibility toggle must not move footer column"
+    );
 }

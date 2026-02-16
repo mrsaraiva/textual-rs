@@ -632,7 +632,26 @@ fn render_tree_node(
         } else {
             w
         };
-        let lines = rich_rs::Segment::split_and_crop_lines(segments, crop_width, None, true, false);
+        // Structural tree nodes (for example Overlay modal layers) may render
+        // no segments of their own. If they also don't paint any surface style,
+        // don't synthesize padded blank lines, or they'd erase underlay content.
+        let has_surface_paint = resolved.bg.is_some()
+            || resolved.hatch.is_some()
+            || resolved.border_top.is_set()
+            || resolved.border_right.is_set()
+            || resolved.border_bottom.is_set()
+            || resolved.border_left.is_set()
+            || resolved.outline_top.is_set()
+            || resolved.outline_right.is_set()
+            || resolved.outline_bottom.is_set()
+            || resolved.outline_left.is_set();
+        let pad_lines = if segments.is_empty() && !has_surface_paint {
+            false
+        } else {
+            !node.widget.preserve_underlay()
+        };
+        let lines =
+            rich_rs::Segment::split_and_crop_lines(segments, crop_width, None, pad_lines, false);
 
         let lines = if let Some(overflow) = overflow_mode {
             lines
@@ -887,6 +906,10 @@ fn outline_char_horizontal(edge: &BorderEdge) -> char {
             ..
         } => '─',
         BorderEdge::Edge {
+            border_type: crate::style::BorderType::Heavy,
+            ..
+        } => '━',
+        BorderEdge::Edge {
             border_type: crate::style::BorderType::Block,
             ..
         } => '▀',
@@ -909,6 +932,10 @@ fn outline_char_vertical(edge: &BorderEdge) -> char {
             border_type: crate::style::BorderType::Solid,
             ..
         } => '│',
+        BorderEdge::Edge {
+            border_type: crate::style::BorderType::Heavy,
+            ..
+        } => '┃',
         BorderEdge::Edge {
             border_type: crate::style::BorderType::Block,
             ..

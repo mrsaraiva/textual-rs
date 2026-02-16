@@ -289,6 +289,10 @@ impl CommandPalette {
         self.open
     }
 
+    pub fn is_visible_in_tree(&self) -> bool {
+        self.open || self.panel_visible
+    }
+
     fn key_panel_width(&self, width: usize) -> usize {
         if !self.show_key_panel || width < 56 {
             return 0;
@@ -582,6 +586,12 @@ impl Widget for CommandPalette {
         Some(!(self.open || self.panel_visible))
     }
 
+    fn preserve_underlay(&self) -> bool {
+        // Tree-mode command palette behaves like an overlay/modal and should
+        // not trigger full-rect background fill from the generic styled path.
+        true
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let (width, height) = options.size;
         let tree_mode = self.is_tree_mode();
@@ -810,7 +820,48 @@ impl Widget for CommandPalette {
         if let Some(base) = base {
             Overlay::compose_overlay(&base, &overlay).to_segments()
         } else {
-            overlay.to_segments()
+            // Tree-mode overlay path: emit sparse lines only up to the palette
+            // region. This preserves the underlay for untouched rows.
+            let border_y = panel_y.saturating_add(panel_height);
+            let row_end = if border_y < height {
+                border_y.saturating_add(1)
+            } else {
+                panel_y.saturating_add(panel_height).min(height)
+            };
+            let mut lines: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(row_end.max(1));
+            for y in 0..row_end {
+                if y < panel_y {
+                    lines.push(Vec::new());
+                    continue;
+                }
+                let mut line: Vec<rich_rs::Segment> = Vec::new();
+                for x in 0..width {
+                    let cell = overlay.get(x, y);
+                    if cell.continuation {
+                        continue;
+                    }
+                    let paints = (!cell.text.is_empty() && cell.text != " ")
+                        || cell.style.is_some()
+                        || cell.meta.is_some();
+                    if !paints {
+                        continue;
+                    }
+                    let mut seg = rich_rs::Segment::new(cell.text.clone());
+                    seg.style = cell.style;
+                    seg.meta = cell.meta.clone();
+                    line.push(seg);
+                }
+                lines.push(line);
+            }
+
+            let mut out = Segments::new();
+            for (idx, line) in lines.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < row_end {
+                    out.push(rich_rs::Segment::line());
+                }
+            }
+            out
         }
     }
 
@@ -1182,7 +1233,7 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        if message.sender == self.node_id() {
+        if self.open && message.sender == self.node_id() {
             if let Message::InputChanged(..) = &message.message {
                 self.rebuild_results();
                 ctx.request_repaint();

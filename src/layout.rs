@@ -500,6 +500,10 @@ pub fn resolve_layout(
         .get(node)
         .map(|n| n.widget.style_type() == "Dock")
         .unwrap_or(false);
+    let is_overlay_parent = tree
+        .get(node)
+        .map(|n| n.widget.style_type() == "Overlay")
+        .unwrap_or(false);
 
     // Collect children (snapshot to avoid borrow conflict).
     let children: Vec<NodeId> = tree.children(node).to_vec();
@@ -521,6 +525,41 @@ pub fn resolve_layout(
     } else {
         available
     };
+
+    // Overlay children are layered in the same region (base + modal stack),
+    // not arranged in normal flow.
+    if is_overlay_parent {
+        let mut layered = Vec::new();
+        for &child in &children {
+            if tree.get(child).map(|n| !n.display).unwrap_or(true) {
+                continue;
+            }
+            let child_style = get_node_style(tree, child);
+            if child_style.display == Some(crate::style::Display::None) {
+                continue;
+            }
+            layered.push(child);
+        }
+        if !layered.is_empty() {
+            layout_absolute(tree, &layered, child_available, viewport);
+        }
+        for child in children {
+            let Some(child_node) = tree.get(child) else {
+                continue;
+            };
+            if !child_node.display || child_node.visibility != crate::style::Visibility::Visible {
+                continue;
+            }
+            let rect = child_node.content_rect;
+            let w = rect.x1.saturating_sub(rect.x0);
+            let h = rect.y1.saturating_sub(rect.y0);
+            if w == 0 || h == 0 {
+                continue;
+            }
+            resolve_layout(tree, child, Region::new(rect.x0, rect.y0, w, h), viewport);
+        }
+        return;
+    }
 
     // Separate children into categories: split, docked, absolute, and flow.
     let mut split = Vec::new();
@@ -2933,5 +2972,20 @@ mod tests {
         // A: x=10+0=10, B: x=10+30=40.
         assert_layout_rect(&tree, a, 10, 20, 40, 60);
         assert_layout_rect(&tree, b, 40, 20, 70, 60);
+    }
+
+    #[test]
+    fn overlay_parent_layers_base_and_modal_in_same_region() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Root"));
+        let overlay = tree.mount(root, LayoutTestWidget::boxed("Overlay"));
+        let base = tree.mount(overlay, LayoutTestWidget::boxed("Base"));
+        let modal = tree.mount(overlay, LayoutTestWidget::boxed("Modal"));
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 80, 20), (80, 20));
+
+        assert_layout_rect(&tree, overlay, 0, 0, 80, 20);
+        assert_layout_rect(&tree, base, 0, 0, 80, 20);
+        assert_layout_rect(&tree, modal, 0, 0, 80, 20);
     }
 }

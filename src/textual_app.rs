@@ -11,6 +11,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
+use crate::style::Position;
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
 use crate::{App, Result};
@@ -242,8 +243,9 @@ impl OverlayScreenStack {
 
 struct TextualAppAdapter<T: TextualApp> {
     app: Arc<Mutex<T>>,
-    child: Box<dyn Widget>,
-    child_extracted: bool,
+    app_child: Box<dyn Widget>,
+    command_palette_visible: bool,
+    children_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
 }
@@ -251,17 +253,28 @@ struct TextualAppAdapter<T: TextualApp> {
 fn build_textual_app_runtime_root<T: TextualApp>(
     state: Arc<Mutex<T>>,
     composed: AppRoot,
-) -> CommandPalette {
+) -> TextualAppAdapter<T> {
     let adapter = TextualAppAdapter::new(state, composed);
-    CommandPalette::new(adapter)
+    adapter
 }
 
 impl<T: TextualApp> TextualAppAdapter<T> {
+    fn make_command_palette_host() -> CommandPalette {
+        let mut command_palette = CommandPalette::new(Spacer::new(1));
+        if let Some(styles) = command_palette.styles_mut() {
+            // Keep command palette always mounted for global app bindings, but
+            // out of normal flow so it behaves as a modal overlay.
+            styles.style.position = Some(Position::Absolute);
+        }
+        command_palette
+    }
+
     fn new(app: Arc<Mutex<T>>, child: impl Widget + 'static) -> Self {
         Self {
             app,
-            child: Box::new(child),
-            child_extracted: false,
+            app_child: Box::new(child),
+            command_palette_visible: false,
+            children_extracted: false,
             command_palette_providers: Vec::new(),
             command_palette_provider_index: HashMap::new(),
         }
@@ -310,6 +323,10 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             return;
         };
         provider.on_command_selected(&original_command_id, ctx);
+    }
+
+    fn command_palette_visible_in_tree(&self) -> bool {
+        self.command_palette_visible
     }
 }
 
@@ -573,20 +590,33 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        if self.child_extracted {
+        if self.children_extracted {
             return Vec::new();
         }
-        self.child_extracted = true;
-        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        self.children_extracted = true;
+        let app_child = std::mem::replace(&mut self.app_child, Box::new(Spacer::new(1)));
+        let command_palette = Self::make_command_palette_host();
+        vec![app_child, Box::new(command_palette)]
+    }
+
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.children_extracted {
+            return None;
+        }
+        match child_index {
+            1 => Some(self.command_palette_visible_in_tree()),
+            _ => None,
+        }
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.child.render_styled(console, options)
+        self.app_child.render_styled(console, options)
     }
 
     fn on_mount(&mut self) {
-        self.child.on_mount();
+        if !self.children_extracted {
+            self.app_child.on_mount();
+        }
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -596,31 +626,47 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     fn on_unmount(&mut self) {
         let mut ctx = EventCtx::default();
         self.shutdown_command_palette_providers(&mut ctx);
-        self.child.on_unmount();
+        if !self.children_extracted {
+            self.app_child.on_unmount();
+        }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.child.on_tick(tick);
+        if !self.children_extracted {
+            self.app_child.on_tick(tick);
+        }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.child.on_resize(width, height);
+        if !self.children_extracted {
+            self.app_child.on_resize(width, height);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.child.on_layout(width, height);
+        if !self.children_extracted {
+            self.app_child.on_layout(width, height);
+        }
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.child.on_mouse_move(x, y)
+        if self.children_extracted {
+            false
+        } else {
+            self.app_child.on_mouse_move(x, y)
+        }
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+        if !self.children_extracted {
+            self.app_child.on_mouse_scroll(delta_x, delta_y, ctx);
+        }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
+        if !self.children_extracted {
+            self.app_child.on_event_capture(event, ctx);
+        }
     }
 
     fn on_app_key(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
@@ -652,16 +698,21 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
+        if !self.children_extracted {
+            self.app_child.on_event(event, ctx);
+        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        self.child.on_message(message, ctx);
+        if !self.children_extracted {
+            self.app_child.on_message(message, ctx);
+        }
         if ctx.handled() {
             return;
         }
         match &message.message {
             Message::CommandPaletteOpened(_) => {
+                self.command_palette_visible = true;
                 self.initialize_command_palette_providers(ctx);
                 self.app
                     .lock()
@@ -672,6 +723,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 }
             }
             Message::CommandPaletteClosed(_) => {
+                self.command_palette_visible = false;
                 self.shutdown_command_palette_providers(ctx);
                 self.app
                     .lock()
@@ -1307,10 +1359,60 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
         let first = adapter.take_composed_children();
-        assert_eq!(first.len(), 1);
+        assert_eq!(first.len(), 2);
+        assert!(
+            first
+                .iter()
+                .any(|child| child.style_type() == "CommandPalette"),
+            "runtime root should include a live CommandPalette host child"
+        );
+        let palette = first
+            .iter()
+            .find(|child| child.style_type() == "CommandPalette")
+            .expect("command palette child should be present");
+        assert_eq!(
+            palette.style().and_then(|style| style.position),
+            Some(Position::Absolute),
+            "command palette host should be out-of-flow overlay in runtime root"
+        );
+        assert_eq!(
+            adapter.child_display_for_tree(1),
+            Some(false),
+            "command palette host should be hidden in tree when closed"
+        );
 
         let second = adapter.take_composed_children();
         assert!(second.is_empty());
+    }
+
+    #[test]
+    fn adapter_shows_command_palette_host_when_palette_opens() {
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: ProviderState {
+                startup_count: Arc::new(AtomicUsize::new(0)),
+                shutdown_count: Arc::new(AtomicUsize::new(0)),
+                selected_count: Arc::new(AtomicUsize::new(0)),
+            },
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let _ = adapter.take_composed_children();
+        assert_eq!(adapter.child_display_for_tree(1), Some(false));
+
+        let mut ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: node_id_from_ffi(42),
+                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                control: Some(node_id_from_ffi(42)),
+            },
+            &mut ctx,
+        );
+        assert_eq!(
+            adapter.child_display_for_tree(1),
+            Some(true),
+            "command palette host should become visible in tree once opened"
+        );
     }
 
     #[test]
@@ -1851,7 +1953,7 @@ mod tests {
     }
 
     #[test]
-    fn textual_app_runtime_root_dispatches_command_palette_action() {
+    fn textual_app_runtime_root_includes_command_palette_host() {
         let app = Arc::new(Mutex::new(TestApp {
             provider_state: ProviderState {
                 startup_count: Arc::new(AtomicUsize::new(0)),
@@ -1861,16 +1963,11 @@ mod tests {
             hooks: HookState::default(),
         }));
         let mut root = build_textual_app_runtime_root(app, crate::widgets::AppRoot::new());
-        let mut ctx = EventCtx::default();
-
-        root.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
-
-        let messages = ctx.take_messages();
         assert!(
-            messages
+            root.take_composed_children()
                 .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteOpened(_))),
-            "runtime root should include a live CommandPalette host"
+                .any(|child| child.style_type() == "CommandPalette"),
+            "runtime root should compose a command palette host widget"
         );
     }
 

@@ -38,7 +38,7 @@ use super::routing::{
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::reactive::RuntimeReactiveEntry;
-use crate::widgets::Widget;
+use crate::widgets::{CommandPalette, Widget};
 
 // ── Worker request accumulator ──────────────────────────────────────
 //
@@ -660,8 +660,15 @@ fn split_runtime_control_messages(
                 // Python parity: action_command_palette opens UI by dispatching
                 // the command-palette action, not by emitting lifecycle messages
                 // directly. Lifecycle messages are posted by the palette widget.
-                let mut outcome =
-                    app.dispatch_event_auto(root, Event::Action(Action::CommandPalette));
+                let mut outcome = if let Ok(target) = app.query_one("CommandPalette") {
+                    app.dispatch_event_to_target_auto(
+                        root,
+                        target,
+                        &Event::Action(Action::CommandPalette),
+                    )
+                } else {
+                    app.dispatch_event_auto(root, Event::Action(Action::CommandPalette))
+                };
                 merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
             }
             Message::AppFocus(crate::message::AppFocus { widget_id }) => {
@@ -3216,9 +3223,40 @@ impl App {
         false
     }
 
+    fn open_command_palette_target(&mut self) -> Option<NodeId> {
+        let target = self.query_one("CommandPalette").ok()?;
+        let open = self
+            .with_widget_mut_as::<CommandPalette, _>(target, |palette| palette.is_open())
+            .unwrap_or(false);
+        if open { Some(target) } else { None }
+    }
+
     /// Dispatch an event via tree mode, or root-only mode when no tree exists.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
+        let palette_target = self.open_command_palette_target();
         if self.widget_tree.is_some() {
+            if matches!(&event, Event::Action(Action::CommandPalette))
+                && let Ok(target) = self.query_one("CommandPalette")
+            {
+                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                return dispatch_event_to_target_tree(tree, target, &event);
+            }
+
+            if let Some(target) = palette_target
+                && !matches!(&event, Event::Action(Action::CommandPalette))
+                && matches!(
+                    &event,
+                    Event::Action(_)
+                        | Event::Key(_)
+                        | Event::MouseDown(_)
+                        | Event::MouseUp(_)
+                        | Event::MouseScroll(_)
+                )
+            {
+                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                return dispatch_event_to_target_tree(tree, target, &event);
+            }
+
             // In tree mode, the root widget (e.g. TextualAppAdapter) is not mounted
             // in the arena, so app-level hooks on root would otherwise be skipped.
             // Run key capture on root first, then route through tree.
@@ -3352,7 +3390,29 @@ impl App {
         _target: NodeId,
         event: &Event,
     ) -> DispatchOutcome {
+        if self.widget_tree.is_some()
+            && matches!(event, Event::Action(Action::CommandPalette))
+            && let Ok(target) = self.query_one("CommandPalette")
+        {
+            let tree = self.widget_tree.as_mut().expect("tree should exist");
+            return dispatch_event_to_target_tree(tree, target, event);
+        }
+
+        let palette_target = self.open_command_palette_target();
         if let Some(tree) = self.widget_tree.as_mut() {
+            if let Some(palette_target) = palette_target
+                && !matches!(event, Event::Action(Action::CommandPalette))
+                && matches!(
+                    event,
+                    Event::Action(_)
+                        | Event::Key(_)
+                        | Event::MouseDown(_)
+                        | Event::MouseUp(_)
+                        | Event::MouseScroll(_)
+                )
+            {
+                return dispatch_event_to_target_tree(tree, palette_target, event);
+            }
             dispatch_event_to_target_tree(tree, _target, event)
         } else {
             dispatch_event(root, event.clone())

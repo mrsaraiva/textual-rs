@@ -889,6 +889,7 @@ pub struct PropertyTransition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderType {
     Solid,
+    Heavy,
     Block,
     Tall,
     Outer,
@@ -900,6 +901,7 @@ impl BorderType {
     pub fn as_edge_type(self) -> &'static str {
         match self {
             BorderType::Solid => "solid",
+            BorderType::Heavy => "heavy",
             BorderType::Block => "block",
             BorderType::Tall => "tall",
             BorderType::Outer => "outer",

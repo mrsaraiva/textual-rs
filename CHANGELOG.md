@@ -8,6 +8,14 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette overlay/tree parity): host palette as sibling overlay + modal event routing in TextualApp runtime**
+  - Reworked `TextualApp` runtime root composition so `CommandPalette` is a sibling child of the app content inside `TextualAppAdapter` (instead of wrapping the whole app tree as parent chrome).
+  - Result: command palette now renders as a true layered overlay in tree mode, rather than replacing/hiding the entire app subtree.
+  - Updated `AppCommandPalette` runtime handling to target the `CommandPalette` node directly (`query_one("CommandPalette")` + targeted dispatch), preserving action-based open/close semantics.
+  - Added modal-style event routing guard in tree mode: when the palette is open, interactive key/mouse/action events are redirected to the palette target to prevent accidental handling by underlying widgets.
+  - Tightened command-palette internal message handling so palette-owned `InputChanged` recomputation only runs while open.
+  - Added/updated adapter/runtime-root regression tests for composed palette host behavior.
+
 - **[wip] fix(runtime/tabbed-content keybind parity): preserve action dispatch recipient + binding-side effects**
   - Binding-triggered `execute_action` now runs with explicit dispatch recipient context in tree mode, so widget `node_id()`-targeted side effects (for example tab underline animations) resolve to the correct arena node.
   - Unified binding path outcome handling with normal dispatch paths by preserving `stop_requested`, `animation_requests`, and `worker_requests` in runtime split control flow.

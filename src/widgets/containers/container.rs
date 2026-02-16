@@ -157,7 +157,26 @@ impl Widget for Container {
         let height_limit = options.size.1.max(1);
 
         if self.is_tree_mode() {
-            // Chrome-only render: produce blank fill for the tree pipeline to
+            // Chrome-only render in tree mode. Transparent containers should
+            // not erase their underlay just because they participate in tree
+            // layout.
+            let meta = css::selector_meta_generic(self);
+            let resolved = css::resolve_style(self, &meta);
+            let paints_surface = resolved.bg.is_some()
+                || resolved.hatch.is_some()
+                || resolved.border_top.is_set()
+                || resolved.border_right.is_set()
+                || resolved.border_bottom.is_set()
+                || resolved.border_left.is_set()
+                || resolved.outline_top.is_set()
+                || resolved.outline_right.is_set()
+                || resolved.outline_bottom.is_set()
+                || resolved.outline_left.is_set();
+            if !paints_surface {
+                return Segments::new();
+            }
+
+            // Surface paint path: produce blank fill for the tree pipeline to
             // composite children onto.
             let blank = vec![Segment::new(" ".repeat(width))];
             let mut out = Segments::new();
@@ -633,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_mode_render_returns_chrome_not_blank() {
+    fn tree_mode_render_transparent_container_is_empty() {
         let mut c = Container::new()
             .with_child(Label::new("hello"))
             .with_child(Label::new("world"));
@@ -645,7 +664,23 @@ mod tests {
         options.max_width = 10;
         options.max_height = 4;
         let segments = Widget::render(&c, &console, &options);
-        // Should produce non-empty segments (blank fill chrome).
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn tree_mode_render_styled_container_produces_surface_fill() {
+        let mut c = Container::new()
+            .with_child(Label::new("hello"))
+            .with_child(Label::new("world"));
+        c.styles_mut().unwrap().style.bg = Some(crate::style::Color::rgb(10, 20, 30));
+        let _ = c.take_composed_children();
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (10, 4);
+        options.max_width = 10;
+        options.max_height = 4;
+        let segments = Widget::render(&c, &console, &options);
         assert!(!segments.is_empty());
     }
 

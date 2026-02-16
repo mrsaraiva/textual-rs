@@ -1,0 +1,51 @@
+Screen {
+    layout: vertical;
+}
+
+Overlay {
+    width: 1fr;
+    height: 1fr;
+}
+
+.base {
+    layout: vertical;
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $background;
+}
+
+.title {
+    margin-bottom: 1;
+    color: $primary;
+    text-style: bold;
+}
+
+.hint {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+.modal-layer {
+    position: absolute;
+    layer: overlay;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+}
+
+.modal-card {
+    width: 62;
+    min-height: 9;
+    margin: 7 9 0 9;
+    padding: 1 2;
+    border: heavy $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+.modal-title {
+    margin-bottom: 1;
+    color: $primary;
+    text-style: bold;
+}

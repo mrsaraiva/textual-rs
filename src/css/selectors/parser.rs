@@ -1725,6 +1725,7 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
     let (border_type, rest_tokens): (BorderType, Vec<&str>) = match first.to_lowercase().as_str() {
         "tall" => (BorderType::Tall, tokens.collect()),
         "block" => (BorderType::Block, tokens.collect()),
+        "heavy" => (BorderType::Heavy, tokens.collect()),
         "solid" => (BorderType::Solid, tokens.collect()),
         "outer" => (BorderType::Outer, tokens.collect()),
         "hkey" => (BorderType::HKey, tokens.collect()),
@@ -1771,6 +1772,7 @@ fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, Border
     let border_type = match kind.as_str() {
         "block" => BorderType::Block,
         "solid" => BorderType::Solid,
+        "heavy" => BorderType::Heavy,
         "tall" => BorderType::Tall,
         "outer" => BorderType::Outer,
         "hkey" => BorderType::HKey,
@@ -2507,6 +2509,31 @@ mod tests {
         assert!(style.importance.get(StyleProperty::BorderRight));
         assert!(style.importance.get(StyleProperty::BorderBottom));
         assert!(style.importance.get(StyleProperty::BorderLeft));
+    }
+
+    #[test]
+    fn parse_border_shorthand_heavy() {
+        let style = parse_style_body("border: heavy $primary;");
+        let expected = crate::style::BorderEdge::Edge {
+            border_type: BorderType::Heavy,
+            color: crate::style::parse_color_like("$primary").expect("theme token should resolve"),
+        };
+        assert_eq!(style.border_top, expected);
+        assert_eq!(style.border_right, expected);
+        assert_eq!(style.border_bottom, expected);
+        assert_eq!(style.border_left, expected);
+    }
+
+    #[test]
+    fn parse_border_side_heavy() {
+        let style = parse_style_body("border-left: heavy #336699;");
+        assert_eq!(
+            style.border_left,
+            crate::style::BorderEdge::Edge {
+                border_type: BorderType::Heavy,
+                color: crate::style::parse_color_like("#336699").expect("hex token should resolve"),
+            }
+        );
     }
 
     #[test]

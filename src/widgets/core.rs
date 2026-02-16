@@ -8,7 +8,7 @@ use crate::event::{Action, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::node_id::{self, NodeId};
 use crate::reactive::ReactiveWidget;
-use crate::style::{Color, Style};
+use crate::style::{Color, Position, Style};
 
 use super::helpers;
 
@@ -395,6 +395,16 @@ pub trait Widget: Send + Sync + Any {
     fn is_active(&self) -> bool {
         false
     }
+    /// Whether styled rendering should preserve underlying frame cells that
+    /// are not explicitly painted by this widget.
+    ///
+    /// Default `false` keeps classic box-widget behavior (auto background fill
+    /// across the full layout rect). Overlay-style widgets can return `true`
+    /// to avoid full-rect fills and paint sparse content over existing frame
+    /// cells.
+    fn preserve_underlay(&self) -> bool {
+        false
+    }
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).
@@ -589,6 +599,7 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         None => widget.render(console, &content_options),
     });
     let segments = tag_widget_meta(node_id, segments);
+    let segments_empty = segments.is_empty();
 
     let inner_width = content_width
         .saturating_add(line_pad.saturating_mul(2))
@@ -612,62 +623,85 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         rich_rs::Segment::split_and_crop_lines(segments, content_width, None, false, false)
     };
 
-    // Ensure content height is respected before padding.
-    let mut fill = rich_rs::Style::new();
-    let fallback_bg =
-        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
-    let parent_bg = parent_style
-        .clone()
-        .and_then(|s| s.bg)
-        .unwrap_or(fallback_bg);
-    let inner_bg = resolved
-        .bg
-        .map(|c| c.flatten_over(parent_bg))
-        .unwrap_or(parent_bg);
-    fill = fill.with_bgcolor(inner_bg.to_simple_opaque());
-    if let Some(fg) = resolved.fg {
-        fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
-    }
-    lines = rich_rs::Segment::set_shape(
-        &lines,
-        content_width + line_pad * 2,
-        Some(content_height),
-        Some(fill),
-        false,
-    );
+    let has_surface_paint = resolved.bg.is_some()
+        || resolved.hatch.is_some()
+        || resolved.border_top.is_set()
+        || resolved.border_right.is_set()
+        || resolved.border_bottom.is_set()
+        || resolved.border_left.is_set()
+        || resolved.outline_top.is_set()
+        || resolved.outline_right.is_set()
+        || resolved.outline_bottom.is_set()
+        || resolved.outline_left.is_set();
+    let preserve_underlay = widget.preserve_underlay()
+        || (resolved.position == Some(Position::Absolute) && !has_surface_paint)
+        || (!has_surface_paint && segments_empty);
 
-    // Apply left/right padding.
-    let pad_left = padding.left as usize;
-    let pad_right = padding.right as usize;
-    let mut padded_lines: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
-    for line in lines {
-        let mut out = Vec::new();
-        if pad_left > 0 {
-            out.push(rich_rs::Segment::styled(" ".repeat(pad_left), fill));
-        }
-        out.extend(line);
-        if pad_right > 0 {
-            out.push(rich_rs::Segment::styled(" ".repeat(pad_right), fill));
-        }
-        padded_lines.push(out);
+    if preserve_underlay && segments_empty {
+        return Segments::new();
     }
-
-    // Apply top/bottom padding.
-    let pad_top = padding.top as usize;
-    let pad_bottom = padding.bottom as usize;
     let mut final_lines: Vec<Vec<rich_rs::Segment>> = Vec::new();
-    let padded_width = content_width + line_pad * 2 + pad_left + pad_right;
-    if pad_top > 0 {
-        let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
-        for _ in 0..pad_top {
-            final_lines.push(blank.clone());
+    if preserve_underlay {
+        // Overlay-style path: keep sparse output and don't auto-fill the whole
+        // layout rect. This allows widgets to paint only explicit cells.
+        final_lines.extend(lines);
+    } else {
+        // Ensure content height is respected before padding.
+        let mut fill = rich_rs::Style::new();
+        let fallback_bg = crate::style::parse_color_like("$background")
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+        let parent_bg = parent_style
+            .clone()
+            .and_then(|s| s.bg)
+            .unwrap_or(fallback_bg);
+        let inner_bg = resolved
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        fill = fill.with_bgcolor(inner_bg.to_simple_opaque());
+        if let Some(fg) = resolved.fg {
+            fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
         }
-    }
-    final_lines.extend(padded_lines);
-    if pad_bottom > 0 {
-        let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
-        for _ in 0..pad_bottom {
-            final_lines.push(blank.clone());
+        lines = rich_rs::Segment::set_shape(
+            &lines,
+            content_width + line_pad * 2,
+            Some(content_height),
+            Some(fill),
+            false,
+        );
+
+        // Apply left/right padding.
+        let pad_left = padding.left as usize;
+        let pad_right = padding.right as usize;
+        let mut padded_lines: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
+        for line in lines {
+            let mut out = Vec::new();
+            if pad_left > 0 {
+                out.push(rich_rs::Segment::styled(" ".repeat(pad_left), fill));
+            }
+            out.extend(line);
+            if pad_right > 0 {
+                out.push(rich_rs::Segment::styled(" ".repeat(pad_right), fill));
+            }
+            padded_lines.push(out);
+        }
+
+        // Apply top/bottom padding.
+        let pad_top = padding.top as usize;
+        let pad_bottom = padding.bottom as usize;
+        let padded_width = content_width + line_pad * 2 + pad_left + pad_right;
+        if pad_top > 0 {
+            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+            for _ in 0..pad_top {
+                final_lines.push(blank.clone());
+            }
+        }
+        final_lines.extend(padded_lines);
+        if pad_bottom > 0 {
+            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+            for _ in 0..pad_bottom {
+                final_lines.push(blank.clone());
+            }
         }
     }
 

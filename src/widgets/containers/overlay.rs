@@ -168,6 +168,18 @@ impl Widget for Overlay {
         vec![base, modal]
     }
 
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.is_tree_mode() {
+            return None;
+        }
+        match child_index {
+            // Base subtree is always present; modal subtree follows overlay visibility.
+            0 => Some(true),
+            1 => Some(self.visible),
+            _ => None,
+        }
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         if self.is_tree_mode() {
             // Tree-mode: Overlay has no chrome of its own; return empty.
