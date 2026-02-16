@@ -1076,6 +1076,7 @@ impl CommandPalette {
         match result.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
+                ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
                 let before = self
                     .key_panel_render_width
                     .round()
@@ -2088,6 +2089,11 @@ mod tests {
         palette.on_event(&Event::Key(enter), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|event| matches!(event.message, Message::AppShowHelpPanel(_)))
+        );
         assert!(messages.iter().any(|event| {
             matches!(
                 event.message,

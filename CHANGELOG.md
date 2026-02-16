@@ -8,6 +8,10 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette keys command parity): route `Keys` selection to app help panel**
+  - Selecting `Keys` from `CommandPalette` now posts `AppShowHelpPanel`, so TextualApp runtimes open the real help sidebar (matching Python command behavior) instead of only closing the palette.
+  - Added regression assertion in command-palette widget tests to ensure `AppShowHelpPanel` is emitted alongside the selection event.
+
 - **[wip] fix(command-palette interaction parity): modal key capture, list navigation, row selection, and non-destructive fuzzy highlights**
   - When command palette is open, runtime now routes non-priority keys directly through event dispatch and skips normal declarative/app binding execution, so typed keys update search instead of triggering underlying app shortcuts.
   - `CommandPalette` now handles list navigation keys (`Up`/`Down`/`Home`/`End`/`PageUp`/`PageDown`) while input remains focused, matching Python-style command-list traversal.
