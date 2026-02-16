@@ -732,8 +732,11 @@ impl CommandPalette {
     const PANEL_Y_ATTR: &'static str = "command_palette.panel_y";
     const CLOSED_PANEL_Y: f32 = 0.0;
     const SEARCH_ROW_OFFSET: usize = 2;
-    const RESULTS_ROW_OFFSET: usize = 4;
+    const RESULTS_ROW_OFFSET: usize = 5;
     const HEADER_ROWS: usize = Self::RESULTS_ROW_OFFSET;
+    const SEARCH_ICON_X_OFFSET: usize = 2;
+    const SEARCH_TEXT_X_OFFSET: usize = 5;
+    const RESULTS_X_OFFSET: usize = 2;
 
     pub fn new(child: impl Widget + 'static) -> Self {
         let commands = vec![
@@ -955,9 +958,9 @@ impl CommandPalette {
         panel_width: usize,
         panel_height: usize,
     ) -> (usize, usize, usize, usize) {
-        let content_x = panel_x.saturating_add(1);
+        let content_x = panel_x.saturating_add(Self::RESULTS_X_OFFSET);
         let content_y = panel_y.saturating_add(Self::RESULTS_ROW_OFFSET);
-        let content_width = Self::palette_content_width(panel_width);
+        let content_width = Self::palette_content_width(panel_width).saturating_sub(1).max(1);
         let content_height = panel_height.saturating_sub(Self::RESULTS_ROW_OFFSET).max(1);
         (content_x, content_y, content_width, content_height)
     }
@@ -1222,7 +1225,7 @@ impl Widget for CommandPalette {
         }
 
         let search_width = Self::palette_content_width(panel_width)
-            .saturating_sub(2)
+            .saturating_sub(3)
             .max(1);
         let mut search_options = options.clone();
         search_options.size = (search_width, 1);
@@ -1246,7 +1249,7 @@ impl Widget for CommandPalette {
         );
 
         let search_y = panel_y.saturating_add(Self::SEARCH_ROW_OFFSET);
-        let search_icon_x = panel_x.saturating_add(1);
+        let search_icon_x = panel_x.saturating_add(Self::SEARCH_ICON_X_OFFSET);
         if search_y < height {
             for sx in 0..icon_buffer.width.min(2) {
                 let tx = search_icon_x.saturating_add(sx);
@@ -1259,7 +1262,7 @@ impl Widget for CommandPalette {
         }
         if search_y < height {
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(4).saturating_add(sx);
+                let tx = panel_x.saturating_add(Self::SEARCH_TEXT_X_OFFSET).saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -1325,7 +1328,7 @@ impl Widget for CommandPalette {
                 break;
             }
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(4).saturating_add(sx);
+                let tx = panel_x.saturating_add(Self::SEARCH_TEXT_X_OFFSET).saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -1447,7 +1450,7 @@ impl Widget for CommandPalette {
 
         let (_x, _y, panel_w, panel_h) = self.palette_geometry(total_width, total_height);
         let query_width = Self::palette_content_width(panel_w)
-            .saturating_sub(2)
+            .saturating_sub(3)
             .max(1);
         self.query.on_resize(query_width as u16, 1);
         let (_, _, results_w, results_h) = self.palette_results_geometry(0, 0, panel_w, panel_h);
@@ -1482,7 +1485,7 @@ impl Widget for CommandPalette {
 
         let (_x, _y, panel_w, panel_h) = self.palette_geometry(total_width, total_height);
         let query_width = Self::palette_content_width(panel_w)
-            .saturating_sub(2)
+            .saturating_sub(3)
             .max(1);
         self.query.on_layout(query_width as u16, 1);
         let (_, _, results_w, results_h) = self.palette_results_geometry(0, 0, panel_w, panel_h);

@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] tune(command-palette list block alignment): post-search gap + horizontal indent parity**
+  - Added an explicit extra spacer row between the search prompt row and command list rows to match Python command palette vertical rhythm.
+  - Shifted command palette search prompt and command list content one column to the right for closer text-block alignment with Python screenshots.
+  - Kept layout/hit-test geometry in sync by updating shared palette offsets used by render, layout sizing, and result-row click mapping.
+  - Updated command palette open snapshot to lock the new row/column alignment.
+
 - **[wip] tune(command-palette geometry + typography parity): lower search/results block and enforce help-row contrast**
   - Shifted command palette search/results geometry down by one row to better align with Python command palette vertical spacing.
   - Updated palette header/results row math to use explicit offsets (`SEARCH_ROW_OFFSET`, `RESULTS_ROW_OFFSET`) so spacing is stable and testable.
