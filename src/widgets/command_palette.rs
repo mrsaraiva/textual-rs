@@ -370,6 +370,7 @@ pub struct CommandList {
     entries: Vec<CommandListEntry>,
     visible: bool,
     populating: bool,
+    surface_bg: Option<crate::style::Color>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -381,6 +382,7 @@ impl CommandList {
             entries: Vec::new(),
             visible: false,
             populating: false,
+            surface_bg: None,
             classes: vec!["command-list".to_string()],
             styles: WidgetStyles::default(),
         }
@@ -417,6 +419,10 @@ impl CommandList {
         self.rebuild_classes();
     }
 
+    fn set_surface_bg(&mut self, surface_bg: Option<crate::style::Color>) {
+        self.surface_bg = surface_bg;
+    }
+
     fn rebuild_classes(&mut self) {
         self.classes.clear();
         self.classes.push("command-list".to_string());
@@ -449,15 +455,20 @@ impl Widget for CommandList {
         let height = options.size.1.max(1);
         let mut out = Segments::new();
 
+        let default_bg = self
+            .surface_bg
+            .or_else(|| crate::style::parse_color_like("$background"))
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+
         let base_title_style = crate::css::resolve_component_style(self, &["option-list--option"])
-            .to_rich()
+            .to_rich_over(default_bg)
             .unwrap_or_else(rich_rs::Style::new);
         let selected_style =
             crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
-                .to_rich()
+                .to_rich_over(default_bg)
                 .unwrap_or(base_title_style);
         let help_style = crate::css::resolve_component_style(self, &["command-palette--help-text"])
-            .to_rich()
+            .to_rich_over(default_bg)
             .unwrap_or(base_title_style);
 
         let visible_items = (height / 2).max(1);
@@ -733,6 +744,11 @@ impl CommandPalette {
         }
     }
 
+    fn update_surface_styles(&mut self) {
+        let panel_bg = crate::css::resolve_component_style(self, &["command-palette--panel"]).bg;
+        self.list.set_surface_bg(panel_bg);
+    }
+
     fn animate_key_panel_width(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
         if from == to {
             self.key_panel_render_width = to as f32;
@@ -875,6 +891,7 @@ impl CommandPalette {
         let was_open = self.open;
         let was_visible = self.panel_visible;
         self.open = open;
+        self.update_surface_styles();
         if self.open {
             self.panel_visible = true;
             self.previously_focused_child = Self::focused_widget_id(self.child.as_ref());
@@ -1215,6 +1232,7 @@ impl Widget for CommandPalette {
     }
 
     fn on_mount(&mut self) {
+        self.update_surface_styles();
         if !self.is_tree_mode() {
             self.child.on_mount();
         }
@@ -1259,6 +1277,7 @@ impl Widget for CommandPalette {
         let total_height = usize::from(height);
         self.layout_width = total_width.max(1);
         self.layout_height = total_height.max(1);
+        self.update_surface_styles();
         let panel_target_y = self.panel_target_y();
         if self.open {
             self.panel_visible = true;
@@ -1300,6 +1319,7 @@ impl Widget for CommandPalette {
         let total_height = usize::from(height);
         self.layout_width = total_width.max(1);
         self.layout_height = total_height.max(1);
+        self.update_surface_styles();
         let panel_target_y = self.panel_target_y();
         if self.open {
             self.panel_visible = true;

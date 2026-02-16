@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette color composition parity): resolve list component styles over panel surface**
+  - Command palette list component styles are now resolved over the panel surface color (instead of global default background), so alpha/transparent tokens compose against the correct local surface.
+  - Added explicit command-palette surface propagation into `CommandList` and refreshed it on mount/layout/open transitions.
+  - Result: highlighted row and help/option color blending tracks panel-local composition semantics more closely.
+
 - **[wip] fix(command-palette list/input styling parity): dim help/placeholder and title-only highlight emphasis**
   - `CommandInput` now tags the underlying `Input` with a dedicated class (`command-palette--input`) so palette-specific placeholder styling can be targeted via CSS.
   - Added command palette placeholder CSS (`Input.command-palette--input > .input--placeholder`) with muted/dim appearance.
