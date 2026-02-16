@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(runtime/tabbed-content keybind parity): preserve action dispatch recipient + binding-side effects**
+  - Binding-triggered `execute_action` now runs with explicit dispatch recipient context in tree mode, so widget `node_id()`-targeted side effects (for example tab underline animations) resolve to the correct arena node.
+  - Unified binding path outcome handling with normal dispatch paths by preserving `stop_requested`, `animation_requests`, and `worker_requests` in runtime split control flow.
+  - Result: app key bindings (`l/j/p`) now follow the same tab activation visual path as click/arrow input in `TabbedContent` demos.
+
 - **[wip] fix(command-palette tree runtime): restore global `^p` open path without footer-binding leakage**
   - Fixed tree-mode runtime fallback so unhandled key/mouse/action events still reach the runtime root wrapper (`on_event`) when needed by non-arena wrapper behavior (for example command palette open/close handling).
   - Extended widget-controlled tree display sync to also apply root-wrapper `child_display_for_tree(...)` policy, so wrapper-controlled visibility toggles correctly affect arena children.

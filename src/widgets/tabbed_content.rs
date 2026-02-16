@@ -689,9 +689,6 @@ impl Widget for TabbedContent {
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
-        if self.children_extracted.load(Ordering::SeqCst) {
-            return;
-        }
         if let Some(tabs) = self
             .tabs_handle
             .lock()
@@ -705,6 +702,15 @@ impl Widget for TabbedContent {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if self.children_extracted.load(Ordering::SeqCst) {
+            if matches!(event, Event::AnimationValue(_))
+                && let Some(tabs) = self
+                    .tabs_handle
+                    .lock()
+                    .expect("tabbed tabs handle lock")
+                    .as_mut()
+            {
+                tabs.on_event(event, ctx);
+            }
             return;
         }
         if self.focused
@@ -1075,6 +1081,86 @@ mod tests {
         assert_eq!(
             after_paul_style.bgcolor, before_jessica_style.bgcolor,
             "show_tab action should move active background from Jessica to Paul"
+        );
+    }
+
+    #[test]
+    fn tree_mode_show_tab_action_keeps_underline_animation_targets_valid() {
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"))
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        tabs.on_layout(60, 8);
+
+        let console = Console::new();
+        let before = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let header = before.as_plain_lines()[0].clone();
+        let jessica_col = find_label_column(&header, "Jessica");
+        let paul_col = find_label_column(&header, "Paul");
+        let before_active_underline_color = before
+            .get(jessica_col, 1)
+            .style
+            .expect("before active underline style")
+            .color;
+
+        let parsed = ParsedAction {
+            namespace: None,
+            name: "show_tab".to_string(),
+            arguments: vec!["paul".to_string()],
+        };
+        let mut ctx = EventCtx::default();
+        assert!(tabs.execute_action(&parsed, &mut ctx));
+
+        apply_runtime_class_messages(&mut tree, ctx.take_messages());
+        let animation_requests = ctx.take_animation_requests();
+        assert!(
+            animation_requests
+                .iter()
+                .any(|req| req.attribute == "tabs.underline_start"),
+            "show_tab should emit underline-start animation request"
+        );
+        assert!(
+            animation_requests
+                .iter()
+                .any(|req| req.attribute == "tabs.underline_end"),
+            "show_tab should emit underline-end animation request"
+        );
+
+        for request in animation_requests {
+            let mut anim_ctx = EventCtx::default();
+            tabs.on_event(
+                &Event::AnimationValue(crate::event::AnimationValueEvent {
+                    target: request.target,
+                    attribute: request.attribute,
+                    value: request.end,
+                    done: true,
+                }),
+                &mut anim_ctx,
+            );
+        }
+
+        let after = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
+        let after_jessica_underline_color = after
+            .get(jessica_col, 1)
+            .style
+            .expect("after inactive underline style")
+            .color;
+        let after_paul_underline_color = after
+            .get(paul_col, 1)
+            .style
+            .expect("after active underline style")
+            .color;
+
+        assert_ne!(
+            after_jessica_underline_color, after_paul_underline_color,
+            "active underline should move away from Jessica to Paul after show_tab"
+        );
+        assert_eq!(
+            after_paul_underline_color, before_active_underline_color,
+            "active underline color should transfer to Paul after show_tab"
         );
     }
 

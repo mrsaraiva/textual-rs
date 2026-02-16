@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use super::devtools::DevtoolsCommand;
+use super::dispatch_ctx::set_dispatch_recipient;
 use super::helpers::{
     any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
     generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
@@ -164,7 +165,21 @@ fn parse_simulated_key(spec: &str) -> Option<KeyEventData> {
 fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut DispatchOutcome) {
     pass.repaint_requested |= outcome.repaint_requested;
     pass.invalidation.merge(outcome.invalidation);
+    pass.stop_requested |= outcome.stop_requested;
+    pass.animation_requests
+        .append(&mut outcome.animation_requests);
+    pass.worker_requests.append(&mut outcome.worker_requests);
     pass.generated.append(&mut outcome.messages);
+}
+
+fn execute_action_with_dispatch_target(
+    widget: &mut dyn Widget,
+    action: &crate::action::ParsedAction,
+    ctx: &mut EventCtx,
+    target: NodeId,
+) -> bool {
+    let _dispatch_guard = set_dispatch_recipient(target);
+    widget.execute_action(action, ctx)
 }
 
 fn dispatch_simulated_key_like_input(
@@ -178,8 +193,13 @@ fn dispatch_simulated_key_like_input(
     root.on_app_key(app, &key, &mut app_key_ctx);
     pass.repaint_requested |= app_key_ctx.repaint_requested();
     pass.invalidation.merge(app_key_ctx.invalidation());
+    pass.stop_requested |= app_key_ctx.stop_requested();
+    pass.animation_requests
+        .extend(app_key_ctx.take_animation_requests());
+    pass.worker_requests
+        .extend(app_key_ctx.take_worker_requests());
     pass.generated.extend(app_key_ctx.take_messages());
-    if app_key_ctx.handled() {
+    if pass.stop_requested || app_key_ctx.handled() {
         return;
     }
 
@@ -198,7 +218,7 @@ fn dispatch_simulated_key_like_input(
 
     // Declarative bindings before raw key dispatch.
     if let Some(tree) = app.widget_tree.as_ref()
-        && let Some((_node_id, action_str)) = match_binding_tree(tree, &key)
+        && let Some((_binding_node_id, action_str)) = match_binding_tree(tree, &key)
         && let Some(parsed) = crate::action::parse_action(&action_str)
     {
         if let Some(tree_mut) = app.widget_tree.as_mut() {
@@ -217,9 +237,19 @@ fn dispatch_simulated_key_like_input(
                 && let Some(node) = tree_mut.get_mut(ra.node)
             {
                 let mut ctx = EventCtx::default();
-                if node.widget.execute_action(&parsed, &mut ctx) || ctx.handled() {
+                if execute_action_with_dispatch_target(
+                    &mut *node.widget,
+                    &parsed,
+                    &mut ctx,
+                    ra.node,
+                ) || ctx.handled()
+                {
                     pass.repaint_requested |= ctx.repaint_requested();
                     pass.invalidation.merge(ctx.invalidation());
+                    pass.stop_requested |= ctx.stop_requested();
+                    pass.animation_requests
+                        .extend(ctx.take_animation_requests());
+                    pass.worker_requests.extend(ctx.take_worker_requests());
                     pass.generated.extend(ctx.take_messages());
                     return;
                 }
@@ -227,9 +257,15 @@ fn dispatch_simulated_key_like_input(
         }
 
         let mut root_ctx = EventCtx::default();
-        if root.execute_action(&parsed, &mut root_ctx) || root_ctx.handled() {
+        if execute_action_with_dispatch_target(root, &parsed, &mut root_ctx, NodeId::default())
+            || root_ctx.handled()
+        {
             pass.repaint_requested |= root_ctx.repaint_requested();
             pass.invalidation.merge(root_ctx.invalidation());
+            pass.stop_requested |= root_ctx.stop_requested();
+            pass.animation_requests
+                .extend(root_ctx.take_animation_requests());
+            pass.worker_requests.extend(root_ctx.take_worker_requests());
             pass.generated.extend(root_ctx.take_messages());
             return;
         }
@@ -430,6 +466,9 @@ struct RuntimeMessagePass {
     generated: Vec<MessageEvent>,
     repaint_requested: bool,
     invalidation: crate::event::InvalidationFlags,
+    animation_requests: Vec<AnimationRequest>,
+    worker_requests: Vec<WorkerRequest>,
+    stop_requested: bool,
 }
 
 fn set_overlay_modal_display_tree(
@@ -1523,6 +1562,13 @@ impl App {
             let pass = split_runtime_control_messages(self, root, queue);
             aggregate.repaint_requested |= pass.repaint_requested;
             aggregate.invalidation.merge(pass.invalidation);
+            aggregate.stop_requested |= pass.stop_requested;
+            aggregate
+                .animation_requests
+                .extend(pass.animation_requests.into_iter());
+            aggregate
+                .worker_requests
+                .extend(pass.worker_requests.into_iter());
             let mut next_queue =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
             next_queue.extend(pass.generated);
@@ -1834,74 +1880,64 @@ impl App {
                         }
 
                         // Declarative BINDINGS: check focused widget chain for matching binding.
-                        if let Some(tree) = self.widget_tree.as_ref() {
-                            if let Some((_node_id, action_str)) = match_binding_tree(tree, &key) {
-                                if let Some(parsed) = crate::action::parse_action(&action_str) {
-                                    if let Some(tree_mut) = self.widget_tree.as_mut() {
-                                        let focused = focused_node_id_tree(tree_mut);
-                                        let resolved = {
-                                            let tree_ref = &*tree_mut;
-                                            focused.and_then(|fid| {
-                                                crate::action::resolve_action(
-                                                    &parsed,
-                                                    tree_ref,
-                                                    fid,
-                                                    |nid| {
-                                                        tree_ref.get(nid).map(|n| {
-                                                            (
-                                                                n.widget.action_namespace(),
-                                                                n.widget.action_registry(),
-                                                            )
-                                                        })
-                                                    },
-                                                )
-                                            })
-                                        };
-                                        if let Some(ra) = resolved {
-                                            let mut ctx = EventCtx::default();
-                                            if let Some(node) = tree_mut.get_mut(ra.node) {
-                                                let handled =
-                                                    node.widget.execute_action(&parsed, &mut ctx);
-                                                debug_input(&format!(
-                                                    "[input] binding action={action_str:?} handled={handled}"
-                                                ));
-                                                if handled || ctx.handled() {
-                                                    if ctx.repaint_requested() {
-                                                        pending_invalidation.request_full_content();
-                                                    }
-                                                    let messages = ctx.take_messages();
-                                                    if !messages.is_empty() {
-                                                        let mut msg_outcome = self
-                                                            .dispatch_message_queue_with_runtime(
-                                                                root, messages,
-                                                            );
-                                                        self.absorb_outcome(
-                                                            &mut msg_outcome,
-                                                            &mut pending_invalidation,
-                                                            InvalidationScope::Global,
-                                                        );
-                                                        if msg_outcome.stop_requested {
-                                                            break 'event_loop;
-                                                        }
-                                                    }
-                                                    if ctx.stop_requested() {
-                                                        break 'event_loop;
-                                                    }
-                                                    continue;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    let mut root_ctx = EventCtx::default();
-                                    let handled = root.execute_action(&parsed, &mut root_ctx);
+                        let binding_match = self.widget_tree.as_ref().and_then(|tree| {
+                            match_binding_tree(tree, &key).map(|(node_id, action_str)| {
+                                (node_id, action_str, tree.root().unwrap_or_default())
+                            })
+                        });
+                        if let Some((_binding_node_id, action_str, root_target)) = binding_match
+                            && let Some(parsed) = crate::action::parse_action(&action_str)
+                        {
+                            if let Some(tree_mut) = self.widget_tree.as_mut() {
+                                let focused = focused_node_id_tree(tree_mut);
+                                let resolved = {
+                                    let tree_ref = &*tree_mut;
+                                    focused.and_then(|fid| {
+                                        crate::action::resolve_action(
+                                            &parsed,
+                                            tree_ref,
+                                            fid,
+                                            |nid| {
+                                                tree_ref.get(nid).map(|n| {
+                                                    (
+                                                        n.widget.action_namespace(),
+                                                        n.widget.action_registry(),
+                                                    )
+                                                })
+                                            },
+                                        )
+                                    })
+                                };
+                                if let Some(ra) = resolved
+                                    && let Some(node) = tree_mut.get_mut(ra.node)
+                                {
+                                    let mut ctx = EventCtx::default();
+                                    let handled = execute_action_with_dispatch_target(
+                                        &mut *node.widget,
+                                        &parsed,
+                                        &mut ctx,
+                                        ra.node,
+                                    );
                                     debug_input(&format!(
-                                        "[input] binding action={action_str:?} root_handled={handled}"
+                                        "[input] binding action={action_str:?} handled={handled}"
                                     ));
-                                    if handled || root_ctx.handled() {
-                                        if root_ctx.repaint_requested() {
-                                            pending_invalidation.request_full_content();
-                                        }
-                                        let messages = root_ctx.take_messages();
+                                    if handled || ctx.handled() {
+                                        let mut binding_outcome = DispatchOutcome {
+                                            handled: handled || ctx.handled(),
+                                            repaint_requested: ctx.repaint_requested(),
+                                            invalidation: ctx.invalidation(),
+                                            stop_requested: ctx.stop_requested(),
+                                            messages: ctx.take_messages(),
+                                            animation_requests: ctx.take_animation_requests(),
+                                            worker_requests: ctx.take_worker_requests(),
+                                            default_prevented: false,
+                                        };
+                                        self.absorb_outcome(
+                                            &mut binding_outcome,
+                                            &mut pending_invalidation,
+                                            InvalidationScope::Global,
+                                        );
+                                        let messages = binding_outcome.messages;
                                         if !messages.is_empty() {
                                             let mut msg_outcome = self
                                                 .dispatch_message_queue_with_runtime(
@@ -1916,12 +1952,57 @@ impl App {
                                                 break 'event_loop;
                                             }
                                         }
-                                        if root_ctx.stop_requested() {
+                                        if binding_outcome.stop_requested {
                                             break 'event_loop;
                                         }
                                         continue;
                                     }
                                 }
+                            }
+
+                            let mut root_ctx = EventCtx::default();
+                            let handled = execute_action_with_dispatch_target(
+                                root,
+                                &parsed,
+                                &mut root_ctx,
+                                root_target,
+                            );
+                            debug_input(&format!(
+                                "[input] binding action={action_str:?} root_handled={handled}"
+                            ));
+                            if handled || root_ctx.handled() {
+                                let mut root_binding_outcome = DispatchOutcome {
+                                    handled: handled || root_ctx.handled(),
+                                    repaint_requested: root_ctx.repaint_requested(),
+                                    invalidation: root_ctx.invalidation(),
+                                    stop_requested: root_ctx.stop_requested(),
+                                    messages: root_ctx.take_messages(),
+                                    animation_requests: root_ctx.take_animation_requests(),
+                                    worker_requests: root_ctx.take_worker_requests(),
+                                    default_prevented: false,
+                                };
+                                self.absorb_outcome(
+                                    &mut root_binding_outcome,
+                                    &mut pending_invalidation,
+                                    InvalidationScope::Global,
+                                );
+                                let messages = root_binding_outcome.messages;
+                                if !messages.is_empty() {
+                                    let mut msg_outcome =
+                                        self.dispatch_message_queue_with_runtime(root, messages);
+                                    self.absorb_outcome(
+                                        &mut msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if msg_outcome.stop_requested {
+                                        break 'event_loop;
+                                    }
+                                }
+                                if root_binding_outcome.stop_requested {
+                                    break 'event_loop;
+                                }
+                                continue;
                             }
                         }
 
