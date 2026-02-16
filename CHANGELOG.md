@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette layout parity): content-driven panel sizing + stable open placement**
+  - Command palette panel geometry now sizes results area from command content (including list chrome row), instead of using static height assumptions.
+  - Opened palette now renders with a stable top offset in render-time fallback (even when `on_layout` has not run yet), preventing top-left/stale-position placement.
+  - Updated command palette snapshot and viewport assertions to match overlay-underlay composition and content-driven results layout.
+  - Restored markup-command rendering regression coverage (`Deploy` / `Ship current build`) under the new geometry path.
+
 - **[wip] fix(command-palette overlay/render parity): preserve underlay in tree mode and align Python defaults**
   - Command palette now behaves as a true overlay in tree mode by preserving wrapped subtree display while the palette is open (instead of toggling wrapped child visibility off).
   - Fixed palette surface composition so copied input/result cells retain panel background styling, eliminating black-hole sections inside the panel body.

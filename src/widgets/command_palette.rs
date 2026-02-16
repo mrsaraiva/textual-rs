@@ -787,10 +787,18 @@ impl CommandPalette {
 
     fn palette_geometry(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
         let panel_x = 0usize;
-        let panel_y = 2usize.min(height.saturating_sub(1));
+        let panel_y = 1usize.min(height.saturating_sub(1));
         let panel_width = width.max(1);
         let max_panel_height = height.saturating_sub(panel_y).max(1);
-        let panel_height = max_panel_height.min(14).max(1);
+        let desired_results_height = self
+            .provider_results
+            .len()
+            .saturating_mul(2)
+            .saturating_add(1)
+            .max(1);
+        let results_height = desired_results_height
+            .min(max_panel_height.saturating_sub(2).max(1));
+        let panel_height = 2usize.saturating_add(results_height).min(max_panel_height).max(1);
         (panel_x, panel_y, panel_width, panel_height)
     }
 
@@ -808,7 +816,7 @@ impl CommandPalette {
         let content_x = panel_x.saturating_add(1);
         let content_y = panel_y.saturating_add(2);
         let content_width = Self::palette_content_width(panel_width);
-        let content_height = panel_height.saturating_sub(3).max(1);
+        let content_height = panel_height.saturating_sub(2).max(1);
         (content_x, content_y, content_width, content_height)
     }
 
@@ -1036,10 +1044,16 @@ impl Widget for CommandPalette {
         let mut overlay = FrameBuffer::new(width, height, None);
         let (panel_x, target_panel_y, panel_width, panel_height) =
             self.palette_geometry(width, height);
-        let panel_y = self
-            .panel_render_y
-            .round()
-            .clamp(0.0, target_panel_y as f32) as usize;
+        let panel_y = if self.open
+            && self.panel_render_y <= Self::CLOSED_PANEL_Y
+            && target_panel_y > 0
+        {
+            target_panel_y
+        } else {
+            self.panel_render_y
+                .round()
+                .clamp(0.0, target_panel_y as f32) as usize
+        };
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);

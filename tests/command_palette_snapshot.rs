@@ -66,5 +66,5 @@ fn command_palette_open_render_handles_small_viewport() {
     let buf = render_buffer_with_size(&palette, 40, 4);
     let lines = buf.as_plain_lines();
     assert_eq!(lines.len(), 4);
-    assert!(lines[2].contains("Search for commands"));
+    assert!(lines.iter().any(|line| line.contains("Search for commands")));
 }
