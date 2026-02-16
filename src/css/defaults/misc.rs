@@ -720,6 +720,7 @@ CommandPalette {
 CommandPalette > .command-palette--panel {
     bg: $panel-darken-1;
     fg: $foreground;
+    margin-top: 3;
 }
 
 CommandPalette > .command-palette--border {

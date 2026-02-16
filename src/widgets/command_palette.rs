@@ -837,18 +837,26 @@ impl CommandPalette {
     }
 
     fn palette_geometry(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
+        let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"]);
         let panel_x = 0usize;
-        let panel_y = 1usize.min(height.saturating_sub(1));
+        let panel_y = panel_style
+            .margin_top
+            .map(|value| value as usize)
+            .unwrap_or(1)
+            .min(height.saturating_sub(1));
         let panel_width = width.max(1);
         let max_panel_height = height.saturating_sub(panel_y).max(1);
+        // Command palette input block: one breathing row + one search row + one separator row.
+        let header_rows = 3usize;
         let desired_results_height = self
             .provider_results
             .len()
             .saturating_mul(2)
             .saturating_add(1)
             .max(1);
-        let results_height = desired_results_height.min(max_panel_height.saturating_sub(2).max(1));
-        let panel_height = 2usize
+        let results_height =
+            desired_results_height.min(max_panel_height.saturating_sub(header_rows).max(1));
+        let panel_height = header_rows
             .saturating_add(results_height)
             .min(max_panel_height)
             .max(1);
@@ -867,9 +875,9 @@ impl CommandPalette {
         panel_height: usize,
     ) -> (usize, usize, usize, usize) {
         let content_x = panel_x.saturating_add(1);
-        let content_y = panel_y.saturating_add(2);
+        let content_y = panel_y.saturating_add(3);
         let content_width = Self::palette_content_width(panel_width);
-        let content_height = panel_height.saturating_sub(2).max(1);
+        let content_height = panel_height.saturating_sub(3).max(1);
         (content_x, content_y, content_width, content_height)
     }
 
@@ -1109,15 +1117,18 @@ impl Widget for CommandPalette {
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
+        let app_bg = crate::style::parse_color_like("$background").map(|bg| bg.to_simple_opaque());
+        let panel_bg = panel_style.bgcolor;
         let apply_panel_surface = |mut cell: Cell| -> Cell {
             let mut composed = match cell.style {
                 Some(style) => panel_style.combine(&style),
                 None => panel_style,
             };
-            if composed.bgcolor.is_none()
+            let keep_panel_bg = composed.bgcolor.is_none()
                 || matches!(composed.bgcolor, Some(rich_rs::SimpleColor::Default))
-            {
-                composed.bgcolor = panel_style.bgcolor;
+                || app_bg.is_some_and(|bg| composed.bgcolor == Some(bg));
+            if keep_panel_bg {
+                composed.bgcolor = panel_bg;
             }
             cell.style = Some(composed);
             cell
@@ -1153,7 +1164,7 @@ impl Widget for CommandPalette {
             None,
         );
 
-        let search_y = panel_y;
+        let search_y = panel_y.saturating_add(1);
         let search_icon_x = panel_x.saturating_add(1);
         if search_y < height {
             for sx in 0..icon_buffer.width.min(2) {
@@ -2324,6 +2335,17 @@ mod tests {
         assert!(!palette.is_open());
         assert!(!palette.panel_visible);
         assert_eq!(palette.panel_render_y, CommandPalette::CLOSED_PANEL_Y);
+    }
+
+    #[test]
+    fn command_palette_panel_component_style_resolves_non_empty_background() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let palette = CommandPalette::new(Label::new("body"));
+        let style = crate::css::resolve_component_style(&palette, &["command-palette--panel"]);
+        assert!(
+            style.bg.is_some(),
+            "CommandPalette panel component must resolve a background color"
+        );
     }
 
     #[test]

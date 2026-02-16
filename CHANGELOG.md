@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette geometry/surface parity): panel top offset + panel-surface composition across rows**
+  - `CommandPalette` panel Y placement now honors component CSS (`.command-palette--panel { margin-top: ... }`) instead of a hardcoded offset, matching Python structure more closely.
+  - Added default `margin-top: 3` for `.command-palette--panel` in widget defaults.
+  - Reworked panel-surface composition so command rows that carry implicit/default app background are normalized back to panel background, removing dark app-background bleed inside palette result rows.
+  - Search/input/results geometry updated to keep the expected input block spacing under the new top offset.
+  - Snapshot/behavior tests updated to assert content-located dim/surface semantics (instead of brittle fixed coordinates), plus a regression test that unselected rows do not reuse app background.
+
 - **[wip] fix(command-palette css parity): honor Python `CommandPalette` component selectors without local fallback rules**
   - `CommandList` now accepts render-time help-style injection from its `CommandPalette` parent render path, so Python selector `CommandPalette > .command-palette--help-text` is applied in-context (instead of relying on `CommandList`-local fallback selectors).
   - Removed `CommandList > .command-palette--help-text` fallback default CSS rule; `CommandPalette` component selector is now the source of truth.

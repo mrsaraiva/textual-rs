@@ -44,9 +44,17 @@ fn command_palette_help_rows_keep_panel_surface_and_dim_style() {
 
     let buf = render_buffer(&palette);
 
-    // "Show help..." row in the open snapshot.
-    let help_text = buf.get(1, 4);
-    let help_pad = buf.get(40, 4);
+    let lines = buf.as_plain_lines();
+    let (help_y, help_x) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| {
+            line.find("Show help for the focused widget")
+                .map(|x| (y, x))
+        })
+        .expect("help row should be present");
+    let help_text = buf.get(help_x, help_y);
+    let help_pad = buf.get(buf.width.saturating_sub(2), help_y);
 
     let text_style = help_text
         .style
@@ -76,9 +84,13 @@ fn command_palette_placeholder_uses_dim_style() {
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
-    // Search prompt starts at row 1 with icon at x=1..2 and input text at x=4...
-    // x=4 is the focused cursor cell; check a later placeholder cell.
-    let placeholder_cell = buf.get(7, 1);
+    let lines = buf.as_plain_lines();
+    let (search_y, search_x) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Search for commands").map(|x| (y, x)))
+        .expect("search placeholder row should be present");
+    let placeholder_cell = buf.get(search_x.saturating_add(3), search_y);
     let style = placeholder_cell
         .style
         .as_ref()
@@ -87,6 +99,53 @@ fn command_palette_placeholder_uses_dim_style() {
         style.dim,
         Some(true),
         "placeholder text should be rendered dim"
+    );
+}
+
+#[test]
+fn command_palette_unselected_rows_use_panel_surface_background() {
+    let mut palette = CommandPalette::new(Label::new("Body content"));
+    let mut ctx = EventCtx::default();
+    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    assert!(ctx.handled());
+
+    let buf = render_buffer(&palette);
+    let lines = buf.as_plain_lines();
+    let (title_y, title_x) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Maximize").map(|x| (y, x)))
+        .expect("title row should be present");
+    let (help_y, help_x) = lines
+        .iter()
+        .enumerate()
+        .find_map(|(y, line)| line.find("Maximize the focused widget").map(|x| (y, x)))
+        .expect("help row should be present");
+
+    let title_style = buf
+        .get(title_x, title_y)
+        .style
+        .as_ref()
+        .expect("title row should have style");
+    let help_style = buf
+        .get(help_x, help_y)
+        .style
+        .as_ref()
+        .expect("help row should have style");
+    assert!(
+        title_style.bgcolor.is_some(),
+        "title row should carry panel background"
+    );
+    assert!(
+        help_style.bgcolor.is_some(),
+        "help row should carry panel background"
+    );
+
+    let app_bg = buf.get(10, 0).style.as_ref().and_then(|s| s.bgcolor);
+    let title_bg = title_style.bgcolor;
+    assert_ne!(
+        title_bg, app_bg,
+        "palette rows should not reuse the app background color"
     );
 }
 
