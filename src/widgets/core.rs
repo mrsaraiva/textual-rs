@@ -370,6 +370,22 @@ pub trait Widget: Send + Sync + Any {
     fn selection_at(&self, _x: u16, _y: u16) -> Option<WidgetSelectionAnchor> {
         None
     }
+    /// Resolve a word selection range at widget-local pointer coordinates.
+    ///
+    /// Used by runtime double-click selection behavior.
+    fn selection_word_range_at(
+        &self,
+        _x: u16,
+        _y: u16,
+    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        None
+    }
+    /// Resolve a full-content selection range.
+    ///
+    /// Used by runtime triple-click selection behavior.
+    fn selection_all_range(&self) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        None
+    }
     /// Update this widget's current selection.
     ///
     /// Returns `true` when visible selection state changed.

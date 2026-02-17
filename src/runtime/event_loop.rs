@@ -2596,12 +2596,32 @@ impl App {
                                         x,
                                         y,
                                     });
-                                    if matches!(btn, crossterm::event::MouseButton::Left) {
+                                    if matches!(
+                                        btn,
+                                        crossterm::event::MouseButton::Left
+                                            | crossterm::event::MouseButton::Right
+                                    ) {
                                         let previous_owner = self.active_selection_owner;
-                                        let changed = self
-                                            .begin_selection_drag(target, x, y)
-                                            .or_else(|| Some(self.clear_active_selection()))
-                                            .unwrap_or(false);
+                                        let click_count = self.register_selection_click(
+                                            target,
+                                            button,
+                                            mouse.column,
+                                            mouse.row,
+                                        );
+                                        let changed = match click_count {
+                                            1 => self
+                                                .begin_selection_drag(target, x, y)
+                                                .or_else(|| Some(self.clear_active_selection()))
+                                                .unwrap_or(false),
+                                            2 => self
+                                                .select_word_at(target, x, y)
+                                                .or_else(|| Some(self.clear_active_selection()))
+                                                .unwrap_or(false),
+                                            _ => self
+                                                .select_all_at_target(target)
+                                                .or_else(|| Some(self.clear_active_selection()))
+                                                .unwrap_or(false),
+                                        };
                                         if changed {
                                             if let Some(id) = previous_owner {
                                                 pending_invalidation
@@ -2612,6 +2632,8 @@ impl App {
                                                     .request_widget_rect(&self.hit_test, id);
                                             }
                                         }
+                                    } else {
+                                        self.clear_selection_click_streak();
                                     }
                                     let mut outcome = self.dispatch_event_to_target_auto(
                                         root,
@@ -2636,7 +2658,12 @@ impl App {
                                         break 'event_loop;
                                     }
                                 } else {
-                                    if matches!(btn, crossterm::event::MouseButton::Left) {
+                                    if matches!(
+                                        btn,
+                                        crossterm::event::MouseButton::Left
+                                            | crossterm::event::MouseButton::Right
+                                    ) {
+                                        self.clear_selection_click_streak();
                                         let previous_owner = self.active_selection_owner;
                                         if self.clear_active_selection() {
                                             if let Some(id) = previous_owner {

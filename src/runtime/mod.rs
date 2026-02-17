@@ -60,6 +60,16 @@ use helpers::{
 
 type SuspendProcessFn = fn() -> io::Result<()>;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SelectionClickState {
+    pub target: NodeId,
+    pub button: u8,
+    pub screen_x: u16,
+    pub screen_y: u16,
+    pub at: Instant,
+    pub count: u8,
+}
+
 #[cfg(unix)]
 fn suspend_process_default() -> io::Result<()> {
     let pid = std::process::id().to_string();
@@ -426,6 +436,7 @@ pub struct App {
     selection_anchor_start: Option<WidgetSelectionAnchor>,
     selection_anchor_end: Option<WidgetSelectionAnchor>,
     selection_drag_active: bool,
+    selection_click_state: Option<SelectionClickState>,
     async_tasks: AsyncTaskRuntime,
     one_shot_timers: OneShotTimerRuntime,
     devtools: Option<devtools::DevtoolsRuntime>,
@@ -532,6 +543,7 @@ impl App {
             selection_anchor_start: None,
             selection_anchor_end: None,
             selection_drag_active: false,
+            selection_click_state: None,
             async_tasks: AsyncTaskRuntime::default(),
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
@@ -961,6 +973,79 @@ impl App {
             self.selection_anchor_end = None;
             self.selection_drag_active = false;
         }
+    }
+
+    pub(super) fn register_selection_click(
+        &mut self,
+        target: NodeId,
+        button: u8,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> u8 {
+        const MULTI_CLICK_MAX_DELAY: Duration = Duration::from_millis(500);
+        const MULTI_CLICK_MAX_DISTANCE: u16 = 1;
+
+        let now = Instant::now();
+        let mut next_count = 1u8;
+        if let Some(prev) = self.selection_click_state
+            && prev.target == target
+            && prev.button == button
+            && now.saturating_duration_since(prev.at) <= MULTI_CLICK_MAX_DELAY
+            && prev.screen_x.abs_diff(screen_x) <= MULTI_CLICK_MAX_DISTANCE
+            && prev.screen_y.abs_diff(screen_y) <= MULTI_CLICK_MAX_DISTANCE
+        {
+            next_count = prev.count.saturating_add(1).min(3);
+        }
+        self.selection_click_state = Some(SelectionClickState {
+            target,
+            button,
+            screen_x,
+            screen_y,
+            at: now,
+            count: next_count,
+        });
+        next_count
+    }
+
+    pub(super) fn clear_selection_click_streak(&mut self) {
+        self.selection_click_state = None;
+    }
+
+    pub(super) fn select_word_at(&mut self, target: NodeId, x: u16, y: u16) -> Option<bool> {
+        let (from, to) =
+            self.with_widget_mut(target, |widget| widget.selection_word_range_at(x, y))??;
+        let _ = self.clear_active_selection();
+        self.active_selection_owner = Some(target);
+        self.selection_anchor_start = Some(from);
+        self.selection_anchor_end = Some(to);
+        self.selection_drag_active = false;
+        self.with_widget_mut(target, |widget| {
+            let changed = widget.update_selection(from, to);
+            if changed {
+                let mut selection_ctx = EventCtx::default();
+                selection_ctx.set_node_id(target);
+                widget.selection_updated(&mut selection_ctx);
+            }
+            changed
+        })
+    }
+
+    pub(super) fn select_all_at_target(&mut self, target: NodeId) -> Option<bool> {
+        let (from, to) = self.with_widget_mut(target, |widget| widget.selection_all_range())??;
+        let _ = self.clear_active_selection();
+        self.active_selection_owner = Some(target);
+        self.selection_anchor_start = Some(from);
+        self.selection_anchor_end = Some(to);
+        self.selection_drag_active = false;
+        self.with_widget_mut(target, |widget| {
+            let changed = widget.update_selection(from, to);
+            if changed {
+                let mut selection_ctx = EventCtx::default();
+                selection_ctx.set_node_id(target);
+                widget.selection_updated(&mut selection_ctx);
+            }
+            changed
+        })
     }
 
     pub fn action_back(&mut self) -> bool {
@@ -2445,6 +2530,26 @@ mod tests {
             .unwrap_or((false, false));
         assert!(focused);
         assert!(hovered);
+    }
+
+    #[test]
+    fn selection_click_streak_counts_double_and_triple_clicks() {
+        let mut app = App::new().expect("app should initialize");
+        let target = node_id_from_ffi(42);
+        assert_eq!(app.register_selection_click(target, 0, 10, 10), 1);
+        assert_eq!(app.register_selection_click(target, 0, 10, 10), 2);
+        assert_eq!(app.register_selection_click(target, 0, 10, 10), 3);
+    }
+
+    #[test]
+    fn selection_click_streak_resets_when_target_or_button_changes() {
+        let mut app = App::new().expect("app should initialize");
+        let a = node_id_from_ffi(1);
+        let b = node_id_from_ffi(2);
+        assert_eq!(app.register_selection_click(a, 0, 5, 5), 1);
+        assert_eq!(app.register_selection_click(a, 0, 5, 5), 2);
+        assert_eq!(app.register_selection_click(b, 0, 5, 5), 1);
+        assert_eq!(app.register_selection_click(a, 2, 5, 5), 1);
     }
 
     #[test]

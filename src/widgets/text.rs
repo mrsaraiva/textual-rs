@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::RwLock;
 
 use crate::render::FrameBuffer;
-use crate::style::HorizontalAlign;
+use crate::style::{Color, HorizontalAlign, parse_color_like};
 
 use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
 
@@ -227,6 +227,7 @@ impl Clone for Markdown {
 struct MarkdownRenderCache {
     width: usize,
     lines: Vec<String>,
+    content_bounds: Vec<(usize, usize)>,
 }
 
 impl Markdown {
@@ -271,13 +272,13 @@ impl Markdown {
         width: usize,
         align: HorizontalAlign,
         style: rich_rs::Style,
-    ) {
+    ) -> usize {
         if matches!(align, HorizontalAlign::Left) || line.is_empty() {
-            return;
+            return 0;
         }
         let line_width = rich_rs::Segment::get_line_length(line);
         if line_width >= width {
-            return;
+            return 0;
         }
         let left_pad = match align {
             HorizontalAlign::Left => 0,
@@ -285,9 +286,10 @@ impl Markdown {
             HorizontalAlign::Right => width - line_width,
         };
         if left_pad == 0 {
-            return;
+            return 0;
         }
         line.insert(0, rich_rs::Segment::styled(" ".repeat(left_pad), style));
+        left_pad
     }
 
     fn normalize_selection(
@@ -310,6 +312,49 @@ impl Markdown {
         rich_rs::cell_len(line.trim_end())
     }
 
+    fn non_whitespace_bounds_from_segments(line: &[rich_rs::Segment]) -> Option<(usize, usize)> {
+        let plain = line
+            .iter()
+            .filter(|segment| segment.control.is_none())
+            .map(|segment| segment.text.as_ref())
+            .collect::<String>();
+        if plain.is_empty() {
+            return None;
+        }
+        let mut spans: Vec<(usize, usize, char)> = Vec::new();
+        let mut cell = 0usize;
+        for ch in plain.chars() {
+            let width = rich_rs::cell_len(&ch.to_string()).max(1);
+            let start = cell;
+            let end = cell.saturating_add(width);
+            spans.push((start, end, ch));
+            cell = end;
+        }
+        if spans.is_empty() {
+            return None;
+        }
+        let first = spans.iter().position(|(_, _, ch)| !ch.is_whitespace())?;
+        let last = spans
+            .iter()
+            .rposition(|(_, _, ch)| !ch.is_whitespace())
+            .unwrap_or(first);
+        Some((spans[first].0, spans[last].1))
+    }
+
+    fn line_content_bounds(cache: &MarkdownRenderCache, row: usize) -> (usize, usize) {
+        let line_len = cache
+            .lines
+            .get(row)
+            .map(|line| Self::line_text_len(line))
+            .unwrap_or(0);
+        let (start, end) = cache
+            .content_bounds
+            .get(row)
+            .copied()
+            .unwrap_or((0, line_len));
+        (start.min(line_len), end.min(line_len).max(start.min(line_len)))
+    }
+
     fn clamp_anchor(
         cache: &MarkdownRenderCache,
         anchor: WidgetSelectionAnchor,
@@ -318,7 +363,8 @@ impl Markdown {
             return WidgetSelectionAnchor::default();
         }
         let row = anchor.row.min(cache.lines.len() - 1);
-        let col = anchor.col.min(Self::line_text_len(&cache.lines[row]));
+        let (start, end) = Self::line_content_bounds(cache, row);
+        let col = anchor.col.min(end).max(start);
         WidgetSelectionAnchor { row, col, index: 0 }
     }
 
@@ -367,14 +413,19 @@ impl Markdown {
         for row in start.row..=end.row {
             let line = cache.lines[row].trim_end();
             let line_len = rich_rs::cell_len(line);
+            let (content_start, content_end) = Self::line_content_bounds(cache, row);
             let slice = if row == start.row && row == end.row {
-                Self::slice_cells(line, start.col.min(line_len), end.col.min(line_len))
+                let slice_start = start.col.min(line_len).max(content_start);
+                let slice_end = end.col.min(line_len).min(content_end);
+                Self::slice_cells(line, slice_start, slice_end)
             } else if row == start.row {
-                Self::slice_cells(line, start.col.min(line_len), line_len)
+                let slice_start = start.col.min(line_len).max(content_start);
+                Self::slice_cells(line, slice_start, content_end.min(line_len))
             } else if row == end.row {
-                Self::slice_cells(line, 0, end.col.min(line_len))
+                let slice_end = end.col.min(line_len).min(content_end);
+                Self::slice_cells(line, content_start, slice_end)
             } else {
-                line.to_string()
+                Self::slice_cells(line, content_start, content_end)
             };
             out.push(slice);
         }
@@ -386,9 +437,98 @@ impl Markdown {
         }
     }
 
+    fn word_range_at(
+        cache: &MarkdownRenderCache,
+        x: u16,
+        y: u16,
+    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        if cache.lines.is_empty() {
+            return None;
+        }
+        let row = usize::from(y).min(cache.lines.len().saturating_sub(1));
+        let line = cache.lines[row].trim_end();
+        if line.is_empty() {
+            return None;
+        }
+        let line_len = rich_rs::cell_len(line);
+        if line_len == 0 {
+            return None;
+        }
+
+        let mut spans: Vec<(usize, usize, char)> = Vec::new();
+        let mut cell = 0usize;
+        for ch in line.chars() {
+            let width = rich_rs::cell_len(&ch.to_string()).max(1);
+            let start = cell;
+            let end = cell.saturating_add(width);
+            spans.push((start, end, ch));
+            cell = end;
+        }
+        if spans.is_empty() {
+            return None;
+        }
+
+        let target_col = usize::from(x).min(line_len.saturating_sub(1));
+        let mut idx = spans
+            .iter()
+            .position(|(_, end, _)| target_col < *end)
+            .unwrap_or(spans.len().saturating_sub(1));
+
+        if spans[idx].2.is_whitespace() {
+            if let Some(right) = ((idx + 1)..spans.len()).find(|&i| !spans[i].2.is_whitespace()) {
+                idx = right;
+            } else if let Some(left) = (0..idx).rev().find(|&i| !spans[i].2.is_whitespace()) {
+                idx = left;
+            } else {
+                return None;
+            }
+        }
+
+        let mut left = idx;
+        while left > 0 && !spans[left - 1].2.is_whitespace() {
+            left -= 1;
+        }
+        let mut right = idx;
+        while right + 1 < spans.len() && !spans[right + 1].2.is_whitespace() {
+            right += 1;
+        }
+
+        Some((
+            WidgetSelectionAnchor {
+                row,
+                col: spans[left].0,
+                index: 0,
+            },
+            WidgetSelectionAnchor {
+                row,
+                col: spans[right].1,
+                index: 0,
+            },
+        ))
+    }
+
+    fn all_range(
+        cache: &MarkdownRenderCache,
+    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        if cache.lines.is_empty() {
+            return None;
+        }
+        let last_row = cache.lines.len().saturating_sub(1);
+        let end_col = Self::line_text_len(&cache.lines[last_row]);
+        Some((
+            WidgetSelectionAnchor::default(),
+            WidgetSelectionAnchor {
+                row: last_row,
+                col: end_col,
+                index: 0,
+            },
+        ))
+    }
+
     fn apply_selection_highlight(
         lines: &[Vec<rich_rs::Segment>],
         width: usize,
+        cache: &MarkdownRenderCache,
         selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
     ) -> Segments {
         let Some(selection) = selection else {
@@ -408,18 +548,32 @@ impl Markdown {
         let height = lines.len().max(1);
         let mut frame = FrameBuffer::from_lines(lines, width.max(1), height, None);
         let (start, end) = Self::normalize_selection(selection);
-        let highlight = rich_rs::Style::new().with_reverse(true);
+        let selection_bg = parse_color_like("#094573")
+            .unwrap_or_else(|| Color::rgb(0, 120, 215));
+        let selection_fg = parse_color_like("#ffffff")
+            .unwrap_or_else(|| Color::rgb(255, 255, 255))
+            .flatten_over(selection_bg);
+        let highlight = rich_rs::Style::new()
+            .with_bgcolor(selection_bg.to_simple_opaque())
+            .with_color(selection_fg.to_simple_opaque());
 
         for row in start.row..=end.row {
             if row >= frame.height {
                 break;
             }
             let row_start = if row == start.row { start.col } else { 0 };
-            let row_end = if row == end.row { end.col } else { frame.width };
-            for col in row_start.min(frame.width)..row_end.min(frame.width) {
+            let row_line_len = lines
+                .get(row)
+                .map(|line| rich_rs::Segment::get_line_length(line))
+                .unwrap_or(frame.width);
+            let row_end = if row == end.row { end.col } else { row_line_len };
+            let (content_start, content_end) = Self::line_content_bounds(cache, row);
+            let paint_start = row_start.min(frame.width).max(content_start);
+            let paint_end = row_end.min(frame.width).min(content_end);
+            for col in paint_start..paint_end {
                 let cell = frame.get_mut(col, row);
                 cell.style = Some(match cell.style {
-                    Some(existing) => highlight.combine(&existing),
+                    Some(existing) => existing.combine(&highlight),
                     None => highlight,
                 });
             }
@@ -450,10 +604,11 @@ impl Widget for Markdown {
                 Some((marker_len, title.to_string()))
             })
             .collect::<VecDeque<_>>();
+        let mut aligned_bounds: Vec<Option<(usize, usize)>> = vec![None; lines.len()];
 
         if !headings.is_empty() {
             let mut active_heading: Option<(usize, String)> = None;
-            for line in &mut lines {
+            for (line_index, line) in lines.iter_mut().enumerate() {
                 if headings.is_empty() {
                     break;
                 }
@@ -499,6 +654,9 @@ impl Widget for Markdown {
                 let class_name = format!("markdown--h{level}");
                 let component_style =
                     crate::css::resolve_component_style(self, &[class_name.as_str()]);
+                let pre_align_width = rich_rs::Segment::get_line_length(line);
+                let pre_align_content_bounds =
+                    Self::non_whitespace_bounds_from_segments(line).unwrap_or((0, pre_align_width));
                 let style = component_style
                     .to_rich()
                     .unwrap_or_else(rich_rs::Style::new);
@@ -507,12 +665,16 @@ impl Widget for Markdown {
                     segment.style = Some(style);
                 }
                 if let Some(content_align) = component_style.content_align {
-                    Self::apply_horizontal_alignment(
+                    let left_pad = Self::apply_horizontal_alignment(
                         line,
                         options.size.0.max(1),
                         content_align.horizontal,
                         style,
                     );
+                    aligned_bounds[line_index] = Some((
+                        left_pad + pre_align_content_bounds.0,
+                        left_pad + pre_align_content_bounds.1,
+                    ));
                 }
             }
         }
@@ -520,15 +682,26 @@ impl Widget for Markdown {
         let width = options.size.0.max(1);
         let height = lines.len().max(1);
         let cache_frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let plain_lines = cache_frame.as_plain_lines();
+        let mut content_bounds = plain_lines
+            .iter()
+            .map(|line| (0, Self::line_text_len(line)))
+            .collect::<Vec<_>>();
+        for (row, bounds) in aligned_bounds.into_iter().enumerate() {
+            if let Some((start, end)) = bounds && row < content_bounds.len() {
+                content_bounds[row] = (start, end);
+            }
+        }
         let cache = MarkdownRenderCache {
             width,
-            lines: cache_frame.as_plain_lines(),
+            lines: plain_lines,
+            content_bounds,
         };
         if let Ok(mut cached_lines) = self.render_cache.write() {
-            *cached_lines = cache;
+            *cached_lines = cache.clone();
         }
 
-        Self::apply_selection_highlight(&lines, width, self.selection)
+        Self::apply_selection_highlight(&lines, width, &cache, self.selection)
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -594,9 +767,27 @@ impl Widget for Markdown {
             return None;
         }
         let row = usize::from(y).min(cache.lines.len().saturating_sub(1));
-        let max_col = Self::line_text_len(&cache.lines[row]);
-        let col = usize::from(x).min(max_col);
+        let (content_start, content_end) = Self::line_content_bounds(&cache, row);
+        let col = usize::from(x).min(content_end).max(content_start);
         Some(WidgetSelectionAnchor { row, col, index: 0 })
+    }
+
+    fn selection_word_range_at(
+        &self,
+        x: u16,
+        y: u16,
+    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        let Ok(cache) = self.render_cache.read() else {
+            return None;
+        };
+        Self::word_range_at(&cache, x, y)
+    }
+
+    fn selection_all_range(&self) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
+        let Ok(cache) = self.render_cache.read() else {
+            return None;
+        };
+        Self::all_range(&cache)
     }
 
     fn update_selection(&mut self, from: WidgetSelectionAnchor, to: WidgetSelectionAnchor) -> bool {
@@ -630,6 +821,8 @@ impl Renderable for Markdown {
 #[cfg(test)]
 mod tests {
     use super::{Label, Markdown, MarkdownRenderCache};
+    use crate::render::FrameBuffer;
+    use crate::style::parse_color_like;
     use crate::widgets::{Widget, WidgetSelectionAnchor};
     use rich_rs::Console;
 
@@ -702,6 +895,7 @@ Head of House Atreides.
         let cache = MarkdownRenderCache {
             width: 20,
             lines: vec!["first line".to_string(), "second line".to_string()],
+            content_bounds: vec![(0, 10), (0, 11)],
         };
         let from = WidgetSelectionAnchor {
             row: 0,
@@ -715,5 +909,92 @@ Head of House Atreides.
         };
         let selected = Markdown::selected_text_from_cache(&cache, (from, to));
         assert_eq!(selected.as_deref(), Some("first line\nsecond"));
+    }
+
+    #[test]
+    fn markdown_word_range_selects_word_under_pointer() {
+        let mut markdown = Markdown::new("alpha beta gamma");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 6);
+        Widget::render(&markdown, &console, &options);
+
+        let (from, to) = markdown
+            .selection_word_range_at(8, 0)
+            .expect("word range should resolve");
+        assert!(markdown.update_selection(from, to));
+        assert_eq!(markdown.get_selection().as_deref(), Some("beta"));
+    }
+
+    #[test]
+    fn markdown_selection_all_range_covers_full_content() {
+        let mut markdown = Markdown::new("alpha\nbeta");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 6);
+        Widget::render(&markdown, &console, &options);
+
+        let (from, to) = markdown
+            .selection_all_range()
+            .expect("selection all should resolve");
+        assert!(markdown.update_selection(from, to));
+        assert_eq!(markdown.get_selection().as_deref(), Some("alpha beta"));
+    }
+
+    #[test]
+    fn markdown_multiline_selection_does_not_fill_to_widget_width() {
+        let mut markdown = Markdown::new("alpha\nbeta");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (40, 6);
+        Widget::render(&markdown, &console, &options);
+
+        let start = markdown.selection_at(0, 0).expect("start");
+        let end = markdown.selection_at(2, 1).expect("end");
+        assert!(markdown.update_selection(start, end));
+
+        let frame = FrameBuffer::from_renderable(&console, &options, &markdown, None);
+        let selection_bg = parse_color_like("#094573")
+            .expect("selection bg token")
+            .to_simple_opaque();
+        assert_eq!(
+            frame.get(0, 0).style.as_ref().and_then(|s| s.bgcolor),
+            Some(selection_bg),
+            "selected text should use selection background"
+        );
+        assert_ne!(
+            frame.get(30, 0).style.as_ref().and_then(|s| s.bgcolor),
+            Some(selection_bg),
+            "selection should not bleed to end of row"
+        );
+    }
+
+    #[test]
+    fn markdown_selection_uses_consistent_fg_bg_across_text_styles() {
+        let mut markdown = Markdown::new("# Lady Jessica\nBene Gesserit");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (40, 6);
+        let initial = FrameBuffer::from_renderable(&console, &options, &markdown, None);
+        let initial_lines = initial.as_plain_lines();
+        let heading_x = initial_lines[0].find("Lady").expect("heading text x");
+        let (body_row, body_x) = initial_lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| line.find("Bene").map(|x| (row, x)))
+            .expect("body text x");
+
+        let start = markdown
+            .selection_at(heading_x as u16, 0)
+            .expect("start selection");
+        let end = markdown
+            .selection_at((body_x + 2) as u16, body_row as u16)
+            .expect("end selection");
+        assert!(markdown.update_selection(start, end));
+        let frame = FrameBuffer::from_renderable(&console, &options, &markdown, None);
+        let heading_style = frame.get(heading_x, 0).style.expect("heading style");
+        let body_style = frame.get(body_x, body_row).style.expect("body style");
+        assert_eq!(heading_style.bgcolor, body_style.bgcolor);
+        assert_eq!(heading_style.color, body_style.color);
     }
 }
