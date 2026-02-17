@@ -140,7 +140,12 @@ impl FooterKey {
             .unwrap_or_else(rich_rs::Style::new);
 
         let key_component = crate::css::resolve_component_style(self, &["footer-key--key"]);
-        let key_padding = key_component.effective_padding();
+        let mut key_padding = key_component.effective_padding();
+        if self.classes.iter().any(|class| class == "-command-palette") {
+            // Python parity: command-palette hint border meets the key glyph without
+            // an extra leading blank column.
+            key_padding.left = 0;
+        }
         let key_style =
             self.component_style(&["footer-key--key"], rich_rs::Style::new().with_bold(true));
         let description_component =
@@ -440,7 +445,7 @@ impl Footer {
     ) -> (Vec<Segment>, Vec<(Range<usize>, usize)>) {
         let mut out = Vec::new();
         let mut regions = Vec::new();
-        let key_separator = if self.compact { " " } else { "  " };
+        let key_separator = if self.compact { " " } else { "" };
         let mut pos = 0usize;
         for (index, binding) in group_bindings.iter().enumerate() {
             if index > 0 {
@@ -550,7 +555,7 @@ impl Footer {
 
     fn left_binding_regions(&self) -> Vec<(Range<usize>, usize)> {
         let (left_items, _palette) = self.split_bindings();
-        let separator = if self.compact { " " } else { "   " };
+        let separator = if self.compact { " " } else { "" };
         let separator_width = rich_rs::cell_len(separator);
         let mut pos = 0usize;
         let mut flat_index = 0usize;
@@ -600,7 +605,7 @@ impl Footer {
 
     fn left_segments_for_render(&self, base_style: rich_rs::Style) -> Vec<Segment> {
         let (left_bindings, _palette) = self.split_bindings();
-        let separator = if self.compact { " " } else { "   " };
+        let separator = if self.compact { " " } else { "" };
         let mut left_segments = Vec::new();
         let mut flat_index: usize = 0;
         for (index, binding) in left_bindings.iter().enumerate() {
@@ -642,14 +647,7 @@ impl Footer {
 
         let palette_separator_style = self.palette_separator_style();
         let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
-        if self.compact {
-            right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
-        } else {
-            right_segments.insert(
-                0,
-                Segment::styled(" │ ".to_string(), palette_separator_style),
-            );
-        }
+        right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
         let right_width = Segment::get_line_length(&right_segments);
         let (start, end) = if left_width + right_width < width {
             (width.saturating_sub(right_width), width)
@@ -710,14 +708,7 @@ impl Widget for Footer {
         if let Some(palette_binding) = self.command_palette_binding() {
             let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
             // Keep command palette hint docked at the right with a subtle visible separator.
-            if self.compact {
-                right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
-            } else {
-                right_segments.insert(
-                    0,
-                    Segment::styled(" │ ".to_string(), palette_separator_style),
-                );
-            }
+            right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
 
             let left_width = Segment::get_line_length(&line_segments);
             let right_width = Segment::get_line_length(&right_segments);
@@ -897,10 +888,14 @@ impl ReactiveWidget for Footer {
 
 #[cfg(test)]
 mod tests {
+    use rich_rs::Console;
+
     use super::Footer;
+    use crate::css::{default_widget_stylesheet, set_style_context};
     use crate::event::{BindingHint, Event, EventCtx, MouseDownEvent};
     use crate::message::*;
     use crate::node_id::NodeId;
+    use crate::render::FrameBuffer;
     use crate::widgets::Widget;
 
     #[test]
@@ -1297,5 +1292,71 @@ mod tests {
         let second_mid = ((second.start + second.end) / 2) as u16;
         assert_eq!(footer.binding_index_at_x(first_mid), Some(0));
         assert_eq!(footer.binding_index_at_x(second_mid), Some(1));
+    }
+
+    #[test]
+    fn command_palette_separator_hugs_key_hint() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut footer = Footer::new();
+        let mut setup_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("j", "Jessica"),
+                BindingHint::new("ctrl+p", "palette")
+                    .with_key_display("^p")
+                    .with_group("command_palette"),
+            ]),
+            &mut setup_ctx,
+        );
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 1);
+        options.max_width = 64;
+        options.max_height = 1;
+
+        let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+        let line = &buf.as_plain_lines()[0];
+        let chars: Vec<char> = line.chars().collect();
+        let separator_idx = chars
+            .iter()
+            .position(|ch| *ch == '│')
+            .expect("expected command palette separator");
+        let caret_idx = chars
+            .iter()
+            .position(|ch| *ch == '^')
+            .expect("expected command palette key hint");
+        assert_eq!(
+            caret_idx,
+            separator_idx + 1,
+            "separator should sit immediately before the command palette key hint"
+        );
+    }
+
+    #[test]
+    fn non_compact_footer_binding_spacing_matches_python_pattern() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut footer = Footer::new();
+        let mut setup_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("l", "Leto"),
+                BindingHint::new("j", "Jessica"),
+                BindingHint::new("p", "Paul"),
+            ]),
+            &mut setup_ctx,
+        );
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 1);
+        options.max_width = 64;
+        options.max_height = 1;
+
+        let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+        let line = buf.as_plain_lines()[0].trim_end().to_string();
+        assert!(
+            line.contains("l Leto  j Jessica  p Paul"),
+            "non-compact footer spacing should keep bindings tight like Python; got: {line:?}"
+        );
     }
 }

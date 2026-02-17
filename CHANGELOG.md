@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(footer/tabs parity): tighten footer spacing and tab-gutter width to Python behavior**
+  - Footer non-compact binding spacing now renders tightly (`l Leto  j Jessica  p Paul`) instead of wider Rust-only gaps.
+  - Command-palette footer separator now sits directly before the key hint (`│^p`) to match Python placement.
+  - Tabs underline/gutter width now tracks active tab label width (no extra side padding) for closer visual parity.
+  - Added regression tests for footer spacing, command-palette separator placement, and tab underline width.
+
 - **fix(markdown parity): align heading spacing + full-width H1 centering with Python Textual**
   - Markdown heading component classes (`.markdown--h1`..`.markdown--h6`) now carry Python-equivalent header margins so top/bottom heading spacing is applied during core Markdown render normalization.
   - Markdown heading normalization now applies margin only at heading block boundaries (not every wrapped fragment), avoiding over-expansion on wrapped headings.

@@ -771,12 +771,12 @@ impl Tabs {
                         class_name: "-active".to_string(),
                     }));
             }
-            let target_span = self.span_for_index(next);
+            let target_span = self.underline_span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {
                 if let Some((target_start, target_end)) = target_span {
                     let (duration, delay, ease) = self.underline_animation_params();
                     let fallback_source = previous_active_index
-                        .and_then(|prev| self.span_for_index(prev))
+                        .and_then(|prev| self.underline_span_for_index(prev))
                         .unwrap_or((target_start, target_end));
                     let (from_start, from_end) = self.current_underline_range();
                     let from_start = if from_end > from_start {
@@ -1002,16 +1002,35 @@ impl Tabs {
         spans
     }
 
-    fn span_for_index(&self, index: usize) -> Option<(f32, f32)> {
-        self.tab_spans(self.layout_width)
-            .into_iter()
+    fn underline_span_for_index(&self, index: usize) -> Option<(f32, f32)> {
+        let spans = self.tab_spans(self.layout_width);
+        let (start, end, _) = spans
+            .iter()
             .find(|(_, _, tab_index)| *tab_index == index)
-            .map(|(start, end, _)| (start as f32, end as f32))
+            .copied()?;
+        let state = self.state.lock().expect("tabs state lock");
+        let label_width = state
+            .tabs
+            .get(index)
+            .map(|tab| rich_rs::cell_len(tab.label.as_str()))
+            .unwrap_or(0)
+            .max(1);
+        let span_width = end.saturating_sub(start);
+        if span_width <= label_width {
+            return Some((start as f32, end as f32));
+        }
+        let total_inset = span_width.saturating_sub(label_width);
+        let left_inset = total_inset / 2;
+        let right_inset = total_inset.saturating_sub(left_inset);
+        Some((
+            start.saturating_add(left_inset) as f32,
+            end.saturating_sub(right_inset) as f32,
+        ))
     }
 
     fn sync_underline_to_active(&mut self) {
         if let Some(active) = self.active_index()
-            && let Some((start, end)) = self.span_for_index(active)
+            && let Some((start, end)) = self.underline_span_for_index(active)
         {
             self.set_underline_range(start, end);
         } else {
@@ -1464,5 +1483,24 @@ mod tests {
         tabs.with_active_id(|active| {
             assert_eq!(active, Some("one"));
         });
+    }
+
+    #[test]
+    fn underline_width_matches_active_tab_label_width() {
+        let mut tabs = Tabs::new()
+            .with_tab("Leto")
+            .with_tab("Jessica")
+            .with_tab("Paul");
+        tabs.on_layout(80, 2);
+        let (start, end) = tabs.current_underline_range();
+        assert_eq!((end - start).round() as usize, rich_rs::cell_len("Leto"));
+
+        assert!(tabs.activate(1, None));
+        let (start, end) = tabs.current_underline_range();
+        assert_eq!((end - start).round() as usize, rich_rs::cell_len("Jessica"));
+
+        assert!(tabs.activate(2, None));
+        let (start, end) = tabs.current_underline_range();
+        assert_eq!((end - start).round() as usize, rich_rs::cell_len("Paul"));
     }
 }

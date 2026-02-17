@@ -117,6 +117,10 @@ Footer {
         dock: right;
         padding-right: 1;
         border-left: vkey $foreground 20%;
+
+        & .footer-key--key {
+            padding-left: 0;
+        }
     }
 
     .footer-key--palette-separator {
