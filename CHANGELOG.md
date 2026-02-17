@@ -11,10 +11,11 @@ until the API stabilizes.
 - **perf(runtime hit-test): remove duplicate full-frame scan during tree layout info apply**
   - Tree layout info distribution now reuses the `HitTestMap` already built in the render pipeline instead of rebuilding a second `NodeHitTestMap` from `FrameBuffer`.
   - `FrameBuffer` now tracks per-cell widget owner IDs as cells are written/composited and exposes `owner_bounds()`.
-  - `HitTestMap::from_frame` now builds bounds from this owner map instead of rescanning nested `StyleMeta` maps per cell.
+  - Owner bounds are now maintained incrementally (`set_cell` updates per-owner row/column occupancy), so bounds extraction no longer scans the full frame grid.
+  - `HitTestMap::from_frame` now builds bounds from this incremental owner map instead of rescanning nested `StyleMeta` maps per cell.
   - Overlay/command-palette/select/welcome frame composition paths now use owner-aware `FrameBuffer::set_cell(...)` writes.
   - Added explicit `HitTestMap -> NodeHitTestMap` conversion and regression coverage for bounds preservation.
-  - Removes one full-frame metadata scan per render cycle in tree mode and reduces remaining hit-test extraction overhead.
+  - Removes one full-frame metadata scan per render cycle in tree mode and eliminates the remaining per-frame bounds rescan.
 
 - **fix(runtime loop): decouple tick cadence from render cadence under sustained input**
   - `run_with` and `run_widget_tree` now schedule ticks from a dedicated tick clock instead of render timestamps.
