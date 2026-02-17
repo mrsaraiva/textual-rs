@@ -24,6 +24,7 @@ fn set_class_flag(classes: &mut Vec<String>, class: &str, enabled: bool) {
 pub struct FooterBinding {
     pub key: String,
     pub description: String,
+    pub tooltip: Option<String>,
     pub group: Option<String>,
     /// Raw key spec from the binding hint (e.g. "ctrl+p"), used for
     /// click-to-invoke dispatch. Distinct from `key` which may be a
@@ -36,6 +37,7 @@ impl FooterBinding {
         Self {
             key: key.into(),
             description: description.into(),
+            tooltip: None,
             group: None,
             action_key: None,
         }
@@ -48,6 +50,11 @@ impl FooterBinding {
 
     pub fn with_action_key(mut self, action_key: impl Into<String>) -> Self {
         self.action_key = Some(action_key.into());
+        self
+    }
+
+    pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 }
@@ -511,6 +518,7 @@ impl Footer {
                     hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
                     hint.description.clone(),
                 );
+                binding.tooltip = hint.tooltip.clone();
                 binding.group = hint.group.clone();
                 // Store the raw key spec for click-to-invoke dispatch.
                 binding.action_key = Some(hint.key.clone());

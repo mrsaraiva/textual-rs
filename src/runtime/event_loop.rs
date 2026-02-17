@@ -3225,8 +3225,8 @@ impl App {
         root: &mut dyn Widget,
     ) -> DispatchOutcome {
         let (widget_hints, current_sources) = self.active_binding_hints_auto(root);
-        let mut current = self.binding_hints();
-        current.extend(widget_hints);
+        let mut current = widget_hints;
+        current.extend(self.binding_hints());
         let current = self.normalize_binding_hints(current);
         if !should_dispatch_binding_hints(
             &self.last_binding_hints,

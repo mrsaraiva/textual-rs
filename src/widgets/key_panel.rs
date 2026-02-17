@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, BindingHint, Event, EventCtx};
+use crate::keys::format_key_display;
 use crate::message::*;
 use crate::style::parse_color_like;
 
@@ -107,6 +108,7 @@ impl BindingsTable {
 
     fn lines(&self, width: usize) -> Vec<Vec<Segment>> {
         let (key_style, description_style, _divider_style, _header_style) = self.component_styles();
+        let tooltip_style = description_style.with_dim(true);
         if self.bindings.is_empty() {
             return vec![adjust_line_length_no_bg(
                 &[Segment::styled(
@@ -125,6 +127,7 @@ impl BindingsTable {
             .unwrap_or(0)
             .min(24)
             .max(3);
+        let description_width = width.saturating_sub(key_column_width.saturating_add(2)).max(1);
 
         let mut out = Vec::new();
         for binding in &self.bindings {
@@ -134,17 +137,97 @@ impl BindingsTable {
                 " ".repeat(key_column_width.saturating_sub(key_len)),
                 binding.key
             );
+
+            let mut description_lines = wrap_text_for_width(&binding.description, description_width);
+            if description_lines.is_empty() {
+                description_lines.push(String::new());
+            }
+
             out.push(adjust_line_length_no_bg(
                 &[
                     Segment::styled(key, key_style),
                     Segment::new("  ".to_string()),
-                    Segment::styled(binding.description.clone(), description_style),
+                    Segment::styled(description_lines[0].clone(), description_style),
                 ],
                 width,
             ));
+
+            let key_blank = " ".repeat(key_column_width);
+            for extra in description_lines.into_iter().skip(1) {
+                out.push(adjust_line_length_no_bg(
+                    &[
+                        Segment::styled(key_blank.clone(), key_style),
+                        Segment::new("  ".to_string()),
+                        Segment::styled(extra, description_style),
+                    ],
+                    width,
+                ));
+            }
+
+            if let Some(tooltip) = &binding.tooltip {
+                for line in wrap_text_for_width(tooltip, description_width) {
+                    out.push(adjust_line_length_no_bg(
+                        &[
+                            Segment::styled(key_blank.clone(), key_style),
+                            Segment::new("  ".to_string()),
+                            Segment::styled(line, tooltip_style),
+                        ],
+                        width,
+                    ));
+                }
+            }
         }
         out
     }
+}
+
+fn wrap_text_for_width(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![String::new()];
+    }
+    let mut lines = Vec::new();
+    for paragraph in text.lines() {
+        let mut current = String::new();
+        for word in paragraph.split_whitespace() {
+            if current.is_empty() {
+                current.push_str(word);
+                continue;
+            }
+            let projected = rich_rs::cell_len(&current) + 1 + rich_rs::cell_len(word);
+            if projected <= width {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                lines.push(current);
+                current = word.to_string();
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        } else if paragraph.is_empty() {
+            lines.push(String::new());
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn format_binding_key_display(binding_key: &str) -> String {
+    binding_key
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            if matches!(part, "tab" | "shift+tab") {
+                part.to_string()
+            } else {
+                format_key_display(part)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl Widget for BindingsTable {
@@ -256,14 +339,19 @@ impl KeyPanel {
             if hint.system {
                 continue;
             }
-            let key = hint.key_display.clone().unwrap_or_else(|| hint.key.clone());
+            let key = hint
+                .key_display
+                .clone()
+                .unwrap_or_else(|| format_binding_key_display(&hint.key));
             let signature = (key.clone(), hint.description.clone());
             if !seen.insert(signature) {
                 continue;
             }
             // Footer grouping is a footer concern. KeyPanel groups by namespace
             // in Python, which we model elsewhere.
-            mapped.push(FooterBinding::new(key, hint.description.clone()));
+            let mut binding = FooterBinding::new(key, hint.description.clone());
+            binding.tooltip = hint.tooltip.clone();
+            mapped.push(binding);
         }
         self.set_bindings(mapped);
     }

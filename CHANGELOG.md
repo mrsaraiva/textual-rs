@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **[wip] parity(help-panel key rows): Python-like key display/order + tooltip-capable hint plumbing**
+  - Added optional `tooltip` metadata to `BindingDecl` / `BindingHint` and propagated it through runtime hint normalization and footer binding conversion.
+  - Runtime hint dispatch now merges widget hints before app-level hints, matching Python-style active binding order in `HelpPanel`.
+  - Declarative binding hints now derive display text from binding key specs (including comma-separated alternates) with Python-like formatting (`^c super+c`, arrow keys, preserving `tab` / `shift+tab` labels).
+  - `TextualAppAdapter` default `ctrl+q` binding now carries Python parity tooltip text; command palette hint now carries `"Open command palette"` tooltip metadata.
+  - `KeyPanel` now supports wrapped description rows plus dim wrapped tooltip rows, improving sidebar parity for long descriptions/help text.
+
 - **perf(runtime hit-test): remove duplicate full-frame scan during tree layout info apply**
   - Tree layout info distribution now reuses the `HitTestMap` already built in the render pipeline instead of rebuilding a second `NodeHitTestMap` from `FrameBuffer`.
   - `FrameBuffer` now tracks per-cell widget owner IDs as cells are written/composited and exposes `owner_bounds()`.

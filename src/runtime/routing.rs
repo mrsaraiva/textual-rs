@@ -1,6 +1,6 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
-use crate::keys::KeyEventData;
+use crate::keys::{KeyEventData, format_key_display};
 use crate::message::{Message, MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
@@ -569,6 +569,22 @@ fn key_matches_binding(key: &KeyEventData, binding_key: &str) -> bool {
         .any(|alt| aliases.iter().any(|a| *a == alt))
 }
 
+fn format_binding_key_display(binding_key: &str) -> String {
+    binding_key
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            if matches!(part, "tab" | "shift+tab") {
+                part.to_string()
+            } else {
+                format_key_display(part)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Walk the focused widget chain and find the first matching `BindingDecl`.
 ///
 /// Phase 1: priority bindings (focused→root).
@@ -621,11 +637,14 @@ pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>,
                 hints.extend(node.widget.binding_hints());
                 // Also include hints derived from declarative bindings.
                 for decl in node.widget.bindings() {
-                    hints.push(
-                        BindingHint::new(&decl.key, &decl.description)
-                            .hidden(!decl.show)
-                            .with_priority(decl.priority),
-                    );
+                    let mut hint = BindingHint::new(&decl.key, &decl.description)
+                        .hidden(!decl.show)
+                        .with_key_display(format_binding_key_display(&decl.key))
+                        .with_priority(decl.priority);
+                    if let Some(tooltip) = &decl.tooltip {
+                        hint = hint.with_tooltip(tooltip.clone());
+                    }
+                    hints.push(hint);
                 }
             }
         }
@@ -650,11 +669,14 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
             sources.push(current);
             hints.extend(node.widget.binding_hints());
             for decl in node.widget.bindings() {
-                hints.push(
-                    BindingHint::new(&decl.key, &decl.description)
-                        .hidden(!decl.show)
-                        .with_priority(decl.priority),
-                );
+                let mut hint = BindingHint::new(&decl.key, &decl.description)
+                    .hidden(!decl.show)
+                    .with_key_display(format_binding_key_display(&decl.key))
+                    .with_priority(decl.priority);
+                if let Some(tooltip) = &decl.tooltip {
+                    hint = hint.with_tooltip(tooltip.clone());
+                }
+                hints.push(hint);
             }
             let children = tree.children(current);
             if children.len() == 1 {

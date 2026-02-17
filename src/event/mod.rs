@@ -358,6 +358,7 @@ pub struct KeyBind {
 pub struct BindingHint {
     pub key: String,
     pub description: String,
+    pub tooltip: Option<String>,
     pub show: bool,
     pub key_display: Option<String>,
     pub group: Option<String>,
@@ -370,6 +371,7 @@ impl BindingHint {
         Self {
             key: key.into(),
             description: description.into(),
+            tooltip: None,
             show: true,
             key_display: None,
             group: None,
@@ -390,6 +392,11 @@ impl BindingHint {
 
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
         self.group = Some(group.into());
+        self
+    }
+
+    pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 

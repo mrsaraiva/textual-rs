@@ -480,6 +480,7 @@ impl App {
                 key: KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
                 hint: BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
+                    .with_tooltip("Open command palette")
                     .with_group("command_palette")
                     .with_priority(true),
             }),
@@ -1301,6 +1302,7 @@ impl App {
             let key = (
                 entry.key.clone(),
                 entry.description.clone(),
+                entry.tooltip.clone(),
                 entry.show,
                 entry.key_display.clone(),
                 entry.group.clone(),
@@ -1332,6 +1334,7 @@ impl App {
                     key: KeyBind::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
                     hint: BindingHint::new("ctrl+p", "palette")
                         .with_key_display("^p")
+                        .with_tooltip("Open command palette")
                         .with_group("command_palette")
                         .with_priority(true),
                 });

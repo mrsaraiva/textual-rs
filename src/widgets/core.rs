@@ -99,6 +99,8 @@ pub struct BindingDecl {
     pub action: String,
     /// Human-readable description shown in footer/help.
     pub description: String,
+    /// Optional extended help shown in key/help panels.
+    pub tooltip: Option<String>,
     /// Whether this binding is displayed in footer/help panels.
     pub show: bool,
     /// Priority bindings are checked before normal bindings across the whole chain.
@@ -111,6 +113,7 @@ impl BindingDecl {
             key: key.to_string(),
             action: action.to_string(),
             description: description.to_string(),
+            tooltip: None,
             show: true,
             priority: false,
         }
@@ -125,6 +128,12 @@ impl BindingDecl {
     /// Mark this binding as priority (dispatched before normal bindings).
     pub fn priority(mut self) -> Self {
         self.priority = true;
+        self
+    }
+
+    /// Attach optional extended help text for key/help panel rows.
+    pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 }
