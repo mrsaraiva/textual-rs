@@ -79,7 +79,7 @@ fn help_panel_keeps_bindings_visible_with_help_in_short_layouts() {
     let lines = buf.as_plain_lines();
 
     assert!(lines.iter().any(|line| line.contains("Widget help")));
-    assert!(lines.iter().any(|line| line.contains("Keys")));
+    assert!(lines.iter().any(|line| line.contains("^q")));
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn help_panel_hides_help_section_when_app_is_inactive() {
             .iter()
             .all(|line| !line.contains("Widget help"))
     );
-    assert!(inactive_lines.iter().any(|line| line.contains("Keys")));
+    assert!(inactive_lines.iter().any(|line| line.contains("^q")));
 
     panel.on_event(&Event::AppFocus(true), &mut EventCtx::default());
     let active = FrameBuffer::from_renderable(&console, &options, &panel, None);

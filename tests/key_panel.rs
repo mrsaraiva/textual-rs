@@ -22,7 +22,6 @@ fn key_panel_renders_bindings() {
 
     let buf = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let lines = buf.as_plain_lines();
-    assert!(lines[0].contains("Key Bindings"));
     assert!(lines.iter().any(|line| line.contains("^q")));
     assert!(lines.iter().any(|line| line.contains("Quit application")));
 }
@@ -30,7 +29,7 @@ fn key_panel_renders_bindings() {
 #[test]
 fn key_panel_scrolls_with_actions() {
     let console = Console::new();
-    let options = options_for(&console, 36, 5);
+    let options = options_for(&console, 36, 3);
     let mut panel = KeyPanel::new().with_bindings(vec![
         FooterBinding::new("a", "one"),
         FooterBinding::new("b", "two"),
@@ -64,17 +63,17 @@ fn key_panel_updates_on_bindings_changed_event() {
 
     let buf = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let lines = buf.as_plain_lines();
-    assert!(lines.iter().any(|line| line.contains("x, y")));
+    assert!(lines.iter().any(|line| line.contains("x y")));
     assert!(lines.iter().any(|line| line.contains("Updated action")));
 }
 
 #[test]
-fn bindings_table_layout_height_includes_header_and_divider() {
+fn bindings_table_layout_height_matches_row_count_without_synthetic_header() {
     let table = BindingsTable::new().with_bindings(vec![
         FooterBinding::new("a", "one"),
         FooterBinding::new("b", "two"),
     ]);
-    assert_eq!(table.layout_height(), Some(4));
+    assert_eq!(table.layout_height(), Some(2));
 }
 
 #[test]

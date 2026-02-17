@@ -89,9 +89,12 @@ fn tabbed_content_exposes_switch_tab_binding_hint_when_multiple_panes() {
     assert_eq!(
         hints,
         vec![
-            BindingHint::new("left/right", "Switch tab")
-                .with_key_display("←/→")
-                .hidden(true)
+            BindingHint::new("left", "Previous tab")
+                .with_key_display("←")
+                .hidden(true),
+            BindingHint::new("right", "Next tab")
+                .with_key_display("→")
+                .hidden(true),
         ]
     );
 }
