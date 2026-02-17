@@ -7,7 +7,6 @@ mod containers;
 mod content_switcher;
 mod core;
 mod data_table;
-mod digits;
 mod directory_tree;
 mod footer;
 mod header;
@@ -34,7 +33,6 @@ mod rule;
 mod select;
 mod selection_list;
 mod spacer;
-mod sparkline;
 mod switch;
 mod tabbed_content;
 mod tabs;
@@ -67,14 +65,15 @@ pub use core::{
     classify_style_change,
 };
 pub use data_table::{CursorType, DataTable};
-pub use digits::Digits;
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};
 pub use header::Header;
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
+pub(crate) use helpers::adjust_line_length_no_bg;
 pub(crate) use helpers::border_spacing_from_style;
 pub(crate) use helpers::crop_line_horizontal;
+pub(crate) use helpers::fixed_height_from_constraints;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
@@ -95,7 +94,6 @@ pub use rule::{LineStyle, Rule, RuleOrientation};
 pub use select::Select;
 pub use selection_list::{Selection, SelectionList, SelectionListString};
 pub use spacer::Spacer;
-pub use sparkline::{Sparkline, SummaryFunction, summary_max, summary_mean, summary_min};
 pub use switch::Switch;
 pub use tabbed_content::{TabPane, TabbedContent};
 pub use tabs::{Tab, Tabs};
@@ -107,3 +105,7 @@ pub use toast::{Toast, ToastSeverity};
 pub use tooltip::Tooltip;
 pub use tree::{Tree, TreeNode};
 pub use welcome::Welcome;
+
+pub use crate::renderables::{
+    Digits, Sparkline, SummaryFunction, summary_max, summary_mean, summary_min,
+};

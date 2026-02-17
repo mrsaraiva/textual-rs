@@ -19,6 +19,7 @@ pub mod message;
 pub mod node_id;
 pub mod reactive;
 pub mod render;
+pub mod renderables;
 pub mod runtime;
 pub mod screen;
 pub mod signal;

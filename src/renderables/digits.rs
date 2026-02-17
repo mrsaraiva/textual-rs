@@ -1,8 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::style::TextAlign;
-
-use super::{Widget, WidgetStyles};
+use crate::widgets::{Widget, WidgetStyles};
 
 /// Characters recognized by the 3×3 digit font.
 const DIGITS: &str = " 0123456789+-^x:ABCDEF$£€()";
