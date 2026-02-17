@@ -3,21 +3,21 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::{debug_input, debug_layout, DebugLayout};
+use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{parse_color_like, ScrollbarGutter, ScrollbarVisibility};
+use crate::style::{ScrollbarGutter, ScrollbarVisibility, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
 use crate::renderables::Blank;
 use crate::widgets::{
+    BindingDecl, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
-    BindingDecl, Spacer, Widget, WidgetStyles,
 };
 
 pub struct ScrollView {

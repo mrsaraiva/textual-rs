@@ -1,4 +1,4 @@
-use crate::style::{Dock, Style, Split};
+use crate::style::{Dock, Split, Style};
 use crate::widget_tree::Rect;
 
 /// Extract border spacing (top, bottom, left, right) from a style.

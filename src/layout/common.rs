@@ -75,7 +75,11 @@ fn horizontal_chrome(
     margin.left + border_left + padding.left + padding.right + border_right + margin.right
 }
 
-pub(crate) fn resolve_scalar_to_cells(scalar: &Scalar, parent_size: u16, viewport_size: u16) -> u16 {
+pub(crate) fn resolve_scalar_to_cells(
+    scalar: &Scalar,
+    parent_size: u16,
+    viewport_size: u16,
+) -> u16 {
     resolve_scalar(scalar, parent_size, viewport_size, 0.0, 0)
 }
 

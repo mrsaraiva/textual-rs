@@ -2,17 +2,17 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::{debug_input, DebugLayout};
+use crate::debug::{DebugLayout, debug_input};
 use crate::event::{Event, EventCtx};
 use crate::renderables::Blank;
 
 use crate::node_id::NodeId;
 use crate::widgets::{
+    Widget, WidgetStyles,
     helpers::{
         apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
-    Widget, WidgetStyles,
 };
 
 pub struct AppRoot {
@@ -507,11 +507,7 @@ impl Widget for AppRoot {
                 any = true;
             }
         }
-        if any {
-            Some(widest.max(1))
-        } else {
-            None
-        }
+        if any { Some(widest.max(1)) } else { None }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -532,13 +528,13 @@ impl Renderable for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::css::{set_style_context, StyleSheet};
+    use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::{
-        atomic::{AtomicU16, Ordering},
         Arc,
+        atomic::{AtomicU16, Ordering},
     };
 
     struct ProbeWidget {

@@ -44,10 +44,7 @@ mod tooltip;
 mod tree;
 mod welcome;
 
-pub use aliases::{
-    Center, CenterMiddle, Horizontal, HorizontalGroup, HorizontalScroll, ItemGrid, Middle, Right,
-    ScrollableContainer, Static, Vertical, VerticalGroup, VerticalScroll,
-};
+pub use aliases::Static;
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::{Collapsible, CollapsibleTitle};
@@ -56,7 +53,10 @@ pub use command_palette::{
     SearchIcon, SystemModalScreen,
 };
 pub use containers::{
-    AppRoot, Constrained, Container, Frame, Node, Overlay, Panel, ScrollView, Styled,
+    AppRoot, Center, CenterMiddle, Constrained, Container, Frame, Grid, Horizontal,
+    HorizontalGroup, HorizontalScroll, ItemGrid, Middle, Node, Overlay, Panel, Right, Row,
+    RowAlign, ScrollCore, ScrollView, ScrollableContainer, Styled, Vertical, VerticalGroup,
+    VerticalScroll,
 };
 pub use content_switcher::ContentSwitcher;
 pub(crate) use core::render_widget_with_meta;
@@ -76,7 +76,7 @@ pub(crate) use helpers::crop_line_horizontal;
 pub(crate) use helpers::fixed_height_from_constraints;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub use key_panel::{BindingsTable, KeyPanel};
-pub use layout::{Dock, DockItem, DockKind, Grid, Row, RowAlign};
+pub use layout::{Dock, DockItem, DockKind};
 pub use link::Link;
 pub use list_view::ListView;
 pub use loading_indicator::LoadingIndicator;

@@ -9,12 +9,12 @@
 //! - Top-level dispatch ([`resolve_layout`])
 
 use crate::node_id::NodeId;
-use crate::style::{Display, Layout};
-use crate::widget_tree::WidgetTree;
 #[cfg(test)]
 use crate::style::Dock;
+use crate::style::{Display, Layout};
 #[cfg(test)]
 use crate::widget_tree::Rect;
+use crate::widget_tree::WidgetTree;
 
 mod common;
 mod dock;
