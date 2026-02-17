@@ -127,7 +127,9 @@ impl BindingsTable {
             .unwrap_or(0)
             .min(24)
             .max(3);
-        let description_width = width.saturating_sub(key_column_width.saturating_add(2)).max(1);
+        let description_width = width
+            .saturating_sub(key_column_width.saturating_add(2))
+            .max(1);
 
         let mut out = Vec::new();
         let mut previous_group: Option<String> = None;
@@ -136,7 +138,10 @@ impl BindingsTable {
                 if let Some(previous) = &previous_group
                     && previous != group
                 {
-                    out.push(adjust_line_length_no_bg(&[Segment::new(String::new())], width));
+                    out.push(adjust_line_length_no_bg(
+                        &[Segment::new(String::new())],
+                        width,
+                    ));
                 }
                 previous_group = Some(group.clone());
             }
@@ -148,7 +153,8 @@ impl BindingsTable {
                 binding.key
             );
 
-            let mut description_lines = wrap_text_for_width(&binding.description, description_width);
+            let mut description_lines =
+                wrap_text_for_width(&binding.description, description_width);
             if description_lines.is_empty() {
                 description_lines.push(String::new());
             }

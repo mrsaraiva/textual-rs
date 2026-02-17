@@ -635,15 +635,12 @@ pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>,
             if let Some(node) = tree.get(node_id) {
                 sources.push(node_id);
                 let namespace = node.widget.action_namespace();
-                hints.extend(
-                    node.widget
-                        .binding_hints()
-                        .into_iter()
-                        .map(|hint| match hint.namespace {
-                            Some(_) => hint,
-                            None => hint.with_namespace(namespace),
-                        }),
-                );
+                hints.extend(node.widget.binding_hints().into_iter().map(
+                    |hint| match hint.namespace {
+                        Some(_) => hint,
+                        None => hint.with_namespace(namespace),
+                    },
+                ));
                 // Also include hints derived from declarative bindings.
                 for decl in node.widget.bindings() {
                     let mut hint = BindingHint::new(&decl.key, &decl.description)
@@ -682,15 +679,12 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
         if let Some(node) = tree.get(current) {
             sources.push(current);
             let namespace = node.widget.action_namespace();
-            hints.extend(
-                node.widget
-                    .binding_hints()
-                    .into_iter()
-                    .map(|hint| match hint.namespace {
-                        Some(_) => hint,
-                        None => hint.with_namespace(namespace),
-                    }),
-            );
+            hints.extend(node.widget.binding_hints().into_iter().map(
+                |hint| match hint.namespace {
+                    Some(_) => hint,
+                    None => hint.with_namespace(namespace),
+                },
+            ));
             for decl in node.widget.bindings() {
                 let mut hint = BindingHint::new(&decl.key, &decl.description)
                     .hidden(!decl.show)
