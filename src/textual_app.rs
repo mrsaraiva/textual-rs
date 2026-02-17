@@ -245,6 +245,7 @@ struct TextualAppAdapter<T: TextualApp> {
     app: Arc<Mutex<T>>,
     app_child: Box<dyn Widget>,
     command_palette_visible: bool,
+    help_panel_visible: bool,
     children_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
@@ -274,9 +275,70 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             app,
             app_child: Box::new(child),
             command_palette_visible: false,
+            help_panel_visible: false,
             children_extracted: false,
             command_palette_providers: Vec::new(),
             command_palette_provider_index: HashMap::new(),
+        }
+    }
+
+    fn system_commands(&self) -> Vec<CommandPaletteCommand> {
+        let keys_help = if self.help_panel_visible {
+            "Hide the keys and widget help panel"
+        } else {
+            "Show help for the focused widget and a summary of available keys"
+        };
+        vec![
+            CommandPaletteCommand {
+                id: "theme".to_string(),
+                title: "Theme".to_string(),
+                help: "Change the current theme".to_string(),
+            },
+            CommandPaletteCommand {
+                id: "quit".to_string(),
+                title: "Quit".to_string(),
+                help: "Quit the application as soon as possible".to_string(),
+            },
+            CommandPaletteCommand {
+                id: "keys".to_string(),
+                title: "Keys".to_string(),
+                help: keys_help.to_string(),
+            },
+            CommandPaletteCommand {
+                id: "maximize".to_string(),
+                title: "Maximize".to_string(),
+                help: "Maximize the focused widget".to_string(),
+            },
+            CommandPaletteCommand {
+                id: "screenshot".to_string(),
+                title: "Screenshot".to_string(),
+                help: "Save an SVG 'screenshot' of the current screen".to_string(),
+            },
+        ]
+    }
+
+    fn publish_command_palette_commands(&mut self, ctx: &mut EventCtx) {
+        self.command_palette_provider_index.clear();
+        let mut commands = self.system_commands();
+        for (provider_index, provider) in self.command_palette_providers.iter_mut().enumerate() {
+            for command in provider.commands() {
+                self.command_palette_provider_index
+                    .insert(command.id.clone(), (provider_index, command.id.clone()));
+                commands.push(command);
+            }
+        }
+        commands.sort_by(|a, b| {
+            let by_title = a.title.to_lowercase().cmp(&b.title.to_lowercase());
+            if by_title.is_eq() {
+                a.id.cmp(&b.id)
+            } else {
+                by_title
+            }
+        });
+        if !commands.is_empty() {
+            ctx.post_message(Message::CommandPaletteSetCommands(
+                crate::message::CommandPaletteSetCommands { commands },
+            ));
         }
     }
 
@@ -295,22 +357,10 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .command_palette_providers();
-
-        let mut commands = Vec::new();
-        for (provider_index, provider) in self.command_palette_providers.iter_mut().enumerate() {
+        for provider in &mut self.command_palette_providers {
             provider.startup(ctx);
-            for command in provider.commands() {
-                self.command_palette_provider_index
-                    .insert(command.id.clone(), (provider_index, command.id.clone()));
-                commands.push(command);
-            }
         }
-
-        if !commands.is_empty() {
-            ctx.post_message(Message::CommandPaletteSetCommands(
-                crate::message::CommandPaletteSetCommands { commands },
-            ));
-        }
+        self.publish_command_palette_commands(ctx);
     }
 
     fn handle_command_palette_selection(&mut self, command_id: &str, ctx: &mut EventCtx) {
@@ -743,6 +793,18 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .on_command_palette_command_selected(id, title, ctx);
                 if ctx.handled() {
                     return;
+                }
+            }
+            Message::AppShowHelpPanel(_) => {
+                self.help_panel_visible = true;
+                if self.command_palette_visible {
+                    self.publish_command_palette_commands(ctx);
+                }
+            }
+            Message::AppHideHelpPanel(_) => {
+                self.help_panel_visible = false;
+                if self.command_palette_visible {
+                    self.publish_command_palette_commands(ctx);
                 }
             }
             _ => {}
@@ -1278,6 +1340,105 @@ mod tests {
 
         assert_eq!(state.startup_count.load(Ordering::SeqCst), 2);
         assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn command_palette_system_keys_help_updates_with_help_panel_state() {
+        let state = ProviderState {
+            startup_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_count: Arc::new(AtomicUsize::new(0)),
+            selected_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: state,
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+
+        let mut open_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
+                control: None,
+            },
+            &mut open_ctx,
+        );
+
+        let open_messages = open_ctx.take_messages();
+        let open_commands = open_messages
+            .iter()
+            .find_map(|event| match &event.message {
+                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
+                    commands,
+                }) => Some(commands.clone()),
+                _ => None,
+            })
+            .expect("open should publish command palette commands");
+        let keys_help = open_commands
+            .iter()
+            .find(|command| command.id == "keys")
+            .map(|command| command.help.clone())
+            .expect("keys command should be present");
+        assert_eq!(
+            keys_help,
+            "Show help for the focused widget and a summary of available keys"
+        );
+
+        let mut show_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::AppShowHelpPanel(crate::message::AppShowHelpPanel),
+                control: None,
+            },
+            &mut show_ctx,
+        );
+        let show_messages = show_ctx.take_messages();
+        let show_commands = show_messages
+            .iter()
+            .find_map(|event| match &event.message {
+                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
+                    commands,
+                }) => Some(commands.clone()),
+                _ => None,
+            })
+            .expect("show-help should republish command palette commands while open");
+        let keys_help = show_commands
+            .iter()
+            .find(|command| command.id == "keys")
+            .map(|command| command.help.clone())
+            .expect("keys command should be present");
+        assert_eq!(keys_help, "Hide the keys and widget help panel");
+
+        let mut hide_ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::AppHideHelpPanel(crate::message::AppHideHelpPanel),
+                control: None,
+            },
+            &mut hide_ctx,
+        );
+        let hide_messages = hide_ctx.take_messages();
+        let hide_commands = hide_messages
+            .iter()
+            .find_map(|event| match &event.message {
+                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
+                    commands,
+                }) => Some(commands.clone()),
+                _ => None,
+            })
+            .expect("hide-help should republish command palette commands while open");
+        let keys_help = hide_commands
+            .iter()
+            .find(|command| command.id == "keys")
+            .map(|command| command.help.clone())
+            .expect("keys command should be present");
+        assert_eq!(
+            keys_help,
+            "Show help for the focused widget and a summary of available keys"
+        );
     }
 
     #[test]

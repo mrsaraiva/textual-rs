@@ -544,10 +544,9 @@ impl CommandList {
         let base_title_style = option_style
             .to_rich_over(default_bg)
             .unwrap_or_else(rich_rs::Style::new);
-        let hover_style =
-            crate::css::resolve_component_style(self, &["option-list--option-hover"])
-                .to_rich_over(default_bg)
-                .unwrap_or(base_title_style);
+        let hover_style = crate::css::resolve_component_style(self, &["option-list--option-hover"])
+            .to_rich_over(default_bg)
+            .unwrap_or(base_title_style);
         let selected_style =
             crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
                 .to_rich_over(default_bg)
@@ -620,8 +619,7 @@ impl CommandList {
                     padded_text.push_str(&" ".repeat(left_pad));
                 }
                 padded_text.push_str(text);
-                let mut rich_text =
-                    console.render_str(&padded_text, Some(true), None, None, None);
+                let mut rich_text = console.render_str(&padded_text, Some(true), None, None, None);
                 rich_text.stylize_before(style, 0, None);
                 if !is_help && let Some(highlight_style) = highlight_style {
                     for &(start, end) in &entry.title_highlight_ranges {
@@ -751,6 +749,7 @@ pub struct CommandPalette {
     child_extracted: bool,
     open: bool,
     show_key_panel: bool,
+    help_panel_visible: bool,
     search_icon: SearchIcon,
     query: CommandInput,
     list: CommandList,
@@ -803,6 +802,7 @@ impl CommandPalette {
             child_extracted: false,
             open: false,
             show_key_panel: false,
+            help_panel_visible: false,
             search_icon: SearchIcon::new(),
             query: CommandInput::new("Search for commands…"),
             list: CommandList::new(),
@@ -1058,6 +1058,24 @@ impl CommandPalette {
         }
     }
 
+    fn set_key_panel_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+        if self.show_key_panel == visible {
+            return;
+        }
+        let before = self
+            .key_panel_render_width
+            .round()
+            .clamp(0.0, self.layout_width as f32) as usize;
+        self.show_key_panel = visible;
+        let target = if self.show_key_panel {
+            self.key_panel_width(self.layout_width)
+        } else {
+            0
+        };
+        self.animate_key_panel_width(before, target, ctx);
+        ctx.request_repaint();
+    }
+
     fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
         if self.open == open
             && ((self.open && self.panel_visible) || (!self.open && !self.panel_visible))
@@ -1128,19 +1146,25 @@ impl CommandPalette {
         match result.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
-                ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
-                let before = self
-                    .key_panel_render_width
-                    .round()
-                    .clamp(0.0, self.layout_width as f32) as usize;
-                self.show_key_panel = !self.show_key_panel;
-                let target = if self.show_key_panel {
-                    self.key_panel_width(self.layout_width)
+                let hide = self.help_panel_visible || self.show_key_panel;
+                if hide {
+                    ctx.post_message(Message::AppHideHelpPanel(crate::message::AppHideHelpPanel));
+                    self.help_panel_visible = false;
+                    self.set_key_panel_visible(false, ctx);
                 } else {
-                    0
-                };
-                self.animate_key_panel_width(before, target, ctx);
-                ctx.request_repaint();
+                    ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
+                    self.help_panel_visible = true;
+                    self.set_key_panel_visible(true, ctx);
+                }
+            }
+            "theme" => {
+                ctx.post_message(Message::AppChangeTheme(crate::message::AppChangeTheme));
+            }
+            "screenshot" => {
+                ctx.post_message(Message::AppScreenshot(crate::message::AppScreenshot {
+                    filename: None,
+                    path: None,
+                }));
             }
             _ => {}
         }
@@ -1183,7 +1207,8 @@ impl Widget for CommandPalette {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let (width, height) = options.size;
-        self.last_render_width.store(width.max(1), Ordering::Relaxed);
+        self.last_render_width
+            .store(width.max(1), Ordering::Relaxed);
         self.last_render_height
             .store(height.max(1), Ordering::Relaxed);
         let tree_mode = self.is_tree_mode();
@@ -1317,7 +1342,9 @@ impl Widget for CommandPalette {
         }
         if search_y < height {
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(Self::SEARCH_TEXT_X_OFFSET).saturating_add(sx);
+                let tx = panel_x
+                    .saturating_add(Self::SEARCH_TEXT_X_OFFSET)
+                    .saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -1383,7 +1410,9 @@ impl Widget for CommandPalette {
                 break;
             }
             for sx in 0..search_buffer.width.min(search_width) {
-                let tx = panel_x.saturating_add(Self::SEARCH_TEXT_X_OFFSET).saturating_add(sx);
+                let tx = panel_x
+                    .saturating_add(Self::SEARCH_TEXT_X_OFFSET)
+                    .saturating_add(sx);
                 if tx >= width {
                     break;
                 }
@@ -1849,6 +1878,13 @@ impl Widget for CommandPalette {
         self.query.on_message(message, ctx);
         self.list.on_message(message, ctx);
         self.key_panel.on_message(message, ctx);
+        if matches!(message.message, Message::AppShowHelpPanel(_)) {
+            self.help_panel_visible = true;
+            self.set_key_panel_visible(true, ctx);
+        } else if matches!(message.message, Message::AppHideHelpPanel(_)) {
+            self.help_panel_visible = false;
+            self.set_key_panel_visible(false, ctx);
+        }
         if let Message::CommandPaletteSetCommands(CommandPaletteSetCommands { commands }) =
             &message.message
         {
@@ -2360,6 +2396,13 @@ mod tests {
         palette.on_event(&Event::Key(enter), &mut second_ctx);
         assert!(!palette.is_open());
         assert!(!palette.show_key_panel);
+        let second_messages = second_ctx.take_messages();
+        assert!(
+            second_messages
+                .iter()
+                .any(|event| matches!(event.message, Message::AppHideHelpPanel(_))),
+            "second keys invocation should emit hide-help message"
+        );
         let second = second_ctx.take_animation_requests();
         assert_eq!(second.len(), 1);
         assert_eq!(second[0].attribute, CommandPalette::KEY_PANEL_WIDTH_ATTR);
@@ -2685,20 +2728,16 @@ mod tests {
         options.size = (60, 4);
         options.max_width = 60;
         options.max_height = 4;
-        let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
+        let buf =
+            FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
 
-        let title_bg = buf
-            .get(0, 0)
-            .style
-            .as_ref()
-            .and_then(|style| style.bgcolor);
-        let help_bg = buf
-            .get(0, 1)
-            .style
-            .as_ref()
-            .and_then(|style| style.bgcolor);
+        let title_bg = buf.get(0, 0).style.as_ref().and_then(|style| style.bgcolor);
+        let help_bg = buf.get(0, 1).style.as_ref().and_then(|style| style.bgcolor);
         assert_eq!(title_bg, help_bg);
-        assert!(title_bg.is_some(), "selected rows should paint a full-width background");
+        assert!(
+            title_bg.is_some(),
+            "selected rows should paint a full-width background"
+        );
     }
 
     #[test]
@@ -2726,23 +2765,12 @@ mod tests {
         options.size = (60, 8);
         options.max_width = 60;
         options.max_height = 8;
-        let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
+        let buf =
+            FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
 
-        let selected_bg = buf
-            .get(0, 0)
-            .style
-            .as_ref()
-            .and_then(|style| style.bgcolor);
-        let hover_title_bg = buf
-            .get(0, 2)
-            .style
-            .as_ref()
-            .and_then(|style| style.bgcolor);
-        let hover_help_bg = buf
-            .get(0, 3)
-            .style
-            .as_ref()
-            .and_then(|style| style.bgcolor);
+        let selected_bg = buf.get(0, 0).style.as_ref().and_then(|style| style.bgcolor);
+        let hover_title_bg = buf.get(0, 2).style.as_ref().and_then(|style| style.bgcolor);
+        let hover_help_bg = buf.get(0, 3).style.as_ref().and_then(|style| style.bgcolor);
         assert_eq!(hover_title_bg, hover_help_bg);
         assert!(
             hover_title_bg.is_some(),
@@ -2840,15 +2868,21 @@ mod tests {
         assert!(palette.is_open());
 
         let mut blur_ctx = EventCtx::default();
-        palette.query.on_event(&Event::AppFocus(false), &mut blur_ctx);
+        palette
+            .query
+            .on_event(&Event::AppFocus(false), &mut blur_ctx);
 
         let console = Console::new();
         let mut options = console.options().clone();
         options.size = (95, 35);
         options.max_width = 95;
         options.max_height = 35;
-        let buf =
-            FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&palette), None);
+        let buf = FrameBuffer::from_renderable(
+            &console,
+            &options,
+            &WidgetRenderable::new(&palette),
+            None,
+        );
 
         let (panel_x, panel_y, panel_w, _) = palette.palette_geometry(95, 35);
         let search_y = panel_y.saturating_add(CommandPalette::SEARCH_ROW_OFFSET);
@@ -2859,7 +2893,11 @@ mod tests {
             .expect("panel bg must resolve");
 
         for tx in search_icon_x..panel_x.saturating_add(panel_w).min(95) {
-            let bg = buf.get(tx, search_y).style.as_ref().and_then(|style| style.bgcolor);
+            let bg = buf
+                .get(tx, search_y)
+                .style
+                .as_ref()
+                .and_then(|style| style.bgcolor);
             assert_eq!(
                 bg,
                 Some(panel_bg),

@@ -8,6 +8,22 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] feat(command-palette context awareness): dynamic system command text + stateful Keys action parity**
+  - `TextualAppAdapter` now publishes built-in command-palette system commands from current app state (instead of relying on static one-time command text), including dynamic `Keys` help text:
+    - `Show help for the focused widget and a summary of available keys`
+    - `Hide the keys and widget help panel`
+  - While the command palette is open, help-panel visibility messages (`AppShowHelpPanel` / `AppHideHelpPanel`) now trigger command-list republish, so command help text updates live.
+  - `CommandPalette` keys execution now follows state-aware show/hide behavior:
+    - selecting `Keys` hides help/key panels when already visible,
+    - otherwise shows them,
+    - and emits the matching app message (`AppHideHelpPanel` / `AppShowHelpPanel`).
+  - Added command execution parity for built-ins:
+    - `Theme` posts `AppChangeTheme`,
+    - `Screenshot` posts `AppScreenshot`.
+  - Added regression tests for:
+    - dynamic keys help text updates in `TextualAppAdapter` as help-panel state changes,
+    - second keys invocation emitting hide-help behavior while collapsing the key panel.
+
 - **[wip] fix(command-palette parity polish): full-row hover semantics, render-geometry hit consistency, and blur-safe search-row surface**
   - Command list hover/selection rendering now mirrors Python semantics:
     - hover no longer mutates keyboard selection,
