@@ -3,6 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
+use crate::renderables::Bar;
 use crate::style::{Color, parse_color_like};
 
 use crate::action::ParsedAction;
@@ -1772,15 +1773,12 @@ impl Widget for DataTable {
             } else {
                 thumb_style
             };
-            let mut bar = Segments::new();
-            for x in 0..width {
-                let style = if x >= thumb_start && x < thumb_start.saturating_add(thumb_len) {
-                    thumb_style
-                } else {
-                    track_style
-                };
-                bar.push(Segment::styled(" ".to_string(), style));
-            }
+            let end = thumb_start.saturating_add(thumb_len).min(width) as f32;
+            let bar = Bar::new((thumb_start as f32, end), thumb_style, track_style)
+                .chars(' ', ' ')
+                .half_chars(' ', ' ')
+                .width(width)
+                .render_for_width(width);
             out.extend(bar);
         }
 

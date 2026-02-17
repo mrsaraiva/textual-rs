@@ -20,6 +20,10 @@ until the API stabilizes.
   - Indeterminate animation now follows Python’s time-based highlight-range algorithm (30 cells/sec, 25% highlight width, bounce over imaginary width) while still honoring `AnimationLevel::None`.
   - Updated progress-bar regression tests to validate rendered output text rather than internal segment chunk counts.
 
+- **refactor(data-table parity): use shared `renderables::Bar` for horizontal scrollbar rendering**
+  - `DataTable` horizontal scrollbar track/thumb rendering now composes through `renderables::Bar` (space glyph mode) instead of widget-local per-cell style loops.
+  - Keeps existing scrollbar geometry (`line_scrollbar_thumb`) and drag/active style semantics unchanged while removing duplicated scrollbar paint logic.
+
 - **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
   - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).
