@@ -82,6 +82,22 @@ pub(crate) fn debug_render(line: &str) {
     }
 }
 
+pub(crate) fn timing_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("TEXTUAL_DEBUG_TIMING_FILE").is_ok())
+}
+
+pub(crate) fn debug_timing(line: &str) {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    let path = PATH.get_or_init(|| std::env::var("TEXTUAL_DEBUG_TIMING_FILE").ok());
+    let Some(path) = path.as_ref() else {
+        return;
+    };
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 pub(crate) fn debug_message(line: &str) {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     let path = PATH.get_or_init(|| std::env::var("TEXTUAL_DEBUG_MESSAGE_FILE").ok());

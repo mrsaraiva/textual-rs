@@ -1,5 +1,5 @@
 use crate::css::{AppRuntimePseudos, set_app_active, set_app_runtime_pseudos, set_style_context};
-use crate::debug::{debug_input, debug_render};
+use crate::debug::{debug_input, debug_render, debug_timing, timing_enabled};
 use crate::event::{
     Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx,
     FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
@@ -160,6 +160,17 @@ fn parse_simulated_key(spec: &str) -> Option<KeyEventData> {
     };
 
     Some(KeyEventData::from_crossterm(KeyEvent::new(code, modifiers)))
+}
+
+fn input_event_kind(event: &CrosstermEvent) -> &'static str {
+    match event {
+        CrosstermEvent::Key(_) => "key",
+        CrosstermEvent::Mouse(_) => "mouse",
+        CrosstermEvent::Resize(_, _) => "resize",
+        CrosstermEvent::FocusLost => "focus_lost",
+        CrosstermEvent::FocusGained => "focus_gained",
+        CrosstermEvent::Paste(_) => "paste",
+    }
 }
 
 fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut DispatchOutcome) {
@@ -1776,6 +1787,22 @@ impl App {
         let mut last_mouse_pos: Option<(u16, u16)> = None;
 
         'event_loop: loop {
+            let timing_on = timing_enabled();
+            let loop_started = Instant::now();
+            let mut input_kind = "none";
+            let mut input_dispatch_us: u128 = 0;
+            let mut background_us: Option<u128> = None;
+            let mut focused_help_us: Option<u128> = None;
+            let mut lifecycle_us: Option<u128> = None;
+            let mut reactive_us: Option<u128> = None;
+            let mut focus_transition_us: Option<u128> = None;
+            let mut binding_us: Option<u128> = None;
+            let mut animation_us: Option<u128> = None;
+            let mut worker_us: Option<u128> = None;
+            let mut style_transition_us: u128 = 0;
+            let mut immediate_render_us: u128 = 0;
+            let mut normal_render_us: u128 = 0;
+            let mut tick_render_us: u128 = 0;
             if self.apply_devtools_commands(root, &mut pending_invalidation) {
                 break 'event_loop;
             }
@@ -1797,6 +1824,7 @@ impl App {
                 .next_timeout(now)
                 .map(|timer_timeout| timeout.min(timer_timeout))
                 .unwrap_or(timeout);
+            let poll_started = Instant::now();
             let input_event = if let Some(pending) = pending_input_event.take() {
                 Some(pending)
             } else if event::poll(timeout)? {
@@ -1804,8 +1832,29 @@ impl App {
             } else {
                 None
             };
+            let poll_wait_us = poll_started.elapsed().as_micros();
+            if let Some(ref event) = input_event {
+                input_kind = input_event_kind(event);
+            }
+            if timing_on
+                && input_event.is_none()
+                && pending_invalidation.is_dirty()
+                && poll_wait_us > 1_000
+            {
+                debug_timing(&format!(
+                    "[timing] wait_for_input kind=none timeout_us={} waited_us={} dirty=true flags(c={} s={} l={})",
+                    timeout.as_micros(),
+                    poll_wait_us,
+                    pending_invalidation.flags.content,
+                    pending_invalidation.flags.style,
+                    pending_invalidation.flags.layout
+                ));
+            }
 
+            let mut handled_input_this_loop = false;
             if let Some(input_event) = input_event {
+                let input_started = Instant::now();
+                handled_input_this_loop = true;
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
@@ -1822,6 +1871,19 @@ impl App {
                             key.code, key.modifiers, key.kind
                         ));
                         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                            input_dispatch_us = input_started.elapsed().as_micros();
+                            if timing_on {
+                                debug_timing(&format!(
+                                    "[timing] early_continue reason=non_press_key input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                    input_kind,
+                                    input_dispatch_us,
+                                    loop_started.elapsed().as_micros(),
+                                    pending_invalidation.is_dirty(),
+                                    pending_invalidation.flags.content,
+                                    pending_invalidation.flags.style,
+                                    pending_invalidation.flags.layout
+                                ));
+                            }
                             continue;
                         }
                         if should_quit_key(&key, &self.quit_keys) {
@@ -1854,6 +1916,19 @@ impl App {
                             }
                         }
                         if app_key_handled {
+                            input_dispatch_us = input_started.elapsed().as_micros();
+                            if timing_on {
+                                debug_timing(&format!(
+                                    "[timing] early_continue reason=app_key_handled input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                    input_kind,
+                                    input_dispatch_us,
+                                    loop_started.elapsed().as_micros(),
+                                    pending_invalidation.is_dirty(),
+                                    pending_invalidation.flags.content,
+                                    pending_invalidation.flags.style,
+                                    pending_invalidation.flags.layout
+                                ));
+                            }
                             continue;
                         }
 
@@ -1890,6 +1965,19 @@ impl App {
                                 break 'event_loop;
                             }
                             if outcome.handled {
+                                input_dispatch_us = input_started.elapsed().as_micros();
+                                if timing_on {
+                                    debug_timing(&format!(
+                                        "[timing] early_continue reason=priority_action_handled input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                        input_kind,
+                                        input_dispatch_us,
+                                        loop_started.elapsed().as_micros(),
+                                        pending_invalidation.is_dirty(),
+                                        pending_invalidation.flags.content,
+                                        pending_invalidation.flags.style,
+                                        pending_invalidation.flags.layout
+                                    ));
+                                }
                                 continue;
                             }
                         }
@@ -1929,6 +2017,45 @@ impl App {
                             );
                             if key_outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
+                            }
+                            // Command palette key path must render immediately; otherwise
+                            // this early-continue defers visible updates to the next loop
+                            // after `poll(timeout)`, creating perceptible input lag.
+                            if pending_invalidation.is_dirty() || self.resized_since_last_render {
+                                let render_started = Instant::now();
+                                let regions = pending_invalidation
+                                    .content_regions
+                                    .as_render_regions(self.frame.width, self.frame.height);
+                                let layout_invalidation = pending_invalidation.flags.layout
+                                    || pending_invalidation.flags.style
+                                    || self.resized_since_last_render;
+                                self.render_widget_with_regions(
+                                    root,
+                                    regions.as_deref(),
+                                    layout_invalidation,
+                                )?;
+                                self.apply_layout_info_to_tree();
+                                self.publish_devtools_snapshot(root);
+                                pending_invalidation = PendingInvalidation::default();
+                                last_render = Instant::now();
+                                immediate_render_us = render_started.elapsed().as_micros();
+                            }
+                            if event::poll(Duration::ZERO)? {
+                                pending_input_event = Some(event::read()?);
+                            }
+                            input_dispatch_us = input_started.elapsed().as_micros();
+                            if timing_on {
+                                debug_timing(&format!(
+                                    "[timing] early_continue reason=palette_key_path input={} dispatch_us={} immediate_render_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                    input_kind,
+                                    input_dispatch_us,
+                                    immediate_render_us,
+                                    loop_started.elapsed().as_micros(),
+                                    pending_invalidation.is_dirty(),
+                                    pending_invalidation.flags.content,
+                                    pending_invalidation.flags.style,
+                                    pending_invalidation.flags.layout
+                                ));
                             }
                             continue;
                         }
@@ -2009,6 +2136,19 @@ impl App {
                                         if binding_outcome.stop_requested {
                                             break 'event_loop;
                                         }
+                                        input_dispatch_us = input_started.elapsed().as_micros();
+                                        if timing_on {
+                                            debug_timing(&format!(
+                                                "[timing] early_continue reason=binding_widget_action input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                                input_kind,
+                                                input_dispatch_us,
+                                                loop_started.elapsed().as_micros(),
+                                                pending_invalidation.is_dirty(),
+                                                pending_invalidation.flags.content,
+                                                pending_invalidation.flags.style,
+                                                pending_invalidation.flags.layout
+                                            ));
+                                        }
                                         continue;
                                     }
                                 }
@@ -2056,6 +2196,19 @@ impl App {
                                 if root_binding_outcome.stop_requested {
                                     break 'event_loop;
                                 }
+                                input_dispatch_us = input_started.elapsed().as_micros();
+                                if timing_on {
+                                    debug_timing(&format!(
+                                        "[timing] early_continue reason=binding_root_action input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                        input_kind,
+                                        input_dispatch_us,
+                                        loop_started.elapsed().as_micros(),
+                                        pending_invalidation.is_dirty(),
+                                        pending_invalidation.flags.content,
+                                        pending_invalidation.flags.style,
+                                        pending_invalidation.flags.layout
+                                    ));
+                                }
                                 continue;
                             }
                         }
@@ -2090,6 +2243,19 @@ impl App {
                                 if action == Action::HelpQuit {
                                     self.notify_help_quit();
                                     pending_invalidation.request_full_content();
+                                    input_dispatch_us = input_started.elapsed().as_micros();
+                                    if timing_on {
+                                        debug_timing(&format!(
+                                            "[timing] early_continue reason=help_quit input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                            input_kind,
+                                            input_dispatch_us,
+                                            loop_started.elapsed().as_micros(),
+                                            pending_invalidation.is_dirty(),
+                                            pending_invalidation.flags.content,
+                                            pending_invalidation.flags.style,
+                                            pending_invalidation.flags.layout
+                                        ));
+                                    }
                                     continue;
                                 }
                                 if matches!(action, Action::FocusNext | Action::FocusPrev) {
@@ -2119,10 +2285,36 @@ impl App {
                                         break 'event_loop;
                                     }
                                     if focus_outcome.handled {
+                                        input_dispatch_us = input_started.elapsed().as_micros();
+                                        if timing_on {
+                                            debug_timing(&format!(
+                                                "[timing] early_continue reason=focus_action_handled input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                                input_kind,
+                                                input_dispatch_us,
+                                                loop_started.elapsed().as_micros(),
+                                                pending_invalidation.is_dirty(),
+                                                pending_invalidation.flags.content,
+                                                pending_invalidation.flags.style,
+                                                pending_invalidation.flags.layout
+                                            ));
+                                        }
                                         continue;
                                     }
                                     if self.move_focus_auto(action) {
                                         pending_invalidation.request_full_content();
+                                        input_dispatch_us = input_started.elapsed().as_micros();
+                                        if timing_on {
+                                            debug_timing(&format!(
+                                                "[timing] early_continue reason=focus_moved input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                                input_kind,
+                                                input_dispatch_us,
+                                                loop_started.elapsed().as_micros(),
+                                                pending_invalidation.is_dirty(),
+                                                pending_invalidation.flags.content,
+                                                pending_invalidation.flags.style,
+                                                pending_invalidation.flags.layout
+                                            ));
+                                        }
                                         continue;
                                     }
                                 }
@@ -2584,9 +2776,18 @@ impl App {
                     }
                     _ => {}
                 }
+                if input_dispatch_us == 0 {
+                    input_dispatch_us = input_started.elapsed().as_micros();
+                }
             }
 
+            let phase_started = Instant::now();
             let mut background_outcome = self.dispatch_background_runtime_messages(root);
+            background_us = Some(
+                background_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
             self.absorb_outcome(
                 &mut background_outcome,
                 &mut pending_invalidation,
@@ -2596,7 +2797,13 @@ impl App {
                 break 'event_loop;
             }
 
+            let phase_started = Instant::now();
             let mut focused_help_outcome = self.dispatch_focused_help_changed(root);
+            focused_help_us = Some(
+                focused_help_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
             self.absorb_outcome(
                 &mut focused_help_outcome,
                 &mut pending_invalidation,
@@ -2608,6 +2815,7 @@ impl App {
 
             // Drain pending lifecycle events from the tree and dispatch
             // Mount/Unmount events to affected widgets.
+            let phase_started = Instant::now();
             let lifecycle_events: Vec<(NodeId, bool)> = self
                 .widget_tree
                 .as_mut()
@@ -2644,14 +2852,26 @@ impl App {
                     break 'event_loop;
                 }
             }
+            lifecycle_us = Some(
+                lifecycle_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
 
             // ── Reactive phase ────────────────────────────────────────
             // Run the reactive phase for widgets that accumulated changes
             // during event dispatch. This drains ReactiveCtx changes, calls
             // watchers/computed recomputation, and detects cycles.
+            let phase_started = Instant::now();
             self.run_event_loop_reactive_phase(root, &mut pending_invalidation);
+            reactive_us = Some(
+                reactive_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
 
             // Detect focus transitions and dispatch Focus/Blur events.
+            let phase_started = Instant::now();
             let current_focus: Option<NodeId> =
                 self.widget_tree.as_ref().and_then(focused_node_id_tree);
             if current_focus != previous_focus {
@@ -2701,8 +2921,76 @@ impl App {
                 }
                 previous_focus = current_focus;
             }
+            focus_transition_us = Some(
+                focus_transition_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
 
+            // Input-priority fast path: render immediately after input-driven
+            // invalidation so visible state updates (selection/caret/list focus)
+            // land before slower per-loop housekeeping.
+            let mut rendered_immediately_for_input = false;
+            if handled_input_this_loop
+                && (pending_invalidation.is_dirty() || self.resized_since_last_render)
+            {
+                let render_started = Instant::now();
+                let regions = pending_invalidation
+                    .content_regions
+                    .as_render_regions(self.frame.width, self.frame.height);
+                let layout_invalidation = pending_invalidation.flags.layout
+                    || pending_invalidation.flags.style
+                    || self.resized_since_last_render;
+                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                self.apply_layout_info_to_tree();
+                self.publish_devtools_snapshot(root);
+                pending_invalidation = PendingInvalidation::default();
+                last_render = Instant::now();
+                rendered_immediately_for_input = true;
+                immediate_render_us = render_started.elapsed().as_micros();
+            }
+
+            // If more input is already queued after an immediate render, keep
+            // draining input first to avoid visible backlog.
+            if rendered_immediately_for_input && event::poll(Duration::ZERO)? {
+                pending_input_event = Some(event::read()?);
+                // Fairness guard: keep low-latency input draining, but do not
+                // starve Tick delivery under sustained keyboard input.
+                let tick_due = last_render.elapsed() >= tick_rate;
+                if !tick_due {
+                    if timing_on {
+                        debug_timing(&format!(
+                            "[timing] early_continue reason=input_priority_drain input={} dispatch_us={} immediate_render_us={} loop_us={} dirty_end={} flags(c={} s={} l={})",
+                            input_kind,
+                            input_dispatch_us,
+                            immediate_render_us,
+                            loop_started.elapsed().as_micros(),
+                            pending_invalidation.is_dirty(),
+                            pending_invalidation.flags.content,
+                            pending_invalidation.flags.style,
+                            pending_invalidation.flags.layout
+                        ));
+                    }
+                    continue;
+                }
+                if timing_on {
+                    debug_timing(&format!(
+                        "[timing] fairness_break reason=tick_due_after_input_drain input={} dispatch_us={} immediate_render_us={} loop_us={}",
+                        input_kind,
+                        input_dispatch_us,
+                        immediate_render_us,
+                        loop_started.elapsed().as_micros()
+                    ));
+                }
+            }
+
+            let phase_started = Instant::now();
             let mut binding_outcome = self.dispatch_binding_hints_changed(root);
+            binding_us = Some(
+                binding_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
             self.absorb_outcome(
                 &mut binding_outcome,
                 &mut pending_invalidation,
@@ -2712,7 +3000,13 @@ impl App {
                 break 'event_loop;
             }
 
+            let phase_started = Instant::now();
             let mut animation_outcome = self.dispatch_animation_frame(root);
+            animation_us = Some(
+                animation_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
             self.absorb_outcome(
                 &mut animation_outcome,
                 &mut pending_invalidation,
@@ -2723,6 +3017,7 @@ impl App {
             }
 
             // ── Process accumulated worker requests for this tick ────
+            let phase_started = Instant::now();
             {
                 let pending_workers = drain_accumulated_worker_requests();
                 let changes = process_worker_requests(&mut worker_registry, pending_workers);
@@ -2741,8 +3036,20 @@ impl App {
                 }
                 worker_registry.cleanup();
             }
+            worker_us = Some(
+                worker_us
+                    .unwrap_or(0)
+                    .saturating_add(phase_started.elapsed().as_micros()),
+            );
 
-            self.dispatch_style_transition_requests(root);
+            if pending_invalidation.flags.style
+                || pending_invalidation.flags.layout
+                || self.style_snapshot_cache.is_empty()
+            {
+                let phase_started = Instant::now();
+                self.dispatch_style_transition_requests(root);
+                style_transition_us += phase_started.elapsed().as_micros();
+            }
 
             if let Some(tree) = self.widget_tree.as_mut()
                 && sync_widget_controlled_child_display_tree(tree, root)
@@ -2753,6 +3060,7 @@ impl App {
             self.absorb_pending_query_refreshes(&mut pending_invalidation);
 
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
+                let render_started = Instant::now();
                 let regions = pending_invalidation
                     .content_regions
                     .as_render_regions(self.frame.width, self.frame.height);
@@ -2764,6 +3072,7 @@ impl App {
                 self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
                 last_render = Instant::now();
+                normal_render_us = render_started.elapsed().as_micros();
             }
 
             if last_render.elapsed() >= tick_rate {
@@ -2780,9 +3089,6 @@ impl App {
                     self.absorb_stylesheet_reload(root, reload, &mut pending_invalidation);
                 }
                 root.on_tick(tick);
-                // `on_tick` mutates widget state without an `EventCtx`, so request a repaint
-                // for this frame to keep tick-driven widgets (e.g. counters/cursors) in sync.
-                pending_invalidation.request_full_content();
 
                 let mut app_tick_ctx = EventCtx::default();
                 root.on_app_tick(self, tick, &mut app_tick_ctx);
@@ -2834,7 +3140,14 @@ impl App {
                 if self.notifications.len() != notifications_before {
                     pending_invalidation.request_full_content();
                 }
-                self.dispatch_style_transition_requests(root);
+                if pending_invalidation.flags.style
+                    || pending_invalidation.flags.layout
+                    || self.style_snapshot_cache.is_empty()
+                {
+                    let phase_started = Instant::now();
+                    self.dispatch_style_transition_requests(root);
+                    style_transition_us += phase_started.elapsed().as_micros();
+                }
                 if outcome.stop_requested || msg_outcome.stop_requested {
                     break 'event_loop;
                 }
@@ -2852,6 +3165,7 @@ impl App {
                     || any_active
                     || prev_any_active
                 {
+                    let render_started = Instant::now();
                     let regions = pending_invalidation
                         .content_regions
                         .as_render_regions(self.frame.width, self.frame.height);
@@ -2863,9 +3177,44 @@ impl App {
                     self.publish_devtools_snapshot(root);
                     pending_invalidation = PendingInvalidation::default();
                     last_render = Instant::now();
+                    tick_render_us = render_started.elapsed().as_micros();
                 }
                 prev_any_active = any_active;
                 tick += 1;
+            }
+
+            if timing_on {
+                let total_us = loop_started.elapsed().as_micros();
+                if handled_input_this_loop
+                    || immediate_render_us > 0
+                    || normal_render_us > 0
+                    || tick_render_us > 0
+                    || total_us > 2_000
+                {
+                    debug_timing(&format!(
+                        "[timing] loop input={} poll_wait_us={} input_dispatch_us={} phases_us(bg={} help={} lifecycle={} reactive={} focus={} binding={} anim={} worker={} style={}) render_us(immediate={} normal={} tick={}) total_us={} dirty_end={} flags_end(c={} s={} l={})",
+                        input_kind,
+                        poll_wait_us,
+                        input_dispatch_us,
+                        background_us.unwrap_or(0),
+                        focused_help_us.unwrap_or(0),
+                        lifecycle_us.unwrap_or(0),
+                        reactive_us.unwrap_or(0),
+                        focus_transition_us.unwrap_or(0),
+                        binding_us.unwrap_or(0),
+                        animation_us.unwrap_or(0),
+                        worker_us.unwrap_or(0),
+                        style_transition_us,
+                        immediate_render_us,
+                        normal_render_us,
+                        tick_render_us,
+                        total_us,
+                        pending_invalidation.is_dirty(),
+                        pending_invalidation.flags.content,
+                        pending_invalidation.flags.style,
+                        pending_invalidation.flags.layout
+                    ));
+                }
             }
         }
 

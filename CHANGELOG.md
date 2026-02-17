@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **[wip] perf(runtime loop): input-priority render path + reduced per-loop style/tick pressure**
+  - Added an input-priority fast path in `run_widget_tree`: when input handling marks content dirty, runtime renders immediately before slower housekeeping phases, reducing visible key-to-frame latency.
+  - When immediate input render completes and more terminal input is already queued, runtime now drains queued input first (next loop turn) to reduce visible backlog under rapid key navigation.
+  - Gated full style-transition snapshot scans to style/layout-invalidated frames (or cold cache), instead of scanning all tree nodes every loop iteration.
+  - Removed unconditional full-content invalidation immediately after `root.on_tick(...)`; repaint now follows normal invalidation/active-state signals.
+
 - **[wip] perf(command-palette keypath): scope repaint invalidation to palette widget when safe**
   - In tree mode with command palette open, key events that only mutate palette-local state now invalidate the palette widget region instead of forcing global repaint.
   - Safety guard keeps global invalidation whenever key handling emits follow-up messages or requests style/layout invalidation.
