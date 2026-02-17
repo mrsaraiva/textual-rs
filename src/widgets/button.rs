@@ -287,24 +287,20 @@ impl Button {
 
     /// Dispatch the press: either the stored action or a `ButtonPressed` message.
     ///
-    /// When `self.action` is `Some`, the action string is parsed and logged for
-    /// dispatch. The `ButtonPressed` message is suppressed, matching Python
-    /// Textual's behavior where `action` takes precedence over `Pressed`.
-    ///
-    /// Full cross-widget action dispatch requires runtime wiring (P4-08).
+    /// When `self.action` is `Some`, an `ActionDispatchRequested` message is
+    /// posted and `ButtonPressed` is suppressed, matching Python Textual's
+    /// behavior where `action` takes precedence over `Pressed`.
     fn dispatch_press(&mut self, ctx: &mut EventCtx) {
         if let Some(ref action_str) = self.action {
-            if let Some(_parsed) = crate::action::parse_action(action_str) {
-                debug_message(&format!(
-                    "[button] dispatch action=\"{}\" label=\"{}\"",
-                    action_str, self.label
-                ));
-            } else {
-                debug_message(&format!(
-                    "[button] invalid action string=\"{}\" label=\"{}\"",
-                    action_str, self.label
-                ));
-            }
+            debug_message(&format!(
+                "[button] dispatch action=\"{}\" label=\"{}\"",
+                action_str, self.label
+            ));
+            ctx.post_message(Message::ActionDispatchRequested(
+                crate::message::ActionDispatchRequested {
+                    action: action_str.clone(),
+                },
+            ));
         } else {
             ctx.post_message(Message::ButtonPressed(ButtonPressed {
                 description: self.describe(),
@@ -739,6 +735,12 @@ mod tests {
                 .any(|m| matches!(m.message, Message::ButtonPressed(..))),
             "ButtonPressed should be suppressed when action is set"
         );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ActionDispatchRequested(..))),
+            "ActionDispatchRequested should be emitted when action is set"
+        );
     }
 
     #[test]
@@ -759,6 +761,12 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.message, Message::ButtonPressed(..))),
             "ButtonPressed should be suppressed when action is set"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m.message, Message::ActionDispatchRequested(..))),
+            "ActionDispatchRequested should be emitted when action is set"
         );
     }
 

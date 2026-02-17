@@ -466,6 +466,11 @@ pub struct AppSwitchScreen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppToggleDark;
 
+#[derive(Debug, Clone)]
+pub struct ActionDispatchRequested {
+    pub action: String,
+}
+
 // ---------------------------------------------------------------------------
 // Per-message structs — command palette
 // ---------------------------------------------------------------------------
@@ -755,6 +760,7 @@ pub enum Message {
     AppSwitchMode(AppSwitchMode),
     AppSwitchScreen(AppSwitchScreen),
     AppToggleDark(AppToggleDark),
+    ActionDispatchRequested(ActionDispatchRequested),
     // Command palette
     CommandPaletteCommandSelected(CommandPaletteCommandSelected),
     CommandPaletteSetCommands(CommandPaletteSetCommands),
@@ -868,6 +874,7 @@ impl_message_from!(
     AppSwitchMode,
     AppSwitchScreen,
     AppToggleDark,
+    ActionDispatchRequested,
     CommandPaletteCommandSelected,
     CommandPaletteSetCommands,
     DataTableCursorMoved,

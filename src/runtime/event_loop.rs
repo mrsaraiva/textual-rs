@@ -228,11 +228,11 @@ fn dispatch_simulated_key_like_input(
     }
 
     // Declarative bindings before raw key dispatch.
-    if let Some(tree) = app.widget_tree.as_ref()
+    if let Some(tree) = app.active_widget_tree()
         && let Some((_binding_node_id, action_str)) = match_binding_tree(tree, &key)
         && let Some(parsed) = crate::action::parse_action(&action_str)
     {
-        if let Some(tree_mut) = app.widget_tree.as_mut() {
+        if let Some(tree_mut) = app.active_widget_tree_mut() {
             let focused = focused_node_id_tree(tree_mut);
             let resolved = {
                 let tree_ref = &*tree_mut;
@@ -843,11 +843,98 @@ fn split_runtime_control_messages(
                     pass.repaint_requested = true;
                 }
             }
+            Message::ActionDispatchRequested(crate::message::ActionDispatchRequested {
+                action,
+            }) => {
+                let Some(parsed) = crate::action::parse_action(&action) else {
+                    debug_input(&format!(
+                        "[runtime] action dispatch ignored invalid action={action:?}"
+                    ));
+                    continue;
+                };
+
+                let mut dispatched = false;
+
+                if let Some(tree_mut) = app.active_widget_tree_mut() {
+                    let resolve_from = if tree_mut.contains(event.sender) {
+                        Some(event.sender)
+                    } else {
+                        focused_node_id_tree(tree_mut).or_else(|| tree_mut.root())
+                    };
+
+                    let resolved = {
+                        let tree_ref = &*tree_mut;
+                        resolve_from.and_then(|start| {
+                            crate::action::resolve_action(&parsed, tree_ref, start, |nid| {
+                                tree_ref.get(nid).map(|node| {
+                                    (
+                                        node.widget.action_namespace(),
+                                        node.widget.action_registry(),
+                                    )
+                                })
+                            })
+                        })
+                    };
+
+                    if let Some(ra) = resolved
+                        && let Some(node) = tree_mut.get_mut(ra.node)
+                    {
+                        let mut ctx = EventCtx::default();
+                        let handled = execute_action_with_dispatch_target(
+                            &mut *node.widget,
+                            &parsed,
+                            &mut ctx,
+                            ra.node,
+                        );
+                        let mut outcome = DispatchOutcome {
+                            handled: handled || ctx.handled(),
+                            repaint_requested: ctx.repaint_requested(),
+                            invalidation: ctx.invalidation(),
+                            stop_requested: ctx.stop_requested(),
+                            messages: ctx.take_messages(),
+                            animation_requests: ctx.take_animation_requests(),
+                            worker_requests: ctx.take_worker_requests(),
+                            default_prevented: false,
+                        };
+                        merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
+                        dispatched = outcome.handled;
+                    }
+                }
+
+                if !dispatched {
+                    let mut ctx = EventCtx::default();
+                    let handled = execute_action_with_dispatch_target(
+                        root,
+                        &parsed,
+                        &mut ctx,
+                        NodeId::default(),
+                    );
+                    let mut outcome = DispatchOutcome {
+                        handled: handled || ctx.handled(),
+                        repaint_requested: ctx.repaint_requested(),
+                        invalidation: ctx.invalidation(),
+                        stop_requested: ctx.stop_requested(),
+                        messages: ctx.take_messages(),
+                        animation_requests: ctx.take_animation_requests(),
+                        worker_requests: ctx.take_worker_requests(),
+                        default_prevented: false,
+                    };
+                    merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
+                    dispatched = outcome.handled;
+                }
+
+                if !dispatched {
+                    debug_input(&format!(
+                        "[runtime] action dispatch unresolved action={action:?} sender={}",
+                        crate::node_id::node_id_to_ffi(event.sender)
+                    ));
+                }
+            }
             Message::OverlayVisibilityChanged(crate::message::OverlayVisibilityChanged {
                 overlay,
                 visible,
             }) => {
-                if let Some(tree) = app.widget_tree.as_mut()
+                if let Some(tree) = app.active_widget_tree_mut()
                     && set_overlay_modal_display_tree(tree, overlay, visible)
                 {
                     pass.repaint_requested = true;
@@ -1339,23 +1426,20 @@ fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
 impl App {
     fn apply_app_blur_focus_state(&mut self) {
         self.app_active = false;
-        if let Some(tree) = self.widget_tree.as_mut() {
-            let focused = focused_node_id_tree(tree);
-            self.last_focused_on_app_blur = focused;
-            if let Some(focused_id) = focused
-                && let Some(node) = tree.get_mut(focused_id)
-            {
-                node.widget.set_focus(false);
-            }
-        } else {
-            self.last_focused_on_app_blur = None;
+        let focused = self.active_widget_tree().and_then(focused_node_id_tree);
+        self.last_focused_on_app_blur = focused;
+        if let Some(focused_id) = focused
+            && let Some(tree) = self.active_widget_tree_mut()
+            && let Some(node) = tree.get_mut(focused_id)
+        {
+            node.widget.set_focus(false);
         }
     }
 
     fn apply_app_focus_restore_state(&mut self) {
         self.app_active = true;
         if let Some(focused_id) = self.last_focused_on_app_blur.take()
-            && let Some(tree) = self.widget_tree.as_mut()
+            && let Some(tree) = self.active_widget_tree_mut()
             && focused_node_id_tree(tree).is_none()
             && tree.contains(focused_id)
             && tree.is_displayed(focused_id)
@@ -1381,7 +1465,7 @@ impl App {
             match command {
                 DevtoolsCommand::Focus(id) => {
                     // Tree-based focus: set focus on the tree node directly.
-                    if let Some(tree) = self.widget_tree.as_mut() {
+                    if let Some(tree) = self.active_widget_tree_mut() {
                         if let Some(node) = tree.get_mut(id) {
                             node.widget.set_focus(true);
                         }
@@ -1393,14 +1477,14 @@ impl App {
                     pending_invalidation.request_full_content();
                 }
                 DevtoolsCommand::ToggleDisplay(id) => {
-                    if let Some(tree) = self.widget_tree.as_mut() {
+                    if let Some(tree) = self.active_widget_tree_mut() {
                         let current = tree.is_displayed(id);
                         tree.set_runtime_display(id, !current);
                     }
                     pending_invalidation.request_full_content();
                 }
                 DevtoolsCommand::Highlight(id) => {
-                    if let Some(tree) = self.widget_tree.as_mut() {
+                    if let Some(tree) = self.active_widget_tree_mut() {
                         tree.add_class(id, "-devtools-highlight");
                     }
                     pending_invalidation.request_full_content();
@@ -1411,13 +1495,13 @@ impl App {
                     ));
                 }
                 DevtoolsCommand::AddClass(id, class) => {
-                    if let Some(tree) = self.widget_tree.as_mut() {
+                    if let Some(tree) = self.active_widget_tree_mut() {
                         tree.add_class(id, &class);
                     }
                     pending_invalidation.request_full_content();
                 }
                 DevtoolsCommand::RemoveClass(id, class) => {
-                    if let Some(tree) = self.widget_tree.as_mut() {
+                    if let Some(tree) = self.active_widget_tree_mut() {
                         tree.remove_class(id, &class);
                     }
                     pending_invalidation.request_full_content();
@@ -1430,7 +1514,7 @@ impl App {
         // Check pending highlight clear.
         if let Some((id, clear_at)) = self.pending_highlight_clear {
             if std::time::Instant::now() >= clear_at {
-                if let Some(tree) = self.widget_tree.as_mut() {
+                if let Some(tree) = self.active_widget_tree_mut() {
                     tree.remove_class(id, "-devtools-highlight");
                 }
                 self.pending_highlight_clear = None;
@@ -1449,7 +1533,7 @@ impl App {
         let mut focused = None;
 
         // Tree-based: walk the arena tree depth-first.
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             if let Some(root_id) = tree.root() {
                 let walk = tree.walk_depth_first(root_id);
                 for node_id in walk {
@@ -1749,13 +1833,13 @@ impl App {
         // If children are found (via take_composed_children or compose),
         // tree mode becomes active; otherwise runtime stays in root-only mode.
         self.build_widget_tree(root);
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             let _ = sync_widget_controlled_child_display_tree(tree, root);
         }
         self.style_snapshot_cache.clear();
 
         // Auto-focus the first focusable widget via the arena tree.
-        if let Some(tree) = &mut self.widget_tree {
+        if let Some(tree) = self.active_widget_tree_mut() {
             let focus_chain = collect_focus_chain_tree(tree);
             if let Some(&first) = focus_chain.first() {
                 if let Some(node) = tree.get_mut(first) {
@@ -1788,8 +1872,7 @@ impl App {
 
         // Dispatch initial Mount events for all tree nodes after first render.
         let initial_mount_nodes: Vec<NodeId> = self
-            .widget_tree
-            .as_ref()
+            .active_widget_tree()
             .and_then(|tree| tree.root().map(|r| tree.walk_depth_first(r)))
             .unwrap_or_default();
         for node_id in initial_mount_nodes {
@@ -1833,7 +1916,7 @@ impl App {
 
         // Track focused widget for Focus/Blur event dispatch.
         let mut previous_focus: Option<NodeId> =
-            self.widget_tree.as_ref().and_then(focused_node_id_tree);
+            self.active_widget_tree().and_then(focused_node_id_tree);
 
         let mut last_tick = Instant::now();
         let mut pending_input_event: Option<CrosstermEvent> = None;
@@ -1911,6 +1994,9 @@ impl App {
                 handled_input_this_loop = true;
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
+                if let Some(screen_sheet) = self.active_screen_stylesheet() {
+                    sheet.extend(screen_sheet);
+                }
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
                     inline: self.app_inline,
@@ -2114,7 +2200,7 @@ impl App {
                         }
 
                         // Declarative BINDINGS: check focused widget chain for matching binding.
-                        let binding_match = self.widget_tree.as_ref().and_then(|tree| {
+                        let binding_match = self.active_widget_tree().and_then(|tree| {
                             match_binding_tree(tree, &key).map(|(node_id, action_str)| {
                                 (node_id, action_str, tree.root().unwrap_or_default())
                             })
@@ -2122,7 +2208,7 @@ impl App {
                         if let Some((_binding_node_id, action_str, root_target)) = binding_match
                             && let Some(parsed) = crate::action::parse_action(&action_str)
                         {
-                            if let Some(tree_mut) = self.widget_tree.as_mut() {
+                            if let Some(tree_mut) = self.active_widget_tree_mut() {
                                 let focused = focused_node_id_tree(tree_mut);
                                 let resolved = {
                                     let tree_ref = &*tree_mut;
@@ -2460,12 +2546,11 @@ impl App {
                                     let curr = (mouse.column, mouse.row);
                                     let dir = point_direction(last_mouse_pos, curr);
                                     let frame_target = self.widget_at(mouse.column, mouse.row);
-                                    let tree_target = self.widget_tree.as_ref().and_then(|tree| {
+                                    let tree_target = self.active_widget_tree().and_then(|tree| {
                                         widget_at_tree_layout(tree, mouse.column, mouse.row)
                                     });
                                     let chosen = self
-                                        .widget_tree
-                                        .as_ref()
+                                        .active_widget_tree()
                                         .map(|tree| {
                                             super::choose_deeper_target(
                                                 tree,
@@ -2475,8 +2560,7 @@ impl App {
                                         })
                                         .unwrap_or(frame_target);
                                     let relation = self
-                                        .widget_tree
-                                        .as_ref()
+                                        .active_widget_tree()
                                         .and_then(|tree| match (frame_target, tree_target) {
                                             (Some(frame), Some(tree_hit)) if frame != tree_hit => {
                                                 if super::is_ancestor_or_self(tree, frame, tree_hit)
@@ -2983,8 +3067,7 @@ impl App {
             // Mount/Unmount events to affected widgets.
             let phase_started = Instant::now();
             let lifecycle_events: Vec<(NodeId, bool)> = self
-                .widget_tree
-                .as_mut()
+                .active_widget_tree_mut()
                 .map(|tree| {
                     tree.drain_lifecycle()
                         .into_iter()
@@ -3039,7 +3122,7 @@ impl App {
             // Detect focus transitions and dispatch Focus/Blur events.
             let phase_started = Instant::now();
             let current_focus: Option<NodeId> =
-                self.widget_tree.as_ref().and_then(focused_node_id_tree);
+                self.active_widget_tree().and_then(focused_node_id_tree);
             if current_focus != previous_focus {
                 if let Some(old_id) = previous_focus {
                     let mut blur_outcome = self.dispatch_event_to_target_auto(
@@ -3216,7 +3299,7 @@ impl App {
                 style_transition_us += phase_started.elapsed().as_micros();
             }
 
-            if let Some(tree) = self.widget_tree.as_mut()
+            if let Some(tree) = self.active_widget_tree_mut()
                 && sync_widget_controlled_child_display_tree(tree, root)
             {
                 pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
@@ -3242,6 +3325,9 @@ impl App {
             if last_tick.elapsed() >= tick_rate {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
+                if let Some(screen_sheet) = self.active_screen_stylesheet() {
+                    sheet.extend(screen_sheet);
+                }
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
                     inline: self.app_inline,
@@ -3317,7 +3403,7 @@ impl App {
                 }
 
                 let any_active = self.any_widget_active_auto(root);
-                if let Some(tree) = self.widget_tree.as_mut()
+                if let Some(tree) = self.active_widget_tree_mut()
                     && sync_widget_controlled_child_display_tree(tree, root)
                 {
                     pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
@@ -3405,7 +3491,7 @@ impl App {
         }
         self.last_binding_hints = current.clone();
         self.last_binding_hint_sources = current_sources;
-        let outcome = if let Some(tree) = self.widget_tree.as_mut() {
+        let outcome = if let Some(tree) = self.active_widget_tree_mut() {
             dispatch_event_broadcast_tree(tree, &Event::BindingsChanged(current))
         } else {
             self.dispatch_event_auto(root, Event::BindingsChanged(current))
@@ -3490,7 +3576,7 @@ impl App {
         if reload.previous == reload.next {
             return;
         }
-        let affected = if let Some(tree) = &self.widget_tree {
+        let affected = if let Some(tree) = self.active_widget_tree() {
             collect_stylesheet_affected_widgets_tree(
                 tree,
                 &reload.changed_rules,
@@ -3556,7 +3642,7 @@ impl App {
         root: &dyn Widget,
     ) -> HashMap<NodeId, crate::style::Style> {
         let mut out = HashMap::new();
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             if let Some(root_id) = tree.root() {
                 for node_id in tree.walk_depth_first(root_id) {
                     let Some(node) = tree.get(node_id) else {
@@ -3582,6 +3668,9 @@ impl App {
     fn dispatch_style_transition_requests(&mut self, root: &dyn Widget) {
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = self.active_screen_stylesheet() {
+            sheet.extend(screen_sheet);
+        }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             inline: self.app_inline,
@@ -3679,7 +3768,7 @@ impl App {
             by_node.entry(entry.node_id()).or_default().push(entry);
         }
 
-        if let Some(tree) = self.widget_tree.as_ref() {
+        if let Some(tree) = self.active_widget_tree() {
             if let Some(root_id) = tree.root() {
                 for node_id in tree.walk_depth_first(root_id) {
                     if let Some(entries) = by_node.remove(&node_id) {
@@ -3705,7 +3794,7 @@ impl App {
         let mut repaint_requested = false;
         let mut layout_requested = false;
         for mut entry in entries {
-            let result = if let Some(tree) = self.widget_tree.as_mut() {
+            let result = if let Some(tree) = self.active_widget_tree_mut() {
                 if let Some(node) = tree.get_mut(node_id) {
                     entry.run_with_dispatch(|changes, ctx| {
                         if let Some(reactive_widget) = node.widget.reactive_widget() {
@@ -3746,7 +3835,7 @@ impl App {
     ///
     /// Returns `true` when focus changed.
     fn move_focus_auto(&mut self, action: Action) -> bool {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return false;
         };
         let focus_chain = collect_focus_chain_tree(tree);
@@ -3794,11 +3883,11 @@ impl App {
     /// Dispatch an event via tree mode, or root-only mode when no tree exists.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         let palette_target = self.open_command_palette_target();
-        if self.widget_tree.is_some() {
+        if self.active_widget_tree().is_some() {
             if matches!(&event, Event::Action(Action::CommandPalette))
                 && let Ok(target) = self.query_one("CommandPalette")
             {
-                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                let tree = self.active_widget_tree_mut().expect("tree should exist");
                 let direct = dispatch_event_to_target_tree(tree, target, &event);
                 if direct.handled {
                     return direct;
@@ -3817,7 +3906,7 @@ impl App {
                         | Event::Tick(_)
                 )
             {
-                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                let tree = self.active_widget_tree_mut().expect("tree should exist");
                 return dispatch_event_to_target_tree(tree, target, &event);
             }
 
@@ -3842,7 +3931,7 @@ impl App {
             }
 
             let mut outcome = {
-                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                let tree = self.active_widget_tree_mut().expect("tree should exist");
                 let focused = focused_node_id_tree(tree);
                 dispatch_event_tree(tree, focused, &event)
             };
@@ -3954,11 +4043,11 @@ impl App {
         _target: NodeId,
         event: &Event,
     ) -> DispatchOutcome {
-        if self.widget_tree.is_some()
+        if self.active_widget_tree().is_some()
             && matches!(event, Event::Action(Action::CommandPalette))
             && let Ok(target) = self.query_one("CommandPalette")
         {
-            let tree = self.widget_tree.as_mut().expect("tree should exist");
+            let tree = self.active_widget_tree_mut().expect("tree should exist");
             let direct = dispatch_event_to_target_tree(tree, target, event);
             if direct.handled {
                 return direct;
@@ -3966,7 +4055,7 @@ impl App {
         }
 
         let palette_target = self.open_command_palette_target();
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             if let Some(palette_target) = palette_target
                 && !matches!(event, Event::Action(Action::CommandPalette))
                 && matches!(
@@ -3996,7 +4085,7 @@ impl App {
         action: Action,
         hovered: Option<NodeId>,
     ) -> DispatchOutcome {
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             dispatch_scroll_action_tree(tree, action, hovered)
         } else {
             dispatch_event(root, Event::Action(action))
@@ -4013,7 +4102,7 @@ impl App {
         delta_x: i32,
         delta_y: i32,
     ) -> DispatchOutcome {
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             dispatch_mouse_scroll_to_target_tree(tree, _target, delta_x, delta_y)
         } else {
             dispatch_mouse_scroll(root, delta_x, delta_y)
@@ -4028,9 +4117,9 @@ impl App {
         root: &mut dyn Widget,
         initial: Vec<MessageEvent>,
     ) -> DispatchOutcome {
-        if self.widget_tree.is_some() {
+        if self.active_widget_tree().is_some() {
             let mut outcome = {
-                let tree = self.widget_tree.as_mut().expect("tree should exist");
+                let tree = self.active_widget_tree_mut().expect("tree should exist");
                 dispatch_message_queue_tree(tree, initial.clone())
             };
 
@@ -4106,7 +4195,7 @@ impl App {
 
     /// Check whether any widget is active, using tree mode or root-only mode.
     fn any_widget_active_auto(&self, root: &mut dyn Widget) -> bool {
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             any_widget_active_tree(tree)
         } else {
             root.is_active()
@@ -4118,7 +4207,7 @@ impl App {
         &self,
         root: &mut dyn Widget,
     ) -> (Vec<crate::event::BindingHint>, Vec<NodeId>) {
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             active_binding_hints_tree(tree)
         } else {
             (root.binding_hints(), vec![])
@@ -4127,7 +4216,7 @@ impl App {
 
     /// Get focused help metadata via tree mode or root-only mode.
     fn focused_help_metadata_auto(&self, root: &mut dyn Widget) -> Option<(NodeId, String)> {
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             focused_help_metadata_tree(tree)
         } else {
             if root.has_focus() {
@@ -4148,7 +4237,7 @@ impl App {
         x: u16,
         y: u16,
     ) -> bool {
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             call_on_mouse_move_tree(tree, _target, x, y)
         } else {
             root.on_mouse_move(x, y)
@@ -4161,7 +4250,7 @@ impl App {
         _root: &mut dyn Widget,
         hovered: Option<NodeId>,
     ) -> crate::driver::PointerShape {
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             pointer_shape_for_hover_tree(tree, hovered)
         } else {
             crate::driver::PointerShape::Default
@@ -4176,6 +4265,9 @@ impl App {
     fn apply_layout_info_to_tree(&mut self) {
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = self.active_screen_stylesheet() {
+            sheet.extend(screen_sheet);
+        }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             inline: self.app_inline,
@@ -4183,10 +4275,10 @@ impl App {
             nocolor: self.app_nocolor,
         });
         let _guard = set_style_context(sheet);
-        if let Some(tree) = self.widget_tree.as_mut() {
-            // Reuse the hit-test map built during render instead of rescanning
-            // the full frame a second time.
-            let node_hit_test = super::types::NodeHitTestMap::from(&self.hit_test);
+        // Reuse the hit-test map built during render instead of rescanning
+        // the full frame a second time.
+        let node_hit_test = super::types::NodeHitTestMap::from(&self.hit_test);
+        if let Some(tree) = self.active_widget_tree_mut() {
             apply_layout_info_tree(tree, &node_hit_test);
         }
     }
@@ -6046,6 +6138,37 @@ mod tests {
 
         let mut runtime_root = StyleNode::new("RuntimeRoot");
         let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
+        assert!(outcome.repaint_requested);
+        assert!(outcome.invalidation.layout);
+        let mutated = app.query(".from-action").expect("selector should parse");
+        assert_eq!(mutated.len(), 1);
+    }
+
+    #[test]
+    fn action_dispatch_requested_message_executes_routed_action() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let app_node = tree.mount(root, Box::new(AppActionHost));
+        let button = tree.mount(app_node, Box::new(crate::widgets::Button::new("ok")));
+        if let Some(node) = tree.get_mut(button) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let mut runtime_root = StyleNode::new("RuntimeRoot");
+        let outcome = app.dispatch_message_queue_with_runtime(
+            &mut runtime_root,
+            vec![MessageEvent {
+                sender: button,
+                message: Message::ActionDispatchRequested(
+                    crate::message::ActionDispatchRequested {
+                        action: "app.add_class('Button', 'from-action')".to_string(),
+                    },
+                ),
+                control: Some(button),
+            }],
+        );
+
         assert!(outcome.repaint_requested);
         assert!(outcome.invalidation.layout);
         let mutated = app.query(".from-action").expect("selector should parse");

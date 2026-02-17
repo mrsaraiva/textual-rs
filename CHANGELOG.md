@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
+  - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
+  - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).
+  - Added regression coverage for action dispatch routing and button action message emission.
+
 - **chore(examples): start split between docs-widget demos and app-style examples**
   - Added dedicated docs examples crate at `docs/widgets` to mirror Python docs-widget examples without growing root manifest entries.
   - Moved `tabbed_content` and `tabbed_content_label_color` examples into `docs/widgets/examples/...` via `git mv` (history preserved), including associated TCSS.
