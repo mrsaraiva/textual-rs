@@ -21,6 +21,11 @@ until the API stabilizes.
   - `TextualAppAdapter` no longer injects hidden focus/copy hints as app-declared bindings; those continue to come from runtime/system hint sources, avoiding app-level ordering distortion.
   - Command palette hint metadata now includes app namespace and no longer forces priority sorting in help-panel output.
 
+- **fix(border alpha composition): respect translucent border colors in rendered edge glyphs**
+  - Border rendering now composes edge colors with alpha (for example `vkey $foreground 30%`) over local inner/outer surfaces before converting to terminal colors.
+  - This fixes HelpPanel/KeyPanel split divider intensity to match Python-style dim separators instead of rendering as opaque bright lines.
+  - Added regression test `help_panel_border_color_composes_foreground_alpha_over_background`.
+
 - **perf(runtime hit-test): remove duplicate full-frame scan during tree layout info apply**
   - Tree layout info distribution now reuses the `HitTestMap` already built in the render pipeline instead of rebuilding a second `NodeHitTestMap` from `FrameBuffer`.
   - `FrameBuffer` now tracks per-cell widget owner IDs as cells are written/composited and exposes `owner_bounds()`.

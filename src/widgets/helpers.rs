@@ -571,21 +571,23 @@ fn border_inner_outer_styles(
     let border_color = edge
         .color()
         .unwrap_or_else(|| parse_color_like("$foreground").unwrap());
-    let border_style = rich_rs::Style::new().with_color(border_color.to_simple_opaque());
+    let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    let inner_bg = inner_bg.unwrap_or(fallback_bg);
+    let outer_bg = outer_bg.unwrap_or(fallback_bg);
+
+    // Border edge colors may carry alpha (e.g. `$foreground 30%`). Compose over
+    // each local surface before converting to terminal color so dim separators
+    // (HelpPanel/KeyPanel) render with the expected muted tone.
+    let inner_border_style =
+        rich_rs::Style::new().with_color(border_color.flatten_over(inner_bg).to_simple_opaque());
+    let outer_border_style =
+        rich_rs::Style::new().with_color(border_color.flatten_over(outer_bg).to_simple_opaque());
     let inner = rich_rs::Style::new()
-        .with_bgcolor(
-            inner_bg
-                .unwrap_or_else(|| parse_color_like("$background").unwrap())
-                .to_simple_opaque(),
-        )
-        .combine(&border_style);
+        .with_bgcolor(inner_bg.to_simple_opaque())
+        .combine(&inner_border_style);
     let outer = rich_rs::Style::new()
-        .with_bgcolor(
-            outer_bg
-                .unwrap_or_else(|| parse_color_like("$background").unwrap())
-                .to_simple_opaque(),
-        )
-        .combine(&border_style);
+        .with_bgcolor(outer_bg.to_simple_opaque())
+        .combine(&outer_border_style);
     (inner, outer)
 }
 

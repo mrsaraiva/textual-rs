@@ -4,6 +4,7 @@ use textual::message::MessageEvent;
 use textual::node_id_from_ffi;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::style::parse_color_like;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -236,4 +237,26 @@ fn help_panel_default_css_uses_vkey_border_glyphs() {
             .any(|line| line.starts_with('\u{258f}') || line.ends_with('\u{2595}')),
         "expected vkey border glyphs in help panel output, got {lines:?}"
     );
+}
+
+#[test]
+fn help_panel_border_color_composes_foreground_alpha_over_background() {
+    let console = Console::new();
+    let options = options_for(&console, 40, 6);
+    let _guard = set_style_context(default_widget_stylesheet());
+    let panel = HelpPanel::new().with_bindings(vec![FooterBinding::new("^q", "Quit")]);
+    let renderable = WidgetRenderable::new(&panel);
+    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+
+    let border_cell = buf.get(0, 0);
+    let border_style = border_cell.style.expect("border style should exist");
+    let actual = border_style.color.expect("border fg color should exist");
+
+    let foreground = parse_color_like("$foreground")
+        .expect("foreground token")
+        .with_alpha(0.30);
+    let background = parse_color_like("$background").expect("background token");
+    let expected = foreground.flatten_over(background).to_simple_opaque();
+
+    assert_eq!(actual, expected);
 }
