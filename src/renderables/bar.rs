@@ -14,6 +14,10 @@ pub struct Bar {
     highlight_range: (f32, f32),
     highlight_style: rich_rs::Style,
     background_style: rich_rs::Style,
+    highlight_char: char,
+    background_char: char,
+    half_left_char: char,
+    half_right_char: char,
     clickable_ranges: BTreeMap<String, (usize, usize)>,
     width: Option<usize>,
     gradient: Option<(Color, Color)>,
@@ -33,6 +37,10 @@ impl Bar {
             highlight_range,
             highlight_style,
             background_style,
+            highlight_char: Self::BAR,
+            background_char: Self::BAR,
+            half_left_char: Self::HALF_BAR_LEFT,
+            half_right_char: Self::HALF_BAR_RIGHT,
             clickable_ranges: BTreeMap::new(),
             width: None,
             gradient: None,
@@ -54,6 +62,29 @@ impl Bar {
         self
     }
 
+    /// Configure the full-cell glyphs used for highlighted and background
+    /// portions.
+    pub fn chars(mut self, highlight: char, background: char) -> Self {
+        self.highlight_char = highlight;
+        self.background_char = background;
+        self
+    }
+
+    /// Configure half-cell edge glyphs used at transition boundaries.
+    pub fn half_chars(mut self, left: char, right: char) -> Self {
+        self.half_left_char = left;
+        self.half_right_char = right;
+        self
+    }
+
+    /// Render this bar to a fixed width without requiring console options.
+    ///
+    /// Useful for widget internals that already computed target width and want
+    /// to compose segments directly.
+    pub fn render_for_width(&self, width: usize) -> Segments {
+        self.render_segments_for_width(width)
+    }
+
     fn effective_width(&self, options: &ConsoleOptions) -> usize {
         self.width
             .unwrap_or(options.max_width.max(options.size.0).max(1))
@@ -72,7 +103,7 @@ impl Bar {
         let mut segments: Vec<Segment> = Vec::new();
         if (start == 0.0 && end == 0.0) || end < 0.0 || start > end {
             segments.push(Segment::styled(
-                Self::BAR.to_string().repeat(width),
+                self.background_char.to_string().repeat(width),
                 self.background_style,
             ));
             return segments.into();
@@ -87,42 +118,49 @@ impl Bar {
         let initial_len = (start - 0.5) as i32;
         if initial_len > 0 {
             segments.push(Segment::styled(
-                Self::BAR.to_string().repeat(initial_len as usize),
+                self.background_char
+                    .to_string()
+                    .repeat(initial_len as usize),
                 self.background_style,
             ));
         }
 
         if !half_start && start > 0.0 {
             segments.push(Segment::styled(
-                Self::HALF_BAR_RIGHT.to_string(),
+                self.half_right_char.to_string(),
                 self.background_style,
             ));
         }
 
         let bar_width = (end as i32) - (start as i32);
         if half_start {
-            let mut highlight = String::from(Self::HALF_BAR_LEFT);
+            let mut highlight = String::from(self.half_left_char);
             if bar_width > 1 {
-                highlight.push_str(&Self::BAR.to_string().repeat((bar_width - 1) as usize));
+                highlight.push_str(
+                    &self
+                        .highlight_char
+                        .to_string()
+                        .repeat((bar_width - 1) as usize),
+                );
             }
             segments.push(Segment::styled(highlight, self.highlight_style));
         } else if bar_width > 0 {
             segments.push(Segment::styled(
-                Self::BAR.to_string().repeat(bar_width as usize),
+                self.highlight_char.to_string().repeat(bar_width as usize),
                 self.highlight_style,
             ));
         }
 
         if half_end {
             segments.push(Segment::styled(
-                Self::HALF_BAR_RIGHT.to_string(),
+                self.half_right_char.to_string(),
                 self.highlight_style,
             ));
         }
 
         if !half_end && (end - width as f32).abs() > f32::EPSILON {
             segments.push(Segment::styled(
-                Self::HALF_BAR_LEFT.to_string(),
+                self.half_left_char.to_string(),
                 self.background_style,
             ));
         }
@@ -130,7 +168,7 @@ impl Bar {
         let tail_len = (width as i32) - (end as i32) - 1;
         if tail_len > 0 {
             segments.push(Segment::styled(
-                Self::BAR.to_string().repeat(tail_len as usize),
+                self.background_char.to_string().repeat(tail_len as usize),
                 self.background_style,
             ));
         }

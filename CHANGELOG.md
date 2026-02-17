@@ -14,6 +14,12 @@ until the API stabilizes.
   - Moved tabs underline rendering to shared `renderables::Bar`, removing duplicated half-cell bar composition logic from `Tabs`.
   - Added regression coverage for each new renderable module (dimensions, styling behavior, metadata hooks, and color processing paths).
 
+- **refactor(progress-bar parity): route determinate/gradient/indeterminate rendering through shared `renderables::Bar`**
+  - `ProgressBar` now uses `renderables::Bar` for determinate fills and gradient fills, replacing duplicated per-widget bar-cell composition logic.
+  - Added configurable bar glyph APIs (`chars`, `half_chars`) so `ProgressBar` keeps block/space visuals while `Tabs` keeps line-glyph visuals.
+  - Indeterminate animation now follows Python’s time-based highlight-range algorithm (30 cells/sec, 25% highlight width, bounce over imaginary width) while still honoring `AnimationLevel::None`.
+  - Updated progress-bar regression tests to validate rendered output text rather than internal segment chunk counts.
+
 - **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
   - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).

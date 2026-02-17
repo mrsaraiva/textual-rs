@@ -3,6 +3,7 @@ use std::time::Instant;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::AnimationLevel;
+use crate::renderables::Bar;
 use crate::style::Color;
 
 use super::{
@@ -12,9 +13,7 @@ use super::{
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-// ── Color interpolation helper ─────────────────────────────────────
-
-/// Linearly interpolate between two colors. `t` is clamped to `0.0..=1.0`.
+#[cfg(test)]
 fn lerp_color(a: Color, b: Color, t: f64) -> Color {
     let t = t.clamp(0.0, 1.0) as f32;
     let inv = 1.0 - t;
@@ -208,8 +207,6 @@ pub struct ProgressBar {
     total: Option<f64>,
     /// Current progress (number of steps completed).
     progress: f64,
-    /// Tick counter for indeterminate animation.
-    tick: u64,
     /// Whether to display the bar portion.
     show_bar: bool,
     /// Whether to display a percentage label.
@@ -237,7 +234,6 @@ impl ProgressBar {
         Self {
             total: total.map(|t| t.max(0.0)),
             progress: 0.0,
-            tick: 0,
             show_bar: true,
             show_percentage: true,
             show_eta: true,
@@ -468,11 +464,18 @@ impl ProgressBar {
         } else {
             "bar--bar"
         };
-
-        let filled_cells = (pct * width as f64).round() as usize;
-        let filled = filled_cells.min(width);
-        let empty = width.saturating_sub(filled);
-        let text = format!("{}{}", "█".repeat(filled), " ".repeat(empty));
+        let style = crate::css::resolve_component_style(self, &[component])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let filled = ((pct * width as f64).round() as usize).min(width);
+        let text: String = Bar::new((0.0, filled as f32), style, style)
+            .chars('█', ' ')
+            .half_chars(' ', ' ')
+            .width(width)
+            .render_for_width(width)
+            .iter()
+            .map(|seg| seg.text.as_ref())
+            .collect();
         (text, component)
     }
 
@@ -493,25 +496,18 @@ impl ProgressBar {
             "bar--bar"
         };
 
-        let filled_cells = (pct * width as f64).round() as usize;
-        let filled = filled_cells.min(width);
-        let empty = width.saturating_sub(filled);
-
-        let mut segments = Vec::with_capacity(filled + 1);
-        for i in 0..filled {
-            let t = if filled <= 1 {
-                0.0
-            } else {
-                i as f64 / (filled - 1) as f64
-            };
-            let color = lerp_color(start, end, t);
-            let rich_color = color.to_simple_opaque();
-            let style = rich_rs::Style::new().with_color(rich_color);
-            segments.push(Segment::styled("█".to_string(), style));
-        }
-        if empty > 0 {
-            segments.push(Segment::new(" ".repeat(empty)));
-        }
+        let style = crate::css::resolve_component_style(self, &[component])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let filled = ((pct * width as f64).round() as usize).min(width);
+        let segments: Vec<Segment> = Bar::new((0.0, filled as f32), style, style)
+            .chars('█', ' ')
+            .half_chars(' ', ' ')
+            .width(width)
+            .gradient(start, end)
+            .render_for_width(width)
+            .into_iter()
+            .collect();
         (segments, component)
     }
 
@@ -522,35 +518,40 @@ impl ProgressBar {
             return (String::new(), component);
         }
 
-        // When animations are disabled, show a static full-width bar (matching Python).
+        let mut start;
+        let end;
+        let highlighted_bar_width = (0.25 * width as f32).max(1.0);
+        let total_imaginary_width = width as f32 + highlighted_bar_width;
         if self.animation_level == AnimationLevel::None {
-            let text = "█".repeat(width);
-            return (text, component);
-        }
-
-        let highlight_width = (width as f64 * 0.25).max(1.0) as usize;
-        let total_travel = width + highlight_width;
-
-        // Bounce the highlight back and forth.
-        let cycle = 2 * total_travel;
-        let pos = (self.tick as usize) % cycle.max(1);
-        let raw_start = if pos < total_travel {
-            pos as isize - highlight_width as isize
+            start = 0.0;
+            end = width as f32;
         } else {
-            (2 * total_travel - pos) as isize - highlight_width as isize
-        };
-
-        let start = raw_start.max(0) as usize;
-        let end = ((raw_start + highlight_width as isize) as usize).min(width);
-
-        let mut text = String::with_capacity(width * 3);
-        for i in 0..width {
-            if i >= start && i < end {
-                text.push('█');
+            // Match Python Textual: time-based movement at 30 cells/sec.
+            let speed = 30.0_f32;
+            start = if total_imaginary_width > 0.0 {
+                (speed * self.elapsed_secs() as f32) % (2.0 * total_imaginary_width)
             } else {
-                text.push(' ');
+                0.0
+            };
+            if start > total_imaginary_width {
+                start = 2.0 * total_imaginary_width - start;
             }
+            start -= highlighted_bar_width;
+            end = start + highlighted_bar_width;
         }
+
+        let style = crate::css::resolve_component_style(self, &[component])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let range = (start.max(0.0), end.min(width as f32));
+        let text: String = Bar::new(range, style, style)
+            .chars('█', ' ')
+            .half_chars(' ', ' ')
+            .width(width)
+            .render_for_width(width)
+            .iter()
+            .map(|seg| seg.text.as_ref())
+            .collect();
         (text, component)
     }
 }
@@ -579,7 +580,7 @@ impl Widget for ProgressBar {
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.tick = tick;
+        let _ = tick;
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -819,9 +820,7 @@ mod tests {
 
     #[test]
     fn progress_bar_indeterminate_render_bounces() {
-        let mut bar = ProgressBar::new(None);
-        // At tick 0, the highlight should start near the left.
-        bar.tick = 0;
+        let bar = ProgressBar::new(None);
         let (text0, component) = bar.render_indeterminate(20);
         assert_eq!(component, "bar--indeterminate");
         assert_eq!(text0.chars().count(), 20);
@@ -1109,10 +1108,8 @@ mod tests {
 
         let (segments, component) = bar.render_determinate_gradient(10, start, end);
         assert_eq!(component, "bar--bar");
-        // 5 filled cells + 1 empty segment = 6 total segments
-        assert_eq!(segments.len(), 6);
-        // Last segment should be 5 spaces (empty portion)
-        assert_eq!(segments.last().unwrap().text, "     ");
+        let text: String = segments.iter().map(|seg| seg.text.as_ref()).collect();
+        assert_eq!(text, "█████     ");
     }
 
     // ── compose() / take_composed_children() tests ────────────────
