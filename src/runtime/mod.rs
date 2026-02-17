@@ -13,7 +13,8 @@ pub use event_loop::resolve_transition_for_property;
 pub use helpers::{call_on_mouse_move_tree, tree_content_local_coords, widget_at_tree_layout};
 pub use render::{
     apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
-    render_tree_to_frame_with_debug, resolve_axis_constrain, run_layout_pass, text_overflow_mode,
+    render_tree_to_frame_with_debug, render_tree_to_frame_with_stylesheet, resolve_axis_constrain,
+    run_layout_pass, text_overflow_mode,
 };
 pub use routing::{dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree};
 pub use types::DispatchOutcome;

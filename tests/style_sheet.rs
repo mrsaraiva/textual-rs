@@ -1,25 +1,18 @@
 use rich_rs::Console;
-use textual::css::set_style_context;
 use textual::prelude::*;
-use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
 
 #[test]
 fn stylesheet_applies_type_and_id_styles() {
     let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (6, 1);
-    options.max_width = 6;
-    options.max_height = 1;
-
-    let label = Node::new(Label::new("hi")).id("hero");
+    let mut label = Node::new(Label::new("hi")).id("hero");
 
     let mut sheet = StyleSheet::new();
-    sheet.add_type("Label", Style::new().bold(true));
+    sheet.add_type("Node", Style::new().bold(true));
     sheet.add_id("hero", Style::new().underline(true));
 
-    let _guard = set_style_context(sheet);
-    let renderable = WidgetRenderable::new(&label);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut tree = build_widget_tree_from_root(&mut label).expect("tree should exist");
+    let buf = render_tree_to_frame_with_stylesheet(&mut tree, &mut label, &console, 6, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style to be set");

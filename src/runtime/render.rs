@@ -1500,6 +1500,29 @@ pub fn render_tree_to_frame(
     render_tree_to_frame_with_debug(tree, root, console, width, height, None)
 }
 
+/// Render a widget tree to a [`FrameBuffer`] using an explicit stylesheet.
+///
+/// Useful for integration tests that need custom CSS instead of
+/// `default_widget_stylesheet()`.
+pub fn render_tree_to_frame_with_stylesheet(
+    tree: &mut WidgetTree,
+    root: &mut dyn Widget,
+    console: &rich_rs::Console,
+    width: usize,
+    height: usize,
+    stylesheet: crate::css::StyleSheet,
+) -> FrameBuffer {
+    render_tree_to_frame_with_debug_and_stylesheet(
+        tree,
+        root,
+        console,
+        width,
+        height,
+        None,
+        stylesheet,
+    )
+}
+
 /// Render a widget tree to a [`FrameBuffer`] with optional debug-layout overlay.
 pub fn render_tree_to_frame_with_debug(
     tree: &mut WidgetTree,
@@ -1509,9 +1532,21 @@ pub fn render_tree_to_frame_with_debug(
     height: usize,
     debug: Option<&crate::debug::DebugLayout>,
 ) -> FrameBuffer {
-    // Install stylesheet context for CSS resolution during layout + render.
+    // Install default stylesheet context for CSS resolution during layout + render.
     let sheet = crate::css::default_widget_stylesheet();
-    let _guard = crate::css::set_style_context(sheet);
+    render_tree_to_frame_with_debug_and_stylesheet(tree, root, console, width, height, debug, sheet)
+}
+
+fn render_tree_to_frame_with_debug_and_stylesheet(
+    tree: &mut WidgetTree,
+    root: &mut dyn Widget,
+    console: &rich_rs::Console,
+    width: usize,
+    height: usize,
+    debug: Option<&crate::debug::DebugLayout>,
+    stylesheet: crate::css::StyleSheet,
+) -> FrameBuffer {
+    let _guard = crate::css::set_style_context(stylesheet);
 
     // Run layout so all tree nodes get their layout_rect populated.
     run_layout_pass(tree, (width as u16, height as u16));

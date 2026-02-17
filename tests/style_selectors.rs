@@ -1,23 +1,25 @@
 use rich_rs::Console;
-use textual::css::set_style_context;
 use textual::prelude::*;
-use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
+
+fn render_with_sheet(
+    root: &mut dyn Widget,
+    width: usize,
+    height: usize,
+    stylesheet: StyleSheet,
+) -> textual::render::FrameBuffer {
+    let console = Console::new();
+    let mut tree = build_widget_tree_from_root(root).expect("tree should exist");
+    render_tree_to_frame_with_stylesheet(&mut tree, root, &console, width, height, stylesheet)
+}
 
 #[test]
 fn descendant_selectors_match() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (8, 1);
-    options.max_width = 8;
-    options.max_height = 1;
-
     let css = ".panel Label { underline: true; }";
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
 
-    let row = Node::new(Row::new().with_child(Label::new("hi"))).class("panel");
-    let renderable = WidgetRenderable::new(&row);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut row = Node::new(Row::new().with_child(Label::new("hi"))).class("panel");
+    let buf = render_with_sheet(&mut row, 8, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
@@ -26,20 +28,12 @@ fn descendant_selectors_match() {
 
 #[test]
 fn child_selectors_match_direct_children_only() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (8, 1);
-    options.max_width = 8;
-    options.max_height = 1;
-
     let css = ".panel > Label { bold: true; }";
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
 
     // Direct child case: the `.panel` node is the immediate parent of the `Label`.
-    let row = Node::new(Label::new("hi")).class("panel");
-    let renderable = WidgetRenderable::new(&row);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut row = Node::new(Label::new("hi")).class("panel");
+    let buf = render_with_sheet(&mut row, 8, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
@@ -48,19 +42,11 @@ fn child_selectors_match_direct_children_only() {
 
 #[test]
 fn selector_groups_apply_to_multiple() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (6, 1);
-    options.max_width = 6;
-    options.max_height = 1;
-
     let css = "Label, .note { bold: true; }";
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
 
-    let label = Node::new(Label::new("hi")).class("note");
-    let renderable = WidgetRenderable::new(&label);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut label = Node::new(Label::new("hi")).class("note");
+    let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
@@ -69,19 +55,11 @@ fn selector_groups_apply_to_multiple() {
 
 #[test]
 fn selector_with_multiple_classes_matches() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (6, 1);
-    options.max_width = 6;
-    options.max_height = 1;
-
     let css = ".primary.big { underline: true; }";
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
 
-    let label = Node::new(Label::new("hi")).class("primary").class("big");
-    let renderable = WidgetRenderable::new(&label);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut label = Node::new(Label::new("hi")).class("primary").class("big");
+    let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");

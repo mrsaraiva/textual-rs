@@ -1,30 +1,46 @@
 use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::prelude::*;
-use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
+use textual::widgets::WidgetRenderable;
 use textual::style::AutoColor;
 use textual::style::parse_color_like;
 
+fn render_with_sheet(
+    root: &mut dyn Widget,
+    width: usize,
+    height: usize,
+    stylesheet: StyleSheet,
+) -> textual::render::FrameBuffer {
+    let console = Console::new();
+    if let Some(mut tree) = build_widget_tree_from_root(root) {
+        render_tree_to_frame_with_stylesheet(&mut tree, root, &console, width, height, stylesheet)
+    } else {
+        let _guard = set_style_context(stylesheet);
+        let mut options = console.options().clone();
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+        textual::render::FrameBuffer::from_renderable(
+            &console,
+            &options,
+            &WidgetRenderable::new(root),
+            None,
+        )
+    }
+}
+
 #[test]
 fn stylesheet_parser_applies_rules() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (6, 1);
-    options.max_width = 6;
-    options.max_height = 1;
-
     let css = r#"
-Label { fg: red; bold: true; }
+Node { fg: red; bold: true; }
 #hero { underline: true; }
 .notice { bg: blue; }
 "#;
 
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
-
-    let label = Node::new(Label::new("hi")).id("hero").class("notice");
-    let renderable = WidgetRenderable::new(&label);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut label = Node::new(Label::new("hi")).id("hero").class("notice");
+    let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
@@ -38,26 +54,12 @@ Label { fg: red; bold: true; }
 
 #[test]
 fn rgba_background_is_composited_over_base_background() {
-    use rich_rs::Console;
-    use textual::css::set_style_context;
-    use textual::render::FrameBuffer;
-    use textual::style::parse_color_like;
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (1, 1);
-    options.max_width = 1;
-    options.max_height = 1;
-
     let css = r#"
 Label { bg: rgba(255,0,0,0.5); }
 "#;
     let sheet = StyleSheet::parse(css);
-    let _guard = set_style_context(sheet);
-
-    let label = Label::new("x");
-    let renderable = WidgetRenderable::new(&label);
-    let buf = FrameBuffer::from_renderable(&console, &options, &renderable, None);
+    let mut label = Label::new("x");
+    let buf = render_with_sheet(&mut label, 1, 1, sheet);
 
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");

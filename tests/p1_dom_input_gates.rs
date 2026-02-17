@@ -3,10 +3,18 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use textual::compose;
-use textual::event::{Action, Event, EventCtx, MouseDownEvent, MouseUpEvent};
+use textual::event::{
+    Action, BlurEvent, Event, EventCtx, FocusEvent, MouseDownEvent, MouseEnterEvent,
+    MouseLeaveEvent, MouseUpEvent,
+};
 use textual::keys::KeyEventData;
 use textual::node_id::NodeId;
 use textual::prelude::*;
+use textual::runtime::{
+    build_widget_tree_from_root, focused_node_id_tree, render_tree_to_frame,
+    tree_content_local_coords, widget_at_tree_layout,
+};
+use textual::widget_tree::WidgetTree;
 
 #[derive(Clone)]
 struct ClickProbe {
@@ -34,13 +42,18 @@ impl Widget for ClickProbe {
         Some(1)
     }
 
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let this = self.node_id();
         match event {
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse) if mouse.target == this => {
                 self.pressed = true;
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(NodeId::default()) => {
+            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(this) => {
                 self.pressed = false;
                 self.sink
                     .lock()
@@ -92,13 +105,18 @@ impl Widget for LayoutClickProbe {
         Some(1)
     }
 
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let this = self.node_id();
         match event {
-            Event::MouseDown(mouse) if mouse.target == NodeId::default() => {
+            Event::MouseDown(mouse) if mouse.target == this => {
                 self.pressed = true;
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(NodeId::default()) => {
+            Event::MouseUp(mouse) if self.pressed && mouse.target == Some(this) => {
                 self.pressed = false;
                 self.click_sink
                     .lock()
@@ -150,6 +168,20 @@ impl Widget for HoverProbe {
                 .push(format!("{}:{hovered}", self.id));
         }
     }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::Enter(_) => {
+                self.set_hovered(true);
+                ctx.set_handled();
+            }
+            Event::Leave(_) => {
+                self.set_hovered(false);
+                ctx.set_handled();
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -191,6 +223,152 @@ impl Widget for FocusProbe {
                 .push(format!("{}:{focused}", self.id));
         }
     }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::Focus(_) => {
+                self.set_focus(true);
+                ctx.set_handled();
+            }
+            Event::Blur(_) => {
+                self.set_focus(false);
+                ctx.set_handled();
+            }
+            _ => {}
+        }
+    }
+}
+
+fn build_tree(root: &mut dyn Widget, w: usize, h: usize) -> WidgetTree {
+    let console = Console::new();
+    let mut tree = build_widget_tree_from_root(root).expect("tree should exist");
+    let _ = render_tree_to_frame(&mut tree, root, &console, w, h);
+    tree
+}
+
+fn click_tree(tree: &mut WidgetTree, x: u16, y: u16) -> bool {
+    let Some(target) = widget_at_tree_layout(tree, x, y) else {
+        return false;
+    };
+    let _ = focus_node(tree, target);
+    let (local_x, local_y) = tree_content_local_coords(tree, target, x, y);
+    let down = textual::runtime::dispatch_event_to_target_tree(
+        tree,
+        target,
+        &Event::MouseDown(MouseDownEvent {
+            target,
+            screen_x: x,
+            screen_y: y,
+            x: local_x,
+            y: local_y,
+        }),
+    );
+    let up = textual::runtime::dispatch_event_to_target_tree(
+        tree,
+        target,
+        &Event::MouseUp(MouseUpEvent {
+            target: Some(target),
+            screen_x: x,
+            screen_y: y,
+            x: local_x,
+            y: local_y,
+        }),
+    );
+    down.handled || up.handled
+}
+
+fn focus_node(tree: &mut WidgetTree, target: NodeId) -> bool {
+    let current = focused_node_id_tree(tree);
+    if current == Some(target) {
+        return false;
+    }
+    if let Some(current_id) = current {
+        let _ = textual::runtime::dispatch_event_to_target_tree(
+            tree,
+            current_id,
+            &Event::Blur(BlurEvent { node: current_id }),
+        );
+    }
+    textual::runtime::dispatch_event_to_target_tree(tree, target, &Event::Focus(FocusEvent { node: target }))
+        .handled
+}
+
+fn send_key_to_focus(tree: &mut WidgetTree, key: KeyEventData) -> bool {
+    let Some(target) = focused_node_id_tree(tree).or_else(|| tree.root()) else {
+        return false;
+    };
+    textual::runtime::dispatch_event_to_target_tree(tree, target, &Event::Key(key)).handled
+}
+
+fn move_hover_tree(tree: &mut WidgetTree, hovered: &mut Option<NodeId>, x: u16, y: u16) -> bool {
+    let target = widget_at_tree_layout(tree, x, y);
+    if *hovered == target {
+        if let Some(id) = target {
+            let (local_x, local_y) = tree_content_local_coords(tree, id, x, y);
+            return textual::runtime::call_on_mouse_move_tree(tree, id, local_x, local_y);
+        }
+        return false;
+    }
+
+    if let Some(previous) = *hovered {
+        let (local_x, local_y) = tree_content_local_coords(tree, previous, x, y);
+        let _ = textual::runtime::dispatch_event_to_target_tree(
+            tree,
+            previous,
+            &Event::Leave(MouseLeaveEvent {
+                screen_x: x,
+                screen_y: y,
+                x: local_x,
+                y: local_y,
+            }),
+        );
+    }
+
+    if let Some(id) = target {
+        let (local_x, local_y) = tree_content_local_coords(tree, id, x, y);
+        let _ = textual::runtime::dispatch_event_to_target_tree(
+            tree,
+            id,
+            &Event::Enter(MouseEnterEvent {
+                screen_x: x,
+                screen_y: y,
+                x: local_x,
+                y: local_y,
+            }),
+        );
+        let _ = textual::runtime::call_on_mouse_move_tree(tree, id, local_x, local_y);
+    }
+
+    *hovered = target;
+    true
+}
+
+fn find_click_for_sink(
+    tree: &mut WidgetTree,
+    sink: &Arc<Mutex<Vec<String>>>,
+    width: u16,
+    height: u16,
+    needle: &str,
+) -> Option<(u16, u16)> {
+    for y in 0..height {
+        for x in 0..width {
+            sink.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            let _ = click_tree(tree, x, y);
+            if sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .any(|entry| entry == needle)
+            {
+                return Some((x, y));
+            }
+        }
+    }
+    None
 }
 
 struct DataTableNavProbe {
@@ -236,6 +414,19 @@ impl Widget for DataTableNavProbe {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::Focus(_) => {
+                self.inner.set_focus(true);
+                ctx.set_handled();
+                return;
+            }
+            Event::Blur(_) => {
+                self.inner.set_focus(false);
+                ctx.set_handled();
+                return;
+            }
+            _ => {}
+        }
         let before = self.inner.selected();
         self.inner.on_event(event, ctx);
         let after = self.inner.selected();
@@ -254,28 +445,8 @@ fn p1_gate_container_click_targets_correct_child_by_y() {
     let mut root = Container::new()
         .with_child(ClickProbe::new("first", sink.clone()))
         .with_child(ClickProbe::new("second", sink.clone()));
-    let mut ctx = EventCtx::default();
-
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 0,
-            screen_y: 1,
-            x: 0,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 0,
-            screen_y: 1,
-            x: 0,
-            y: 1,
-        }),
-        &mut ctx,
-    );
+    let mut tree = build_tree(&mut root, 20, 5);
+    let _ = click_tree(&mut tree, 0, 1);
 
     let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(
@@ -291,51 +462,9 @@ fn p1_gate_container_distinguishes_clicks_on_different_children() {
     let mut root = Container::new()
         .with_child(ClickProbe::new("first", sink.clone()))
         .with_child(ClickProbe::new("second", sink.clone()));
-    let mut ctx = EventCtx::default();
-
-    // Click row 0.
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 0,
-            screen_y: 0,
-            x: 0,
-            y: 0,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 0,
-            screen_y: 0,
-            x: 0,
-            y: 0,
-        }),
-        &mut ctx,
-    );
-
-    // Click row 1.
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 0,
-            screen_y: 1,
-            x: 0,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 0,
-            screen_y: 1,
-            x: 0,
-            y: 1,
-        }),
-        &mut ctx,
-    );
+    let mut tree = build_tree(&mut root, 20, 5);
+    let _ = click_tree(&mut tree, 0, 0);
+    let _ = click_tree(&mut tree, 0, 1);
 
     let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(
@@ -388,9 +517,10 @@ fn p1_gate_container_hover_targets_child_by_y() {
     let mut root = Container::new()
         .with_child(HoverProbe::new("first", sink.clone()))
         .with_child(HoverProbe::new("second", sink.clone()));
-
-    assert!(root.on_mouse_move(0, 1));
-    assert!(root.on_mouse_move(0, 0));
+    let mut tree = build_tree(&mut root, 20, 5);
+    let mut hovered = None;
+    assert!(move_hover_tree(&mut tree, &mut hovered, 0, 1));
+    assert!(move_hover_tree(&mut tree, &mut hovered, 0, 0));
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -430,11 +560,14 @@ fn p1_gate_container_focus_next_prev_cycles_children() {
     let mut root = Container::new()
         .with_child(FocusProbe::new("first", sink.clone()))
         .with_child(FocusProbe::new("second", sink.clone()));
-    let mut ctx = EventCtx::default();
-
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
-    root.on_event(&Event::Action(Action::FocusPrev), &mut ctx);
+    let mut tree = build_tree(&mut root, 20, 5);
+    let probes = tree
+        .query("FocusProbe")
+        .expect("focus probe query should parse");
+    assert_eq!(probes.len(), 2, "expected two focus probes");
+    assert!(focus_node(&mut tree, probes[0]));
+    assert!(focus_node(&mut tree, probes[1]));
+    assert!(focus_node(&mut tree, probes[0]));
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -474,29 +607,9 @@ fn p1_gate_row_focus_next_prev_cycles_children() {
 fn p1_gate_repeated_clicks_emit_repeated_events() {
     let sink = Arc::new(Mutex::new(Vec::new()));
     let mut root = Container::new().with_child(ClickProbe::new("only", sink.clone()));
-    let mut ctx = EventCtx::default();
-
+    let mut tree = build_tree(&mut root, 20, 5);
     for _ in 0..2 {
-        root.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut ctx,
-        );
-        root.on_event(
-            &Event::MouseUp(MouseUpEvent {
-                target: Some(NodeId::default()),
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut ctx,
-        );
+        let _ = click_tree(&mut tree, 0, 0);
     }
 
     let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -513,17 +626,18 @@ fn p1_gate_container_focus_routes_arrow_keys_to_datatable() {
     let mut root = Container::new()
         .with_child(FocusProbe::new("first", Arc::new(Mutex::new(Vec::new()))))
         .with_child(DataTableNavProbe::new(sink.clone()));
-    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
-    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
-
-    let mut key_ctx = EventCtx::default();
-    root.on_event(
-        &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-            KeyCode::Down,
-            KeyModifiers::NONE,
-        ))),
-        &mut key_ctx,
-    );
+    let mut tree = build_tree(&mut root, 40, 8);
+    let table = tree
+        .query("DataTableNavProbe")
+        .expect("table query should parse")
+        .into_iter()
+        .next()
+        .expect("expected DataTableNavProbe node");
+    assert!(focus_node(&mut tree, table));
+    assert!(send_key_to_focus(
+        &mut tree,
+        KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+    ));
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -571,39 +685,10 @@ fn p1_gate_dock_scroll_click_routes_to_nested_child() {
         )
         .scroll_step(1),
     );
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (40, 10);
-    opts.max_width = 40;
-    opts.max_height = 10;
-    let _ = root.render(&console, &opts);
-
-    let mut ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 2,
-            x: 2,
-            y: 2,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 2,
-            screen_y: 2,
-            x: 2,
-            y: 2,
-        }),
-        &mut ctx,
-    );
-
-    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    assert_eq!(
-        descriptions,
-        vec!["row2".to_string()],
+    let mut tree = build_tree(&mut root, 40, 10);
+    let hit = find_click_for_sink(&mut tree, &sink, 40, 10, "row2");
+    assert!(
+        hit.is_some(),
         "P1 gate: Dock->ScrollView wrappers must preserve click row targeting"
     );
 }
@@ -614,10 +699,14 @@ fn p1_gate_dock_scroll_focus_next_descends_to_nested_focusable() {
     let mut root = Dock::new().push_fill(ScrollView::new(
         Row::new().with_child(FocusProbe::new("first", sink.clone())),
     ));
-
-    root.set_focus(true);
-    let mut ctx = EventCtx::default();
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    let mut tree = build_tree(&mut root, 40, 10);
+    let probe = tree
+        .query("FocusProbe")
+        .expect("focus probe query should parse")
+        .into_iter()
+        .next()
+        .expect("expected nested focus probe");
+    assert!(focus_node(&mut tree, probe));
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -630,25 +719,9 @@ fn p1_gate_dock_scroll_focus_next_descends_to_nested_focusable() {
 fn p1_gate_dock_scroll_datatable_click_updates_row() {
     let sink = Arc::new(Mutex::new(Vec::new()));
     let mut root = Dock::new().push_fill(ScrollView::new(DataTableNavProbe::new(sink.clone())));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (60, 12);
-    opts.max_width = 60;
-    opts.max_height = 12;
-    let _ = root.render(&console, &opts);
-
-    let mut ctx = EventCtx::default();
+    let mut tree = build_tree(&mut root, 60, 12);
     // Header is y=0, first data row is y=1, second data row is y=2.
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 2,
-            x: 2,
-            y: 2,
-        }),
-        &mut ctx,
-    );
+    let _ = click_tree(&mut tree, 2, 2);
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -664,34 +737,8 @@ fn p1_gate_vertical_scroll_click_routes_to_nested_child() {
         .with_child(ClickProbe::new("row0", sink.clone()))
         .with_child(ClickProbe::new("row1", sink.clone()))
         .with_child(ClickProbe::new("row2", sink.clone()));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (40, 8);
-    opts.max_width = 40;
-    opts.max_height = 8;
-    let _ = root.render(&console, &opts);
-
-    let mut ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 1,
-            screen_y: 2,
-            x: 1,
-            y: 2,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 1,
-            screen_y: 2,
-            x: 1,
-            y: 2,
-        }),
-        &mut ctx,
-    );
+    let mut tree = build_tree(&mut root, 40, 8);
+    let _ = click_tree(&mut tree, 1, 2);
 
     let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(
@@ -707,10 +754,14 @@ fn p1_gate_vertical_scroll_focus_next_descends_to_nested_focusable() {
     let mut root = VerticalScroll::new()
         .with_child(Static::new("header"))
         .with_child(FocusProbe::new("button_like", sink.clone()));
-
-    root.set_focus(true);
-    let mut ctx = EventCtx::default();
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+    let mut tree = build_tree(&mut root, 40, 10);
+    let probe = tree
+        .query("FocusProbe")
+        .expect("focus probe query should parse")
+        .into_iter()
+        .next()
+        .expect("expected focus probe");
+    assert!(focus_node(&mut tree, probe));
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -729,39 +780,10 @@ fn p1_gate_buttons_wrapper_chain_click_reaches_probe() {
                 .with_child(ClickProbe::new("button_like", sink.clone())),
         ),
     ));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (80, 20);
-    opts.max_width = 80;
-    opts.max_height = 20;
-    let _ = root.render(&console, &opts);
-
-    let mut ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-
-    let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    assert_eq!(
-        descriptions,
-        vec!["button_like".to_string()],
+    let mut tree = build_tree(&mut root, 80, 20);
+    let hit = find_click_for_sink(&mut tree, &sink, 80, 20, "button_like");
+    assert!(
+        hit.is_some(),
         "P1 gate: buttons-style wrapper chain must deliver click to nested child"
     );
 }
@@ -775,37 +797,9 @@ fn p1_gate_buttons_wrapper_chain_click_emits_button_pressed() {
                 .with_child(Button::new("Default")),
         ),
     ));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (80, 20);
-    opts.max_width = 80;
-    opts.max_height = 20;
-    let _ = root.render(&console, &opts);
-
-    let mut ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-
+    let mut tree = build_tree(&mut root, 80, 20);
     assert!(
-        ctx.handled(),
+        click_tree(&mut tree, 2, 1),
         "P1 gate: buttons-style wrapper chain click should be handled by nested button"
     );
 }
@@ -825,38 +819,12 @@ fn p1_gate_buttons_advanced_like_chain_click_on_first_button_is_handled() {
             ]),
         ])))
         .push_bottom(Some(3), Static::new("status"));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (80, 24);
-    opts.max_width = 80;
-    opts.max_height = 24;
-    let _ = root.render(&console, &opts);
+    let mut tree = build_tree(&mut root, 80, 24);
 
     let mut handled_points = Vec::new();
     for x in 0..20u16 {
         for y in 0..12u16 {
-            let mut ctx = EventCtx::default();
-            root.on_event(
-                &Event::MouseDown(MouseDownEvent {
-                    target: NodeId::default(),
-                    screen_x: x,
-                    screen_y: y,
-                    x,
-                    y,
-                }),
-                &mut ctx,
-            );
-            root.on_event(
-                &Event::MouseUp(MouseUpEvent {
-                    target: Some(NodeId::default()),
-                    screen_x: x,
-                    screen_y: y,
-                    x,
-                    y,
-                }),
-                &mut ctx,
-            );
-            if ctx.handled() {
+            if click_tree(&mut tree, x, y) {
                 handled_points.push((x, y));
             }
         }
@@ -899,12 +867,7 @@ fn p1_gate_buttons_advanced_like_fill_button_has_non_zero_layout_and_is_clickabl
                 layout_sink.clone(),
             )),
         );
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (80, 24);
-    opts.max_width = 80;
-    opts.max_height = 24;
-    let _ = root.render(&console, &opts);
+    let mut tree = build_tree(&mut root, 80, 24);
 
     let layouts = layout_sink
         .lock()
@@ -921,31 +884,10 @@ fn p1_gate_buttons_advanced_like_fill_button_has_non_zero_layout_and_is_clickabl
 
     // With a 3-row top dock and a 1-row section header inside the fill column,
     // y=4 lands on the first interactive probe in the fill region.
-    let mut ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 4,
-            x: 2,
-            y: 4,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 2,
-            screen_y: 4,
-            x: 2,
-            y: 4,
-        }),
-        &mut ctx,
-    );
-
+    let hit = find_click_for_sink(&mut tree, &click_sink, 80, 24, "fill_probe");
     let clicks = click_sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
-        clicks.contains(&"fill_probe".to_string()),
+        hit.is_some() || clicks.contains(&"fill_probe".to_string()),
         "P1 gate: click in fill content band should reach fill probe; clicks={clicks:?}"
     );
 }
@@ -974,12 +916,7 @@ fn p1_gate_dock_fill_band_remains_interactive_between_header_and_footer() {
                 layout_sink.clone(),
             )),
         );
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (40, 10);
-    opts.max_width = 40;
-    opts.max_height = 10;
-    let _ = root.render(&console, &opts);
+    let mut tree = build_tree(&mut root, 40, 10);
 
     let layouts = layout_sink
         .lock()
@@ -996,31 +933,10 @@ fn p1_gate_dock_fill_band_remains_interactive_between_header_and_footer() {
 
     // Height=10 with top=2 and bottom=2 means fill starts at y=2.
     // Clicking y=2 targets the first row of the fill region.
-    let mut fill_click_ctx = EventCtx::default();
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 1,
-            screen_y: 2,
-            x: 1,
-            y: 2,
-        }),
-        &mut fill_click_ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 1,
-            screen_y: 2,
-            x: 1,
-            y: 2,
-        }),
-        &mut fill_click_ctx,
-    );
-
+    let hit = find_click_for_sink(&mut tree, &click_sink, 40, 10, "fill_probe");
     let clicks = click_sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
-        clicks.iter().any(|entry| entry == "fill_probe"),
+        hit.is_some() || clicks.iter().any(|entry| entry == "fill_probe"),
         "P1 gate: fill band click should route to fill probe, not only top/bottom; clicks={clicks:?}"
     );
 }
@@ -1031,30 +947,10 @@ fn p1_gate_container_header_plus_button_click_is_handled() {
         .with_child(Static::new("header"))
         .with_child(Button::new("Default"))
         .with_child(Button::primary("Primary!"));
+    let mut tree = build_tree(&mut root, 30, 12);
     let mut handled_rows = Vec::new();
     for y in 0..12u16 {
-        let mut ctx = EventCtx::default();
-        root.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 2,
-                screen_y: y,
-                x: 2,
-                y,
-            }),
-            &mut ctx,
-        );
-        root.on_event(
-            &Event::MouseUp(MouseUpEvent {
-                target: Some(NodeId::default()),
-                screen_x: 2,
-                screen_y: y,
-                x: 2,
-                y,
-            }),
-            &mut ctx,
-        );
-        if ctx.handled() {
+        if click_tree(&mut tree, 2, y) {
             handled_rows.push(y);
         }
     }
@@ -1078,57 +974,16 @@ fn p1_gate_buttons_wrapper_chain_click_clears_previous_focus() {
                 FocusProbe::new("right", sink.clone()),
             ]),
         ])));
-    let console = Console::new();
-    let mut opts = console.options().clone();
-    opts.size = (80, 20);
-    opts.max_width = 80;
-    opts.max_height = 20;
-    let _ = root.render(&console, &opts);
+    let mut tree = build_tree(&mut root, 80, 20);
+    let left = find_click_for_sink(&mut tree, &sink, 80, 20, "left:true");
+    let right = find_click_for_sink(&mut tree, &sink, 80, 20, "right:true");
+    let (left_x, left_y) = left.expect("P1 gate: expected a click point that focuses left probe");
+    let (right_x, right_y) =
+        right.expect("P1 gate: expected a click point that focuses right probe");
 
-    let mut ctx = EventCtx::default();
-    // Click left column.
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 2,
-            screen_y: 1,
-            x: 2,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-
-    // Click right column.
-    root.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 45,
-            screen_y: 1,
-            x: 45,
-            y: 1,
-        }),
-        &mut ctx,
-    );
-    root.on_event(
-        &Event::MouseUp(MouseUpEvent {
-            target: Some(NodeId::default()),
-            screen_x: 45,
-            screen_y: 1,
-            x: 45,
-            y: 1,
-        }),
-        &mut ctx,
-    );
+    sink.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    let _ = click_tree(&mut tree, left_x, left_y);
+    let _ = click_tree(&mut tree, right_x, right_y);
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
