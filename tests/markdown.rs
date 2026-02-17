@@ -33,15 +33,24 @@ fn markdown_h1_uses_default_component_style() {
     let buf =
         FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
 
-    let mut heading_cell = None;
-    for x in 0..buf.width {
-        let cell = buf.get(x, 0);
-        if cell.text == "H" {
-            heading_cell = Some(cell.clone());
+    let mut heading_pos = None;
+    for y in 0..buf.height {
+        for x in 0..buf.width {
+            let cell = buf.get(x, y);
+            if cell.text == "H" {
+                heading_pos = Some((x, y, cell.clone()));
+                break;
+            }
+        }
+        if heading_pos.is_some() {
             break;
         }
     }
-    let heading_cell = heading_cell.expect("expected heading glyph in first line");
+    let (_, heading_row, heading_cell) = heading_pos.expect("expected heading glyph");
+    assert_eq!(
+        heading_row, 2,
+        "MarkdownHeader top margin should offset H1 by 2 rows"
+    );
     let style = heading_cell.style.expect("expected heading style");
     assert!(style.color.is_some());
     assert_eq!(style.bold, Some(true));
@@ -68,17 +77,26 @@ fn markdown_heading_style_matches_emoji_heading_text() {
         FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
 
     let mut styled_cell = None;
-    for x in 0..buf.width {
-        let cell = buf.get(x, 0);
-        if cell.text.trim().is_empty() {
-            continue;
+    for y in 0..buf.height {
+        for x in 0..buf.width {
+            let cell = buf.get(x, y);
+            if cell.text.trim().is_empty() {
+                continue;
+            }
+            if cell.text == "L" {
+                styled_cell = Some((y, cell.clone()));
+                break;
+            }
         }
-        if cell.text == "L" {
-            styled_cell = Some(cell.clone());
+        if styled_cell.is_some() {
             break;
         }
     }
-    let styled_cell = styled_cell.expect("expected heading text cell");
+    let (row, styled_cell) = styled_cell.expect("expected heading text cell");
+    assert_eq!(
+        row, 2,
+        "MarkdownHeader top margin should offset H1 by 2 rows"
+    );
     let style = styled_cell.style.expect("expected heading style");
     assert_eq!(style.bold, Some(true));
     assert_ne!(
@@ -104,15 +122,25 @@ fn markdown_h1_content_align_centers_heading_text() {
         FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
 
     let expected_start = (32 - rich_rs::cell_len("Lady Jessica")) / 2;
-    let mut actual_start = None;
-    for x in 0..buf.width {
-        let cell = buf.get(x, 0);
-        if cell.text == "L" {
-            actual_start = Some(x);
+    let mut actual = None;
+    for y in 0..buf.height {
+        for x in 0..buf.width {
+            let cell = buf.get(x, y);
+            if cell.text == "L" {
+                actual = Some((x, y));
+                break;
+            }
+        }
+        if actual.is_some() {
             break;
         }
     }
-    assert_eq!(actual_start, Some(expected_start));
+    let (actual_start, row) = actual.expect("expected h1 start cell");
+    assert_eq!(
+        row, 2,
+        "MarkdownHeader top margin should offset H1 by 2 rows"
+    );
+    assert_eq!(actual_start, expected_start);
 }
 
 #[test]
@@ -121,16 +149,21 @@ fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
 
     let console = Console::new();
     let mut options = console.options().clone();
-    options.size = (12, 4);
+    options.size = (12, 8);
     options.max_width = 12;
-    options.max_height = 4;
+    options.max_height = 8;
 
     let mut markdown = Markdown::new("# Heading wraps nicely");
-    markdown.on_layout(12, 4);
+    markdown.on_layout(12, 8);
     let buf =
         FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
 
-    let wrapped_line = buf.as_plain_lines()[1].clone();
+    let lines = buf.as_plain_lines();
+    let wrapped_row = lines
+        .iter()
+        .position(|line| line.contains("wraps") || line.contains("nicely"))
+        .expect("expected wrapped heading row");
+    let wrapped_line = lines[wrapped_row].clone();
     assert!(
         wrapped_line.contains("wraps") || wrapped_line.contains("nicely"),
         "expected wrapped heading content on line 2, got {wrapped_line:?}"
@@ -138,7 +171,7 @@ fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
 
     let mut styled_cell = None;
     for x in 0..buf.width {
-        let cell = buf.get(x, 1);
+        let cell = buf.get(x, wrapped_row);
         if cell.text.trim().is_empty() {
             continue;
         }

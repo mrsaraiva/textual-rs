@@ -44,3 +44,9 @@ fn markdown_layout_height_tracks_wrap_width() {
     markdown.on_layout(4, 1);
     assert_eq!(markdown.layout_height(), Some(3));
 }
+
+#[test]
+fn markdown_has_no_intrinsic_width_hint() {
+    let markdown = Markdown::new("# Lady Jessica");
+    assert_eq!(markdown.content_width(), None);
+}

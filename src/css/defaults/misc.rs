@@ -13,36 +13,42 @@ Markdown {
 
     & .markdown--h1 {
         content-align: center middle;
+        margin: 2 0 1 0;
         fg: $markdown-h1-color;
         bg: $markdown-h1-background;
         text-style: $markdown-h1-text-style;
     }
 
     & .markdown--h2 {
+        margin: 2 0 1 0;
         fg: $markdown-h2-color;
         bg: $markdown-h2-background;
         text-style: $markdown-h2-text-style;
     }
 
     & .markdown--h3 {
+        margin: 1 0;
         fg: $markdown-h3-color;
         bg: $markdown-h3-background;
         text-style: $markdown-h3-text-style;
     }
 
     & .markdown--h4 {
+        margin: 1 0;
         fg: $markdown-h4-color;
         bg: $markdown-h4-background;
         text-style: $markdown-h4-text-style;
     }
 
     & .markdown--h5 {
+        margin: 1 0;
         fg: $markdown-h5-color;
         bg: $markdown-h5-background;
         text-style: $markdown-h5-text-style;
     }
 
     & .markdown--h6 {
+        margin: 1 0;
         fg: $markdown-h6-color;
         bg: $markdown-h6-background;
         text-style: $markdown-h6-text-style;

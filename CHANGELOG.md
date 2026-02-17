@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(markdown parity): align heading spacing + full-width H1 centering with Python Textual**
+  - Markdown heading component classes (`.markdown--h1`..`.markdown--h6`) now carry Python-equivalent header margins so top/bottom heading spacing is applied during core Markdown render normalization.
+  - Markdown heading normalization now applies margin only at heading block boundaries (not every wrapped fragment), avoiding over-expansion on wrapped headings.
+  - `Markdown::layout_height()` now accounts for heading margin rows, fixing body-text clipping after heading-spacing parity changes.
+  - `Markdown::content_width()` now returns no intrinsic width hint, so `width:auto` no longer shrinks Markdown to longest line and H1 centering resolves against the full pane width (matching Python behavior).
+  - Added/updated regression tests for heading row offset, centered H1 placement, wrapped heading style retention, and Markdown width-hint behavior.
+
 - **feat(selection/copy parity): add app-level selected-text action pipeline + Markdown selection hooks**
   - Added widget-level selection hooks to `Widget` (`allow_select`, `selection_at`, `update_selection`, `clear_selection`, `get_selection`, `selection_updated`) and shared `WidgetSelectionAnchor`.
   - Added app/runtime copy-selected-text plumbing:

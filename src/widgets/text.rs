@@ -267,6 +267,19 @@ impl Markdown {
         remaining.strip_prefix(fragment)
     }
 
+    fn heading_level_and_text(line: &str) -> Option<(usize, &str)> {
+        let trimmed = line.trim_start();
+        let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
+        if marker_len == 0 || marker_len > 6 {
+            return None;
+        }
+        let title = trimmed[marker_len..].trim();
+        if title.is_empty() {
+            return None;
+        }
+        Some((marker_len, title))
+    }
+
     fn apply_horizontal_alignment(
         line: &mut Vec<rich_rs::Segment>,
         width: usize,
@@ -312,35 +325,6 @@ impl Markdown {
         rich_rs::cell_len(line.trim_end())
     }
 
-    fn non_whitespace_bounds_from_segments(line: &[rich_rs::Segment]) -> Option<(usize, usize)> {
-        let plain = line
-            .iter()
-            .filter(|segment| segment.control.is_none())
-            .map(|segment| segment.text.as_ref())
-            .collect::<String>();
-        if plain.is_empty() {
-            return None;
-        }
-        let mut spans: Vec<(usize, usize, char)> = Vec::new();
-        let mut cell = 0usize;
-        for ch in plain.chars() {
-            let width = rich_rs::cell_len(&ch.to_string()).max(1);
-            let start = cell;
-            let end = cell.saturating_add(width);
-            spans.push((start, end, ch));
-            cell = end;
-        }
-        if spans.is_empty() {
-            return None;
-        }
-        let first = spans.iter().position(|(_, _, ch)| !ch.is_whitespace())?;
-        let last = spans
-            .iter()
-            .rposition(|(_, _, ch)| !ch.is_whitespace())
-            .unwrap_or(first);
-        Some((spans[first].0, spans[last].1))
-    }
-
     fn line_content_bounds(cache: &MarkdownRenderCache, row: usize) -> (usize, usize) {
         let line_len = cache
             .lines
@@ -352,7 +336,10 @@ impl Markdown {
             .get(row)
             .copied()
             .unwrap_or((0, line_len));
-        (start.min(line_len), end.min(line_len).max(start.min(line_len)))
+        (
+            start.min(line_len),
+            end.min(line_len).max(start.min(line_len)),
+        )
     }
 
     fn clamp_anchor(
@@ -548,8 +535,7 @@ impl Markdown {
         let height = lines.len().max(1);
         let mut frame = FrameBuffer::from_lines(lines, width.max(1), height, None);
         let (start, end) = Self::normalize_selection(selection);
-        let selection_bg = parse_color_like("#094573")
-            .unwrap_or_else(|| Color::rgb(0, 120, 215));
+        let selection_bg = parse_color_like("#094573").unwrap_or_else(|| Color::rgb(0, 120, 215));
         let selection_fg = parse_color_like("#ffffff")
             .unwrap_or_else(|| Color::rgb(255, 255, 255))
             .flatten_over(selection_bg);
@@ -566,7 +552,11 @@ impl Markdown {
                 .get(row)
                 .map(|line| rich_rs::Segment::get_line_length(line))
                 .unwrap_or(frame.width);
-            let row_end = if row == end.row { end.col } else { row_line_len };
+            let row_end = if row == end.row {
+                end.col
+            } else {
+                row_line_len
+            };
             let (content_start, content_end) = Self::line_content_bounds(cache, row);
             let paint_start = row_start.min(frame.width).max(content_start);
             let paint_end = row_end.min(frame.width).min(content_end);
@@ -608,6 +598,7 @@ impl Widget for Markdown {
 
         if !headings.is_empty() {
             let mut active_heading: Option<(usize, String)> = None;
+            let mut heading_margins: Vec<(usize, usize)> = vec![(0, 0); lines.len()];
             for (line_index, line) in lines.iter_mut().enumerate() {
                 if headings.is_empty() {
                     break;
@@ -623,11 +614,14 @@ impl Widget for Markdown {
                 }
 
                 let mut matched_level: Option<usize> = None;
+                let mut heading_start = false;
+                let mut heading_end = false;
                 if let Some((level, remaining)) = active_heading.take() {
                     if let Some(rest) = Self::consume_heading_fragment(&remaining, trimmed) {
                         matched_level = Some(level);
                         if rest.is_empty() {
                             headings.pop_front();
+                            heading_end = true;
                         } else {
                             active_heading = Some((level, rest.to_string()));
                         }
@@ -640,8 +634,10 @@ impl Widget for Markdown {
                     };
                     if let Some(rest) = Self::consume_heading_fragment(title, trimmed) {
                         matched_level = Some(*level);
+                        heading_start = true;
                         if rest.is_empty() {
                             headings.pop_front();
+                            heading_end = true;
                         } else {
                             active_heading = Some((*level, rest.to_string()));
                         }
@@ -654,21 +650,34 @@ impl Widget for Markdown {
                 let class_name = format!("markdown--h{level}");
                 let component_style =
                     crate::css::resolve_component_style(self, &[class_name.as_str()]);
-                let pre_align_width = rich_rs::Segment::get_line_length(line);
-                let pre_align_content_bounds =
-                    Self::non_whitespace_bounds_from_segments(line).unwrap_or((0, pre_align_width));
-                let style = component_style
-                    .to_rich()
+                let fallback_style = line
+                    .iter()
+                    .find(|segment| segment.control.is_none())
+                    .and_then(|segment| segment.style)
                     .unwrap_or_else(rich_rs::Style::new);
-                for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
-                    // Override markdown heading style to match CSS, avoid inheriting rich heading underline.
-                    segment.style = Some(style);
+                let style = component_style.to_rich().unwrap_or(fallback_style);
+                let heading_text = plain.trim().to_string();
+                line.clear();
+                if !heading_text.is_empty() {
+                    line.push(rich_rs::Segment::styled(heading_text, style));
                 }
-                if let Some(content_align) = component_style.content_align {
+                let pre_align_width = rich_rs::Segment::get_line_length(line);
+                let pre_align_content_bounds = (0, pre_align_width);
+                let horizontal_align = component_style
+                    .content_align
+                    .map(|align| align.horizontal)
+                    .or_else(|| {
+                        if level == 1 {
+                            Some(HorizontalAlign::Center)
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(horizontal) = horizontal_align {
                     let left_pad = Self::apply_horizontal_alignment(
                         line,
                         options.size.0.max(1),
-                        content_align.horizontal,
+                        horizontal,
                         style,
                     );
                     aligned_bounds[line_index] = Some((
@@ -676,6 +685,42 @@ impl Widget for Markdown {
                         left_pad + pre_align_content_bounds.1,
                     ));
                 }
+                let margin = component_style.effective_margin();
+                heading_margins[line_index] = (
+                    if heading_start {
+                        usize::from(margin.top)
+                    } else {
+                        0
+                    },
+                    if heading_end {
+                        usize::from(margin.bottom)
+                    } else {
+                        0
+                    },
+                );
+            }
+
+            if heading_margins
+                .iter()
+                .any(|(top, bottom)| *top > 0 || *bottom > 0)
+            {
+                let mut expanded_lines: Vec<Vec<rich_rs::Segment>> = Vec::new();
+                let mut expanded_bounds: Vec<Option<(usize, usize)>> = Vec::new();
+                for (index, line) in lines.into_iter().enumerate() {
+                    let (top, bottom) = heading_margins[index];
+                    for _ in 0..top {
+                        expanded_lines.push(Vec::new());
+                        expanded_bounds.push(Some((0, 0)));
+                    }
+                    expanded_lines.push(line);
+                    expanded_bounds.push(aligned_bounds[index]);
+                    for _ in 0..bottom {
+                        expanded_lines.push(Vec::new());
+                        expanded_bounds.push(Some((0, 0)));
+                    }
+                }
+                lines = expanded_lines;
+                aligned_bounds = expanded_bounds;
             }
         }
 
@@ -688,7 +733,9 @@ impl Widget for Markdown {
             .map(|line| (0, Self::line_text_len(line)))
             .collect::<Vec<_>>();
         for (row, bounds) in aligned_bounds.into_iter().enumerate() {
-            if let Some((start, end)) = bounds && row < content_bounds.len() {
+            if let Some((start, end)) = bounds
+                && row < content_bounds.len()
+            {
                 content_bounds[row] = (start, end);
             }
         }
@@ -714,33 +761,44 @@ impl Widget for Markdown {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let intrinsic = if self.layout_width > 0 {
+        let base = if self.layout_width > 0 {
             self.markup
                 .lines()
-                .map(|line| rich_rs::cell_len(line).div_ceil(self.layout_width).max(1))
+                .map(|line| {
+                    let display = Self::heading_level_and_text(line)
+                        .map(|(_, heading)| heading)
+                        .unwrap_or(line);
+                    rich_rs::cell_len(display)
+                        .div_ceil(self.layout_width)
+                        .max(1)
+                })
                 .sum::<usize>()
                 .max(1)
         } else {
             self.markup.lines().count().max(1)
         };
+        let heading_margin_rows = self
+            .markup
+            .lines()
+            .filter_map(Self::heading_level_and_text)
+            .map(|(level, _)| {
+                let class_name = format!("markdown--h{level}");
+                let component_style =
+                    crate::css::resolve_component_style(self, &[class_name.as_str()]);
+                let margin = component_style.effective_margin();
+                usize::from(margin.top) + usize::from(margin.bottom)
+            })
+            .sum::<usize>();
+        let intrinsic = base.saturating_add(heading_margin_rows).max(1);
         fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
     }
 
     fn content_width(&self) -> Option<usize> {
-        let content_width = self
-            .markup
-            .lines()
-            .map(rich_rs::cell_len)
-            .max()
-            .unwrap_or(0)
-            .max(1);
-        // Keep `width: auto` consistent with Textual defaults: intrinsic width
-        // should include horizontal padding from resolved CSS.
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let pad_lr = usize::from(padding.left.saturating_add(padding.right));
-        Some(content_width.saturating_add(pad_lr))
+        // Python Textual's Markdown block model expands horizontally and applies
+        // heading/content alignment within that full region. Returning an intrinsic
+        // width hint here makes `width:auto` shrink to longest line, which breaks
+        // H1 centering parity in TabbedContent panes.
+        None
     }
 
     fn style_id(&self) -> Option<&str> {
