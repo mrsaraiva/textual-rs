@@ -587,11 +587,35 @@ impl App {
         }
     }
 
+    /// Return the active widget tree (top screen tree when a screen is pushed,
+    /// otherwise the app root tree).
+    pub(super) fn active_widget_tree(&self) -> Option<&WidgetTree> {
+        self.screen_stack
+            .top()
+            .map(|entry| &entry.widget_tree)
+            .or(self.widget_tree.as_ref())
+    }
+
+    /// Mutable variant of [`Self::active_widget_tree`].
+    pub(super) fn active_widget_tree_mut(&mut self) -> Option<&mut WidgetTree> {
+        if let Some(entry) = self.screen_stack.top_mut() {
+            return Some(&mut entry.widget_tree);
+        }
+        self.widget_tree.as_mut()
+    }
+
+    /// Return active screen stylesheet override, when a screen is pushed.
+    pub(super) fn active_screen_stylesheet(&self) -> Option<&StyleSheet> {
+        self.screen_stack
+            .top()
+            .and_then(|entry| entry.stylesheet.as_ref())
+    }
+
     /// Query nodes in the active arena tree using a CSS selector.
     ///
     /// Returns a snapshot query object in tree traversal order.
     pub fn query(&self, selector: &str) -> std::result::Result<DomQuery, QueryError> {
-        match self.widget_tree.as_ref() {
+        match self.active_widget_tree() {
             Some(tree) => tree.query(selector).map(DomQuery::from_nodes),
             None => {
                 Self::validate_selector(selector)?;
@@ -624,7 +648,7 @@ impl App {
 
     /// Query immediate children of the tree root.
     pub fn query_children(&self, selector: &str) -> std::result::Result<DomQuery, QueryError> {
-        match self.widget_tree.as_ref() {
+        match self.active_widget_tree() {
             Some(tree) => match tree.root() {
                 Some(root) => tree
                     .query_children(root, selector)
@@ -644,7 +668,7 @@ impl App {
         node_id: NodeId,
         selector: &str,
     ) -> std::result::Result<NodeId, QueryError> {
-        let Some(tree) = self.widget_tree.as_ref() else {
+        let Some(tree) = self.active_widget_tree() else {
             Self::validate_selector(selector)?;
             return Err(QueryError::NoMatch);
         };
@@ -674,7 +698,7 @@ impl App {
     pub fn get_child_by_type<T: Widget + 'static>(
         &self,
     ) -> std::result::Result<NodeId, QueryError> {
-        let Some(tree) = self.widget_tree.as_ref() else {
+        let Some(tree) = self.active_widget_tree() else {
             return Err(QueryError::NoMatch);
         };
         let Some(root) = tree.root() else {
@@ -712,7 +736,7 @@ impl App {
         &mut self,
         widget: Box<dyn Widget>,
     ) -> std::result::Result<NodeId, QueryError> {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return Err(QueryError::NoMatch);
         };
         let Some(root) = tree.root() else {
@@ -728,7 +752,7 @@ impl App {
         &mut self,
         widgets: Vec<Box<dyn Widget>>,
     ) -> std::result::Result<(), QueryError> {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return Err(QueryError::NoMatch);
         };
         let Some(root) = tree.root() else {
@@ -791,7 +815,7 @@ impl App {
     }
 
     fn set_focus_node(&mut self, node_id: NodeId) -> bool {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return false;
         };
         if !tree.contains(node_id) || !tree.is_displayed(node_id) {
@@ -813,6 +837,42 @@ impl App {
         false
     }
 
+    fn focus_first_in_active_tree(&mut self) -> bool {
+        let Some(tree) = self.active_widget_tree_mut() else {
+            return false;
+        };
+        let mut focus_chain = collect_focus_chain_tree(tree);
+        if focus_chain.is_empty()
+            && let Some(root) = tree.root()
+        {
+            focus_chain = tree
+                .walk_depth_first(root)
+                .into_iter()
+                .filter(|&id| {
+                    tree.get(id)
+                        .map(|node| node.widget.focusable())
+                        .unwrap_or(false)
+                })
+                .collect();
+        }
+        let Some(&first) = focus_chain.first() else {
+            return false;
+        };
+        let current = focused_node_id_tree(tree);
+        if let Some(current) = current
+            && current != first
+            && let Some(node) = tree.get_mut(current)
+        {
+            node.widget.set_focus(false);
+        }
+        if let Some(node) = tree.get_mut(first) {
+            let changed = !node.widget.has_focus();
+            node.widget.set_focus(true);
+            return changed;
+        }
+        false
+    }
+
     pub fn action_focus(&mut self, widget_id: &str) -> std::result::Result<bool, QueryError> {
         let selector = format!("#{widget_id}");
         let target = match self.query_one(&selector) {
@@ -824,7 +884,7 @@ impl App {
     }
 
     pub fn action_focus_next(&mut self) -> bool {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return false;
         };
         let focus_chain = collect_focus_chain_tree(tree);
@@ -842,7 +902,7 @@ impl App {
     }
 
     pub fn action_focus_previous(&mut self) -> bool {
-        let Some(tree) = self.widget_tree.as_mut() else {
+        let Some(tree) = self.active_widget_tree_mut() else {
             return false;
         };
         let focus_chain = collect_focus_chain_tree(tree);
@@ -886,7 +946,7 @@ impl App {
             }
         }
 
-        let focused = self.widget_tree.as_ref().and_then(focused_node_id_tree)?;
+        let focused = self.active_widget_tree().and_then(focused_node_id_tree)?;
         let selected = self
             .with_widget_mut(focused, |widget| widget.get_selection())
             .flatten()?;
@@ -963,8 +1023,7 @@ impl App {
             return;
         };
         let still_valid = self
-            .widget_tree
-            .as_ref()
+            .active_widget_tree()
             .and_then(|tree| tree.get(owner))
             .is_some_and(|node| {
                 node.display && node.visibility == Visibility::Visible && node.widget.allow_select()
@@ -1081,7 +1140,7 @@ impl App {
         if ids.is_empty() {
             return Ok(false);
         }
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             for id in ids {
                 tree.remove(id);
             }
@@ -1094,14 +1153,14 @@ impl App {
         if !self.query("HelpPanel")?.is_empty() {
             return Ok(false);
         }
-        let mut mount_parent = match self.widget_tree.as_ref().and_then(|tree| tree.root()) {
+        let mut mount_parent = match self.active_widget_tree().and_then(|tree| tree.root()) {
             Some(root) => root,
             None => return Ok(false),
         };
 
         if let Ok(command_palette_ids) = self.query("CommandPalette")
             && let Some(command_palette_id) = command_palette_ids.into_ids().first().copied()
-            && let Some(tree) = self.widget_tree.as_ref()
+            && let Some(tree) = self.active_widget_tree()
             && let Some(adapter_id) = tree.get(command_palette_id).and_then(|node| node.parent)
             && let Some(app_content_id) = tree.children(adapter_id).first().copied()
         {
@@ -1111,7 +1170,7 @@ impl App {
             mount_parent = app_content_id;
         }
 
-        if let Some(tree) = self.widget_tree.as_mut() {
+        if let Some(tree) = self.active_widget_tree_mut() {
             tree.mount(mount_parent, Box::new(HelpPanel::new()));
             // A newly mounted HelpPanel needs a fresh broadcast of binding hints and
             // focused-help payload, even when those values are unchanged.
@@ -1242,7 +1301,7 @@ impl App {
 
     fn request_query_refresh(&mut self, nodes: &[NodeId]) {
         let queued: Vec<NodeId> = {
-            let Some(tree) = self.widget_tree.as_ref() else {
+            let Some(tree) = self.active_widget_tree() else {
                 self.clear_on_next_render = true;
                 return;
             };
@@ -1284,8 +1343,7 @@ impl App {
         node_id: NodeId,
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
-        self.widget_tree
-            .as_mut()?
+        self.active_widget_tree_mut()?
             .get_mut(node_id)
             .map(|node| f(node.widget.as_mut()))
     }
@@ -1386,7 +1444,7 @@ impl App {
     }
 
     /// Recursively mount an already-extracted child widget and its descendants.
-    fn mount_extracted_recursive(
+    pub(crate) fn mount_extracted_recursive(
         tree: &mut WidgetTree,
         parent: NodeId,
         mut widget: Box<dyn Widget>,
@@ -1406,7 +1464,11 @@ impl App {
     }
 
     /// Recursively mount `ChildDecl` declarations into the tree under `parent`.
-    fn mount_declarations(tree: &mut WidgetTree, parent: NodeId, declarations: Vec<ChildDecl>) {
+    pub(crate) fn mount_declarations(
+        tree: &mut WidgetTree,
+        parent: NodeId,
+        declarations: Vec<ChildDecl>,
+    ) {
         for decl in declarations {
             let WidgetBuilder::Ready(mut widget) = decl.builder;
             // Extract children from declared widgets too.
@@ -1639,6 +1701,8 @@ impl App {
     }
 
     fn dispatch_screen_lifecycle_event(&mut self, event: Event) {
+        // App-level lifecycle messages target the runtime root tree.
+        // ScreenStack handles per-screen suspend/resume through Screen hooks.
         let Some(tree) = self.widget_tree.as_mut() else {
             return;
         };
@@ -1719,6 +1783,7 @@ impl App {
     pub fn push_screen(&mut self, screen: Box<dyn crate::screen::Screen>) {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push(screen);
+        let _ = self.focus_first_in_active_tree();
     }
 
     /// Push a screen onto the screen stack with a result callback.
@@ -1732,6 +1797,7 @@ impl App {
     ) {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push_with_callback(screen, callback);
+        let _ = self.focus_first_in_active_tree();
     }
 
     /// Dismiss the topmost screen with an optional result value.
@@ -1841,6 +1907,7 @@ impl App {
 
         // Push the new mode screen with its mode tag.
         self.screen_stack.push_mode(new_screen, name.to_string());
+        let _ = self.focus_first_in_active_tree();
         self.current_mode = Some(name.to_string());
         self.dispatch_screen_lifecycle_event(Event::ScreenResume);
         true
@@ -1926,7 +1993,7 @@ impl App {
             // - In root-only mode, the root widget is the only dispatch target.
             //
             // In both cases, forward through the real root widget.
-            if self.widget_tree.is_some() {
+            if self.active_widget_tree().is_some() {
                 debug_input(&format!(
                     "[hover] fallback root-move via real-root screen=({}, {})",
                     x, y
@@ -2007,7 +2074,7 @@ impl App {
             return None;
         }
 
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             if !tree.contains(target) {
                 return None;
             }
@@ -2018,7 +2085,7 @@ impl App {
 
     fn widget_at_auto(&self, x: u16, y: u16) -> Option<NodeId> {
         let frame_target = self.widget_at(x, y);
-        if let Some(tree) = self.widget_tree.as_ref() {
+        if let Some(tree) = self.active_widget_tree() {
             let tree_target = widget_at_tree_layout(tree, x, y);
             let chosen_raw = choose_deeper_target(tree, frame_target, tree_target);
             // Guard tree-only fallback with frame geometry presence to avoid
@@ -2079,7 +2146,7 @@ impl App {
         screen_x: u16,
         screen_y: u16,
     ) -> (u16, u16) {
-        if let Some(tree) = &self.widget_tree {
+        if let Some(tree) = self.active_widget_tree() {
             if tree.contains(target) {
                 let coords = tree_content_local_coords(tree, target, screen_x, screen_y);
                 debug_input(&format!(
@@ -2364,7 +2431,7 @@ mod tests {
     use super::*;
     use crate::event::{BindingHint, EventCtx};
     use crate::widget_tree::QueryError;
-    use crate::widgets::{AppRoot, BindingDecl, Button, Label};
+    use crate::widgets::{AppRoot, BindingDecl, Button, Label, Node};
     use rich_rs::Segments;
     use rich_rs::{Console, ConsoleOptions};
 
@@ -3216,6 +3283,96 @@ mod tests {
             log.lock().expect("log lock").as_slice(),
             &["suspend", "resume"]
         );
+    }
+
+    #[test]
+    fn queries_resolve_against_active_screen_tree_when_screen_is_pushed() {
+        struct BaseMarker;
+        impl Widget for BaseMarker {
+            fn style_type(&self) -> &'static str {
+                "BaseMarker"
+            }
+
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct ScreenMarker;
+        impl Widget for ScreenMarker {
+            fn style_type(&self) -> &'static str {
+                "ScreenMarker"
+            }
+
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct QueryScreen;
+        impl crate::screen::Screen for QueryScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(AppRoot::new().with_child(ScreenMarker))
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root, Box::new(BaseMarker));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.add_mode("overlay", || Box::new(QueryScreen));
+
+        assert!(app.query_one("BaseMarker").is_ok());
+        assert!(matches!(
+            app.query_one("ScreenMarker"),
+            Err(QueryError::NoMatch)
+        ));
+
+        assert!(app.action_push_screen("overlay"));
+        assert!(app.query_one("ScreenMarker").is_ok());
+        assert!(matches!(
+            app.query_one("BaseMarker"),
+            Err(QueryError::NoMatch)
+        ));
+
+        assert!(app.action_pop_screen());
+        assert!(app.query_one("BaseMarker").is_ok());
+        assert!(matches!(
+            app.query_one("ScreenMarker"),
+            Err(QueryError::NoMatch)
+        ));
+    }
+
+    #[test]
+    fn push_screen_focuses_first_focusable_widget_in_screen_tree() {
+        struct FocusScreen;
+        impl crate::screen::Screen for FocusScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(
+                    AppRoot::new()
+                        .with_child(Node::new(Button::new("First")).id("first"))
+                        .with_child(Node::new(Button::new("Second")).id("second")),
+                )
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        tree.set_root(Box::new(AppRoot::new()));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.add_mode("focus", || Box::new(FocusScreen));
+
+        assert!(app.action_push_screen("focus"));
+
+        let buttons = app.query("Button").expect("button query should resolve");
+        assert_eq!(buttons.len(), 2);
+        let first = buttons.ids()[0];
+        let second = buttons.ids()[1];
+        assert_eq!(app.with_widget_mut(first, |w| w.has_focus()), Some(true));
+        assert_eq!(app.with_widget_mut(second, |w| w.has_focus()), Some(false));
     }
 
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {

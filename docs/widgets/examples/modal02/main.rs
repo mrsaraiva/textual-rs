@@ -1,0 +1,95 @@
+use rich_rs::Segments;
+use textual::compose;
+use textual::prelude::*;
+
+const TEXT: &str = "I must not fear.\nFear is the mind-killer.\nFear is the little-death that brings total obliteration.\nI will face my fear.\nI will permit it to pass over me and through me.\nAnd when it has gone past, I will turn the inner eye to see its path.\nWhere the fear has gone there will be nothing. Only I will remain.";
+
+struct QuitDialogRoot;
+
+impl Widget for QuitDialogRoot {
+    fn style_type(&self) -> &'static str {
+        "QuitScreen"
+    }
+
+    fn compose(&self) -> ComposeResult {
+        compose![Node::new(
+            Grid::new(2, 2)
+                .with_cell(
+                    0,
+                    0,
+                    Node::new(Label::new("Are you sure you want to quit?")).id("question"),
+                )
+                .with_cell(1, 0, Node::new(Button::error("Quit")).id("quit"))
+                .with_cell(1, 1, Node::new(Button::primary("Cancel")).id("cancel")),
+        )
+        .id("dialog")]
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
+            if description.contains("variant='error'") {
+                ctx.request_stop();
+            } else {
+                ctx.post_message(Message::AppPopScreen(AppPopScreen));
+            }
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
+    }
+
+    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let mut out = Segments::new();
+        for row in 0..height {
+            out.push(rich_rs::Segment::new(" ".repeat(width)));
+            if row + 1 < height {
+                out.push(rich_rs::Segment::line());
+            }
+        }
+        out
+    }
+}
+
+struct QuitScreen;
+
+impl Screen for QuitScreen {
+    fn name(&self) -> &str {
+        "QuitScreen"
+    }
+
+    fn compose(&self) -> Box<dyn Widget> {
+        Box::new(QuitDialogRoot)
+    }
+
+    fn css(&self) -> Option<&str> {
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/shared/modal01.tcss"
+        ))
+    }
+}
+
+struct Modal02App;
+
+impl TextualApp for Modal02App {
+    fn bindings(&self) -> Vec<BindingDecl> {
+        vec![BindingDecl::new("q", "app.push_screen('quit')", "Quit")]
+    }
+
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+            .with_child(Header::new().title("ModalApp"))
+            .with_child(Label::new(TEXT.repeat(8)))
+            .with_child(Footer::new())
+    }
+
+    fn configure(&mut self, app: &mut App) -> Result<()> {
+        app.add_mode("quit", || Box::new(QuitScreen));
+        Ok(())
+    }
+}
+
+fn main() -> Result<()> {
+    run_sync(Modal02App)
+}

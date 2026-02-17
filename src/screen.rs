@@ -14,6 +14,7 @@
 use crate::css::StyleSheet;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
+use std::fs;
 
 // ---------------------------------------------------------------------------
 // Screen trait
@@ -201,15 +202,30 @@ impl ScreenStack {
             top.screen.on_suspend();
         }
 
-        // Build the widget tree from the screen's compose output.
+        // Build the widget tree from the screen's compose output, extracting
+        // composed children/declarations into the arena like the app root path.
         let root_widget = screen.compose();
         let mut widget_tree = WidgetTree::new();
-        widget_tree.set_root(root_widget);
+        let root_id = widget_tree.set_root(root_widget);
+        let (extracted_children, compose_decls) = widget_tree
+            .get_mut(root_id)
+            .map(|node| (node.widget.take_composed_children(), node.widget.compose()))
+            .unwrap_or_default();
+        for child in extracted_children {
+            crate::runtime::App::mount_extracted_recursive(&mut widget_tree, root_id, child);
+        }
+        if !compose_decls.is_empty() {
+            crate::runtime::App::mount_declarations(&mut widget_tree, root_id, compose_decls);
+        }
         // Drain initial lifecycle events (mount events from tree construction).
         let _ = widget_tree.drain_lifecycle();
 
         // Parse the screen's CSS stylesheet (if provided).
-        let stylesheet = screen.css().map(StyleSheet::parse);
+        // Accept either inline CSS text or a filesystem path.
+        let stylesheet = screen.css().map(|css| {
+            let css_text = fs::read_to_string(css).unwrap_or_else(|_| css.to_string());
+            StyleSheet::parse(&css_text)
+        });
 
         // Mount the new screen.
         screen.on_mount();

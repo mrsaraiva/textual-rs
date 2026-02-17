@@ -961,6 +961,11 @@ impl VerticalScroll {
         self
     }
 
+    pub fn set_virtual_content_size(&self, _width: usize, height: usize) {
+        self.content_height
+            .store(height.max(1), std::sync::atomic::Ordering::Relaxed);
+    }
+
     fn is_tree_mode(&self) -> bool {
         self.children_extracted
     }
@@ -1551,6 +1556,11 @@ impl HorizontalScroll {
     pub fn scroll_step_x(mut self, step: usize) -> Self {
         self.scroll_step_x = step.max(1);
         self
+    }
+
+    pub fn set_virtual_content_size(&self, width: usize, _height: usize) {
+        self.content_width
+            .store(width.max(1), std::sync::atomic::Ordering::Relaxed);
     }
 
     fn is_tree_mode(&self) -> bool {

@@ -13,6 +13,12 @@ until the API stabilizes.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).
   - Added regression coverage for action dispatch routing and button action message emission.
 
+- **fix(screen/runtime parity): route core operations through active screen tree and add modal docs demos**
+  - Added active-tree helpers (`active_widget_tree*`) and switched query/focus/selection/render/routing paths to target the active pushed screen tree when present.
+  - Screen stack mount now extracts composed children/declarations into the arena tree and accepts either inline CSS text or CSS file paths for `Screen::css()`.
+  - Render/layout paths now include active screen stylesheet during style resolution and propagate tree-mode virtual content extents into scroll containers.
+  - Added docs-widget modal demos `modal01`, `modal02`, and `modal03` plus shared `modal01.tcss`, and updated `docs/widgets/README.md`.
+
 - **chore(examples): start split between docs-widget demos and app-style examples**
   - Added dedicated docs examples crate at `docs/widgets` to mirror Python docs-widget examples without growing root manifest entries.
   - Moved `tabbed_content` and `tabbed_content_label_color` examples into `docs/widgets/examples/...` via `git mv` (history preserved), including associated TCSS.

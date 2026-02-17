@@ -22,6 +22,9 @@ Current migrated examples:
 - `input_validation`
 - `keys`
 - `modal`
+- `modal01`
+- `modal02`
+- `modal03`
 - `rich_log`
 - `tabbed_content`
 - `tabbed_content_label_color`

@@ -88,6 +88,9 @@ impl App {
         self.refresh_size()?;
         let mut sheet = self.default_stylesheet.clone();
         sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = self.active_screen_stylesheet() {
+            sheet.extend(screen_sheet);
+        }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             inline: self.app_inline,
@@ -101,8 +104,8 @@ impl App {
         // This computes layout_rect/content_rect for all tree nodes before
         // rendering, so precomputed rects are available for widget sizing.
         if layout_invalidation {
-            if let Some(tree) = self.widget_tree.as_mut() {
-                let (w, h) = self.options.size;
+            let (w, h) = self.options.size;
+            if let Some(tree) = self.active_widget_tree_mut() {
                 run_layout_pass(tree, (w as u16, h as u16));
                 apply_layout_info_tree_from_layout_rects(tree);
                 let render_nodes = collect_render_nodes(tree);
@@ -117,7 +120,7 @@ impl App {
 
         // Tree-driven render path: walk the arena tree depth-first,
         // rendering each widget at its layout_rect position.
-        if self.widget_tree.is_some() {
+        if self.active_widget_tree().is_some() {
             return self.render_tree_composed(widget, dirty_regions, layout_invalidation);
         }
 
@@ -200,7 +203,7 @@ impl App {
     /// single FrameBuffer.
     ///
     /// This replaces the legacy recursive `render_styled()` path when the
-    /// tree is populated (i.e., `self.widget_tree` is `Some`).
+    /// active tree is populated.
     fn render_tree_composed(
         &mut self,
         widget: &mut dyn Widget,
@@ -212,23 +215,44 @@ impl App {
 
         // Take tree out of self to avoid borrow conflicts — we need &tree for
         // reading widgets and &mut self for frame/notifications/output.
-        let tree = self.widget_tree.take().unwrap();
+        let (tree, using_screen_tree) = if let Some(entry) = self.screen_stack.top_mut() {
+            (std::mem::take(&mut entry.widget_tree), true)
+        } else {
+            (self.widget_tree.take().expect("tree should exist"), false)
+        };
 
         let mut next = FrameBuffer::new(width, height, base_style);
 
-        // Render the real root widget first. Its children have been extracted,
+        // Render the active root widget first. Its children have been extracted,
         // so this produces only the root's CSS chrome (background, border, padding).
         let root_node_id = tree.root().unwrap_or_default();
-        let root_segments = widget.render_styled_dyn_obj(
-            &self.console,
-            &self.options,
-            if self.debug_layout.enabled {
-                Some(&self.debug_layout)
-            } else {
-                None
-            },
-            root_node_id,
-        );
+        let root_segments = if using_screen_tree {
+            tree.get(root_node_id)
+                .map(|node| {
+                    node.widget.render_styled_dyn_obj(
+                        &self.console,
+                        &self.options,
+                        if self.debug_layout.enabled {
+                            Some(&self.debug_layout)
+                        } else {
+                            None
+                        },
+                        root_node_id,
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            widget.render_styled_dyn_obj(
+                &self.console,
+                &self.options,
+                if self.debug_layout.enabled {
+                    Some(&self.debug_layout)
+                } else {
+                    None
+                },
+                root_node_id,
+            )
+        };
         let root_lines = Segment::split_and_crop_lines(root_segments, width, None, true, false);
         for (row, line) in root_lines.iter().enumerate() {
             next.write_line_at(0, row, line, true);
@@ -238,8 +262,15 @@ impl App {
         // its layout_rect position with CSS style stack management.
         if let Some(root_id) = tree.root() {
             // Push root widget's style context so children can inherit.
-            let root_meta = selector_meta_generic(widget);
-            let root_resolved = resolve_style(widget, &root_meta);
+            let root_widget: &dyn Widget = if using_screen_tree {
+                tree.get(root_id)
+                    .map(|node| node.widget.as_ref())
+                    .unwrap_or(widget)
+            } else {
+                widget
+            };
+            let root_meta = selector_meta_generic(root_widget);
+            let root_resolved = resolve_style(root_widget, &root_meta);
             push_style_context(root_meta, root_resolved);
 
             let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
@@ -258,7 +289,11 @@ impl App {
         let layout_affected_style_change = take_layout_affected_style_changes();
 
         // Put tree back before the rest of the pipeline.
-        self.widget_tree = Some(tree);
+        if let Some(entry) = self.screen_stack.top_mut() {
+            entry.widget_tree = tree;
+        } else {
+            self.widget_tree = Some(tree);
+        }
 
         self.compose_notifications(&mut next);
         self.compose_hover_tooltip(&mut next);
@@ -1758,7 +1793,17 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
     };
     let node_ids = tree.walk_depth_first(root);
     for node_id in node_ids {
-        let (full_w, full_h, line_pad, top, bottom, left, right) = {
+        let (
+            full_w,
+            full_h,
+            line_pad,
+            top,
+            bottom,
+            left,
+            right,
+            virtual_content_w,
+            virtual_content_h,
+        ) = {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
@@ -1772,7 +1817,29 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
             let (top, bottom, left, right) = border_spacing_from_style(&resolved);
             let full_w = rect.x1.saturating_sub(rect.x0) as usize;
             let full_h = rect.y1.saturating_sub(rect.y0) as usize;
-            (full_w, full_h, line_pad, top, bottom, left, right)
+            let content_rect = node.content_rect;
+            let mut virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
+            let mut virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+
+            // For tree-mode scroll containers, derive virtual content extent
+            // from laid-out child bounds so scrollbars/offset limits are correct.
+            for &child_id in tree.children(node_id) {
+                let Some(child) = tree.get(child_id) else {
+                    continue;
+                };
+                if !child.display {
+                    continue;
+                }
+                let child_rect = child.layout_rect;
+                let child_extent_x = child_rect.x1.saturating_sub(content_rect.x0) as usize;
+                let child_extent_y = child_rect.y1.saturating_sub(content_rect.y0) as usize;
+                virtual_w = virtual_w.max(child_extent_x);
+                virtual_h = virtual_h.max(child_extent_y);
+            }
+
+            (
+                full_w, full_h, line_pad, top, bottom, left, right, virtual_w, virtual_h,
+            )
         };
 
         let content_w = full_w
@@ -1783,6 +1850,16 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
 
         if let Some(node) = tree.get_mut(node_id) {
             node.widget.on_layout(content_w, content_h);
+            let any = node.widget.as_mut() as &mut dyn std::any::Any;
+            if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
+                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
+            }
+            if let Some(scroll) = any.downcast_mut::<crate::widgets::VerticalScroll>() {
+                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
+            }
+            if let Some(scroll) = any.downcast_mut::<crate::widgets::HorizontalScroll>() {
+                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
+            }
         }
     }
 }
@@ -2123,6 +2200,52 @@ mod tests {
         assert!(
             lr.x1 > lr.x0 || lr.y1 > lr.y0 || (lr.x0 == 0 && lr.y0 == 0),
             "child should have a non-degenerate or zero-origin layout rect"
+        );
+    }
+
+    #[test]
+    fn layout_info_sets_vertical_scroll_virtual_content_in_tree_mode() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{Label, VerticalScroll};
+        use rich_rs::{Console, ConsoleOptions, Segment};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(
+            VerticalScroll::new().with_child(Label::new("line\n".repeat(80))),
+        ));
+
+        // Enter tree mode by extracting children into the arena tree.
+        let children = {
+            let root = tree.get_mut(root_id).expect("root exists");
+            root.widget.take_composed_children()
+        };
+        for child in children {
+            tree.mount(root_id, child);
+        }
+
+        run_layout_pass(&mut tree, (40, 10));
+        apply_layout_info_tree_from_layout_rects(&mut tree);
+
+        let console = Console::default();
+        let mut options = ConsoleOptions::default();
+        options.size = (40, 10);
+        options.max_width = 40;
+        options.max_height = 10;
+
+        let root = tree.get(root_id).expect("root exists");
+        let rendered = root.widget.render_styled(&console, &options);
+        let lines = Segment::split_and_crop_lines(rendered, 40, None, true, false);
+        assert_eq!(
+            lines.len(),
+            10,
+            "vertical scroll should render full viewport"
+        );
+        assert!(
+            lines.iter().any(|line| line.len() > 1),
+            "tree-mode vertical scroll should paint scrollbar chrome when content exceeds viewport"
         );
     }
 

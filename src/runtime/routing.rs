@@ -595,8 +595,26 @@ pub(crate) fn match_binding_tree(
     tree: &WidgetTree,
     key: &KeyEventData,
 ) -> Option<(NodeId, String)> {
-    let focus_id = focused_node_id_tree(tree)?;
-    let path = build_path_to_node(tree, focus_id);
+    let path = if let Some(focus_id) = focused_node_id_tree(tree) {
+        build_path_to_node(tree, focus_id)
+    } else {
+        // No focused widget: fall back to root + single-child chain so
+        // app-level/root declarative bindings still work.
+        let Some(root) = tree.root() else {
+            return None;
+        };
+        let mut path = vec![root];
+        let mut current = root;
+        loop {
+            let children = tree.children(current);
+            if children.len() != 1 {
+                break;
+            }
+            current = children[0];
+            path.push(current);
+        }
+        path
+    };
 
     // Phase 1: priority bindings (focused → root)
     for &node_id in path.iter().rev() {
@@ -2284,16 +2302,19 @@ mod binding_tests {
     }
 
     #[test]
-    fn match_binding_no_focus_returns_none() {
+    fn match_binding_no_focus_uses_root_scope_fallback() {
         let mut tree = WidgetTree::new();
-        let _root_id = tree.set_root(Box::new(BindingWidget::new(
+        let root_id = tree.set_root(Box::new(BindingWidget::new(
             false,
             vec![BindingDecl::new("enter", "submit", "Submit")],
         )));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
         let result = match_binding_tree(&tree, &key);
-        assert!(result.is_none());
+        assert!(result.is_some());
+        let (node_id, action) = result.unwrap();
+        assert_eq!(node_id, root_id);
+        assert_eq!(action, "submit");
     }
 
     // -- binding hints integration --
