@@ -196,6 +196,7 @@ impl Renderable for Label {
 #[derive(Debug, Clone)]
 pub struct Markdown {
     markup: String,
+    id: Option<String>,
     layout_width: usize,
     styles: WidgetStyles,
 }
@@ -204,9 +205,15 @@ impl Markdown {
     pub fn new(markup: impl Into<String>) -> Self {
         Self {
             markup: markup.into(),
+            id: None,
             layout_width: 0,
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn set_markup(&mut self, markup: impl Into<String>) {
@@ -387,6 +394,10 @@ impl Widget for Markdown {
         let padding = resolved.effective_padding();
         let pad_lr = usize::from(padding.left.saturating_add(padding.right));
         Some(content_width.saturating_add(pad_lr))
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

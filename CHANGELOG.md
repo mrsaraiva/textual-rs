@@ -44,6 +44,13 @@ until the API stabilizes.
   - Removed Rust-only key table headers/dividers and the extra KeyPanel title row to align HelpPanel visual structure with Python.
   - Added regression test `binding_hints_filter_system_entries_only`.
 
+- **css parity(help-panel/key-panel): align default selector surface with Python IDs/rules**
+  - Added Python-parity ID wiring for help widgets: `Markdown#widget-help`, `KeyPanel#keys-help`, and `BindingsTable#bindings-table`.
+  - Added CSS parity rules in defaults for:
+    - `HelpPanel > #widget-help:ansi`
+    - `HelpPanel > KeyPanel#keys-help` with `min-width: initial` and `split: initial`
+    - `#widget-help` reset lines (`padding: 0; margin: 0;`) before final values.
+
 - **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
   - `SystemCommandsProvider` now matches Python-style behavior:
     - discovery (`query == ""`) is alphabetical by title,

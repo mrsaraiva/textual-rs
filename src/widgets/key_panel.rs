@@ -16,6 +16,7 @@ use super::{ScrollView, Widget, WidgetStyles};
 #[derive(Debug, Clone)]
 pub struct BindingsTable {
     bindings: Vec<FooterBinding>,
+    id: Option<String>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -24,9 +25,15 @@ impl BindingsTable {
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
+            id: None,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn with_bindings(mut self, bindings: Vec<FooterBinding>) -> Self {
@@ -168,6 +175,10 @@ impl Widget for BindingsTable {
         }
     }
 
+    fn style_id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
     fn styles(&self) -> Option<&WidgetStyles> {
         Some(&self.styles)
     }
@@ -185,6 +196,7 @@ impl Renderable for BindingsTable {
 
 #[derive(Debug)]
 pub struct KeyPanel {
+    id: Option<String>,
     title: String,
     table: BindingsTable,
     offset_y: usize,
@@ -201,8 +213,9 @@ pub struct KeyPanel {
 impl KeyPanel {
     pub fn new() -> Self {
         Self {
+            id: None,
             title: "Key Bindings".to_string(),
-            table: BindingsTable::new(),
+            table: BindingsTable::new().with_id("bindings-table"),
             offset_y: 0,
             scroll_step: 1,
             content_height: AtomicUsize::new(1),
@@ -217,6 +230,11 @@ impl KeyPanel {
 
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
+        self
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
         self
     }
 
@@ -505,6 +523,10 @@ impl Widget for KeyPanel {
         } else {
             &self.classes
         }
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

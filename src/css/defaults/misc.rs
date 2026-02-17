@@ -333,10 +333,16 @@ HelpPanel > #widget-help {
     height: auto;
     max-height: 50%;
     width: 1fr;
+    padding: 0;
+    margin: 0;
     padding: 1 0;
     margin-top: 1;
     display: none;
     bg: $panel;
+}
+
+HelpPanel > #widget-help:ansi {
+    bg: ansi_default;
 }
 
 HelpPanel.-show-help > #widget-help {
@@ -348,9 +354,11 @@ HelpPanel > #widget-help > MarkdownBlock {
     padding-right: 2;
 }
 
-HelpPanel > KeyPanel {
+HelpPanel > KeyPanel#keys-help {
     width: 1fr;
     height: 1fr;
+    min-width: initial;
+    split: initial;
     border-left: none;
     padding: 0;
 }

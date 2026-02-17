@@ -28,8 +28,8 @@ pub struct HelpPanel {
 impl HelpPanel {
     pub fn new() -> Self {
         Self {
-            markdown: Markdown::new(""),
-            key_panel: KeyPanel::new(),
+            markdown: Markdown::new("").with_id("widget-help"),
+            key_panel: KeyPanel::new().with_id("keys-help"),
             show_help: false,
             app_active: true,
             help_markup: String::new(),
