@@ -167,6 +167,13 @@ pub(crate) const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5)
 pub(crate) const TOAST_GAP_ROWS: usize = 1;
 pub(crate) const TOAST_SIDE_MARGIN: usize = 2;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HoverTooltip {
+    pub(crate) text: String,
+    pub(crate) anchor_x: u16,
+    pub(crate) anchor_y: u16,
+}
+
 pub(crate) struct StylesheetWatcher {
     pub(crate) path: PathBuf,
     pub(crate) last_modified: Option<std::time::SystemTime>,

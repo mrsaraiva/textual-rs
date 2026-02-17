@@ -2557,6 +2557,9 @@ impl App {
                                             .request_widget_rect(&self.hit_test, owner);
                                     }
                                 }
+                                if self.update_hover_tooltip(mouse.column, mouse.row) {
+                                    pending_invalidation.request_full_content();
+                                }
                             }
                             MouseEventKind::Down(btn) => {
                                 debug_input(&format!(
@@ -2896,6 +2899,7 @@ impl App {
                     }
                     CrosstermEvent::FocusLost => {
                         self.apply_app_blur_focus_state();
+                        self.clear_hover_tooltip();
                         debug_input("[event] FocusLost");
                         let mut outcome = self.dispatch_event_auto(root, Event::AppFocus(false));
                         self.absorb_outcome(

@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(footer tooltip parity): add Python-style hover tooltip popup + separator-inclusive hover for `^p`**
+  - Added core runtime hover-tooltip composition path:
+    - widgets can now expose optional hover tooltip text via `Widget::tooltip()`,
+    - runtime tracks hovered tooltip state and composes a tooltip bubble near the hovered anchor,
+    - tooltip state is cleared on app blur.
+  - `Footer` now exposes hovered binding tooltip text (including command-palette hint tooltip) through the new widget tooltip hook.
+  - Command-palette footer hover styling now includes the separator cell (`│`) so hover highlight covers the full right hint region.
+  - Added regression test `command_palette_hover_applies_to_separator_cell`.
+
 - **fix(footer/tabs parity): tighten footer spacing and tab-gutter width to Python behavior**
   - Footer non-compact binding spacing now renders tightly (`l Leto  j Jessica  p Paul`) instead of wider Rust-only gaps.
   - Command-palette footer separator now sits directly before the key hint (`│^p`) to match Python placement.

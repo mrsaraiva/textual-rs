@@ -359,6 +359,13 @@ pub trait Widget: Send + Sync + Any {
     fn help_markup(&self) -> Option<&str> {
         None
     }
+    /// Optional tooltip text for hover overlays.
+    ///
+    /// Runtime may query this for the currently hovered widget to show a
+    /// tooltip popup. Return `None` (or empty text) when no tooltip is active.
+    fn tooltip(&self) -> Option<String> {
+        None
+    }
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }

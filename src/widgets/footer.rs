@@ -392,7 +392,19 @@ impl Footer {
     }
 
     fn palette_separator_style(&self) -> rich_rs::Style {
-        self.component_style(&["footer-key--palette-separator"], self.base_style())
+        let mut style = self.component_style(&["footer-key--palette-separator"], self.base_style());
+        if self.hovered_item == Some(HoveredFooterItem::CommandPalette) {
+            let row_bg = self.effective_row_bg();
+            let key_bg = FooterKey::new(String::new(), String::new())
+                .with_command_palette(true)
+                .with_parent_bg(row_bg)
+                .with_hovered(true)
+                .component_style(&["footer-key--key"], rich_rs::Style::new())
+                .bgcolor
+                .unwrap_or(row_bg.to_simple_opaque());
+            style = style.with_bgcolor(key_bg);
+        }
+        style
     }
 
     fn render_binding(
@@ -681,6 +693,14 @@ impl Footer {
             .filter(|b| b.group.as_deref() != Some("command_palette"))
             .nth(flat_index)
     }
+
+    fn hovered_binding(&self) -> Option<&FooterBinding> {
+        match self.hovered_item {
+            Some(HoveredFooterItem::Binding(idx)) => self.binding_at_flat_index(idx),
+            Some(HoveredFooterItem::CommandPalette) => self.command_palette_binding(),
+            None => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -833,6 +853,12 @@ impl Widget for Footer {
         if !hovered {
             self.hovered_item = None;
         }
+    }
+
+    fn tooltip(&self) -> Option<String> {
+        self.hovered_binding()
+            .and_then(|binding| binding.tooltip.clone())
+            .filter(|text| !text.trim().is_empty())
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -1357,6 +1383,49 @@ mod tests {
         assert!(
             line.contains("l Leto  j Jessica  p Paul"),
             "non-compact footer spacing should keep bindings tight like Python; got: {line:?}"
+        );
+    }
+
+    #[test]
+    fn command_palette_hover_applies_to_separator_cell() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut footer = Footer::new();
+        let mut setup_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("j", "Jessica"),
+                BindingHint::new("ctrl+p", "palette")
+                    .with_key_display("^p")
+                    .with_group("command_palette"),
+            ]),
+            &mut setup_ctx,
+        );
+        footer.on_layout(64, 1);
+        let range = footer
+            .command_palette_region(64)
+            .expect("command palette region should exist");
+        let sep_x = range.start as u16;
+        let key_x = (range.start + 1) as u16;
+        assert!(footer.on_mouse_move(key_x, 0), "hover should update state");
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 1);
+        options.max_width = 64;
+        options.max_height = 1;
+        let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
+
+        let sep_bg = buf
+            .get(sep_x as usize, 0)
+            .style
+            .and_then(|style| style.bgcolor);
+        let key_bg = buf
+            .get(key_x as usize, 0)
+            .style
+            .and_then(|style| style.bgcolor);
+        assert_eq!(
+            sep_bg, key_bg,
+            "separator should share hovered command-palette background"
         );
     }
 }

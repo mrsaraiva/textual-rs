@@ -49,8 +49,8 @@ use std::time::{Duration, Instant};
 use tasks::AsyncTaskRuntime;
 use timers::OneShotTimerRuntime;
 use types::{
-    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
-    StylesheetWatcher,
+    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, HoverTooltip,
+    StylesheetReload, StylesheetWatcher,
 };
 
 use helpers::{
@@ -406,6 +406,7 @@ pub struct App {
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
     hovered: Option<NodeId>,
+    hover_tooltip: Option<HoverTooltip>,
     click_tracker: ClickTracker,
     last_render_at: Instant,
     resized_since_last_render: bool,
@@ -515,6 +516,7 @@ impl App {
             stylesheet_watch: None,
             running: true,
             hovered: None,
+            hover_tooltip: None,
             click_tracker: ClickTracker::new(),
             last_render_at: Instant::now(),
             resized_since_last_render: false,
@@ -1934,6 +1936,35 @@ impl App {
         };
 
         hovered_changed || moved_changed
+    }
+
+    pub(super) fn update_hover_tooltip(&mut self, screen_x: u16, screen_y: u16) -> bool {
+        let next = self
+            .hovered
+            .and_then(|id| {
+                self.with_widget_mut(id, |widget| widget.tooltip())
+                    .flatten()
+            })
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty())
+            .map(|text| HoverTooltip {
+                text,
+                anchor_x: screen_x,
+                anchor_y: screen_y,
+            });
+        if self.hover_tooltip == next {
+            return false;
+        }
+        self.hover_tooltip = next;
+        true
+    }
+
+    pub(super) fn clear_hover_tooltip(&mut self) -> bool {
+        if self.hover_tooltip.is_none() {
+            return false;
+        }
+        self.hover_tooltip = None;
+        true
     }
 
     fn set_pointer_shape(&mut self, shape: PointerShape) -> Result<()> {
