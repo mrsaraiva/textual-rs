@@ -37,6 +37,12 @@ until the API stabilizes.
   - This ensures newly mounted help panels receive the next `BindingsChanged` and focused-help updates even when values are unchanged, preventing stale `(no bindings)` sidebars.
   - Added regression test `action_show_help_panel_invalidates_binding_and_help_caches`.
 
+- **fix(key-panel parity): hide hidden/system bindings in HelpPanel key list**
+  - `KeyPanel::set_binding_hints()` now filters out non-visible (`show=false`) and system bindings to match Python key-panel semantics.
+  - Added dedupe for repeated key/description pairs from merged hint sources.
+  - Footer-only grouping metadata is no longer carried into `KeyPanel` rows.
+  - Added regression test `binding_hints_filter_hidden_and_system_entries`.
+
 - **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
   - `SystemCommandsProvider` now matches Python-style behavior:
     - discovery (`query == ""`) is alphabetical by title,

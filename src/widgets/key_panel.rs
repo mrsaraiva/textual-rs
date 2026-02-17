@@ -321,19 +321,22 @@ impl KeyPanel {
     }
 
     pub fn set_binding_hints(&mut self, bindings: &[BindingHint]) {
-        let mapped = bindings
-            .iter()
-            .map(|hint| {
-                let mut binding = FooterBinding::new(
-                    hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
-                    hint.description.clone(),
-                );
-                if let Some(ref group) = hint.group {
-                    binding = binding.with_group(group);
-                }
-                binding
-            })
-            .collect::<Vec<_>>();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut mapped = Vec::new();
+        for hint in bindings {
+            // Python parity: key panel hides non-visible and system bindings.
+            if !hint.show || hint.system {
+                continue;
+            }
+            let key = hint.key_display.clone().unwrap_or_else(|| hint.key.clone());
+            let signature = (key.clone(), hint.description.clone());
+            if !seen.insert(signature) {
+                continue;
+            }
+            // Footer grouping is a footer concern. KeyPanel groups by namespace
+            // in Python, which we model elsewhere.
+            mapped.push(FooterBinding::new(key, hint.description.clone()));
+        }
         self.set_bindings(mapped);
     }
 
@@ -647,6 +650,28 @@ mod tests {
             m.message,
             Message::KeyPanelBindingsUpdated(KeyPanelBindingsUpdated { count: 1 })
         )));
+    }
+
+    #[test]
+    fn binding_hints_filter_hidden_and_system_entries() {
+        let mut panel = KeyPanel::new();
+        let hints = vec![
+            BindingHint::new("ctrl+p", "Palette")
+                .hidden(true)
+                .with_system(true),
+            BindingHint::new("j", "Jessica"),
+            BindingHint::new("j", "Jessica"),
+            BindingHint::new("p", "Paul").with_system(true),
+            BindingHint::new("l", "Leto"),
+        ];
+        panel.set_binding_hints(&hints);
+        assert_eq!(
+            panel.table.bindings,
+            vec![
+                FooterBinding::new("j", "Jessica"),
+                FooterBinding::new("l", "Leto")
+            ]
+        );
     }
 
     #[test]
