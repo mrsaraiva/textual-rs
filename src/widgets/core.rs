@@ -101,6 +101,8 @@ pub struct BindingDecl {
     pub description: String,
     /// Optional extended help shown in key/help panels.
     pub tooltip: Option<String>,
+    /// Optional namespace used by HelpPanel grouping/sectioning.
+    pub namespace: Option<String>,
     /// Whether this binding is displayed in footer/help panels.
     pub show: bool,
     /// Priority bindings are checked before normal bindings across the whole chain.
@@ -114,6 +116,7 @@ impl BindingDecl {
             action: action.to_string(),
             description: description.to_string(),
             tooltip: None,
+            namespace: None,
             show: true,
             priority: false,
         }
@@ -134,6 +137,12 @@ impl BindingDecl {
     /// Attach optional extended help text for key/help panel rows.
     pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    /// Attach an optional namespace/grouping marker for help panel sections.
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
         self
     }
 }

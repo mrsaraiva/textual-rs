@@ -481,8 +481,9 @@ impl App {
                 hint: BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
                     .with_tooltip("Open command palette")
+                    .with_namespace("app")
                     .with_group("command_palette")
-                    .with_priority(true),
+                    .with_priority(false),
             }),
             theme: Theme::default(),
             dark_mode: true,
@@ -1267,6 +1268,7 @@ impl App {
             out.push(
                 BindingHint::new(quit.display_key(), "Quit application")
                     .hidden(true)
+                    .with_namespace("app")
                     .with_priority(true)
                     .with_system(true),
             );
@@ -1275,14 +1277,10 @@ impl App {
             out.push(
                 BindingHint::new(bind.display_key(), action.description())
                     .hidden(true)
+                    .with_namespace("screen")
                     .with_system(true),
             );
         }
-        out.sort_by(|left, right| {
-            left.key
-                .cmp(&right.key)
-                .then_with(|| left.description.cmp(&right.description))
-        });
         out.extend(
             self.custom_binding_hints
                 .iter()
@@ -1303,6 +1301,7 @@ impl App {
                 entry.key.clone(),
                 entry.description.clone(),
                 entry.tooltip.clone(),
+                entry.namespace.clone(),
                 entry.show,
                 entry.key_display.clone(),
                 entry.group.clone(),
@@ -1314,17 +1313,7 @@ impl App {
             }
         }
 
-        let mut prioritized = Vec::new();
-        let mut regular = Vec::new();
-        for entry in deduped {
-            if entry.priority {
-                prioritized.push(entry);
-            } else {
-                regular.push(entry);
-            }
-        }
-        prioritized.extend(regular);
-        prioritized
+        deduped
     }
 
     pub fn set_command_palette_hint(&mut self, enabled: bool) {
@@ -1335,8 +1324,9 @@ impl App {
                     hint: BindingHint::new("ctrl+p", "palette")
                         .with_key_display("^p")
                         .with_tooltip("Open command palette")
+                        .with_namespace("app")
                         .with_group("command_palette")
-                        .with_priority(true),
+                        .with_priority(false),
                 });
             }
         } else {
@@ -1354,8 +1344,9 @@ impl App {
             key,
             hint: BindingHint::new(key.display_key(), description.into())
                 .with_key_display(key_display.into())
+                .with_namespace("app")
                 .with_group("command_palette")
-                .with_priority(true),
+                .with_priority(false),
         });
     }
 

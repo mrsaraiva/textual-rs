@@ -623,7 +623,7 @@ pub(crate) fn match_binding_tree(
     None
 }
 
-/// Collect binding hints along the focused path (root→focused).
+/// Collect binding hints along the focused path (focused→root).
 ///
 /// If no widget has focus, falls back to root + single-child chain.
 pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>) {
@@ -631,16 +631,30 @@ pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>,
         let path = build_path_to_node(tree, focus_id);
         let mut hints = Vec::new();
         let mut sources = Vec::new();
-        for &node_id in &path {
+        for &node_id in path.iter().rev() {
             if let Some(node) = tree.get(node_id) {
                 sources.push(node_id);
-                hints.extend(node.widget.binding_hints());
+                let namespace = node.widget.action_namespace();
+                hints.extend(
+                    node.widget
+                        .binding_hints()
+                        .into_iter()
+                        .map(|hint| match hint.namespace {
+                            Some(_) => hint,
+                            None => hint.with_namespace(namespace),
+                        }),
+                );
                 // Also include hints derived from declarative bindings.
                 for decl in node.widget.bindings() {
                     let mut hint = BindingHint::new(&decl.key, &decl.description)
                         .hidden(!decl.show)
                         .with_key_display(format_binding_key_display(&decl.key))
-                        .with_priority(decl.priority);
+                        .with_priority(decl.priority)
+                        .with_namespace(
+                            decl.namespace
+                                .clone()
+                                .unwrap_or_else(|| namespace.to_string()),
+                        );
                     if let Some(tooltip) = &decl.tooltip {
                         hint = hint.with_tooltip(tooltip.clone());
                     }
@@ -667,12 +681,26 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
     loop {
         if let Some(node) = tree.get(current) {
             sources.push(current);
-            hints.extend(node.widget.binding_hints());
+            let namespace = node.widget.action_namespace();
+            hints.extend(
+                node.widget
+                    .binding_hints()
+                    .into_iter()
+                    .map(|hint| match hint.namespace {
+                        Some(_) => hint,
+                        None => hint.with_namespace(namespace),
+                    }),
+            );
             for decl in node.widget.bindings() {
                 let mut hint = BindingHint::new(&decl.key, &decl.description)
                     .hidden(!decl.show)
                     .with_key_display(format_binding_key_display(&decl.key))
-                    .with_priority(decl.priority);
+                    .with_priority(decl.priority)
+                    .with_namespace(
+                        decl.namespace
+                            .clone()
+                            .unwrap_or_else(|| namespace.to_string()),
+                    );
                 if let Some(tooltip) = &decl.tooltip {
                     hint = hint.with_tooltip(tooltip.clone());
                 }
@@ -1087,9 +1115,9 @@ mod message_tests {
         assert_eq!(
             hints,
             vec![
-                BindingHint::new("tab", "next focus"),
-                BindingHint::new("left", "back"),
-                BindingHint::new("enter", "activate")
+                BindingHint::new("enter", "activate").with_namespace(""),
+                BindingHint::new("left", "back").with_namespace(""),
+                BindingHint::new("tab", "next focus").with_namespace("")
             ]
         );
     }
@@ -1174,8 +1202,8 @@ mod message_tests {
         assert_eq!(
             first,
             vec![
-                BindingHint::new("tab", "next focus"),
-                BindingHint::new("left/right", "switch tab"),
+                BindingHint::new("left/right", "switch tab").with_namespace(""),
+                BindingHint::new("tab", "next focus").with_namespace(""),
             ]
         );
 
@@ -1184,7 +1212,10 @@ mod message_tests {
         tree.get_mut(root_id).unwrap().widget.set_focus(true);
 
         let (second, _) = active_binding_hints_tree(&tree);
-        assert_eq!(second, vec![BindingHint::new("tab", "next focus")]);
+        assert_eq!(
+            second,
+            vec![BindingHint::new("tab", "next focus").with_namespace("")]
+        );
     }
 
     #[test]
@@ -1252,9 +1283,9 @@ mod message_tests {
         assert_eq!(
             hints,
             vec![
-                BindingHint::new("tab", "next focus"),
-                BindingHint::new("left", "back"),
-                BindingHint::new("enter", "activate")
+                BindingHint::new("enter", "activate").with_namespace(""),
+                BindingHint::new("left", "back").with_namespace(""),
+                BindingHint::new("tab", "next focus").with_namespace("")
             ]
         );
         assert_eq!(sources.len(), 3);
@@ -1276,8 +1307,8 @@ mod message_tests {
         assert_eq!(
             hints,
             vec![
-                BindingHint::new("q", "quit"),
-                BindingHint::new("f1", "help")
+                BindingHint::new("q", "quit").with_namespace(""),
+                BindingHint::new("f1", "help").with_namespace("")
             ]
         );
         assert_eq!(sources.len(), 2);

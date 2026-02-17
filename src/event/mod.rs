@@ -359,6 +359,7 @@ pub struct BindingHint {
     pub key: String,
     pub description: String,
     pub tooltip: Option<String>,
+    pub namespace: Option<String>,
     pub show: bool,
     pub key_display: Option<String>,
     pub group: Option<String>,
@@ -372,6 +373,7 @@ impl BindingHint {
             key: key.into(),
             description: description.into(),
             tooltip: None,
+            namespace: None,
             show: true,
             key_display: None,
             group: None,
@@ -397,6 +399,11 @@ impl BindingHint {
 
     pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
         self
     }
 

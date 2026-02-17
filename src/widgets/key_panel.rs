@@ -130,7 +130,17 @@ impl BindingsTable {
         let description_width = width.saturating_sub(key_column_width.saturating_add(2)).max(1);
 
         let mut out = Vec::new();
+        let mut previous_group: Option<String> = None;
         for binding in &self.bindings {
+            if let Some(group) = &binding.group {
+                if let Some(previous) = &previous_group
+                    && previous != group
+                {
+                    out.push(adjust_line_length_no_bg(&[Segment::new(String::new())], width));
+                }
+                previous_group = Some(group.clone());
+            }
+
             let key_len = rich_rs::cell_len(&binding.key);
             let key = format!(
                 "{}{}",
@@ -343,7 +353,8 @@ impl KeyPanel {
                 .key_display
                 .clone()
                 .unwrap_or_else(|| format_binding_key_display(&hint.key));
-            let signature = (key.clone(), hint.description.clone());
+            let namespace = hint.namespace.clone();
+            let signature = (namespace.clone(), key.clone(), hint.description.clone());
             if !seen.insert(signature) {
                 continue;
             }
@@ -351,6 +362,7 @@ impl KeyPanel {
             // in Python, which we model elsewhere.
             let mut binding = FooterBinding::new(key, hint.description.clone());
             binding.tooltip = hint.tooltip.clone();
+            binding.group = namespace;
             mapped.push(binding);
         }
         self.set_bindings(mapped);

@@ -15,6 +15,12 @@ until the API stabilizes.
   - `TextualAppAdapter` default `ctrl+q` binding now carries Python parity tooltip text; command palette hint now carries `"Open command palette"` tooltip metadata.
   - `KeyPanel` now supports wrapped description rows plus dim wrapped tooltip rows, improving sidebar parity for long descriptions/help text.
 
+- **[wip] parity(help-panel sections): focused-first hint ordering + namespace separators**
+  - Focus-path binding hint collection is now ordered focused→root, so focused widget bindings appear first in `HelpPanel`/`KeyPanel`.
+  - Binding hints now carry optional `namespace` metadata, used by `KeyPanel` to insert section separators between binding source groups (Python-style grouping behavior).
+  - `TextualAppAdapter` no longer injects hidden focus/copy hints as app-declared bindings; those continue to come from runtime/system hint sources, avoiding app-level ordering distortion.
+  - Command palette hint metadata now includes app namespace and no longer forces priority sorting in help-panel output.
+
 - **perf(runtime hit-test): remove duplicate full-frame scan during tree layout info apply**
   - Tree layout info distribution now reuses the `HitTestMap` already built in the render pipeline instead of rebuilding a second `NodeHitTestMap` from `FrameBuffer`.
   - `FrameBuffer` now tracks per-cell widget owner IDs as cells are written/composited and exposes `owner_bounds()`.
