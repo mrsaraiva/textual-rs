@@ -1312,6 +1312,34 @@ fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
 }
 
 impl App {
+    fn apply_app_blur_focus_state(&mut self) {
+        self.app_active = false;
+        if let Some(tree) = self.widget_tree.as_mut() {
+            let focused = focused_node_id_tree(tree);
+            self.last_focused_on_app_blur = focused;
+            if let Some(focused_id) = focused
+                && let Some(node) = tree.get_mut(focused_id)
+            {
+                node.widget.set_focus(false);
+            }
+        } else {
+            self.last_focused_on_app_blur = None;
+        }
+    }
+
+    fn apply_app_focus_restore_state(&mut self) {
+        self.app_active = true;
+        if let Some(focused_id) = self.last_focused_on_app_blur.take()
+            && let Some(tree) = self.widget_tree.as_mut()
+            && focused_node_id_tree(tree).is_none()
+            && tree.contains(focused_id)
+            && tree.is_displayed(focused_id)
+            && let Some(node) = tree.get_mut(focused_id)
+        {
+            node.widget.set_focus(true);
+        }
+    }
+
     fn apply_devtools_commands(
         &mut self,
         _root: &mut dyn Widget,
@@ -2734,7 +2762,7 @@ impl App {
                         }
                     }
                     CrosstermEvent::FocusLost => {
-                        self.app_active = false;
+                        self.apply_app_blur_focus_state();
                         debug_input("[event] FocusLost");
                         let mut outcome = self.dispatch_event_auto(root, Event::AppFocus(false));
                         self.absorb_outcome(
@@ -2749,12 +2777,13 @@ impl App {
                             &mut pending_invalidation,
                             InvalidationScope::Global,
                         );
+                        pending_invalidation.request_full_content();
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
                     }
                     CrosstermEvent::FocusGained => {
-                        self.app_active = true;
+                        self.apply_app_focus_restore_state();
                         debug_input("[event] FocusGained");
                         let mut outcome = self.dispatch_event_auto(root, Event::AppFocus(true));
                         self.absorb_outcome(
@@ -2769,6 +2798,7 @@ impl App {
                             &mut pending_invalidation,
                             InvalidationScope::Global,
                         );
+                        pending_invalidation.request_full_content();
                         if outcome.stop_requested || msg_outcome.stop_requested {
                             break 'event_loop;
                         }
@@ -5533,6 +5563,53 @@ mod tests {
         fn set_focus(&mut self, focused: bool) {
             self.focused = focused;
         }
+    }
+
+    #[test]
+    fn app_blur_clears_tree_focus_and_remembers_last_focused_node() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
+        let _second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
+        if let Some(node) = tree.get_mut(first) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = test_app_with_tree(tree);
+        app.apply_app_blur_focus_state();
+
+        assert!(!app.app_active);
+        assert_eq!(app.last_focused_on_app_blur, Some(first));
+        let first_focused = app
+            .with_widget_mut(first, |widget| widget.has_focus())
+            .expect("first widget should exist");
+        assert!(!first_focused);
+    }
+
+    #[test]
+    fn app_focus_restores_blurred_focus_when_no_new_focus_exists() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
+        let second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
+        if let Some(node) = tree.get_mut(first) {
+            node.widget.set_focus(true);
+        }
+
+        let mut app = test_app_with_tree(tree);
+        app.apply_app_blur_focus_state();
+        app.apply_app_focus_restore_state();
+
+        assert!(app.app_active);
+        assert_eq!(app.last_focused_on_app_blur, None);
+        let first_focused = app
+            .with_widget_mut(first, |widget| widget.has_focus())
+            .expect("first widget should exist");
+        let second_focused = app
+            .with_widget_mut(second, |widget| widget.has_focus())
+            .expect("second widget should exist");
+        assert!(first_focused);
+        assert!(!second_focused);
     }
 
     struct RuntimeModeScreen;

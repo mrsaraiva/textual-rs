@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(runtime focus parity): clear widget focus on app blur and restore it on app refocus**
+  - App runtime now mirrors Python Textual app-focus behavior:
+    - on terminal `FocusLost`, capture currently focused tree node and clear widget focus,
+    - on `FocusGained`, restore that focused node when still present/displayed and no newer focus is set.
+  - Added full-content invalidation on focus transitions so focus-dependent visual states do not leave stale highlights after blur/refocus cycles.
+  - Added regression coverage in runtime tests:
+    - `app_blur_clears_tree_focus_and_remembers_last_focused_node`
+    - `app_focus_restores_blurred_focus_when_no_new_focus_exists`.
+
 - **[wip] parity(help-panel key rows): Python-like key display/order + tooltip-capable hint plumbing**
   - Added optional `tooltip` metadata to `BindingDecl` / `BindingHint` and propagated it through runtime hint normalization and footer binding conversion.
   - Runtime hint dispatch now merges widget hints before app-level hints, matching Python-style active binding order in `HelpPanel`.

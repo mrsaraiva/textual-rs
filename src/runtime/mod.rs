@@ -406,6 +406,12 @@ pub struct App {
     app_inline: bool,
     app_ansi: bool,
     app_nocolor: bool,
+    /// Focused widget snapshot captured when app loses terminal focus.
+    ///
+    /// Mirrors Python Textual app-level blur/refocus behavior: on blur we clear
+    /// widget focus and remember the node, then restore it (if still valid)
+    /// when focus returns.
+    last_focused_on_app_blur: Option<NodeId>,
     last_binding_hints: Vec<BindingHint>,
     last_binding_hint_sources: Vec<NodeId>,
     last_focused_help_source: Option<NodeId>,
@@ -507,6 +513,7 @@ impl App {
                 std::env::var("TEXTUAL_APP_NOCOLOR").ok().as_deref(),
                 Some("1")
             ),
+            last_focused_on_app_blur: None,
             last_binding_hints: Vec::new(),
             last_binding_hint_sources: Vec::new(),
             last_focused_help_source: None,
@@ -1479,6 +1486,7 @@ impl App {
     }
 
     pub fn start(&mut self) -> Result<()> {
+        self.last_focused_on_app_blur = None;
         self.last_binding_hints.clear();
         self.last_binding_hint_sources.clear();
         self.last_focused_help_source = None;
