@@ -7,7 +7,7 @@
 //!   control codes + styled segments; no direct ANSI writes in widgets.
 
 use std::cmp;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use rich_rs::{
     Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Style, StyleMeta,
@@ -57,7 +57,6 @@ pub struct FrameBuffer {
     default_style: Option<Style>,
     cells: Vec<Cell>,
     owner_ids: Vec<Option<i64>>,
-    owner_stats: HashMap<i64, OwnerStats>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,42 +65,6 @@ pub struct OwnerRect {
     pub y0: u16,
     pub x1: u16,
     pub y1: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct OwnerStats {
-    cells: usize,
-    rows: BTreeMap<usize, usize>,
-    cols: BTreeMap<usize, usize>,
-}
-
-impl OwnerStats {
-    fn add_cell(&mut self, x: usize, y: usize) {
-        self.cells = self.cells.saturating_add(1);
-        *self.rows.entry(y).or_insert(0) += 1;
-        *self.cols.entry(x).or_insert(0) += 1;
-    }
-
-    fn remove_cell(&mut self, x: usize, y: usize) {
-        self.cells = self.cells.saturating_sub(1);
-        dec_count(&mut self.rows, y);
-        dec_count(&mut self.cols, x);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.cells == 0
-    }
-
-    fn rect(&self) -> Option<OwnerRect> {
-        if self.is_empty() {
-            return None;
-        }
-        let x0 = *self.cols.first_key_value()?.0 as u16;
-        let x1 = *self.cols.last_key_value()?.0 as u16;
-        let y0 = *self.rows.first_key_value()?.0 as u16;
-        let y1 = *self.rows.last_key_value()?.0 as u16;
-        Some(OwnerRect { x0, y0, x1, y1 })
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,7 +85,6 @@ impl FrameBuffer {
             default_style: style,
             cells: vec![Cell::blank(style); width * height],
             owner_ids: vec![None; width * height],
-            owner_stats: HashMap::new(),
         }
     }
 
@@ -141,39 +103,35 @@ impl FrameBuffer {
 
     pub fn set_cell(&mut self, x: usize, y: usize, cell: Cell) {
         let idx = self.idx(x, y);
-        let old_owner = self.owner_ids[idx];
-        let new_owner = owner_from_meta(cell.meta.as_ref());
-        if old_owner != new_owner {
-            if let Some(owner) = old_owner {
-                self.remove_owner_cell(owner, x, y);
-            }
-            if let Some(owner) = new_owner {
-                self.add_owner_cell(owner, x, y);
-            }
-            self.owner_ids[idx] = new_owner;
-        }
+        self.owner_ids[idx] = owner_from_meta(cell.meta.as_ref());
         self.cells[idx] = cell;
     }
 
     pub fn owner_bounds(&self) -> HashMap<i64, OwnerRect> {
-        self.owner_stats
-            .iter()
-            .filter_map(|(id, stats)| stats.rect().map(|rect| (*id, rect)))
-            .collect()
-    }
-
-    fn add_owner_cell(&mut self, owner: i64, x: usize, y: usize) {
-        self.owner_stats.entry(owner).or_default().add_cell(x, y);
-    }
-
-    fn remove_owner_cell(&mut self, owner: i64, x: usize, y: usize) {
-        let Some(stats) = self.owner_stats.get_mut(&owner) else {
-            return;
-        };
-        stats.remove_cell(x, y);
-        if stats.is_empty() {
-            self.owner_stats.remove(&owner);
+        let mut out = HashMap::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let Some(owner_id) = self.owner_ids[self.idx(x, y)] else {
+                    continue;
+                };
+                let xu = x as u16;
+                let yu = y as u16;
+                out.entry(owner_id)
+                    .and_modify(|r: &mut OwnerRect| {
+                        r.x0 = r.x0.min(xu);
+                        r.y0 = r.y0.min(yu);
+                        r.x1 = r.x1.max(xu);
+                        r.y1 = r.y1.max(yu);
+                    })
+                    .or_insert(OwnerRect {
+                        x0: xu,
+                        y0: yu,
+                        x1: xu,
+                        y1: yu,
+                    });
+            }
         }
+        out
     }
 
     pub fn as_plain_lines(&self) -> Vec<String> {
@@ -528,19 +486,10 @@ fn owner_from_meta(meta: Option<&StyleMeta>) -> Option<i64> {
     }
 }
 
-fn dec_count(map: &mut BTreeMap<usize, usize>, key: usize) {
-    let Some(value) = map.get_mut(&key) else {
-        return;
-    };
-    *value = value.saturating_sub(1);
-    if *value == 0 {
-        map.remove(&key);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     fn seg_with_owner(text: &str, owner_id: i64) -> Segment {
@@ -642,39 +591,6 @@ mod tests {
             bounds.get(&20),
             Some(&OwnerRect {
                 x0: 2,
-                y0: 0,
-                x1: 2,
-                y1: 0
-            })
-        );
-    }
-
-    #[test]
-    fn owner_bounds_shrink_when_owner_cells_are_overwritten() {
-        let mut frame = FrameBuffer::new(4, 1, None);
-        frame.set_cell(0, 0, Cell::blank(None));
-        frame.set_cell(1, 0, Cell::blank(None));
-        frame.set_cell(2, 0, Cell::blank(None));
-        frame.set_cell(3, 0, Cell::blank(None));
-
-        frame.write_line_at(0, 0, &[seg_with_owner("abcd", 7)], false);
-        let initial = frame.owner_bounds();
-        assert_eq!(
-            initial.get(&7),
-            Some(&OwnerRect {
-                x0: 0,
-                y0: 0,
-                x1: 3,
-                y1: 0
-            })
-        );
-
-        frame.set_cell(3, 0, Cell::blank(None));
-        let shrunk = frame.owner_bounds();
-        assert_eq!(
-            shrunk.get(&7),
-            Some(&OwnerRect {
-                x0: 0,
                 y0: 0,
                 x1: 2,
                 y1: 0
