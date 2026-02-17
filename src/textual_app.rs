@@ -379,8 +379,18 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     fn bindings(&self) -> Vec<BindingDecl> {
         let mut bindings = vec![
+            BindingDecl::new("tab", "focus_next", "Focus Next")
+                .with_namespace("screen")
+                .hidden(),
+            BindingDecl::new("shift+tab", "focus_previous", "Focus Previous")
+                .with_namespace("screen")
+                .hidden(),
+            BindingDecl::new("ctrl+c,super+c", "help_quit", "Copy selected text")
+                .with_namespace("screen")
+                .hidden(),
             BindingDecl::new("ctrl+q", "quit", "Quit")
                 .with_tooltip("Quit the app and return to the command prompt.")
+                .with_namespace("app.system")
                 .hidden()
                 .priority(),
         ];

@@ -18,7 +18,7 @@ until the API stabilizes.
 - **[wip] parity(help-panel sections): focused-first hint ordering + namespace separators**
   - Focus-path binding hint collection is now ordered focused→root, so focused widget bindings appear first in `HelpPanel`/`KeyPanel`.
   - Binding hints now carry optional `namespace` metadata, used by `KeyPanel` to insert section separators between binding source groups (Python-style grouping behavior).
-  - `TextualAppAdapter` no longer injects hidden focus/copy hints as app-declared bindings; those continue to come from runtime/system hint sources, avoiding app-level ordering distortion.
+  - `TextualAppAdapter` now publishes hidden focus/copy bindings as explicit `screen`-namespace declarative rows, so HelpPanel shows `tab` / `shift+tab` / `^c super+c` like Python while keeping footer output unchanged.
   - Command palette hint metadata now includes app namespace and no longer forces priority sorting in help-panel output.
 
 - **fix(border alpha composition): respect translucent border colors in rendered edge glyphs**
