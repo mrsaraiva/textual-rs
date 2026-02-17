@@ -28,6 +28,11 @@ until the API stabilizes.
   - Added `Styled::process_segments(...)` as a reusable segment-level style composition helper.
   - `FooterKey` now applies its base/component style layering through shared renderables infrastructure instead of widget-local style merge loops.
 
+- **refactor(blank renderable): wire `Blank` into app-root and scrollbar surface paint paths**
+  - Added reusable `Blank::render_for_size(width, height)` and `Blank::line_for_width(width)` helpers so widget/runtime code can consume the blank renderable directly without ad-hoc space-segment loops.
+  - `AppRoot` tree-mode render now emits a resolved-background `Blank` surface (Python `app.py` / `screen.py` parity direction) instead of raw unstyled space rows.
+  - `ScrollView` scrollbar chrome drawing now uses `Blank`-based runs for track/thumb/corner fills, replacing repeated manual `" "` segment push loops while preserving existing thumb geometry and style-state behavior.
+
 - **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
   - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).

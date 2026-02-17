@@ -3,20 +3,21 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::debug::{DebugLayout, debug_input, debug_layout};
+use crate::debug::{debug_input, debug_layout, DebugLayout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{ScrollbarGutter, ScrollbarVisibility, parse_color_like};
+use crate::style::{parse_color_like, ScrollbarGutter, ScrollbarVisibility};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
+use crate::renderables::Blank;
 use crate::widgets::{
-    BindingDecl, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
+    BindingDecl, Spacer, Widget, WidgetStyles,
 };
 
 pub struct ScrollView {
@@ -248,6 +249,22 @@ impl ScrollView {
         let thumb_active_style =
             rich_rs::Style::new().with_bgcolor(thumb_active_bg.to_simple_opaque());
         (track_style, thumb_style, thumb_active_style)
+    }
+
+    fn blank_run(width: usize, style: rich_rs::Style) -> Vec<Segment> {
+        let width = width.max(1);
+        let blank = if let Some(bg) = style.bgcolor {
+            Blank::new(crate::style::color_from_simple(bg))
+        } else {
+            Blank::transparent()
+        };
+        let mut line = blank.line_for_width(width);
+        for seg in &mut line {
+            if seg.control.is_none() {
+                seg.style = Some(style);
+            }
+        }
+        line
     }
 
     /// Compute visual content height while ignoring probe-introduced trailing blank lines.
@@ -676,9 +693,7 @@ impl Widget for ScrollView {
                     } else {
                         track_style
                     };
-                    for _ in 0..v_scrollbar_size.max(1) {
-                        line.push(Segment::styled(" ".to_string(), style));
-                    }
+                    line.extend(Self::blank_run(v_scrollbar_size.max(1), style));
                 }
             }
             if show_h {
@@ -709,12 +724,10 @@ impl Widget for ScrollView {
                     } else {
                         track_style
                     };
-                    row.push(Segment::styled(" ".to_string(), style));
+                    row.extend(Self::blank_run(1, style));
                 }
                 if show_v {
-                    for _ in 0..v_scrollbar_size.max(1) {
-                        row.push(Segment::styled(" ".to_string(), corner_style));
-                    }
+                    row.extend(Self::blank_run(v_scrollbar_size.max(1), corner_style));
                 }
                 slice.push(row);
             }
@@ -903,9 +916,7 @@ impl Widget for ScrollView {
                 } else {
                     track_style
                 };
-                for _ in 0..v_scrollbar_size.max(1) {
-                    line.push(Segment::styled(" ".to_string(), style));
-                }
+                line.extend(Self::blank_run(v_scrollbar_size.max(1), style));
                 thumb_drawn |= in_track && row >= thumb_start && row < thumb_start + thumb_len;
             }
             if !thumb_drawn && !slice.is_empty() {
@@ -916,16 +927,14 @@ impl Widget for ScrollView {
                         line.pop();
                     }
                 }
-                for _ in 0..v_scrollbar_size.max(1) {
-                    let active_style = if self.drag_v.is_some() {
-                        thumb_active_style
-                    } else if self.hover_v_thumb {
-                        thumb_hover_style
-                    } else {
-                        thumb_style
-                    };
-                    line.push(Segment::styled(" ".to_string(), active_style));
-                }
+                let active_style = if self.drag_v.is_some() {
+                    thumb_active_style
+                } else if self.hover_v_thumb {
+                    thumb_hover_style
+                } else {
+                    thumb_style
+                };
+                line.extend(Self::blank_run(v_scrollbar_size.max(1), active_style));
             }
         }
         if show_h {
@@ -952,12 +961,10 @@ impl Widget for ScrollView {
                 } else {
                     track_style
                 };
-                row.push(Segment::styled(" ".to_string(), style));
+                row.extend(Self::blank_run(1, style));
             }
             if show_v {
-                for _ in 0..v_scrollbar_size.max(1) {
-                    row.push(Segment::styled(" ".to_string(), corner_style));
-                }
+                row.extend(Self::blank_run(v_scrollbar_size.max(1), corner_style));
             }
             slice.push(row);
         }

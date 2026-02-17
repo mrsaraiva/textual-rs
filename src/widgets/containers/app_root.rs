@@ -2,16 +2,17 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::{DebugLayout, debug_input};
+use crate::debug::{debug_input, DebugLayout};
 use crate::event::{Event, EventCtx};
+use crate::renderables::Blank;
 
 use crate::node_id::NodeId;
 use crate::widgets::{
-    Widget, WidgetStyles,
     helpers::{
         apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
     },
+    Widget, WidgetStyles,
 };
 
 pub struct AppRoot {
@@ -157,15 +158,15 @@ impl Widget for AppRoot {
         let height_limit = options.size.1.max(1);
 
         if self.is_tree_mode() {
-            let blank = vec![Segment::new(" ".repeat(width))];
-            let mut out = Segments::new();
-            for row in 0..height_limit {
-                out.extend(blank.clone());
-                if row + 1 < height_limit {
-                    out.push(Segment::line());
-                }
-            }
-            return out;
+            // Python parity: app/screen baseline surface should be a concrete
+            // blank renderable using the resolved background.
+            let meta = css::selector_meta_generic(self);
+            let resolved = css::resolve_style(self, &meta);
+            let bg = resolved
+                .bg
+                .or_else(|| crate::style::parse_color_like("$background"))
+                .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
+            return Blank::new(bg).render_for_size(width, height_limit);
         }
 
         let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
@@ -506,7 +507,11 @@ impl Widget for AppRoot {
                 any = true;
             }
         }
-        if any { Some(widest.max(1)) } else { None }
+        if any {
+            Some(widest.max(1))
+        } else {
+            None
+        }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -527,13 +532,13 @@ impl Renderable for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
-    use crate::css::{StyleSheet, set_style_context};
+    use crate::css::{set_style_context, StyleSheet};
     use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::{
-        Arc,
         atomic::{AtomicU16, Ordering},
+        Arc,
     };
 
     struct ProbeWidget {

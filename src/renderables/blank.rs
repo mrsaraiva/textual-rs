@@ -25,12 +25,11 @@ impl Blank {
             None => rich_rs::Style::new(),
         }
     }
-}
 
-impl Renderable for Blank {
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.max_width.max(options.size.0).max(1);
-        let height = options.size.1.max(1);
+    /// Render this blank surface for a fixed width/height.
+    pub fn render_for_size(&self, width: usize, height: usize) -> Segments {
+        let width = width.max(1);
+        let height = height.max(1);
         let style = self.style();
 
         let mut out = Segments::new();
@@ -41,6 +40,22 @@ impl Renderable for Blank {
             }
         }
         out
+    }
+
+    /// Render a single blank line with the given width.
+    pub fn line_for_width(&self, width: usize) -> Vec<Segment> {
+        Segment::split_lines(self.render_for_size(width.max(1), 1))
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| vec![Segment::new(" ".repeat(width.max(1)))])
+    }
+}
+
+impl Renderable for Blank {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.max_width.max(options.size.0);
+        let height = options.size.1;
+        self.render_for_size(width, height)
     }
 }
 
