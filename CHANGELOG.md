@@ -32,6 +32,11 @@ until the API stabilizes.
   - Safety guard keeps global invalidation whenever key handling emits follow-up messages or requests style/layout invalidation.
   - This reduces unnecessary full-frame redraw pressure on palette navigation/search keypresses while preserving correctness paths.
 
+- **fix(help-panel bootstrap): force initial bindings/help refresh when panel mounts**
+  - `action_show_help_panel()` now invalidates cached binding-hint and focused-help snapshots immediately after mounting `HelpPanel`.
+  - This ensures newly mounted help panels receive the next `BindingsChanged` and focused-help updates even when values are unchanged, preventing stale `(no bindings)` sidebars.
+  - Added regression test `action_show_help_panel_invalidates_binding_and_help_caches`.
+
 - **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
   - `SystemCommandsProvider` now matches Python-style behavior:
     - discovery (`query == ""`) is alphabetical by title,

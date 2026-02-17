@@ -903,6 +903,12 @@ impl App {
 
         if let Some(tree) = self.widget_tree.as_mut() {
             tree.mount(mount_parent, Box::new(HelpPanel::new()));
+            // A newly mounted HelpPanel needs a fresh broadcast of binding hints and
+            // focused-help payload, even when those values are unchanged.
+            self.last_binding_hints.clear();
+            self.last_binding_hint_sources.clear();
+            self.last_focused_help_source = None;
+            self.last_focused_help_markup = None;
             return Ok(true);
         }
         Ok(false)
@@ -2882,6 +2888,26 @@ mod tests {
             parent, app_content,
             "help panel should mount under app content so command palette remains topmost"
         );
+    }
+
+    #[test]
+    fn action_show_help_panel_invalidates_binding_and_help_caches() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root, Box::new(AppRoot::new()));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        app.last_binding_hints = vec![BindingHint::new("x", "stale")];
+        app.last_binding_hint_sources = vec![node_id_from_ffi(42)];
+        app.last_focused_help_source = Some(node_id_from_ffi(99));
+        app.last_focused_help_markup = Some("stale help".to_string());
+
+        assert_eq!(app.action_show_help_panel(), Ok(true));
+        assert!(app.last_binding_hints.is_empty());
+        assert!(app.last_binding_hint_sources.is_empty());
+        assert_eq!(app.last_focused_help_source, None);
+        assert_eq!(app.last_focused_help_markup, None);
     }
 
     #[test]
