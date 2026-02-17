@@ -164,7 +164,10 @@ impl TextualApp for KeysApp {
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some("examples/keys.tcss")
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/keys/keys.tcss"
+        ))
     }
 
     fn configure(&mut self, app: &mut App) -> Result<()> {

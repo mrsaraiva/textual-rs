@@ -4,6 +4,7 @@ set -euo pipefail
 BENCH_KEEP_WORKTREE=0
 BENCH_BASELINE_WT=""
 BENCH_REPO_ROOT=""
+DOC_WIDGETS_MANIFEST="docs/widgets/Cargo.toml"
 
 usage() {
     cat <<'EOF'
@@ -181,8 +182,8 @@ main() {
     echo "Output dir: $out_dir"
     echo "Baseline worktree: $baseline_wt"
     echo "Building examples on both revisions..."
-    (cd "$repo_root" && cargo build --quiet --example tabbed_content --example tick)
-    (cd "$baseline_wt" && cargo build --quiet --example tabbed_content --example tick)
+    (cd "$repo_root" && cargo build --offline --quiet --manifest-path "$DOC_WIDGETS_MANIFEST" --example tabbed_content --example tick)
+    (cd "$baseline_wt" && cargo build --offline --quiet --manifest-path "$DOC_WIDGETS_MANIFEST" --example tabbed_content --example tick)
 
     run_case() {
         # Args: label repo_path scenario example input_file run_idx
@@ -210,7 +211,7 @@ main() {
                 cat "$input_file"
             } |
                 timeout "${timeout_s}s" script -q -c \
-                    "cd '$repo_path' && TEXTUAL_DEBUG_TIMING_FILE='$timing_log' TEXTUAL_DEBUG_INPUT_FILE='$input_log' TEXTUAL_DEBUG_RENDER_FILE='$render_log' cargo run --quiet --example '$example'" \
+                    "cd '$repo_path' && TEXTUAL_DEBUG_TIMING_FILE='$timing_log' TEXTUAL_DEBUG_INPUT_FILE='$input_log' TEXTUAL_DEBUG_RENDER_FILE='$render_log' cargo run --offline --quiet --manifest-path '$DOC_WIDGETS_MANIFEST' --example '$example'" \
                     "$transcript"
         ) >/dev/null 2>&1 || true
 

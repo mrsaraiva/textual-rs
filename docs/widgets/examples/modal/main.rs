@@ -53,7 +53,10 @@ impl TextualApp for ModalApp {
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/modal.tcss"))
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/modal/modal.tcss"
+        ))
     }
 
     fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {

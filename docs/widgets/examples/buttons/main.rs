@@ -1,12 +1,11 @@
-use rich_rs::{Segment, Segments};
 use textual::compose;
-use textual::message::{ButtonPressed, Message};
 use textual::prelude::*;
-use textual::style::Color;
 
-struct ButtonsAdvancedApp;
+struct ButtonsApp {
+    selected: Option<String>,
+}
 
-impl TextualApp for ButtonsAdvancedApp {
+impl TextualApp for ButtonsApp {
     fn compose(&mut self) -> AppRoot {
         let buttons = Horizontal::new().with_compose(compose![
             VerticalScroll::new().with_compose(compose![
@@ -43,64 +42,24 @@ impl TextualApp for ButtonsAdvancedApp {
             ]),
         ]);
 
-        let status = Styled::new(
-            StatusLine::new(),
-            Style::new()
-                .line_pad(1)
-                .border_top(Color::parse("#44cc44").unwrap())
-                .border_right(Color::parse("#44cc44").unwrap())
-                .border_bottom(Color::parse("#44cc44").unwrap())
-                .border_left(Color::parse("#44cc44").unwrap()),
-        );
-        AppRoot::new().with_child(
-            Dock::new()
-                .push_fill(ScrollView::new(buttons).scroll_step(2))
-                .push_bottom(Some(3), status),
-        )
+        AppRoot::new().with_child(buttons)
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some("examples/button.tcss")
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/shared/button.tcss"
+        ))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
-            let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status| {
-                status.set_text(description.clone());
-            });
-            ctx.request_repaint();
-            ctx.set_handled();
-        }
-    }
-}
-
-struct StatusLine {
-    text: String,
-}
-
-impl StatusLine {
-    fn new() -> Self {
-        Self {
-            text: String::new(),
-        }
+    fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
+        self.selected = Some(description.to_string());
+        ctx.request_stop();
+        ctx.set_handled();
     }
 
-    fn set_text(&mut self, text: String) {
-        self.text = text;
-    }
-}
-
-impl Widget for StatusLine {
-    fn style_type(&self) -> &'static str {
-        "StatusLine"
-    }
-
-    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let line = rich_rs::set_cell_size(&format!("Events: {}", self.text), width);
-        let mut out = Segments::new();
-        out.push(Segment::new(line));
-        out
+    fn take_exit_output(&mut self) -> Option<String> {
+        self.selected.take()
     }
 }
 
@@ -108,5 +67,9 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync_snapshot(ButtonsAdvancedApp)
+    let app = ButtonsApp { selected: None };
+    if let Some(description) = run_sync_snapshot_with_output(app)? {
+        println!("{description}");
+    }
+    Ok(())
 }

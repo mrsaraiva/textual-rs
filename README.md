@@ -19,17 +19,17 @@ Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering pr
 ## Quick start
 
 ```bash
-cargo run --example buttons      # Interactive button demo (most comprehensive)
-cargo run --example hello        # Basic hello world app
-cargo run --example data_table   # Data table widget
-cargo run --example input        # Input fields
-cargo run --example text_area_example  # Text editor
+tools/run-doc-widget.sh buttons           # Interactive button demo
+tools/run-doc-widget.sh hello             # Composed widget/layout showcase
+tools/run-doc-widget.sh data_table        # Data table widget
+tools/run-doc-widget.sh input             # Input fields
+tools/run-doc-widget.sh text_area_example # Text editor
 ```
 
 Widget-focused docs parity examples live in a dedicated crate:
 
 ```bash
-cargo run --manifest-path docs/examples/widgets/Cargo.toml --example tabbed_content
+cargo run --manifest-path docs/widgets/Cargo.toml --example tabbed_content
 tools/run-doc-widget.sh tabbed_content_label_color
 ```
 

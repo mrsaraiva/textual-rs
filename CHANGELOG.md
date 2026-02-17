@@ -9,10 +9,16 @@ until the API stabilizes.
 
 ### 2026-02-17
 - **chore(examples): start split between docs-widget demos and app-style examples**
-  - Added dedicated docs examples crate at `docs/examples/widgets` to mirror Python docs-widget examples without growing root manifest entries.
-  - Moved `tabbed_content` and `tabbed_content_label_color` examples into `docs/examples/widgets/examples/...` via `git mv` (history preserved), including associated TCSS.
+  - Added dedicated docs examples crate at `docs/widgets` to mirror Python docs-widget examples without growing root manifest entries.
+  - Moved `tabbed_content` and `tabbed_content_label_color` examples into `docs/widgets/examples/...` via `git mv` (history preserved), including associated TCSS.
   - Added docs-widget runner helper: `tools/run-doc-widget.sh`.
   - Updated README with docs-widget run commands.
+
+- **chore(examples): migrate remaining docs-style root examples into docs widgets crate**
+  - Moved all remaining widget/docs-style examples and local TCSS assets from root `examples/` into `docs/widgets/examples/<name>/main.rs` (history preserved).
+  - Updated moved examples to use manifest-relative asset paths (`env!("CARGO_MANIFEST_DIR")`), including shared button CSS and custom language highlight include.
+  - Updated `tools/run-doc-widget.sh` and `tools/bench_runtime.sh` to point at `docs/widgets/Cargo.toml`.
+  - Removed stale root `[[example]]` entry now that docs/widget examples live in the dedicated crate.
 
 - **fix(footer tooltip parity): add Python-style hover tooltip popup + separator-inclusive hover for `^p`**
   - Added core runtime hover-tooltip composition path:

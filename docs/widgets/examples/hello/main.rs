@@ -73,7 +73,10 @@ impl TextualApp for MissionControl {
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some("examples/hello.tcss")
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/hello/hello.tcss"
+        ))
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
