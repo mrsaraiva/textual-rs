@@ -2853,9 +2853,9 @@ mod tests {
         let app_content = tree.mount(root, Box::new(AppRoot::new()));
         tree.mount(
             root,
-            Box::new(crate::widgets::CommandPalette::new(crate::widgets::Label::new(
-                "body",
-            ))),
+            Box::new(crate::widgets::CommandPalette::new(
+                crate::widgets::Label::new("body"),
+            )),
         );
 
         let mut app = App::new().expect("app should initialize");
@@ -2867,7 +2867,11 @@ mod tests {
             .query("HelpPanel")
             .expect("selector should resolve")
             .into_ids();
-        assert_eq!(help_ids.len(), 1, "exactly one help panel should be mounted");
+        assert_eq!(
+            help_ids.len(),
+            1,
+            "exactly one help panel should be mounted"
+        );
 
         let tree = app.widget_tree.as_ref().expect("tree exists");
         let parent = tree

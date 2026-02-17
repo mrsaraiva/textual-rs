@@ -7,8 +7,11 @@
 //!   control codes + styled segments; no direct ANSI writes in widgets.
 
 use std::cmp;
+use std::collections::HashMap;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style, StyleMeta};
+use rich_rs::{
+    Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Style, StyleMeta,
+};
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +56,15 @@ pub struct FrameBuffer {
     pub height: usize,
     default_style: Option<Style>,
     cells: Vec<Cell>,
+    owner_ids: Vec<Option<i64>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OwnerRect {
+    pub x0: u16,
+    pub y0: u16,
+    pub x1: u16,
+    pub y1: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +84,7 @@ impl FrameBuffer {
             height,
             default_style: style,
             cells: vec![Cell::blank(style); width * height],
+            owner_ids: vec![None; width * height],
         }
     }
 
@@ -86,6 +99,39 @@ impl FrameBuffer {
     pub fn get_mut(&mut self, x: usize, y: usize) -> &mut Cell {
         let idx = self.idx(x, y);
         &mut self.cells[idx]
+    }
+
+    pub fn set_cell(&mut self, x: usize, y: usize, cell: Cell) {
+        let idx = self.idx(x, y);
+        self.owner_ids[idx] = owner_from_meta(cell.meta.as_ref());
+        self.cells[idx] = cell;
+    }
+
+    pub fn owner_bounds(&self) -> HashMap<i64, OwnerRect> {
+        let mut out = HashMap::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let Some(owner_id) = self.owner_ids[self.idx(x, y)] else {
+                    continue;
+                };
+                let xu = x as u16;
+                let yu = y as u16;
+                out.entry(owner_id)
+                    .and_modify(|r: &mut OwnerRect| {
+                        r.x0 = r.x0.min(xu);
+                        r.y0 = r.y0.min(yu);
+                        r.x1 = r.x1.max(xu);
+                        r.y1 = r.y1.max(yu);
+                    })
+                    .or_insert(OwnerRect {
+                        x0: xu,
+                        y0: yu,
+                        x1: xu,
+                        y1: yu,
+                    });
+            }
+        }
+        out
     }
 
     pub fn as_plain_lines(&self) -> Vec<String> {
@@ -189,7 +235,7 @@ impl FrameBuffer {
 
     fn clear_line(&mut self, y: usize) {
         for x in 0..self.width {
-            *self.get_mut(x, y) = Cell::blank(self.default_style);
+            self.set_cell(x, y, Cell::blank(self.default_style));
         }
     }
 
@@ -230,12 +276,11 @@ impl FrameBuffer {
 
                 if w == 0 {
                     if let Some((prev_x, prev_w)) = last_non_zero {
-                        let existing_style = self.get(prev_x, y).style;
-                        let existing_meta = self.get(prev_x, y).meta.clone();
-                        let cell = self.get_mut(prev_x, y);
-                        cell.text.push(ch);
-                        cell.style = style.or(existing_style);
-                        cell.meta = meta.clone().or(existing_meta);
+                        let mut updated = self.get(prev_x, y).clone();
+                        updated.text.push(ch);
+                        updated.style = style.or(updated.style);
+                        updated.meta = meta.clone().or(updated.meta);
+                        self.set_cell(prev_x, y, updated);
                         last_non_zero = Some((prev_x, prev_w));
                     }
                     continue;
@@ -247,7 +292,7 @@ impl FrameBuffer {
 
                 if w == 2 && x + 1 >= self.width {
                     let existing_style = self.get(x, y).style;
-                    *self.get_mut(x, y) = Cell::blank(style.or(existing_style));
+                    self.set_cell(x, y, Cell::blank(style.or(existing_style)));
                     x += 1;
                     last_non_zero = Some((x.saturating_sub(1), 1));
                     continue;
@@ -255,20 +300,28 @@ impl FrameBuffer {
 
                 let existing_style = self.get(x, y).style;
                 let existing_meta = self.get(x, y).meta.clone();
-                *self.get_mut(x, y) = Cell {
-                    text: ch.to_string(),
-                    style: style.or(existing_style),
-                    meta: meta.clone().or(existing_meta),
-                    continuation: false,
-                };
+                self.set_cell(
+                    x,
+                    y,
+                    Cell {
+                        text: ch.to_string(),
+                        style: style.or(existing_style),
+                        meta: meta.clone().or(existing_meta),
+                        continuation: false,
+                    },
+                );
                 last_non_zero = Some((x, w));
 
                 if w == 2 {
                     let existing_style = self.get(x + 1, y).style;
                     let existing_meta = self.get(x + 1, y).meta.clone();
-                    *self.get_mut(x + 1, y) = Cell::continuation(
-                        style.or(existing_style),
-                        meta.clone().or(existing_meta),
+                    self.set_cell(
+                        x + 1,
+                        y,
+                        Cell::continuation(
+                            style.or(existing_style),
+                            meta.clone().or(existing_meta),
+                        ),
                     );
                     x += 2;
                 } else {
@@ -425,9 +478,29 @@ fn char_width(c: char) -> usize {
     UnicodeWidthChar::width(c).unwrap_or(0)
 }
 
+fn owner_from_meta(meta: Option<&StyleMeta>) -> Option<i64> {
+    let map = meta?.meta.as_ref()?;
+    match map.get("textual:widget_id") {
+        Some(MetaValue::Int(id)) if *id >= 0 => Some(*id),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    fn seg_with_owner(text: &str, owner_id: i64) -> Segment {
+        let mut seg = Segment::new(text.to_string());
+        let mut meta = StyleMeta::new();
+        let mut map = BTreeMap::new();
+        map.insert("textual:widget_id".to_string(), MetaValue::Int(owner_id));
+        meta.meta = Some(Arc::new(map));
+        seg.meta = Some(meta);
+        seg
+    }
 
     #[test]
     fn diff_uses_absolute_move_to_for_changed_spans() {
@@ -494,5 +567,34 @@ mod tests {
 
         assert_eq!(move_tos, vec![(2, 0)]);
         assert_eq!(text, "X");
+    }
+
+    #[test]
+    fn owner_bounds_collects_widget_id_rects_from_cells() {
+        let lines = vec![
+            vec![seg_with_owner("ab", 10), seg_with_owner("c", 20)],
+            vec![Segment::new(" "), seg_with_owner("xy", 10)],
+        ];
+        let frame = FrameBuffer::from_lines(&lines, 3, 2, None);
+        let bounds = frame.owner_bounds();
+
+        assert_eq!(
+            bounds.get(&10),
+            Some(&OwnerRect {
+                x0: 0,
+                y0: 0,
+                x1: 2,
+                y1: 1
+            })
+        );
+        assert_eq!(
+            bounds.get(&20),
+            Some(&OwnerRect {
+                x0: 2,
+                y0: 0,
+                x1: 2,
+                y1: 0
+            })
+        );
     }
 }

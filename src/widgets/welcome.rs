@@ -266,11 +266,11 @@ impl Widget for Welcome {
         let mut merged = FrameBuffer::new(width, height, None);
         for y in 0..body_height {
             for x in 0..width {
-                *merged.get_mut(x, y) = body_buf.get(x, y).clone();
+                merged.set_cell(x, y, body_buf.get(x, y).clone());
             }
         }
         for x in 0..width {
-            *merged.get_mut(x, body_height) = button_buf.get(x, 0).clone();
+            merged.set_cell(x, body_height, button_buf.get(x, 0).clone());
         }
 
         merged.to_segments()

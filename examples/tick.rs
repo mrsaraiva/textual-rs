@@ -14,7 +14,9 @@ impl TextualApp for TickApp {
         AppRoot::new().with_child(
             Container::new()
                 .with_child(Label::new("Ticks: 0").with_shrink(false).wrap(false))
-                .with_child(Input::new().with_placeholder("Type here while ticks keep updating...")),
+                .with_child(
+                    Input::new().with_placeholder("Type here while ticks keep updating..."),
+                ),
         )
     }
 

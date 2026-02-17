@@ -5,7 +5,6 @@ use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::widgets::{ToastSeverity, border_spacing_from_style};
 use crate::worker::WorkerRequest;
-use rich_rs::MetaValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -27,39 +26,17 @@ pub(crate) struct HitTestMap {
 impl HitTestMap {
     pub(crate) fn from_frame(frame: &FrameBuffer) -> Self {
         let mut out = HitTestMap::default();
-        for y in 0..frame.height {
-            for x in 0..frame.width {
-                let cell = frame.get(x, y);
-                let Some(meta) = cell.meta.as_ref() else {
-                    continue;
-                };
-                let Some(map) = meta.meta.as_ref() else {
-                    continue;
-                };
-                let Some(MetaValue::Int(id)) = map.get("textual:widget_id") else {
-                    continue;
-                };
-                if *id < 0 {
-                    continue;
-                }
-                let wid = node_id_from_ffi(*id as u64);
-                let xu = x as u16;
-                let yu = y as u16;
-                out.bounds
-                    .entry(wid)
-                    .and_modify(|r| {
-                        r.x0 = r.x0.min(xu);
-                        r.y0 = r.y0.min(yu);
-                        r.x1 = r.x1.max(xu);
-                        r.y1 = r.y1.max(yu);
-                    })
-                    .or_insert(Rect {
-                        x0: xu,
-                        y0: yu,
-                        x1: xu,
-                        y1: yu,
-                    });
-            }
+        for (id, rect) in frame.owner_bounds() {
+            let wid = node_id_from_ffi(id as u64);
+            out.bounds.insert(
+                wid,
+                Rect {
+                    x0: rect.x0,
+                    y0: rect.y0,
+                    x1: rect.x1,
+                    y1: rect.y1,
+                },
+            );
         }
         out
     }

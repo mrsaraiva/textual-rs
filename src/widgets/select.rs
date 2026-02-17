@@ -663,7 +663,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         let closed_buf = FrameBuffer::from_lines(&closed_lines, width, 1, None);
         let mut merged = FrameBuffer::new(width, height, None);
         for x in 0..width.min(closed_buf.width) {
-            *merged.get_mut(x, 0) = closed_buf.get(x, 0).clone();
+            merged.set_cell(x, 0, closed_buf.get(x, 0).clone());
         }
 
         // Render the dropdown OptionList.
@@ -681,7 +681,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         // Clear the dropdown area.
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                *merged.get_mut(x, y) = Cell::blank(Some(panel_style));
+                merged.set_cell(x, y, Cell::blank(Some(panel_style)));
             }
         }
 
@@ -702,7 +702,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                 if tx >= width {
                     break;
                 }
-                *merged.get_mut(tx, ty) = list_buffer.get(sx, sy).clone();
+                merged.set_cell(tx, ty, list_buffer.get(sx, sy).clone());
             }
         }
 

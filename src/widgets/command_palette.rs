@@ -1380,7 +1380,7 @@ impl Widget for CommandPalette {
 
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
             for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                *overlay.get_mut(x, y) = Cell::blank(Some(panel_style));
+                overlay.set_cell(x, y, Cell::blank(Some(panel_style)));
             }
         }
 
@@ -1416,8 +1416,11 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, search_y) =
-                    apply_panel_surface(icon_buffer.get(sx, 0).clone());
+                overlay.set_cell(
+                    tx,
+                    search_y,
+                    apply_panel_surface(icon_buffer.get(sx, 0).clone()),
+                );
             }
         }
         if search_y < height {
@@ -1428,8 +1431,11 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, search_y) =
-                    apply_panel_surface(search_buffer.get(sx, 0).clone());
+                overlay.set_cell(
+                    tx,
+                    search_y,
+                    apply_panel_surface(search_buffer.get(sx, 0).clone()),
+                );
             }
         }
 
@@ -1468,7 +1474,11 @@ impl Widget for CommandPalette {
                 if tx >= width {
                     break;
                 }
-                *overlay.get_mut(tx, ty) = apply_panel_surface(results_buffer.get(x, y).clone());
+                overlay.set_cell(
+                    tx,
+                    ty,
+                    apply_panel_surface(results_buffer.get(x, y).clone()),
+                );
             }
         }
         for ty in results_y..results_y.saturating_add(results_h).min(height) {
@@ -1478,7 +1488,7 @@ impl Widget for CommandPalette {
                     && cell.style.is_none()
                     && cell.meta.is_none()
                 {
-                    *overlay.get_mut(tx, ty) = Cell::blank(Some(panel_style));
+                    overlay.set_cell(tx, ty, Cell::blank(Some(panel_style)));
                 }
             }
         }
@@ -1498,7 +1508,7 @@ impl Widget for CommandPalette {
                 }
                 let cell = search_buffer.get(sx, sy).clone();
                 if cell.meta.is_some() {
-                    *overlay.get_mut(tx, ty) = apply_panel_surface(cell);
+                    overlay.set_cell(tx, ty, apply_panel_surface(cell));
                 }
             }
         }

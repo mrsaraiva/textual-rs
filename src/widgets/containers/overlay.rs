@@ -90,7 +90,7 @@ impl Overlay {
                 let cell = top.get(x, y);
                 if cell.continuation {
                     if copied_lead {
-                        *base.get_mut(tx, ty) = cell.clone();
+                        base.set_cell(tx, ty, cell.clone());
                     }
                     continue;
                 }
@@ -100,14 +100,14 @@ impl Overlay {
                     continue;
                 }
 
-                *base.get_mut(tx, ty) = cell.clone();
+                base.set_cell(tx, ty, cell.clone());
                 copied_lead = cell.width() > 1;
 
                 if cell.width().max(1) == 1
                     && tx + 1 < base.width
                     && base.get(tx + 1, ty).continuation
                 {
-                    *base.get_mut(tx + 1, ty) = Cell::blank(base.get(tx + 1, ty).style);
+                    base.set_cell(tx + 1, ty, Cell::blank(base.get(tx + 1, ty).style));
                 }
             }
         }
