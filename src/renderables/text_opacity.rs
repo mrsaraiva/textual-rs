@@ -53,12 +53,27 @@ impl<R> TextOpacity<R> {
 
                 let fg = color_from_simple(fg_simple);
                 let bg = color_from_simple(bg_simple);
-                let percent = (opacity * 100.0).round() as u8;
-                let blended = crate::style::blend_colors(bg, fg, percent);
+                let blended = Self::blend_foreground_over_background(fg, bg, opacity);
                 seg.style = Some(style.with_color(blended.to_simple_opaque()));
                 seg
             })
             .collect()
+    }
+
+    pub fn apply_alpha(color: crate::style::Color, opacity: f32) -> crate::style::Color {
+        let mut color = color;
+        color.a = ((color.a as f32) * opacity.clamp(0.0, 1.0))
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        color
+    }
+
+    pub fn blend_foreground_over_background(
+        foreground: crate::style::Color,
+        background: crate::style::Color,
+        opacity: f32,
+    ) -> crate::style::Color {
+        Self::apply_alpha(foreground, opacity).flatten_over(background)
     }
 }
 

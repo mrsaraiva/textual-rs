@@ -1,6 +1,7 @@
 use rich_rs::{MetaValue, Segments};
 
 use crate::node_id::{NodeId, node_id_to_ffi};
+use crate::renderables::{TextOpacity, Tint};
 use crate::style::Style;
 
 pub(crate) fn apply_style_to_segments(
@@ -95,7 +96,8 @@ pub(crate) fn apply_style_to_segments(
             if let Some(tint) = style.background_tint {
                 if let Some(bg) = s.bgcolor {
                     let bg = crate::style::color_from_simple(bg);
-                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    let blended =
+                        Tint::<()>::blend_color_with_percent(bg, tint.color, tint.percent);
                     let flat = blended.flatten_over(under_bg);
                     under_bg = flat;
                     s.bgcolor = Some(flat.to_simple_opaque());
@@ -113,7 +115,7 @@ pub(crate) fn apply_style_to_segments(
                 if let Some(fg) = style.fg {
                     let mut fg = fg;
                     if let Some(opacity) = text_opacity {
-                        fg.a = ((fg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                        fg = TextOpacity::<()>::apply_alpha(fg, opacity);
                     }
                     let flat = fg.flatten_over(bg_for_text);
                     s.color = Some(flat.to_simple_opaque());
@@ -136,22 +138,27 @@ pub(crate) fn apply_style_to_segments(
                     .bgcolor
                     .map(crate::style::color_from_simple)
                     .unwrap_or(under_bg);
-                let mut existing = crate::style::color_from_simple(existing);
-                existing.a = ((existing.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
-                let flat = existing.flatten_over(bg_for_text);
+                let existing = crate::style::color_from_simple(existing);
+                let flat = TextOpacity::<()>::blend_foreground_over_background(
+                    existing,
+                    bg_for_text,
+                    opacity,
+                );
                 s.color = Some(flat.to_simple_opaque());
                 style_changed = true;
             }
             if let Some(tint) = style.tint {
                 if let Some(bg) = s.bgcolor {
                     let bg = crate::style::color_from_simple(bg);
-                    let blended = crate::style::blend_colors(bg, tint.color, tint.percent);
+                    let blended =
+                        Tint::<()>::blend_color_with_percent(bg, tint.color, tint.percent);
                     s.bgcolor = Some(blended.to_simple_opaque());
                     style_changed = true;
                 }
                 if let Some(fg) = s.color {
                     let fg = crate::style::color_from_simple(fg);
-                    let blended = crate::style::blend_colors(fg, tint.color, tint.percent);
+                    let blended =
+                        Tint::<()>::blend_color_with_percent(fg, tint.color, tint.percent);
                     s.color = Some(blended.to_simple_opaque());
                     style_changed = true;
                 }
@@ -191,8 +198,7 @@ pub(crate) fn apply_widget_opacity_to_segments(
             let original_fg = style.color.map(crate::style::color_from_simple);
 
             if let Some(bg) = original_bg {
-                let mut bg = bg;
-                bg.a = ((bg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                let bg = TextOpacity::<()>::apply_alpha(bg, opacity);
                 let flat_bg = bg.flatten_over(parent_bg);
                 style.bgcolor = Some(flat_bg.to_simple_opaque());
                 style_changed = true;
@@ -200,8 +206,7 @@ pub(crate) fn apply_widget_opacity_to_segments(
 
             if let Some(fg) = original_fg {
                 let fg_source = fg;
-                let mut fg = fg;
-                fg.a = ((fg.a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+                let fg = TextOpacity::<()>::apply_alpha(fg, opacity);
                 let mut flat_fg = fg.flatten_over(parent_bg);
                 if let (Some(src_bg), Some(dst_bg)) = (
                     original_bg,

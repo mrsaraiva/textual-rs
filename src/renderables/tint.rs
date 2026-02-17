@@ -17,7 +17,7 @@ impl<R> Tint<R> {
     }
 
     pub fn process_segments(segments: Segments, color: Color) -> Segments {
-        let percent = ((color.a as f32 / 255.0) * 100.0).round() as u8;
+        let percent = Self::percent_from_alpha(color);
         if percent == 0 {
             return segments;
         }
@@ -32,18 +32,26 @@ impl<R> Tint<R> {
                 let mut style = seg.style.unwrap_or_else(rich_rs::Style::new);
                 if let Some(bg) = style.bgcolor {
                     let blended =
-                        crate::style::blend_colors(color_from_simple(bg), tint_color, percent);
+                        Self::blend_color_with_percent(color_from_simple(bg), tint_color, percent);
                     style.bgcolor = Some(blended.to_simple_opaque());
                 }
                 if let Some(fg) = style.color {
                     let blended =
-                        crate::style::blend_colors(color_from_simple(fg), tint_color, percent);
+                        Self::blend_color_with_percent(color_from_simple(fg), tint_color, percent);
                     style.color = Some(blended.to_simple_opaque());
                 }
                 seg.style = Some(style);
                 seg
             })
             .collect()
+    }
+
+    pub fn blend_color_with_percent(base: Color, tint: Color, percent: u8) -> Color {
+        crate::style::blend_colors(base, tint, percent)
+    }
+
+    pub fn percent_from_alpha(color: Color) -> u8 {
+        ((color.a as f32 / 255.0) * 100.0).round() as u8
     }
 }
 
