@@ -26,6 +26,13 @@ cargo run --example input        # Input fields
 cargo run --example text_area_example  # Text editor
 ```
 
+Widget-focused docs parity examples live in a dedicated crate:
+
+```bash
+cargo run --manifest-path docs/examples/widgets/Cargo.toml --example tabbed_content
+tools/run-doc-widget.sh tabbed_content_label_color
+```
+
 ## Widget catalog
 
 **Interactive:** Button, Input, MaskedInput, TextArea, Checkbox, RadioSet, Switch, Select, OptionList, SelectionList, ListView, DataTable, Tree, DirectoryTree, Tabs, TabbedContent, Collapsible, CommandPalette, Link

@@ -12,7 +12,10 @@ impl TextualApp for TabbedContentLabelColorApp {
     }
 
     fn css_path(&self) -> Option<&'static str> {
-        Some("examples/tabbed_content_label_color.tcss")
+        Some(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/tabbed_content_label_color/tabbed_content_label_color.tcss"
+        ))
     }
 }
 

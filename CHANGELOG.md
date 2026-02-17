@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **chore(examples): start split between docs-widget demos and app-style examples**
+  - Added dedicated docs examples crate at `docs/examples/widgets` to mirror Python docs-widget examples without growing root manifest entries.
+  - Moved `tabbed_content` and `tabbed_content_label_color` examples into `docs/examples/widgets/examples/...` via `git mv` (history preserved), including associated TCSS.
+  - Added docs-widget runner helper: `tools/run-doc-widget.sh`.
+  - Updated README with docs-widget run commands.
+
 - **fix(footer tooltip parity): add Python-style hover tooltip popup + separator-inclusive hover for `^p`**
   - Added core runtime hover-tooltip composition path:
     - widgets can now expose optional hover tooltip text via `Widget::tooltip()`,
