@@ -1117,6 +1117,10 @@ impl Widget for MaskedInput {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    fn get_selection(&self) -> Option<String> {
+        self.copy_text()
+    }
 }
 
 impl Renderable for MaskedInput {

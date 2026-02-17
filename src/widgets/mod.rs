@@ -63,7 +63,8 @@ pub use containers::{
 pub use content_switcher::ContentSwitcher;
 pub(crate) use core::render_widget_with_meta;
 pub use core::{
-    BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetStyles, classify_style_change,
+    BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetSelectionAnchor, WidgetStyles,
+    classify_style_change,
 };
 pub use data_table::{CursorType, DataTable};
 pub use digits::Digits;

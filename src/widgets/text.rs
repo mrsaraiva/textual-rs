@@ -1,10 +1,12 @@
 use rich_rs::markdown::Markdown as RichMarkdown;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use std::collections::VecDeque;
+use std::sync::RwLock;
 
+use crate::render::FrameBuffer;
 use crate::style::HorizontalAlign;
 
-use super::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
+use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,12 +195,38 @@ impl Renderable for Label {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Markdown {
     markup: String,
     id: Option<String>,
     layout_width: usize,
+    selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
+    render_cache: RwLock<MarkdownRenderCache>,
     styles: WidgetStyles,
+}
+
+impl Clone for Markdown {
+    fn clone(&self) -> Self {
+        let cached = self
+            .render_cache
+            .read()
+            .map(|cache| cache.clone())
+            .unwrap_or_default();
+        Self {
+            markup: self.markup.clone(),
+            id: self.id.clone(),
+            layout_width: self.layout_width,
+            selection: self.selection,
+            render_cache: RwLock::new(cached),
+            styles: self.styles.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct MarkdownRenderCache {
+    width: usize,
+    lines: Vec<String>,
 }
 
 impl Markdown {
@@ -207,6 +235,8 @@ impl Markdown {
             markup: markup.into(),
             id: None,
             layout_width: 0,
+            selection: None,
+            render_cache: RwLock::new(MarkdownRenderCache::default()),
             styles: WidgetStyles::default(),
         }
     }
@@ -218,6 +248,10 @@ impl Markdown {
 
     pub fn set_markup(&mut self, markup: impl Into<String>) {
         self.markup = markup.into();
+        self.selection = None;
+        if let Ok(mut cache) = self.render_cache.write() {
+            *cache = MarkdownRenderCache::default();
+        }
     }
 
     fn consume_heading_fragment<'a>(remaining: &'a str, fragment: &str) -> Option<&'a str> {
@@ -255,11 +289,150 @@ impl Markdown {
         }
         line.insert(0, rich_rs::Segment::styled(" ".repeat(left_pad), style));
     }
+
+    fn normalize_selection(
+        selection: (WidgetSelectionAnchor, WidgetSelectionAnchor),
+    ) -> (WidgetSelectionAnchor, WidgetSelectionAnchor) {
+        if selection.0.row < selection.1.row {
+            return selection;
+        }
+        if selection.0.row > selection.1.row {
+            return (selection.1, selection.0);
+        }
+        if selection.0.col <= selection.1.col {
+            selection
+        } else {
+            (selection.1, selection.0)
+        }
+    }
+
+    fn line_text_len(line: &str) -> usize {
+        rich_rs::cell_len(line.trim_end())
+    }
+
+    fn clamp_anchor(
+        cache: &MarkdownRenderCache,
+        anchor: WidgetSelectionAnchor,
+    ) -> WidgetSelectionAnchor {
+        if cache.lines.is_empty() {
+            return WidgetSelectionAnchor::default();
+        }
+        let row = anchor.row.min(cache.lines.len() - 1);
+        let col = anchor.col.min(Self::line_text_len(&cache.lines[row]));
+        WidgetSelectionAnchor { row, col, index: 0 }
+    }
+
+    fn cell_to_byte_index(line: &str, cell: usize) -> usize {
+        let mut width = 0usize;
+        let mut idx = 0usize;
+        for (byte_idx, ch) in line.char_indices() {
+            let w = rich_rs::cell_len(&ch.to_string());
+            if width >= cell {
+                idx = byte_idx;
+                return idx;
+            }
+            width = width.saturating_add(w);
+            idx = byte_idx + ch.len_utf8();
+            if width >= cell {
+                return idx;
+            }
+        }
+        idx
+    }
+
+    fn slice_cells(line: &str, start_col: usize, end_col: usize) -> String {
+        if start_col >= end_col {
+            return String::new();
+        }
+        let start = Self::cell_to_byte_index(line, start_col);
+        let end = Self::cell_to_byte_index(line, end_col);
+        line.get(start..end).unwrap_or("").to_string()
+    }
+
+    fn selected_text_from_cache(
+        cache: &MarkdownRenderCache,
+        selection: (WidgetSelectionAnchor, WidgetSelectionAnchor),
+    ) -> Option<String> {
+        if cache.lines.is_empty() {
+            return None;
+        }
+        let (start, end) = Self::normalize_selection(selection);
+        let start = Self::clamp_anchor(cache, start);
+        let end = Self::clamp_anchor(cache, end);
+        if start.row == end.row && start.col == end.col {
+            return None;
+        }
+
+        let mut out = Vec::new();
+        for row in start.row..=end.row {
+            let line = cache.lines[row].trim_end();
+            let line_len = rich_rs::cell_len(line);
+            let slice = if row == start.row && row == end.row {
+                Self::slice_cells(line, start.col.min(line_len), end.col.min(line_len))
+            } else if row == start.row {
+                Self::slice_cells(line, start.col.min(line_len), line_len)
+            } else if row == end.row {
+                Self::slice_cells(line, 0, end.col.min(line_len))
+            } else {
+                line.to_string()
+            };
+            out.push(slice);
+        }
+        let joined = out.join("\n");
+        if joined.is_empty() {
+            None
+        } else {
+            Some(joined)
+        }
+    }
+
+    fn apply_selection_highlight(
+        lines: &[Vec<rich_rs::Segment>],
+        width: usize,
+        selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
+    ) -> Segments {
+        let Some(selection) = selection else {
+            let mut out = Segments::new();
+            let line_count = lines.len();
+            for (index, line) in lines.iter().enumerate() {
+                out.extend(line.clone());
+                if index + 1 < line_count {
+                    out.push(rich_rs::Segment::line());
+                }
+            }
+            return out;
+        };
+        if lines.is_empty() {
+            return Segments::new();
+        }
+        let height = lines.len().max(1);
+        let mut frame = FrameBuffer::from_lines(lines, width.max(1), height, None);
+        let (start, end) = Self::normalize_selection(selection);
+        let highlight = rich_rs::Style::new().with_reverse(true);
+
+        for row in start.row..=end.row {
+            if row >= frame.height {
+                break;
+            }
+            let row_start = if row == start.row { start.col } else { 0 };
+            let row_end = if row == end.row { end.col } else { frame.width };
+            for col in row_start.min(frame.width)..row_end.min(frame.width) {
+                let cell = frame.get_mut(col, row);
+                cell.style = Some(match cell.style {
+                    Some(existing) => highlight.combine(&existing),
+                    None => highlight,
+                });
+            }
+        }
+
+        frame.to_segments()
+    }
 }
 
 impl Widget for Markdown {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let rendered = RichMarkdown::new(self.markup.clone()).render(console, options);
+        let mut lines = rich_rs::Segment::split_lines(rendered);
 
         let mut headings = self
             .markup
@@ -278,83 +451,84 @@ impl Widget for Markdown {
             })
             .collect::<VecDeque<_>>();
 
-        if headings.is_empty() {
-            return rendered;
-        }
-
-        let mut lines = rich_rs::Segment::split_lines(rendered);
-        let mut active_heading: Option<(usize, String)> = None;
-        for line in &mut lines {
-            if headings.is_empty() {
-                break;
-            }
-            let plain = line
-                .iter()
-                .filter(|segment| segment.control.is_none())
-                .map(|segment| segment.text.as_ref())
-                .collect::<String>();
-            let trimmed = plain.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            let mut matched_level: Option<usize> = None;
-            if let Some((level, remaining)) = active_heading.take() {
-                if let Some(rest) = Self::consume_heading_fragment(&remaining, trimmed) {
-                    matched_level = Some(level);
-                    if rest.is_empty() {
-                        headings.pop_front();
-                    } else {
-                        active_heading = Some((level, rest.to_string()));
-                    }
-                }
-            }
-
-            if matched_level.is_none() {
-                let Some((level, title)) = headings.front() else {
+        if !headings.is_empty() {
+            let mut active_heading: Option<(usize, String)> = None;
+            for line in &mut lines {
+                if headings.is_empty() {
                     break;
-                };
-                if let Some(rest) = Self::consume_heading_fragment(title, trimmed) {
-                    matched_level = Some(*level);
-                    if rest.is_empty() {
-                        headings.pop_front();
-                    } else {
-                        active_heading = Some((*level, rest.to_string()));
-                    }
-                } else {
+                }
+                let plain = line
+                    .iter()
+                    .filter(|segment| segment.control.is_none())
+                    .map(|segment| segment.text.as_ref())
+                    .collect::<String>();
+                let trimmed = plain.trim();
+                if trimmed.is_empty() {
                     continue;
                 }
-            }
 
-            let level = matched_level.expect("matched heading level must be set");
-            let class_name = format!("markdown--h{level}");
-            let component_style = crate::css::resolve_component_style(self, &[class_name.as_str()]);
-            let style = component_style
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new);
-            for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
-                // Override markdown heading style to match CSS, avoid inheriting rich heading underline.
-                segment.style = Some(style);
-            }
-            if let Some(content_align) = component_style.content_align {
-                Self::apply_horizontal_alignment(
-                    line,
-                    options.size.0.max(1),
-                    content_align.horizontal,
-                    style,
-                );
+                let mut matched_level: Option<usize> = None;
+                if let Some((level, remaining)) = active_heading.take() {
+                    if let Some(rest) = Self::consume_heading_fragment(&remaining, trimmed) {
+                        matched_level = Some(level);
+                        if rest.is_empty() {
+                            headings.pop_front();
+                        } else {
+                            active_heading = Some((level, rest.to_string()));
+                        }
+                    }
+                }
+
+                if matched_level.is_none() {
+                    let Some((level, title)) = headings.front() else {
+                        break;
+                    };
+                    if let Some(rest) = Self::consume_heading_fragment(title, trimmed) {
+                        matched_level = Some(*level);
+                        if rest.is_empty() {
+                            headings.pop_front();
+                        } else {
+                            active_heading = Some((*level, rest.to_string()));
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+
+                let level = matched_level.expect("matched heading level must be set");
+                let class_name = format!("markdown--h{level}");
+                let component_style =
+                    crate::css::resolve_component_style(self, &[class_name.as_str()]);
+                let style = component_style
+                    .to_rich()
+                    .unwrap_or_else(rich_rs::Style::new);
+                for segment in line.iter_mut().filter(|segment| segment.control.is_none()) {
+                    // Override markdown heading style to match CSS, avoid inheriting rich heading underline.
+                    segment.style = Some(style);
+                }
+                if let Some(content_align) = component_style.content_align {
+                    Self::apply_horizontal_alignment(
+                        line,
+                        options.size.0.max(1),
+                        content_align.horizontal,
+                        style,
+                    );
+                }
             }
         }
 
-        let mut out = Segments::new();
-        let line_count = lines.len();
-        for (index, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if index + 1 < line_count {
-                out.push(rich_rs::Segment::line());
-            }
+        let width = options.size.0.max(1);
+        let height = lines.len().max(1);
+        let cache_frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let cache = MarkdownRenderCache {
+            width,
+            lines: cache_frame.as_plain_lines(),
+        };
+        if let Ok(mut cached_lines) = self.render_cache.write() {
+            *cached_lines = cache;
         }
-        out
+
+        Self::apply_selection_highlight(&lines, width, self.selection)
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -407,6 +581,44 @@ impl Widget for Markdown {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    fn allow_select(&self) -> bool {
+        true
+    }
+
+    fn selection_at(&self, x: u16, y: u16) -> Option<WidgetSelectionAnchor> {
+        let Ok(cache) = self.render_cache.read() else {
+            return None;
+        };
+        if cache.lines.is_empty() || cache.width == 0 {
+            return None;
+        }
+        let row = usize::from(y).min(cache.lines.len().saturating_sub(1));
+        let max_col = Self::line_text_len(&cache.lines[row]);
+        let col = usize::from(x).min(max_col);
+        Some(WidgetSelectionAnchor { row, col, index: 0 })
+    }
+
+    fn update_selection(&mut self, from: WidgetSelectionAnchor, to: WidgetSelectionAnchor) -> bool {
+        let normalized = Self::normalize_selection((from, to));
+        let changed = self.selection != Some(normalized);
+        self.selection = Some(normalized);
+        changed
+    }
+
+    fn clear_selection(&mut self) -> bool {
+        let changed = self.selection.is_some();
+        self.selection = None;
+        changed
+    }
+
+    fn get_selection(&self) -> Option<String> {
+        let selection = self.selection?;
+        let Ok(cache) = self.render_cache.read() else {
+            return None;
+        };
+        Self::selected_text_from_cache(&cache, selection)
+    }
 }
 
 impl Renderable for Markdown {
@@ -417,8 +629,9 @@ impl Renderable for Markdown {
 
 #[cfg(test)]
 mod tests {
-    use super::{Label, Markdown};
-    use crate::widgets::Widget;
+    use super::{Label, Markdown, MarkdownRenderCache};
+    use crate::widgets::{Widget, WidgetSelectionAnchor};
+    use rich_rs::Console;
 
     #[test]
     fn markdown_layout_height_ignores_transient_zero_width_layout_updates() {
@@ -468,5 +681,39 @@ Head of House Atreides.
             after_zero, stable,
             "zero-width hidden layout updates must not collapse width to 1 and inflate height"
         );
+    }
+
+    #[test]
+    fn markdown_selection_returns_selected_text() {
+        let mut markdown = Markdown::new("Bene Gesserit and concubine.");
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (64, 6);
+        Widget::render(&markdown, &console, &options);
+
+        let start = markdown.selection_at(0, 0).expect("selection start");
+        let end = markdown.selection_at(4, 0).expect("selection end");
+        assert!(markdown.update_selection(start, end));
+        assert_eq!(markdown.get_selection().as_deref(), Some("Bene"));
+    }
+
+    #[test]
+    fn markdown_selection_can_span_multiple_lines() {
+        let cache = MarkdownRenderCache {
+            width: 20,
+            lines: vec!["first line".to_string(), "second line".to_string()],
+        };
+        let from = WidgetSelectionAnchor {
+            row: 0,
+            col: 0,
+            index: 0,
+        };
+        let to = WidgetSelectionAnchor {
+            row: 1,
+            col: 6,
+            index: 0,
+        };
+        let selected = Markdown::selected_text_from_cache(&cache, (from, to));
+        assert_eq!(selected.as_deref(), Some("first line\nsecond"));
     }
 }

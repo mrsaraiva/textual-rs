@@ -292,6 +292,19 @@ fn dispatch_simulated_key_like_input(
 
     // Fallback action-map behavior.
     if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a)) {
+        if action == Action::CopySelectedText {
+            if let Some(text) = app.action_copy_selected_text() {
+                let sender = App::runtime_message_sender();
+                pass.generated.push(MessageEvent {
+                    sender,
+                    message: Message::TextEditClipboardCopyRequested(
+                        crate::message::TextEditClipboardCopyRequested { text, cut: false },
+                    ),
+                    control: Some(sender),
+                });
+            }
+            return;
+        }
         if action == Action::HelpQuit {
             app.notify_help_quit();
             pass.repaint_requested = true;
@@ -709,6 +722,18 @@ fn split_runtime_control_messages(
             Message::AppHelpQuit(crate::message::AppHelpQuit) => {
                 app.action_help_quit();
                 pass.repaint_requested = true;
+            }
+            Message::AppCopySelectedText(crate::message::AppCopySelectedText) => {
+                if let Some(text) = app.action_copy_selected_text() {
+                    let sender = App::runtime_message_sender();
+                    pass.generated.push(MessageEvent {
+                        sender,
+                        message: Message::TextEditClipboardCopyRequested(
+                            crate::message::TextEditClipboardCopyRequested { text, cut: false },
+                        ),
+                        control: Some(sender),
+                    });
+                }
             }
             Message::AppHideHelpPanel(crate::message::AppHideHelpPanel) => {
                 match app.action_hide_help_panel() {
@@ -1818,6 +1843,7 @@ impl App {
             let timing_on = timing_enabled();
             let loop_started = Instant::now();
             let mut input_kind = "none";
+            self.validate_active_selection_owner();
             let mut input_dispatch_us: u128 = 0;
             let mut background_us: Option<u128> = None;
             let mut focused_help_us: Option<u128> = None;
@@ -2267,6 +2293,44 @@ impl App {
                         if !key_outcome.handled {
                             if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a))
                             {
+                                if action == Action::CopySelectedText {
+                                    if let Some(text) = self.action_copy_selected_text() {
+                                        let sender = App::runtime_message_sender();
+                                        let mut msg_outcome =
+                                            self.dispatch_message_queue_with_runtime(
+                                                root,
+                                                vec![MessageEvent {
+                                                    sender,
+                                                    message: Message::TextEditClipboardCopyRequested(
+                                                        crate::message::TextEditClipboardCopyRequested {
+                                                            text,
+                                                            cut: false,
+                                                        },
+                                                    ),
+                                                    control: Some(sender),
+                                                }],
+                                            );
+                                        self.absorb_outcome(
+                                            &mut msg_outcome,
+                                            &mut pending_invalidation,
+                                            InvalidationScope::Global,
+                                        );
+                                    }
+                                    input_dispatch_us = input_started.elapsed().as_micros();
+                                    if timing_on {
+                                        debug_timing(&format!(
+                                            "[timing] early_continue reason=copy_selected_text input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                            input_kind,
+                                            input_dispatch_us,
+                                            loop_started.elapsed().as_micros(),
+                                            pending_invalidation.is_dirty(),
+                                            pending_invalidation.flags.content,
+                                            pending_invalidation.flags.style,
+                                            pending_invalidation.flags.layout
+                                        ));
+                                    }
+                                    continue;
+                                }
                                 if action == Action::HelpQuit {
                                     self.notify_help_quit();
                                     pending_invalidation.request_full_content();
@@ -2480,6 +2544,19 @@ impl App {
                                         );
                                     }
                                 }
+                                if let Some(owner) = self.active_selection_owner
+                                    && self.selection_drag_active
+                                {
+                                    let (sx, sy) = self.content_local_coords_auto(
+                                        owner,
+                                        mouse.column,
+                                        mouse.row,
+                                    );
+                                    if self.update_selection_drag(owner, sx, sy).unwrap_or(false) {
+                                        pending_invalidation
+                                            .request_widget_rect(&self.hit_test, owner);
+                                    }
+                                }
                             }
                             MouseEventKind::Down(btn) => {
                                 debug_input(&format!(
@@ -2519,6 +2596,23 @@ impl App {
                                         x,
                                         y,
                                     });
+                                    if matches!(btn, crossterm::event::MouseButton::Left) {
+                                        let previous_owner = self.active_selection_owner;
+                                        let changed = self
+                                            .begin_selection_drag(target, x, y)
+                                            .or_else(|| Some(self.clear_active_selection()))
+                                            .unwrap_or(false);
+                                        if changed {
+                                            if let Some(id) = previous_owner {
+                                                pending_invalidation
+                                                    .request_widget_rect(&self.hit_test, id);
+                                            }
+                                            if let Some(id) = self.active_selection_owner {
+                                                pending_invalidation
+                                                    .request_widget_rect(&self.hit_test, id);
+                                            }
+                                        }
+                                    }
                                     let mut outcome = self.dispatch_event_to_target_auto(
                                         root,
                                         target,
@@ -2542,6 +2636,17 @@ impl App {
                                         break 'event_loop;
                                     }
                                 } else {
+                                    if matches!(btn, crossterm::event::MouseButton::Left) {
+                                        let previous_owner = self.active_selection_owner;
+                                        if self.clear_active_selection() {
+                                            if let Some(id) = previous_owner {
+                                                pending_invalidation
+                                                    .request_widget_rect(&self.hit_test, id);
+                                            } else {
+                                                pending_invalidation.request_full_content();
+                                            }
+                                        }
+                                    }
                                     let down_event = Event::MouseDown(MouseDownEvent {
                                         target: NodeId::default(),
                                         screen_x: mouse.column,
@@ -2570,6 +2675,7 @@ impl App {
                                 }
                             }
                             MouseEventKind::Up(_) => {
+                                self.end_selection_drag();
                                 let target = self.widget_at_auto(mouse.column, mouse.row);
                                 let (x, y) = target
                                     .map(|id| {
@@ -5728,6 +5834,11 @@ mod tests {
             MessageEvent {
                 sender: node_id_from_ffi(1),
                 message: Message::AppHelpQuit(crate::message::AppHelpQuit),
+                control: Some(node_id_from_ffi(1)),
+            },
+            MessageEvent {
+                sender: node_id_from_ffi(1),
+                message: Message::AppCopySelectedText(crate::message::AppCopySelectedText),
                 control: Some(node_id_from_ffi(1)),
             },
             MessageEvent {

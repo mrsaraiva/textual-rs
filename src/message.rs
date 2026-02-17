@@ -392,6 +392,9 @@ pub struct AppFocusPrevious;
 pub struct AppHelpQuit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppCopySelectedText;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppHideHelpPanel;
 
 #[derive(Debug, Clone)]
@@ -736,6 +739,7 @@ pub enum Message {
     AppFocusNext(AppFocusNext),
     AppFocusPrevious(AppFocusPrevious),
     AppHelpQuit(AppHelpQuit),
+    AppCopySelectedText(AppCopySelectedText),
     AppHideHelpPanel(AppHideHelpPanel),
     AppAddClass(AppAddClass),
     AppRemoveClass(AppRemoveClass),
@@ -848,6 +852,7 @@ impl_message_from!(
     AppFocusNext,
     AppFocusPrevious,
     AppHelpQuit,
+    AppCopySelectedText,
     AppHideHelpPanel,
     AppAddClass,
     AppRemoveClass,

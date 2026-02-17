@@ -44,7 +44,7 @@ pub(crate) fn default_action_map() -> ActionMap {
     let mut map = ActionMap::new();
     map.bind(
         KeyBind::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-        Action::HelpQuit,
+        Action::CopySelectedText,
     );
     map.bind(
         KeyBind::new(KeyCode::Tab, KeyModifiers::empty()),
@@ -463,10 +463,10 @@ mod tests {
     }
 
     #[test]
-    fn default_action_map_binds_ctrl_c_to_help_quit() {
+    fn default_action_map_binds_ctrl_c_to_copy_selected_text() {
         let map = default_action_map();
         let ctrl_c = KeyBind::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(map.lookup(&ctrl_c), Some(Action::HelpQuit));
+        assert_eq!(map.lookup(&ctrl_c), Some(Action::CopySelectedText));
     }
 
     // ── Enter/Leave generation tests ─────────────────────────────────

@@ -902,6 +902,10 @@ impl Widget for Log {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    fn get_selection(&self) -> Option<String> {
+        self.selected_text()
+    }
 }
 
 impl Renderable for Log {

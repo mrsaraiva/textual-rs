@@ -124,6 +124,12 @@ pub const APP_ACTIONS: &[ActionDecl] = &[
         name: "help_quit",
         namespace: "app",
         description: "Show quit help",
+        default_binding: None,
+    },
+    ActionDecl {
+        name: "copy_selected_text",
+        namespace: "app",
+        description: "Copy selected text",
         default_binding: Some("ctrl+c"),
     },
     ActionDecl {
@@ -543,7 +549,7 @@ mod tests {
 
     #[test]
     fn app_actions_has_expected_count() {
-        assert_eq!(APP_ACTIONS.len(), 23);
+        assert_eq!(APP_ACTIONS.len(), 24);
     }
 
     #[test]
@@ -591,6 +597,7 @@ mod tests {
             "focus_next",
             "focus_previous",
             "help_quit",
+            "copy_selected_text",
             "hide_help_panel",
             "notify",
             "pop_screen",

@@ -22,7 +22,7 @@ use crate::compose::{ChildDecl, WidgetBuilder};
 use crate::css::{StyleSheet, default_widget_stylesheet};
 use crate::debug::{DebugLayout, debug_input, debug_render};
 use crate::driver::{DriverOptions, KeyboardProtocol, PointerShape, TerminalDriver};
-use crate::event::{ActionMap, BindingHint, Event, KeyBind};
+use crate::event::{ActionMap, BindingHint, Event, EventCtx, KeyBind};
 use crate::message::MessageEvent;
 use crate::node_id::NodeId;
 use crate::node_id::node_id_from_ffi;
@@ -31,7 +31,9 @@ use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
 use crate::style::{Color, Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
-use crate::widgets::{BindingDecl, HelpPanel, ToastSeverity, Widget, WidgetStyles};
+use crate::widgets::{
+    BindingDecl, HelpPanel, ToastSeverity, Widget, WidgetSelectionAnchor, WidgetStyles,
+};
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue};
@@ -420,6 +422,10 @@ pub struct App {
     animation_level: crate::event::AnimationLevel,
     notifications: Vec<AppNotification>,
     clipboard: Option<String>,
+    active_selection_owner: Option<NodeId>,
+    selection_anchor_start: Option<WidgetSelectionAnchor>,
+    selection_anchor_end: Option<WidgetSelectionAnchor>,
+    selection_drag_active: bool,
     async_tasks: AsyncTaskRuntime,
     one_shot_timers: OneShotTimerRuntime,
     devtools: Option<devtools::DevtoolsRuntime>,
@@ -522,6 +528,10 @@ impl App {
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
             clipboard: None,
+            active_selection_owner: None,
+            selection_anchor_start: None,
+            selection_anchor_end: None,
+            selection_drag_active: false,
             async_tasks: AsyncTaskRuntime::default(),
             one_shot_timers: OneShotTimerRuntime::default(),
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
@@ -839,6 +849,11 @@ impl App {
         self.notify_help_quit();
     }
 
+    pub fn action_copy_selected_text(&mut self) -> Option<String> {
+        self.validate_active_selection_owner();
+        self.selected_text()
+    }
+
     pub fn action_notify(&mut self, message: &str, title: &str, severity: &str) {
         let severity = match severity.to_ascii_lowercase().as_str() {
             "warning" => ToastSeverity::Warning,
@@ -846,6 +861,106 @@ impl App {
             _ => ToastSeverity::Information,
         };
         self.notify(message.to_string(), title.to_string(), severity, None);
+    }
+
+    pub(super) fn selected_text(&mut self) -> Option<String> {
+        if let Some(owner) = self.active_selection_owner {
+            let selected = self.with_widget_mut(owner, |widget| widget.get_selection())?;
+            let selected = selected?;
+            if !selected.trim().is_empty() {
+                return Some(selected);
+            }
+        }
+
+        let focused = self.widget_tree.as_ref().and_then(focused_node_id_tree)?;
+        let selected = self
+            .with_widget_mut(focused, |widget| widget.get_selection())
+            .flatten()?;
+        if selected.trim().is_empty() {
+            None
+        } else {
+            Some(selected)
+        }
+    }
+
+    pub(super) fn clear_active_selection(&mut self) -> bool {
+        self.selection_drag_active = false;
+        self.selection_anchor_start = None;
+        self.selection_anchor_end = None;
+        let Some(owner) = self.active_selection_owner.take() else {
+            return false;
+        };
+        self.with_widget_mut(owner, |widget| widget.clear_selection())
+            .unwrap_or(false)
+    }
+
+    pub(super) fn begin_selection_drag(&mut self, target: NodeId, x: u16, y: u16) -> Option<bool> {
+        let anchor = self.with_widget_mut(target, |widget| {
+            if !widget.allow_select() {
+                return None;
+            }
+            widget.selection_at(x, y)
+        })??;
+
+        let _ = self.clear_active_selection();
+        self.active_selection_owner = Some(target);
+        self.selection_drag_active = true;
+        self.selection_anchor_start = Some(anchor);
+        self.selection_anchor_end = Some(anchor);
+
+        self.with_widget_mut(target, |widget| {
+            let changed = widget.update_selection(anchor, anchor);
+            if changed {
+                let mut selection_ctx = EventCtx::default();
+                selection_ctx.set_node_id(target);
+                widget.selection_updated(&mut selection_ctx);
+            }
+            changed
+        })
+    }
+
+    pub(super) fn update_selection_drag(&mut self, target: NodeId, x: u16, y: u16) -> Option<bool> {
+        let owner = self.active_selection_owner?;
+        if owner != target || !self.selection_drag_active {
+            return None;
+        }
+        let from = self.selection_anchor_start?;
+        let anchor = self
+            .with_widget_mut(target, |widget| widget.selection_at(x, y))
+            .flatten()?;
+        self.selection_anchor_end = Some(anchor);
+        Some(self.with_widget_mut(target, |widget| {
+            let changed = widget.update_selection(from, anchor);
+            if changed {
+                let mut selection_ctx = EventCtx::default();
+                selection_ctx.set_node_id(target);
+                widget.selection_updated(&mut selection_ctx);
+            }
+            changed
+        })?)
+    }
+
+    pub(super) fn end_selection_drag(&mut self) {
+        self.selection_drag_active = false;
+    }
+
+    pub(super) fn validate_active_selection_owner(&mut self) {
+        let Some(owner) = self.active_selection_owner else {
+            return;
+        };
+        let still_valid = self
+            .widget_tree
+            .as_ref()
+            .and_then(|tree| tree.get(owner))
+            .is_some_and(|node| {
+                node.display && node.visibility == Visibility::Visible && node.widget.allow_select()
+            });
+        if !still_valid {
+            self.active_selection_owner = None;
+            self.selection_anchor_start = None;
+            self.selection_anchor_end = None;
+            self.selection_drag_active = false;
+        }
     }
 
     pub fn action_back(&mut self) -> bool {

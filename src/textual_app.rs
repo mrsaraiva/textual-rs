@@ -385,7 +385,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             BindingDecl::new("shift+tab", "focus_previous", "Focus Previous")
                 .with_namespace("screen")
                 .hidden(),
-            BindingDecl::new("ctrl+c,super+c", "help_quit", "Copy selected text")
+            BindingDecl::new("ctrl+c,super+c", "copy_selected_text", "Copy selected text")
                 .with_namespace("screen")
                 .hidden(),
             BindingDecl::new("ctrl+q", "quit", "Quit")
@@ -502,6 +502,16 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     return false;
                 }
                 ctx.post_message(Message::AppHelpQuit(crate::message::AppHelpQuit));
+                ctx.set_handled();
+                true
+            }
+            "copy_selected_text" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(Message::AppCopySelectedText(
+                    crate::message::AppCopySelectedText,
+                ));
                 ctx.set_handled();
                 true
             }
@@ -1846,6 +1856,7 @@ mod tests {
             "back",
             "bell",
             "change_theme",
+            "copy_selected_text",
             "command_palette",
             "focus",
             "focus_next",
@@ -1903,6 +1914,11 @@ mod tests {
                 action: "change_theme",
                 python_callers: &["app.py:1761", "app.py:1281"],
                 rust_callers: &["textual_app.rs:366", "runtime/event_loop.rs:419"],
+            },
+            CallerRow {
+                action: "copy_selected_text",
+                python_callers: &["screen.py:960", "screen.py:978"],
+                rust_callers: &["textual_app.rs:508", "runtime/event_loop.rs:713"],
             },
             CallerRow {
                 action: "command_palette",
@@ -2001,7 +2017,7 @@ mod tests {
             },
         ];
 
-        assert_eq!(rows.len(), 23);
+        assert_eq!(rows.len(), 24);
         for row in rows {
             assert!(
                 APP_ACTIONS.iter().any(|action| action.name == row.action),
@@ -2038,6 +2054,7 @@ mod tests {
             "app.back",
             "app.bell",
             "app.change_theme",
+            "app.copy_selected_text",
             "app.command_palette",
             "app.focus('sidebar')",
             "app.focus_next",

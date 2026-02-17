@@ -108,9 +108,12 @@ fn tabs_switch_binding_hint_is_hidden_for_footer() {
     assert_eq!(
         tabs.binding_hints(),
         vec![
-            BindingHint::new("left/right", "Switch tab")
-                .with_key_display("←/→")
-                .hidden(true)
+            BindingHint::new("left", "Previous tab")
+                .with_key_display("←")
+                .hidden(true),
+            BindingHint::new("right", "Next tab")
+                .with_key_display("→")
+                .hidden(true),
         ]
     );
 }

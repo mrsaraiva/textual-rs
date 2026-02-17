@@ -105,6 +105,10 @@ fn command_palette_placeholder_uses_dim_style() {
 #[test]
 fn command_palette_search_row_uses_panel_surface_background() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
+    palette.set_commands(vec![
+        PaletteCommand::new("alpha", "Alpha", "First command"),
+        PaletteCommand::new("beta", "Beta", "Second command"),
+    ]);
     let mut ctx = EventCtx::default();
     palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
     assert!(ctx.handled());
@@ -126,7 +130,7 @@ fn command_palette_search_row_uses_panel_surface_background() {
         .as_plain_lines()
         .iter()
         .enumerate()
-        .find_map(|(y, line)| line.find("Maximize").map(|x| (y, x)))
+        .find_map(|(y, line)| line.find("Beta").map(|x| (y, x)))
         .and_then(|(y, x)| buf.get(x, y).style.as_ref().cloned())
         .expect("list row should have style");
 
@@ -139,6 +143,10 @@ fn command_palette_search_row_uses_panel_surface_background() {
 #[test]
 fn command_palette_unselected_rows_use_panel_surface_background() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
+    palette.set_commands(vec![
+        PaletteCommand::new("alpha", "Alpha", "First command"),
+        PaletteCommand::new("beta", "Beta", "Second command"),
+    ]);
     let mut ctx = EventCtx::default();
     palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
     assert!(ctx.handled());
@@ -148,12 +156,12 @@ fn command_palette_unselected_rows_use_panel_surface_background() {
     let (title_y, title_x) = lines
         .iter()
         .enumerate()
-        .find_map(|(y, line)| line.find("Maximize").map(|x| (y, x)))
+        .find_map(|(y, line)| line.find("Beta").map(|x| (y, x)))
         .expect("title row should be present");
     let (help_y, help_x) = lines
         .iter()
         .enumerate()
-        .find_map(|(y, line)| line.find("Maximize the focused widget").map(|x| (y, x)))
+        .find_map(|(y, line)| line.find("Second command").map(|x| (y, x)))
         .expect("help row should be present");
 
     let title_style = buf

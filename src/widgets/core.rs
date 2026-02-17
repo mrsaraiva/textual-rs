@@ -147,6 +147,19 @@ impl BindingDecl {
     }
 }
 
+/// Selection anchor used by the runtime-level selection pipeline.
+///
+/// Widgets may use whichever fields are meaningful for their own text model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WidgetSelectionAnchor {
+    /// Visual row in widget-local coordinates.
+    pub row: usize,
+    /// Visual column in widget-local coordinates (cell-based).
+    pub col: usize,
+    /// Optional widget-defined logical index (for example grapheme offset).
+    pub index: usize,
+}
+
 /// Behavior-only widget trait.
 ///
 /// Identity (NodeId) comes from the arena-based `WidgetTree`, not from the
@@ -349,6 +362,36 @@ pub trait Widget: Send + Sync + Any {
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
+    /// Whether this widget participates in screen-level text selection.
+    fn allow_select(&self) -> bool {
+        false
+    }
+    /// Convert widget-local pointer coordinates into a selection anchor.
+    fn selection_at(&self, _x: u16, _y: u16) -> Option<WidgetSelectionAnchor> {
+        None
+    }
+    /// Update this widget's current selection.
+    ///
+    /// Returns `true` when visible selection state changed.
+    fn update_selection(
+        &mut self,
+        _from: WidgetSelectionAnchor,
+        _to: WidgetSelectionAnchor,
+    ) -> bool {
+        false
+    }
+    /// Clear this widget's selection.
+    ///
+    /// Returns `true` when visible selection state changed.
+    fn clear_selection(&mut self) -> bool {
+        false
+    }
+    /// Read this widget's selected text as plain text.
+    fn get_selection(&self) -> Option<String> {
+        None
+    }
+    /// Optional callback invoked after runtime updates this widget's selection.
+    fn selection_updated(&mut self, _ctx: &mut EventCtx) {}
 
     /// Return content scroll offset applied to descendants during render.
     ///

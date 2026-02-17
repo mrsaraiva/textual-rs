@@ -1950,6 +1950,10 @@ impl Widget for TextArea {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    fn get_selection(&self) -> Option<String> {
+        self.selected_text()
+    }
 }
 
 fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {

@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **feat(selection/copy parity): add app-level selected-text action pipeline + Markdown selection hooks**
+  - Added widget-level selection hooks to `Widget` (`allow_select`, `selection_at`, `update_selection`, `clear_selection`, `get_selection`, `selection_updated`) and shared `WidgetSelectionAnchor`.
+  - Added app/runtime copy-selected-text plumbing:
+    - new `Action::CopySelectedText`,
+    - new `Message::AppCopySelectedText`,
+    - default `ctrl+c` action map now routes to selected-text copy instead of quit-help.
+  - `TextualAppAdapter` now exposes `copy_selected_text` action and posts app copy messages; action matrices/caller inventory were updated accordingly.
+  - Runtime now tracks active selection ownership/anchors, supports drag selection lifecycle on mouse down/move/up, and resolves selected text from selection owner or focused widget.
+  - Implemented Markdown selection state/extraction/highlighting (including cache-backed coordinate mapping), plus `get_selection()` support for `Input`, `TextArea`, `Log`, and `MaskedInput`.
+  - Added Markdown selection regression tests and updated command-palette/tabs integration expectations affected by action-list and binding-hint parity updates.
+
 - **fix(toast notifications): preserve title + body text in composed notification overlays**
   - Removed duplicate manual vertical padding in `Toast::render`; toast spacing now comes from CSS padding/border in the shared styled render pipeline.
   - Updated `Toast::layout_height()` to derive intrinsic height from actual content lines plus resolved CSS chrome, preventing fixed-height composition from clipping notification body lines.
