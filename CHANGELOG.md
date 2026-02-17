@@ -8,6 +8,17 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **refactor(containers): move container family out of legacy aliases and into dedicated modules**
+  - `src/widgets/aliases.rs` now contains only `Static`; container/scroll implementations were migrated to `src/widgets/containers/*`.
+  - Added dedicated container modules for thin wrappers (`horizontal`, `vertical`, `group`, `center/right/middle`, `item_grid`) and scroll widgets (`vertical_scroll`, `horizontal_scroll`, `scrollable_container`).
+  - Added shared `scroll_core` helpers and routed migrated scroll containers through the new container module exports in `src/widgets/mod.rs`.
+  - Preserved container parity behavior by keeping tree-mode/non-tree-mode contracts and migrated scroll regression tests with the implementations.
+
+- **fix(runtime copy-selected fallback): show quit-help toast when no text is selected**
+  - `copy_selected_text` now mirrors Python Textual fallback behavior by showing help-quit notification when selection is empty.
+  - Applied to all runtime entry paths (key action dispatch, app message dispatch, and event-loop fast path) to keep behavior consistent.
+  - Added regression test `app_copy_selected_text_falls_back_to_help_quit_notification`.
+
 - **refactor(renderables parity): introduce Python-style base renderables modules and extract shared bar logic**
   - Added `src/renderables/{bar,blank,gradient,styled,text_opacity,tint}.rs` and exposed them through `crate::renderables`.
   - Kept existing renderables (`Digits`, `Sparkline`) alongside the new module set to mirror Python Textual structure in a Rust-idiomatic form.

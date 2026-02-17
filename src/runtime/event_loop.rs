@@ -302,6 +302,9 @@ fn dispatch_simulated_key_like_input(
                     ),
                     control: Some(sender),
                 });
+            } else {
+                app.notify_help_quit();
+                pass.repaint_requested = true;
             }
             return;
         }
@@ -733,6 +736,9 @@ fn split_runtime_control_messages(
                         ),
                         control: Some(sender),
                     });
+                } else {
+                    app.notify_help_quit();
+                    pass.repaint_requested = true;
                 }
             }
             Message::AppHideHelpPanel(crate::message::AppHideHelpPanel) => {
@@ -2401,19 +2407,35 @@ impl App {
                                             &mut pending_invalidation,
                                             InvalidationScope::Global,
                                         );
-                                    }
-                                    input_dispatch_us = input_started.elapsed().as_micros();
-                                    if timing_on {
-                                        debug_timing(&format!(
-                                            "[timing] early_continue reason=copy_selected_text input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
-                                            input_kind,
-                                            input_dispatch_us,
-                                            loop_started.elapsed().as_micros(),
-                                            pending_invalidation.is_dirty(),
-                                            pending_invalidation.flags.content,
-                                            pending_invalidation.flags.style,
-                                            pending_invalidation.flags.layout
-                                        ));
+                                        input_dispatch_us = input_started.elapsed().as_micros();
+                                        if timing_on {
+                                            debug_timing(&format!(
+                                                "[timing] early_continue reason=copy_selected_text input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                                input_kind,
+                                                input_dispatch_us,
+                                                loop_started.elapsed().as_micros(),
+                                                pending_invalidation.is_dirty(),
+                                                pending_invalidation.flags.content,
+                                                pending_invalidation.flags.style,
+                                                pending_invalidation.flags.layout
+                                            ));
+                                        }
+                                    } else {
+                                        self.notify_help_quit();
+                                        pending_invalidation.request_full_content();
+                                        input_dispatch_us = input_started.elapsed().as_micros();
+                                        if timing_on {
+                                            debug_timing(&format!(
+                                                "[timing] early_continue reason=help_quit input={} dispatch_us={} loop_us={} dirty={} flags(c={} s={} l={})",
+                                                input_kind,
+                                                input_dispatch_us,
+                                                loop_started.elapsed().as_micros(),
+                                                pending_invalidation.is_dirty(),
+                                                pending_invalidation.flags.content,
+                                                pending_invalidation.flags.style,
+                                                pending_invalidation.flags.layout
+                                            ));
+                                        }
                                     }
                                     continue;
                                 }
@@ -5890,6 +5912,31 @@ mod tests {
         let _ = app.dispatch_message_queue_with_runtime(&mut root, messages);
         assert_eq!(root.show_messages, 1);
         assert_eq!(root.hide_messages, 1);
+    }
+
+    #[test]
+    fn app_copy_selected_text_falls_back_to_help_quit_notification() {
+        let mut app = App::new().expect("app runtime should initialize");
+        let mut root = StyleNode::new("RuntimeRoot");
+        let sender = node_id_from_ffi(1);
+
+        let outcome = app.dispatch_message_queue_with_runtime(
+            &mut root,
+            vec![MessageEvent {
+                sender,
+                message: Message::AppCopySelectedText(crate::message::AppCopySelectedText),
+                control: Some(sender),
+            }],
+        );
+
+        assert!(outcome.repaint_requested);
+        assert_eq!(app.notifications.len(), 1);
+        let note = app.notifications.last().expect("help quit notification");
+        assert_eq!(note.title, "Do you want to quit?");
+        assert!(
+            note.message.contains("Press"),
+            "help quit notification should include quit guidance"
+        );
     }
 
     #[test]
