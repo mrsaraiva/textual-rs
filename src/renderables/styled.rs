@@ -23,7 +23,7 @@ impl<R> Styled<R> {
         self.renderable
     }
 
-    fn apply_styles(
+    pub fn process_segments(
         segments: Segments,
         pre_style: rich_rs::Style,
         post_style: rich_rs::Style,
@@ -47,7 +47,7 @@ impl<R> Styled<R> {
 impl<R: Renderable> Renderable for Styled<R> {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let rendered = self.renderable.render(console, options);
-        Self::apply_styles(rendered, self.pre_style, self.post_style)
+        Self::process_segments(rendered, self.pre_style, self.post_style)
     }
 }
 

@@ -24,6 +24,10 @@ until the API stabilizes.
   - `DataTable` horizontal scrollbar track/thumb rendering now composes through `renderables::Bar` (space glyph mode) instead of widget-local per-cell style loops.
   - Keeps existing scrollbar geometry (`line_scrollbar_thumb`) and drag/active style semantics unchanged while removing duplicated scrollbar paint logic.
 
+- **refactor(footer renderables): route FooterKey style-sandwich through shared `renderables::Styled`**
+  - Added `Styled::process_segments(...)` as a reusable segment-level style composition helper.
+  - `FooterKey` now applies its base/component style layering through shared renderables infrastructure instead of widget-local style merge loops.
+
 - **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
   - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).

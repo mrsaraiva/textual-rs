@@ -5,6 +5,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::debug::debug_message;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
+use crate::renderables::Styled;
 
 use super::helpers::{empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
@@ -175,18 +176,7 @@ impl FooterKey {
         }
         // Python parity: apply FooterKey rich style over the whole renderable
         // after assembling component-styled spans.
-        let mut styled = Segments::new();
-        for mut seg in out {
-            if seg.control.is_none() {
-                let merged = match seg.style {
-                    Some(style) => base_rich.combine(&style),
-                    None => base_rich,
-                };
-                seg.style = Some(merged);
-            }
-            styled.push(seg);
-        }
-        styled
+        Styled::<()>::process_segments(out, base_rich, rich_rs::Style::new())
     }
 }
 
