@@ -158,6 +158,7 @@ fn footer_applies_deferred_bindings_on_focus_gain() {
 
 #[test]
 fn footer_compact_mode_tightens_spacing() {
+    let _guard = set_style_context(textual::css::default_widget_stylesheet());
     let console = Console::new();
     let options = options_for(&console, 60, 1);
     let non_compact = Footer::new()

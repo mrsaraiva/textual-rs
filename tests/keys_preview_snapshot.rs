@@ -1,7 +1,7 @@
 use rich_rs::{Segment, Style as RichStyle};
 use textual::css::{StyleSheet, default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
-use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 fn help_panel() -> impl Widget {
     let title = Styled::new(
@@ -68,12 +68,20 @@ fn action_bar() -> impl Widget {
 
 #[test]
 fn keys_preview_layout_snapshot() {
-    let css = std::fs::read_to_string("examples/keys.tcss").expect("read keys.tcss");
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let css_path = [
+        repo_root.join("docs/widgets/examples/keys/keys.tcss"),
+        repo_root.join("examples/keys.tcss"), // legacy location
+    ]
+    .into_iter()
+    .find(|path| path.exists())
+    .expect("expected keys.tcss in known locations");
+    let css = std::fs::read_to_string(css_path).expect("read keys.tcss");
     let mut stylesheet = default_widget_stylesheet();
     stylesheet.extend(&StyleSheet::parse(&css));
     let _guard = set_style_context(stylesheet);
 
-    let root = preview_root_with_top_bottom(
+    let mut root = preview_root_with_top_bottom(
         Some("Textual Keys"),
         Some(4),
         help_panel(),
@@ -87,6 +95,7 @@ fn keys_preview_layout_snapshot() {
     options.size = (80, 16);
     options.max_width = 80;
     options.max_height = 16;
-    let buffer = FrameBuffer::from_renderable(&console, &options, &root, None);
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should build");
+    let buffer = render_tree_to_frame(&mut tree, &mut root, &console, 80, 16);
     insta::assert_snapshot!(buffer.debug_dump());
 }

@@ -1,13 +1,19 @@
 use rich_rs::Console;
 use textual::css::{StyleSheet, default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
-use textual::render::FrameBuffer;
 use textual::style::parse_color_like;
-use textual::widgets::WidgetRenderable;
 
 #[test]
 fn buttons_demo_default_button_has_background() {
-    let css = std::fs::read_to_string("examples/button.tcss").expect("read button.tcss");
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let css_path = [
+        repo_root.join("docs/widgets/examples/shared/button.tcss"),
+        repo_root.join("examples/button.tcss"), // legacy location
+    ]
+    .into_iter()
+    .find(|path| path.exists())
+    .expect("expected button.tcss in known locations");
+    let css = std::fs::read_to_string(&css_path).expect("read button.tcss");
     let mut stylesheet = default_widget_stylesheet();
     stylesheet.extend(&StyleSheet::parse(&css));
     let _guard = set_style_context(stylesheet);
@@ -21,15 +27,11 @@ fn buttons_demo_default_button_has_background() {
             .with_child(Button::warning("Warning!"))
             .with_child(Button::error("Error!")),
     );
-    let root = AppRoot::new().with_child(buttons);
+    let mut root = AppRoot::new().with_child(buttons);
 
     let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (24, 20);
-    options.max_width = 24;
-    options.max_height = 20;
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&root), None);
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree should build");
+    let buf = render_tree_to_frame(&mut tree, &mut root, &console, 24, 20);
     let lines = buf.as_plain_lines();
     let (y, x) = lines
         .iter()

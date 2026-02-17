@@ -40,10 +40,6 @@ impl Panel {
         self.border = border;
         self
     }
-
-    fn is_tree_mode(&self) -> bool {
-        self.child_extracted
-    }
 }
 
 impl Widget for Panel {
@@ -61,7 +57,7 @@ impl Widget for Panel {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             // Tree-mode: render border + title chrome only, with blank content.
             let border_width: usize = if self.border { 1 } else { 0 };
             let total_padding = self.padding * 2;
@@ -275,31 +271,31 @@ impl Widget for Panel {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_resize(width, height);
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             return;
         }
         let border_width: usize = if self.border { 1 } else { 0 };
@@ -315,38 +311,38 @@ impl Widget for Panel {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_message(message, ctx);
         }
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_mouse_scroll(delta_x, delta_y, ctx);
         }
     }
 
     fn focusable(&self) -> bool {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             return false;
         }
         self.child.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.set_focus(focused);
         }
     }
@@ -413,10 +409,10 @@ mod tests {
     }
 
     #[test]
-    fn panel_is_tree_mode_after_extraction() {
+    fn panel_uses_tree_path_after_extraction() {
         let mut panel = Panel::new(Spacer::new(1));
-        assert!(!panel.is_tree_mode());
+        assert!(!panel.child_extracted);
         let _ = panel.take_composed_children();
-        assert!(panel.is_tree_mode());
+        assert!(panel.child_extracted);
     }
 }

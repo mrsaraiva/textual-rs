@@ -326,13 +326,7 @@ impl TabbedContent {
         let id = self.ensure_pane_id(&mut pane);
         self.push_meta(&pane, id);
         self.panes.lock().expect("tabbed panes lock").push(pane);
-        if self.active.is_none() {
-            let panes = self.panes.lock().expect("tabbed panes lock");
-            self.active = panes
-                .last()
-                .and_then(|p| p.pane_id())
-                .map(|id| id.to_string());
-        }
+        self.sync_active_to_initial_or_first();
         self
     }
 
@@ -340,12 +334,7 @@ impl TabbedContent {
         let id = self.ensure_pane_id(&mut pane);
         self.push_meta(&pane, id);
         self.panes.lock().expect("tabbed panes lock").push(pane);
-        if self.active.is_none() {
-            let panes = self.panes.lock().expect("tabbed panes lock");
-            if let Some(id) = panes.last().and_then(|p| p.pane_id()) {
-                self.active = Some(id.to_string());
-            }
-        }
+        self.sync_active_to_initial_or_first();
     }
 
     pub fn active_id(&self) -> Option<&str> {
@@ -507,6 +496,29 @@ impl TabbedContent {
                 disabled: pane.disabled(),
                 hidden: pane.hidden(),
             });
+    }
+
+    fn sync_active_to_initial_or_first(&mut self) {
+        if let Some(initial) = self.initial.as_deref() {
+            let has_initial = self
+                .pane_meta
+                .lock()
+                .expect("tabbed meta lock")
+                .iter()
+                .any(|meta| meta.id == initial);
+            if has_initial {
+                self.active = Some(initial.to_string());
+                return;
+            }
+        }
+
+        if self.active.is_none() {
+            let panes = self.panes.lock().expect("tabbed panes lock");
+            self.active = panes
+                .last()
+                .and_then(|p| p.pane_id())
+                .map(|id| id.to_string());
+        }
     }
 
     fn content_tab_id(pane_id: &str) -> String {
@@ -1258,6 +1270,53 @@ mod tests {
             tabs.active_id().map(str::to_string),
             active_before,
             "unknown tab IDs must not mutate active pane"
+        );
+    }
+
+    #[test]
+    fn initial_id_is_applied_before_mount_in_tree_mode() {
+        let tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"));
+
+        assert_eq!(
+            tabs.active_id(),
+            Some("jessica"),
+            "initial pane should be active before on_mount so tree-only first render displays the correct pane"
+        );
+    }
+
+    #[test]
+    fn nested_tabbed_content_is_visible_on_first_tree_render() {
+        let nested = TabbedContent::new()
+            .with_pane(TabPane::new("Paul", Label::new("First child")))
+            .with_pane(TabPane::new("Alia", Label::new("Second child")));
+
+        let mut tabs = TabbedContent::new()
+            .initial("jessica")
+            .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
+            .with_pane(
+                TabPane::new(
+                    "Jessica",
+                    Container::new()
+                        .with_child(Markdown::new(
+                            "# Lady Jessica\n\nBene Gesserit and concubine of Leto, and mother of Paul and Alia.",
+                        ))
+                        .with_child(nested),
+                )
+                .id("jessica"),
+            )
+            .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
+
+        let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
+        let console = Console::new();
+        let frame = render_tree_to_frame(&mut tree, &mut tabs, &console, 80, 16);
+        let rendered = frame.as_plain_lines().join("\n");
+
+        assert!(
+            rendered.contains("First child"),
+            "nested tab content should be visible on initial render without requiring a parent tab switch"
         );
     }
 }

@@ -380,10 +380,6 @@ impl ScrollView {
         self.child.on_layout(width, height);
     }
 
-    fn is_tree_mode(&self) -> bool {
-        self.child_extracted
-    }
-
     fn update_scrollbar_hover_state(&mut self, x: u16, y: u16) -> bool {
         let widget_width = self.widget_width.load(Ordering::Relaxed).max(1);
         let widget_height = self.widget_height.load(Ordering::Relaxed).max(1);
@@ -573,7 +569,7 @@ impl Widget for ScrollView {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.set_focus(focused);
         }
     }
@@ -597,10 +593,10 @@ impl Widget for ScrollView {
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(viewport_height, Ordering::Relaxed);
 
-        // Resolve CSS scrollbar config once for both tree-mode and non-tree-mode paths.
+        // Resolve CSS scrollbar config once for both tree and standalone render paths.
         let sb = self.resolve_scrollbar_css();
 
-        if self.is_tree_mode() {
+        if self.child_extracted {
             // Do NOT overwrite content_height/content_width — preserve values
             // set by the tree layout system so scrollbars reflect real content.
 
@@ -645,7 +641,7 @@ impl Widget for ScrollView {
                 show_h = next_show_h;
             }
 
-            // Store reduced viewport dimensions (matching non-tree path).
+            // Store reduced viewport dimensions.
             self.viewport_height
                 .store(content_viewport_h, Ordering::Relaxed);
             self.viewport_width
@@ -1023,31 +1019,31 @@ impl Widget for ScrollView {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_resize(width, height);
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
@@ -1254,7 +1250,7 @@ impl Widget for ScrollView {
             }
         }
 
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             let child_event = match event {
                 Event::MouseDown(mouse) => {
                     let (child_x, child_y) = self.child_coords(mouse.x, mouse.y);
@@ -1515,7 +1511,7 @@ impl Widget for ScrollView {
                 }
             }
         } else {
-            if !self.is_tree_mode() {
+            if !self.child_extracted {
                 let (child_x, child_y) = self.child_coords(x, y);
                 debug_input(&format!(
                     "[hover][scrollview] x={} y={} child=({}, {})",
@@ -1672,7 +1668,7 @@ mod tests {
         // Extract child to enter tree mode.
         let children = sv.take_composed_children();
         assert_eq!(children.len(), 1);
-        assert!(sv.is_tree_mode());
+        assert!(sv.child_extracted);
 
         // Simulate content larger than viewport so scrollbar appears.
         sv.content_height.store(100, Ordering::Relaxed);
@@ -1705,7 +1701,7 @@ mod tests {
         sv.offset_x = 5;
         sv.offset_y = 10;
         let _ = sv.take_composed_children();
-        assert!(sv.is_tree_mode());
+        assert!(sv.child_extracted);
 
         assert_eq!(sv.scroll_offset(), (5, 10));
         assert!(sv.clips_descendants_to_content());
@@ -1715,7 +1711,7 @@ mod tests {
     fn tree_mode_scroll_actions_still_work() {
         let mut sv = ScrollView::new(Label::new("content"));
         let _ = sv.take_composed_children();
-        assert!(sv.is_tree_mode());
+        assert!(sv.child_extracted);
 
         // Set content larger than viewport.
         sv.content_height.store(100, Ordering::Relaxed);

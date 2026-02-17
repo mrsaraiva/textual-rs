@@ -31,10 +31,6 @@ impl Styled {
         self.styles.style = style;
         self
     }
-
-    fn is_tree_mode(&self) -> bool {
-        self.child_extracted
-    }
 }
 
 impl Widget for Styled {
@@ -48,10 +44,8 @@ impl Widget for Styled {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.is_tree_mode() {
-            return Segments::new();
-        }
-        self.child.render_styled(console, options)
+        let _ = (console, options);
+        Segments::new()
     }
 
     fn render_with_debug(
@@ -60,78 +54,33 @@ impl Widget for Styled {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        if self.is_tree_mode() {
-            return Segments::new();
-        }
-        self.child.render_styled_with_debug(console, options, debug)
+        let _ = (console, options, debug);
+        Segments::new()
     }
 
-    fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
-            self.child.on_mount();
-        }
-    }
+    fn on_mount(&mut self) {}
 
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            self.child.on_unmount();
-        }
-    }
+    fn on_unmount(&mut self) {}
 
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            self.child.on_tick(tick);
-        }
-    }
+    fn on_tick(&mut self, _tick: u64) {}
 
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            self.child.on_resize(width, height);
-        }
-    }
+    fn on_resize(&mut self, _width: u16, _height: u16) {}
 
-    fn on_layout(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            self.child.on_layout(width, height);
-        }
-    }
+    fn on_layout(&mut self, _width: u16, _height: u16) {}
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_event_capture(event, ctx);
-        }
-    }
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_event(event, ctx);
-        }
-    }
+    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_message(message, ctx);
-        }
-    }
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_mouse_scroll(delta_x, delta_y, ctx);
-        }
-    }
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {}
 
     fn focusable(&self) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        self.child.focusable()
+        false
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        if !self.is_tree_mode() {
-            self.child.set_focus(focused);
-        }
-    }
+    fn set_focus(&mut self, _focused: bool) {}
 
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
@@ -157,11 +106,7 @@ impl Widget for Styled {
     }
 
     fn style_type(&self) -> &'static str {
-        if self.is_tree_mode() {
-            "Styled"
-        } else {
-            self.child.style_type()
-        }
+        "Styled"
     }
 }
 
@@ -208,13 +153,5 @@ mod tests {
         let mut s = Styled::new(Spacer::new(1), Style::default());
         let _ = s.take_composed_children();
         assert_eq!(s.style_type(), "Styled");
-    }
-
-    #[test]
-    fn styled_is_tree_mode_after_extraction() {
-        let mut s = Styled::new(Spacer::new(1), Style::default());
-        assert!(!s.is_tree_mode());
-        let _ = s.take_composed_children();
-        assert!(s.is_tree_mode());
     }
 }

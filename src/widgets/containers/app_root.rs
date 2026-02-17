@@ -1,19 +1,13 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::debug::{DebugLayout, debug_input};
+use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::renderables::Blank;
 
 use crate::node_id::NodeId;
-use crate::widgets::{
-    Widget, WidgetStyles,
-    helpers::{
-        apply_debug_box, apply_margin, clamp_with_constraints, constraints_from_style,
-        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
-    },
-};
+use crate::widgets::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
 
 pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
@@ -54,51 +48,6 @@ impl AppRoot {
 
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.children.push(Box::new(child));
-    }
-
-    fn is_tree_mode(&self) -> bool {
-        self.children_extracted
-    }
-
-    fn child_at_y(&self, y: u16) -> Option<(usize, u16)> {
-        let mut cursor = 0u16;
-        let viewport_h = self.last_layout_height.max(1);
-        for (idx, child) in self.children.iter().enumerate() {
-            let meta = css::selector_meta_generic(child.as_ref());
-            let resolved = css::resolve_style(child.as_ref(), &meta);
-            let margin = margin_from_style(&resolved);
-            let top_margin = margin.top;
-            let bottom_margin = margin.bottom;
-            let inner_height = if let Some(h) = child.layout_height() {
-                h.max(1) as u16
-            } else if idx + 1 == self.children.len() {
-                // For an auto-height final child, treat it as consuming the
-                // remaining viewport; this keeps root hit-testing aligned with
-                // full-screen layouts like AppRoot -> Dock/ScrollView.
-                viewport_h
-                    .saturating_sub(cursor)
-                    .saturating_sub(bottom_margin)
-                    .max(1)
-            } else {
-                1
-            };
-            let outer_height = inner_height.saturating_add(top_margin + bottom_margin);
-            let outer_end = cursor.saturating_add(outer_height);
-            debug_input(&format!(
-                "[hover][approot] idx={} y={} cursor={} inner={} top={} bottom={} outer_end={} viewport_h={}",
-                idx, y, cursor, inner_height, top_margin, bottom_margin, outer_end, viewport_h
-            ));
-            if y < outer_end {
-                let inner_start = cursor.saturating_add(top_margin);
-                let inner_end = inner_start.saturating_add(inner_height);
-                if y >= inner_start && y < inner_end {
-                    return Some((idx, y.saturating_sub(inner_start)));
-                }
-                return None;
-            }
-            cursor = outer_end;
-        }
-        None
     }
 
     /// Read-only access to the root's children.
@@ -154,360 +103,60 @@ impl Widget for AppRoot {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let _ = console;
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
 
-        if self.is_tree_mode() {
-            // Python parity: app/screen baseline surface should be a concrete
-            // blank renderable using the resolved background.
-            let meta = css::selector_meta_generic(self);
-            let resolved = css::resolve_style(self, &meta);
-            let bg = resolved
-                .bg
-                .or_else(|| crate::style::parse_color_like("$background"))
-                .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
-            return Blank::new(bg).render_for_size(width, height_limit);
-        }
-
-        let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
-
-        let mut lines: Vec<Vec<Segment>> = Vec::new();
-        let mut cursor_y: i32 = 0;
-
-        for child in &self.children {
-            let meta = css::selector_meta_generic(child.as_ref());
-            let resolved = css::resolve_style(child.as_ref(), &meta);
-            let margin = margin_from_style(&resolved);
-            let style_constraints = constraints_from_style(&resolved);
-            let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let render_width = clamp_with_constraints(
-                width
-                    .saturating_sub(margin.left as usize + margin.right as usize)
-                    .max(1),
-                constraints.min_width,
-                constraints.max_width,
-                width
-                    .saturating_sub(margin.left as usize + margin.right as usize)
-                    .max(1),
-            );
-            let render_height = clamp_with_constraints(
-                height_limit
-                    .saturating_sub(margin.top as usize + margin.bottom as usize)
-                    .max(1),
-                constraints.min_height,
-                constraints.max_height,
-                height_limit
-                    .saturating_sub(margin.top as usize + margin.bottom as usize)
-                    .max(1),
-            );
-            let render_height = if let Some(fixed_total) = child.layout_height() {
-                render_height.min(fixed_total.max(1))
-            } else {
-                render_height
-            };
-            let mut child_options = options.clone();
-            child_options.size = (render_width, render_height);
-            child_options.max_width = render_width;
-            child_options.max_height = render_height;
-
-            let segments = child.render_styled(console, &child_options);
-            let mut child_lines =
-                Segment::split_and_crop_lines(segments, render_width, None, true, false);
-            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
-            target_height = clamp_with_constraints(
-                target_height,
-                constraints.min_height,
-                constraints.max_height,
-                target_height,
-            );
-            child_lines =
-                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
-            child_lines = pad_lines_to_width(child_lines, render_width);
-            child_lines = apply_margin(child_lines, width, margin);
-            let child_height = child_lines.len();
-            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, child_height as u32);
-            if let Some(visible) = child_region.intersection(&bounds) {
-                let start = (visible.y - child_region.y).max(0) as usize;
-                let end = (start + visible.height as usize).min(child_lines.len());
-                for line in child_lines.into_iter().skip(start).take(end - start) {
-                    if lines.len() >= height_limit {
-                        break;
-                    }
-                    lines.push(line);
-                }
-            }
-            cursor_y += child_height as i32;
-            if cursor_y as usize >= height_limit {
-                break;
-            }
-        }
-
-        let line_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
+        // App/screen baseline surface is a concrete blank renderable using
+        // the resolved background.
+        let meta = css::selector_meta_generic(self);
+        let resolved = css::resolve_style(self, &meta);
+        let bg = resolved
+            .bg
+            .or_else(|| crate::style::parse_color_like("$background"))
+            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
+        Blank::new(bg).render_for_size(width, height_limit)
     }
 
     fn render_with_debug(
         &self,
         console: &Console,
         options: &ConsoleOptions,
-        debug: &DebugLayout,
+        _debug: &DebugLayout,
     ) -> Segments {
-        if self.is_tree_mode() {
-            return Widget::render(self, console, options);
-        }
-
-        let width = options.size.0.max(1);
-        let height_limit = options.size.1.max(1);
-        let bounds = rich_rs::Region::from_size(width as u32, height_limit as u32);
-
-        let mut lines: Vec<Vec<Segment>> = Vec::new();
-        let mut cursor_y: i32 = 0;
-
-        for (idx, child) in self.children.iter().enumerate() {
-            let meta = css::selector_meta_generic(child.as_ref());
-            let resolved = css::resolve_style(child.as_ref(), &meta);
-            let margin = margin_from_style(&resolved);
-            let style_constraints = constraints_from_style(&resolved);
-            let constraints = merge_constraints(style_constraints, child.layout_constraints());
-            let render_width = clamp_with_constraints(
-                width
-                    .saturating_sub(margin.left as usize + margin.right as usize)
-                    .max(1),
-                constraints.min_width,
-                constraints.max_width,
-                width
-                    .saturating_sub(margin.left as usize + margin.right as usize)
-                    .max(1),
-            );
-            let render_height = clamp_with_constraints(
-                height_limit
-                    .saturating_sub(margin.top as usize + margin.bottom as usize)
-                    .max(1),
-                constraints.min_height,
-                constraints.max_height,
-                height_limit
-                    .saturating_sub(margin.top as usize + margin.bottom as usize)
-                    .max(1),
-            );
-            let render_height = if let Some(fixed_total) = child.layout_height() {
-                render_height.min(fixed_total.max(1))
-            } else {
-                render_height
-            };
-            let mut child_options = options.clone();
-            child_options.size = (render_width, render_height);
-            child_options.max_width = render_width;
-            child_options.max_height = render_height;
-
-            let segments = child.render_styled(console, &child_options);
-            let mut child_lines =
-                Segment::split_and_crop_lines(segments, render_width, None, true, false);
-            let mut target_height = child.layout_height().unwrap_or(child_lines.len().max(1));
-            target_height = clamp_with_constraints(
-                target_height,
-                constraints.min_height,
-                constraints.max_height,
-                target_height,
-            );
-            child_lines =
-                Segment::set_shape(&child_lines, render_width, Some(target_height), None, false);
-            child_lines = pad_lines_to_width(child_lines, render_width);
-            child_lines = apply_margin(child_lines, width, margin);
-            let child_height = child_lines.len().max(1);
-            let debug_height = (child_height + 2).max(3);
-            let child_region = rich_rs::Region::new(0, cursor_y, width as u32, debug_height as u32);
-            if let Some(visible) = child_region.intersection(&bounds) {
-                let start = (visible.y - child_region.y).max(0) as usize;
-                let end = (start + visible.height as usize).min(debug_height);
-                let label = if debug.show_sizes {
-                    Some(format!("{width}x{debug_height}"))
-                } else {
-                    None
-                };
-                let wrapped = apply_debug_box(
-                    child_lines,
-                    width,
-                    debug_height,
-                    label.as_deref(),
-                    debug.style_for(idx),
-                );
-                for line in wrapped.into_iter().skip(start).take(end - start) {
-                    if lines.len() >= height_limit {
-                        break;
-                    }
-                    lines.push(line);
-                }
-            }
-            cursor_y += debug_height as i32;
-            if cursor_y as usize >= height_limit {
-                break;
-            }
-        }
-
-        let line_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
+        Widget::render(self, console, options)
     }
 
-    fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_mount();
-            }
-        }
-    }
+    fn on_mount(&mut self) {}
 
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_unmount();
-            }
-        }
-    }
+    fn on_unmount(&mut self) {}
 
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_tick(tick);
-            }
-        }
-    }
+    fn on_tick(&mut self, _tick: u64) {}
 
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_resize(width, height);
-            }
-        }
-    }
+    fn on_resize(&mut self, _width: u16, _height: u16) {}
 
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_layout_height = height.max(1);
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_layout(width, height);
-            }
-        }
+        let _ = width;
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        for child in &mut self.children {
-            child.on_event_capture(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        if matches!(event, Event::MouseUp(..) | Event::AppFocus(..)) {
-            for child in &mut self.children {
-                child.on_event(event, ctx);
-            }
-            return;
-        }
-        if let Event::MouseDown(mouse) = event {
-            let _ = self.focus(mouse.target);
-        }
+    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
-        for child in &mut self.children {
-            child.on_event(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        let hit = self.child_at_y(y);
-        debug_input(&format!(
-            "[hover][approot] move x={} y={} hit={:?}",
-            x,
-            y,
-            hit.map(|(idx, local_y)| (idx, local_y))
-        ));
-        let mut changed = false;
-
-        for (idx, child) in self.children.iter_mut().enumerate() {
-            let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
-            if child.is_hovered() != hovered {
-                child.set_hovered(hovered);
-                changed = true;
-            }
-        }
-
-        if let Some((idx, local_y)) = hit {
-            if let Some(child) = self.children.get_mut(idx) {
-                changed |= child.on_mouse_move(x, local_y);
-            }
-        }
-
-        changed
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
+        false
     }
 
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
             return Some(fixed);
         }
-        if self.is_tree_mode() {
-            return None;
-        }
-        let mut total = 0usize;
-        for child in &self.children {
-            let meta = css::selector_meta_generic(child.as_ref());
-            let resolved = css::resolve_style(child.as_ref(), &meta);
-            let margin = margin_from_style(&resolved);
-            match child.layout_height() {
-                Some(height) => {
-                    total = total
-                        .saturating_add(height)
-                        .saturating_add(margin.top as usize + margin.bottom as usize);
-                }
-                None => return None,
-            }
-        }
-        Some(total.max(1))
+        None
     }
 
     fn content_width(&self) -> Option<usize> {
-        if self.is_tree_mode() {
-            return None;
-        }
-        let mut widest = 0usize;
-        let mut any = false;
-        for child in &self.children {
-            let meta = css::selector_meta_generic(child.as_ref());
-            let resolved = css::resolve_style(child.as_ref(), &meta);
-            let margin = margin_from_style(&resolved);
-            if let Some(width) = child.content_width() {
-                widest =
-                    widest.max(width.saturating_add(margin.left as usize + margin.right as usize));
-                any = true;
-            }
-        }
-        if any { Some(widest.max(1)) } else { None }
+        None
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -531,32 +180,7 @@ mod focus_tests {
     use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
-    use rich_rs::{Console, ConsoleOptions, Segments};
-    use std::sync::{
-        Arc,
-        atomic::{AtomicU16, Ordering},
-    };
-
-    struct ProbeWidget {
-        last_y: Arc<AtomicU16>,
-    }
-
-    impl ProbeWidget {
-        fn new(last_y: Arc<AtomicU16>) -> Self {
-            Self { last_y }
-        }
-    }
-
-    impl Widget for ProbeWidget {
-        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-            Segments::new()
-        }
-
-        fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
-            self.last_y.store(y, Ordering::Relaxed);
-            true
-        }
-    }
+    use rich_rs::Console;
 
     #[test]
     fn focus_next_advances_after_set_focus_by_id() {
@@ -719,27 +343,6 @@ mod focus_tests {
             48,
             "false vertical scrollbar shrank viewport width"
         );
-    }
-
-    #[test]
-    fn app_root_routes_mouse_move_across_full_height_for_auto_child() {
-        let observed_y = Arc::new(AtomicU16::new(0));
-        let mut root = AppRoot::new().with_child(ProbeWidget::new(observed_y.clone()));
-
-        root.on_layout(80, 24);
-        assert!(root.on_mouse_move(7, 19));
-        assert_eq!(observed_y.load(Ordering::Relaxed), 19);
-    }
-
-    #[test]
-    fn app_root_tree_mode_flag_set_after_extraction() {
-        let mut root = AppRoot::new()
-            .with_child(Button::new("a"))
-            .with_child(Button::new("b"));
-        assert!(!root.is_tree_mode());
-        let children = root.take_composed_children();
-        assert_eq!(children.len(), 2);
-        assert!(root.is_tree_mode());
     }
 
     #[test]

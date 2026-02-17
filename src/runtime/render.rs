@@ -280,7 +280,18 @@ impl App {
                 clip: ClipRect::for_frame(&next),
             };
             for child_id in child_ids {
-                render_tree_node(&tree, child_id, root_ctx, &mut next, &self.console);
+                render_tree_node(
+                    &tree,
+                    child_id,
+                    root_ctx,
+                    &mut next,
+                    &self.console,
+                    if self.debug_layout.enabled {
+                        Some(&self.debug_layout)
+                    } else {
+                        None
+                    },
+                );
             }
 
             pop_style_context();
@@ -640,6 +651,7 @@ fn render_tree_node(
     ctx: TreeRenderCtx,
     frame: &mut FrameBuffer,
     console: &rich_rs::Console,
+    debug: Option<&crate::debug::DebugLayout>,
 ) {
     let node = match tree.get(node_id) {
         Some(n) => n,
@@ -687,7 +699,7 @@ fn render_tree_node(
             node.widget.as_ref(),
             console,
             &opts,
-            None,
+            debug,
             node_id,
             &meta,
             &resolved,
@@ -829,7 +841,7 @@ fn render_tree_node(
 
     let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
     for child_id in child_ids {
-        render_tree_node(tree, child_id, child_ctx, frame, console);
+        render_tree_node(tree, child_id, child_ctx, frame, console, debug);
     }
 
     // P2-34: Paint keylines between children (after children are rendered).
@@ -1485,6 +1497,18 @@ pub fn render_tree_to_frame(
     width: usize,
     height: usize,
 ) -> FrameBuffer {
+    render_tree_to_frame_with_debug(tree, root, console, width, height, None)
+}
+
+/// Render a widget tree to a [`FrameBuffer`] with optional debug-layout overlay.
+pub fn render_tree_to_frame_with_debug(
+    tree: &mut WidgetTree,
+    root: &mut dyn Widget,
+    console: &rich_rs::Console,
+    width: usize,
+    height: usize,
+    debug: Option<&crate::debug::DebugLayout>,
+) -> FrameBuffer {
     // Install stylesheet context for CSS resolution during layout + render.
     let sheet = crate::css::default_widget_stylesheet();
     let _guard = crate::css::set_style_context(sheet);
@@ -1502,7 +1526,7 @@ pub fn render_tree_to_frame(
     opts.size = (width, height);
     opts.max_width = width;
     opts.max_height = height;
-    let root_segments = root.render_styled_dyn_obj(console, &opts, None, root_node_id);
+    let root_segments = root.render_styled_dyn_obj(console, &opts, debug, root_node_id);
     let root_lines =
         rich_rs::Segment::split_and_crop_lines(root_segments, width, None, true, false);
     for (row, line) in root_lines.iter().enumerate() {
@@ -1522,7 +1546,7 @@ pub fn render_tree_to_frame(
             clip: ClipRect::for_frame(&frame),
         };
         for child_id in child_ids {
-            render_tree_node(tree, child_id, root_ctx, &mut frame, console);
+            render_tree_node(tree, child_id, root_ctx, &mut frame, console, debug);
         }
 
         pop_style_context();

@@ -44,10 +44,6 @@ impl Node {
         }
         self
     }
-
-    fn is_tree_mode(&self) -> bool {
-        self.child_extracted
-    }
 }
 
 impl Widget for Node {
@@ -61,10 +57,8 @@ impl Widget for Node {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.is_tree_mode() {
-            return Segments::new();
-        }
-        self.child.render_styled(console, options)
+        let _ = (console, options);
+        Segments::new()
     }
 
     fn render_with_debug(
@@ -73,60 +67,27 @@ impl Widget for Node {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        if self.is_tree_mode() {
-            return Segments::new();
-        }
-        self.child.render_styled_with_debug(console, options, debug)
+        let _ = (console, options, debug);
+        Segments::new()
     }
 
-    fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
-            self.child.on_mount();
-        }
-    }
+    fn on_mount(&mut self) {}
 
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            self.child.on_unmount();
-        }
-    }
+    fn on_unmount(&mut self) {}
 
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            self.child.on_tick(tick);
-        }
-    }
+    fn on_tick(&mut self, _tick: u64) {}
 
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            self.child.on_resize(width, height);
-        }
-    }
+    fn on_resize(&mut self, _width: u16, _height: u16) {}
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_event_capture(event, ctx);
-        }
-    }
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
-            self.child.on_event(event, ctx);
-        }
-    }
+    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
     fn focusable(&self) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        self.child.focusable()
+        false
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        if !self.is_tree_mode() {
-            self.child.set_focus(focused);
-        }
-    }
+    fn set_focus(&mut self, _focused: bool) {}
 
     fn layout_height(&self) -> Option<usize> {
         if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
@@ -152,11 +113,7 @@ impl Widget for Node {
     }
 
     fn style_type(&self) -> &'static str {
-        if self.is_tree_mode() {
-            "Node"
-        } else {
-            self.child.style_type()
-        }
+        "Node"
     }
 
     fn style_id(&self) -> Option<&str> {
@@ -211,13 +168,5 @@ mod tests {
         let mut n = Node::new(Spacer::new(1));
         let _ = n.take_composed_children();
         assert_eq!(n.style_type(), "Node");
-    }
-
-    #[test]
-    fn node_is_tree_mode_after_extraction() {
-        let mut n = Node::new(Spacer::new(1));
-        assert!(!n.is_tree_mode());
-        let _ = n.take_composed_children();
-        assert!(n.is_tree_mode());
     }
 }

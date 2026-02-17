@@ -675,9 +675,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        if !self.children_extracted {
-            return None;
-        }
         match child_index {
             1 => Some(self.command_palette_visible_in_tree()),
             _ => None,
@@ -689,9 +686,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_mount(&mut self) {
-        if !self.children_extracted {
-            self.app_child.on_mount();
-        }
+        self.app_child.on_mount();
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -701,47 +696,31 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     fn on_unmount(&mut self) {
         let mut ctx = EventCtx::default();
         self.shutdown_command_palette_providers(&mut ctx);
-        if !self.children_extracted {
-            self.app_child.on_unmount();
-        }
+        self.app_child.on_unmount();
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.children_extracted {
-            self.app_child.on_tick(tick);
-        }
+        self.app_child.on_tick(tick);
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.children_extracted {
-            self.app_child.on_resize(width, height);
-        }
+        self.app_child.on_resize(width, height);
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        if !self.children_extracted {
-            self.app_child.on_layout(width, height);
-        }
+        self.app_child.on_layout(width, height);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.children_extracted {
-            false
-        } else {
-            self.app_child.on_mouse_move(x, y)
-        }
+        self.app_child.on_mouse_move(x, y)
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        if !self.children_extracted {
-            self.app_child.on_mouse_scroll(delta_x, delta_y, ctx);
-        }
+        self.app_child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.children_extracted {
-            self.app_child.on_event_capture(event, ctx);
-        }
+        self.app_child.on_event_capture(event, ctx);
     }
 
     fn on_app_key(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
@@ -776,15 +755,11 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.children_extracted {
-            self.app_child.on_event(event, ctx);
-        }
+        self.app_child.on_event(event, ctx);
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if !self.children_extracted {
-            self.app_child.on_message(message, ctx);
-        }
+        self.app_child.on_message(message, ctx);
         if ctx.handled() {
             return;
         }

@@ -10,9 +10,10 @@ mod types;
 
 // Public re-exports for integration testing via `textual::runtime::*`.
 pub use event_loop::resolve_transition_for_property;
+pub use helpers::{call_on_mouse_move_tree, tree_content_local_coords, widget_at_tree_layout};
 pub use render::{
     apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
-    resolve_axis_constrain, run_layout_pass, text_overflow_mode,
+    render_tree_to_frame_with_debug, resolve_axis_constrain, run_layout_pass, text_overflow_mode,
 };
 pub use routing::{dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree};
 pub use types::DispatchOutcome;
@@ -55,7 +56,6 @@ use types::{
 
 use helpers::{
     ClickTracker, apply_size, collect_focus_chain_tree, default_action_map,
-    tree_content_local_coords, widget_at_tree_layout,
 };
 
 type SuspendProcessFn = fn() -> io::Result<()>;
@@ -453,9 +453,8 @@ pub struct App {
     pending_highlight_clear: Option<(NodeId, std::time::Instant)>,
     /// Arena-based widget tree built from `compose()` declarations.
     ///
-    /// `None` until `build_widget_tree()` is called during app startup.
-    /// When present, the runtime uses tree-based event dispatch and focus
-    /// management instead of the legacy recursive `visit_children_mut` paths.
+    /// Populated during app startup by `build_widget_tree()`. Runtime dispatch,
+    /// focus, and layout/render behavior are tree-driven.
     widget_tree: Option<WidgetTree>,
     /// Stack of screens. Each screen owns an independent widget tree and
     /// optional stylesheet. The topmost screen is the active one.
@@ -1406,12 +1405,6 @@ impl App {
             Self::mount_declarations(&mut tree, root_node_id, declarations);
         }
 
-        if tree.len() <= 1 {
-            // Only root stub, no composed children — run in root-only mode.
-            self.widget_tree = None;
-            return;
-        }
-
         // Drain lifecycle events from initial build (mount events) — the
         // runtime will call on_mount separately via the existing path.
         let _ = tree.drain_lifecycle();
@@ -1987,18 +1980,12 @@ impl App {
             let (lx, ly) = self.content_local_coords_auto(id, x as u16, y as u16);
             self.call_on_mouse_move_auto(root, id, lx, ly)
         } else {
-            // No hover target:
-            // - In tree mode, the arena root is a synthetic stub and should not
-            //   receive pointer movement directly.
-            // - In root-only mode, the root widget is the only dispatch target.
-            //
-            // In both cases, forward through the real root widget.
-            if self.active_widget_tree().is_some() {
-                debug_input(&format!(
-                    "[hover] fallback root-move via real-root screen=({}, {})",
-                    x, y
-                ));
-            }
+            // No hover target: forward through the real root widget so app
+            // wrappers can still observe pointer movement outside widget hits.
+            debug_input(&format!(
+                "[hover] fallback root-move via real-root screen=({}, {})",
+                x, y
+            ));
             root.on_mouse_move(x as u16, y as u16)
         };
 

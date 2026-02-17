@@ -76,10 +76,6 @@ impl HorizontalScroll {
             .store(width.max(1), std::sync::atomic::Ordering::Relaxed);
     }
 
-    fn is_tree_mode(&self) -> bool {
-        self.children_extracted
-    }
-
     fn max_offset(&self) -> usize {
         let content = self.content_width.load(Ordering::Relaxed);
         let viewport = self.viewport_width.load(Ordering::Relaxed).max(1);
@@ -119,7 +115,7 @@ impl Widget for HorizontalScroll {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.set_focus(focused);
         }
     }
@@ -133,7 +129,7 @@ impl Widget for HorizontalScroll {
         let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1)).max(1);
         self.viewport_width.store(viewport_width, Ordering::Relaxed);
 
-        if self.is_tree_mode() {
+        if self.children_extracted {
             let content_w = self.content_width.load(Ordering::Relaxed);
             let show_h = content_w > viewport_width;
             const H_SCROLLBAR_SIZE: usize = 1;
@@ -287,37 +283,37 @@ impl Widget for HorizontalScroll {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_resize(width, height);
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_layout(width, height);
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
@@ -361,7 +357,7 @@ impl Widget for HorizontalScroll {
             }
         }
 
-        if self.is_tree_mode() {
+        if self.children_extracted {
             return;
         }
         self.child.on_event(event, ctx);
@@ -381,7 +377,7 @@ impl Widget for HorizontalScroll {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.is_tree_mode() {
+        if self.children_extracted {
             return false;
         }
         self.child.on_mouse_move(x, y)
@@ -397,7 +393,7 @@ impl Widget for HorizontalScroll {
 
     fn layout_height(&self) -> Option<usize> {
         self.height.or_else(|| {
-            if self.is_tree_mode() {
+            if self.children_extracted {
                 None
             } else {
                 self.child.layout_height()
@@ -432,7 +428,7 @@ mod tests {
         let mut hs = HorizontalScroll::new().with_child(Label::new("wide content here"));
         let children = hs.take_composed_children();
         assert!(!children.is_empty());
-        assert!(hs.is_tree_mode());
+        assert!(hs.children_extracted);
 
         hs.content_width.store(100, Ordering::Relaxed);
 
@@ -456,7 +452,7 @@ mod tests {
         let mut hs = HorizontalScroll::new().with_child(Label::new("a"));
         hs.offset_x = 3;
         let _ = hs.take_composed_children();
-        assert!(hs.is_tree_mode());
+        assert!(hs.children_extracted);
 
         assert_eq!(hs.scroll_offset(), (3, 0));
         assert!(hs.clips_descendants_to_content());

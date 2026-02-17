@@ -151,10 +151,6 @@ impl Overlay {
     fn modal_contains(&mut self, _target: NodeId) -> bool {
         true
     }
-
-    fn is_tree_mode(&self) -> bool {
-        self.children_extracted
-    }
 }
 
 impl Widget for Overlay {
@@ -169,7 +165,7 @@ impl Widget for Overlay {
     }
 
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             return None;
         }
         match child_index {
@@ -181,7 +177,7 @@ impl Widget for Overlay {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.is_tree_mode() {
+        if self.children_extracted {
             // Tree-mode: Overlay has no chrome of its own; return empty.
             return Segments::new();
         }
@@ -196,42 +192,42 @@ impl Widget for Overlay {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.base.on_mount();
             self.modal.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.base.on_unmount();
             self.modal.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.base.on_tick(tick);
             self.modal.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.base.on_resize(width, height);
             self.modal.on_resize(width, height);
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.base.on_layout(width, height);
             self.modal.on_layout(width, height);
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.is_tree_mode() {
+        if self.children_extracted {
             // Tree mode: tree handles capture routing to children.
             return;
         }
@@ -248,7 +244,7 @@ impl Widget for Overlay {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.is_tree_mode() {
+        if self.children_extracted {
             // Tree mode: handle overlay-specific behavior only.
             if self.dismiss_on_escape
                 && matches!(
@@ -313,7 +309,7 @@ impl Widget for Overlay {
         }
 
         // In tree mode, skip child forwarding — the tree handles message routing.
-        if self.is_tree_mode() {
+        if self.children_extracted {
             return;
         }
 
@@ -598,12 +594,12 @@ mod tests {
     }
 
     #[test]
-    fn overlay_is_tree_mode_after_extraction() {
+    fn overlay_uses_tree_path_after_extraction() {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal);
-        assert!(!overlay.is_tree_mode());
+        assert!(!overlay.children_extracted);
         let _ = overlay.take_composed_children();
-        assert!(overlay.is_tree_mode());
+        assert!(overlay.children_extracted);
     }
 }

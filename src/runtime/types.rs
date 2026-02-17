@@ -47,10 +47,10 @@ impl HitTestMap {
 
     /// Translate screen coordinates to content-local coordinates for `target`.
     ///
-    /// Simplified root-only version: computes offset from the bounding rect
-    /// without CSS inset adjustment. The tree-based
-    /// [`NodeHitTestMap::content_local_coords`] provides full inset calculation
-    /// when the arena tree is available.
+    /// Computes local coordinates from the node bounding rect.
+    ///
+    /// This map stores frame-composited bounds. For CSS-inset-aware coordinate
+    /// translation, prefer `NodeHitTestMap::content_local_coords`.
     pub(crate) fn content_local_coords(
         &self,
         target: NodeId,
@@ -73,8 +73,7 @@ impl HitTestMap {
 
 /// Hit-test map keyed by arena `NodeId`.
 ///
-/// This is the primary hit-test map for the arena tree render pipeline.
-/// [`HitTestMap`] remains for the legacy root-only path.
+/// This is the primary hit-test map for arena-tree coordinate translation.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct NodeHitTestMap {
     pub(crate) bounds: HashMap<NodeId, Rect>,

@@ -29,11 +29,10 @@ use super::helpers::{
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
-    active_binding_hints_tree, dispatch_event, dispatch_event_broadcast_tree,
-    dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
-    dispatch_mouse_scroll, dispatch_mouse_scroll_to_target_tree, dispatch_scroll_action_tree,
-    focused_help_metadata_tree, focused_node_id_tree, is_priority_action, is_scroll_action,
-    match_binding_tree,
+    active_binding_hints_tree, dispatch_event_broadcast_tree, dispatch_event_to_target_tree,
+    dispatch_event_tree, dispatch_message_queue_tree, dispatch_mouse_scroll,
+    dispatch_mouse_scroll_to_target_tree, dispatch_scroll_action_tree, focused_help_metadata_tree,
+    focused_node_id_tree, is_priority_action, is_scroll_action, match_binding_tree,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
@@ -1836,8 +1835,8 @@ impl App {
         root.on_mount();
 
         // Build the arena-based widget tree by extracting children from root.
-        // If children are found (via take_composed_children or compose),
-        // tree mode becomes active; otherwise runtime stays in root-only mode.
+        // Runtime dispatch stays tree-driven even when only the synthetic root
+        // node exists.
         self.build_widget_tree(root);
         if let Some(tree) = self.active_widget_tree_mut() {
             let _ = sync_widget_controlled_child_display_tree(tree, root);
@@ -2459,8 +2458,7 @@ impl App {
                                 }
                                 if matches!(action, Action::FocusNext | Action::FocusPrev) {
                                     // Give the currently-focused branch a chance to descend
-                                    // focus into non-tree descendants (legacy wrappers)
-                                    // before falling back to tree-level focus cycling.
+                                    // focus before falling back to tree-level focus cycling.
                                     let mut focus_outcome =
                                         self.dispatch_event_auto(root, Event::Action(action));
                                     self.absorb_outcome(
@@ -3844,13 +3842,9 @@ impl App {
     // ===================================================================
     // Arena-tree bridge methods
     //
-    // The runtime has two explicit modes:
-    // - Tree mode: a composed widget tree exists (`self.widget_tree.is_some()`).
-    // - Root-only mode: no composed children were extracted; only the root
-    //   widget participates in dispatch.
-    //
-    // Root-only fallbacks below are intentional compatibility for root-only
-    // apps, not migration-only behavior.
+    // Runtime dispatch/layout/input are tree-driven. The root widget remains
+    // outside the arena as an app hook bridge (capture/app-action/app-message),
+    // but event routing to widgets always goes through the arena tree.
     // ===================================================================
 
     /// Move focus forward/backward in the tree focus chain.
@@ -3902,171 +3896,150 @@ impl App {
         if open { Some(target) } else { None }
     }
 
-    /// Dispatch an event via tree mode, or root-only mode when no tree exists.
-    fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
-        let palette_target = self.open_command_palette_target();
-        if self.active_widget_tree().is_some() {
-            if matches!(&event, Event::Action(Action::CommandPalette))
-                && let Ok(target) = self.query_one("CommandPalette")
-            {
-                let tree = self.active_widget_tree_mut().expect("tree should exist");
-                let direct = dispatch_event_to_target_tree(tree, target, &event);
-                if direct.handled {
-                    return direct;
-                }
-            }
-
-            if let Some(target) = palette_target
-                && !matches!(&event, Event::Action(Action::CommandPalette))
-                && matches!(
-                    &event,
-                    Event::Action(_)
-                        | Event::Key(_)
-                        | Event::MouseDown(_)
-                        | Event::MouseUp(_)
-                        | Event::MouseScroll(_)
-                        | Event::Tick(_)
-                )
-            {
-                let tree = self.active_widget_tree_mut().expect("tree should exist");
-                return dispatch_event_to_target_tree(tree, target, &event);
-            }
-
-            // In tree mode, the root widget (e.g. TextualAppAdapter) is not mounted
-            // in the arena, so app-level hooks on root would otherwise be skipped.
-            // Run key capture on root first, then route through tree.
-            let mut root_capture_ctx = EventCtx::default();
-            if matches!(&event, Event::Key(..)) {
-                root.on_event_capture(&event, &mut root_capture_ctx);
-                if root_capture_ctx.handled() {
-                    return DispatchOutcome {
-                        handled: root_capture_ctx.handled(),
-                        repaint_requested: root_capture_ctx.repaint_requested(),
-                        invalidation: root_capture_ctx.invalidation(),
-                        stop_requested: root_capture_ctx.stop_requested(),
-                        messages: root_capture_ctx.take_messages(),
-                        animation_requests: root_capture_ctx.take_animation_requests(),
-                        worker_requests: root_capture_ctx.take_worker_requests(),
-                        default_prevented: false,
-                    };
-                }
-            }
-
-            let mut outcome = {
-                let tree = self.active_widget_tree_mut().expect("tree should exist");
-                let focused = focused_node_id_tree(tree);
-                dispatch_event_tree(tree, focused, &event)
-            };
-
-            // Merge root key-capture side effects (if any) while preserving
-            // ordering: root-capture emissions happen before tree dispatch.
-            if matches!(&event, Event::Key(..)) {
-                outcome.handled |= root_capture_ctx.handled();
-                outcome.repaint_requested |= root_capture_ctx.repaint_requested();
-                outcome.invalidation.merge(root_capture_ctx.invalidation());
-                outcome.stop_requested |= root_capture_ctx.stop_requested();
-
-                let mut root_messages = root_capture_ctx.take_messages();
-                if !root_messages.is_empty() {
-                    root_messages.extend(outcome.messages);
-                    outcome.messages = root_messages;
-                }
-
-                let mut root_animation_requests = root_capture_ctx.take_animation_requests();
-                if !root_animation_requests.is_empty() {
-                    root_animation_requests.extend(outcome.animation_requests);
-                    outcome.animation_requests = root_animation_requests;
-                }
-
-                let mut root_worker_requests = root_capture_ctx.take_worker_requests();
-                if !root_worker_requests.is_empty() {
-                    root_worker_requests.extend(outcome.worker_requests);
-                    outcome.worker_requests = root_worker_requests;
-                }
-            }
-
-            // Preserve runtime-root fallback in tree mode for events that
-            // wrappers may handle outside the arena tree (e.g. command palette
-            // key/mouse handling).
-            if !outcome.handled
-                && matches!(
-                    &event,
-                    Event::Action(_)
-                        | Event::Key(_)
-                        | Event::MouseDown(_)
-                        | Event::MouseUp(_)
-                        | Event::MouseScroll(_)
-                        | Event::AppFocus(_)
-                )
-            {
-                let mut root_event_ctx = EventCtx::default();
-                root.on_event(&event, &mut root_event_ctx);
-                outcome.handled |= root_event_ctx.handled();
-                outcome.repaint_requested |= root_event_ctx.repaint_requested();
-                outcome.invalidation.merge(root_event_ctx.invalidation());
-                outcome.stop_requested |= root_event_ctx.stop_requested();
-                outcome.messages.extend(root_event_ctx.take_messages());
-                outcome
-                    .animation_requests
-                    .extend(root_event_ctx.take_animation_requests());
-                outcome
-                    .worker_requests
-                    .extend(root_event_ctx.take_worker_requests());
-            }
-
-            if !outcome.handled
-                && let Event::Action(action) = &event
-            {
-                let mut app_action_ctx = EventCtx::default();
-                root.on_app_action(self, *action, &mut app_action_ctx);
-                outcome.handled |= app_action_ctx.handled();
-                outcome.repaint_requested |= app_action_ctx.repaint_requested();
-                outcome.invalidation.merge(app_action_ctx.invalidation());
-                outcome.stop_requested |= app_action_ctx.stop_requested();
-                outcome.messages.extend(app_action_ctx.take_messages());
-                outcome
-                    .animation_requests
-                    .extend(app_action_ctx.take_animation_requests());
-                outcome
-                    .worker_requests
-                    .extend(app_action_ctx.take_worker_requests());
-            }
-
-            outcome
-        } else {
-            let mut outcome = dispatch_event(root, event.clone());
-            if !outcome.handled
-                && let Event::Action(action) = event
-            {
-                let mut app_action_ctx = EventCtx::default();
-                root.on_app_action(self, action, &mut app_action_ctx);
-                outcome.handled |= app_action_ctx.handled();
-                outcome.repaint_requested |= app_action_ctx.repaint_requested();
-                outcome.invalidation.merge(app_action_ctx.invalidation());
-                outcome.stop_requested |= app_action_ctx.stop_requested();
-                outcome.messages.extend(app_action_ctx.take_messages());
-                outcome
-                    .animation_requests
-                    .extend(app_action_ctx.take_animation_requests());
-                outcome
-                    .worker_requests
-                    .extend(app_action_ctx.take_worker_requests());
-            }
-            outcome
+    fn ensure_runtime_tree(&mut self, root: &mut dyn Widget) {
+        if self.active_widget_tree().is_none() {
+            self.build_widget_tree(root);
         }
     }
 
+    /// Dispatch an event through the arena tree.
+    fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
+        self.ensure_runtime_tree(root);
+        let palette_target = self.open_command_palette_target();
+        if matches!(&event, Event::Action(Action::CommandPalette))
+            && let Ok(target) = self.query_one("CommandPalette")
+        {
+            let tree = self.active_widget_tree_mut().expect("tree should exist");
+            let direct = dispatch_event_to_target_tree(tree, target, &event);
+            if direct.handled {
+                return direct;
+            }
+        }
+
+        if let Some(target) = palette_target
+            && !matches!(&event, Event::Action(Action::CommandPalette))
+            && matches!(
+                &event,
+                Event::Action(_)
+                    | Event::Key(_)
+                    | Event::MouseDown(_)
+                    | Event::MouseUp(_)
+                    | Event::MouseScroll(_)
+                    | Event::Tick(_)
+            )
+        {
+            let tree = self.active_widget_tree_mut().expect("tree should exist");
+            return dispatch_event_to_target_tree(tree, target, &event);
+        }
+
+        // The root widget (e.g. TextualAppAdapter) is not mounted in the arena,
+        // so app-level key capture on root must run before tree dispatch.
+        let mut root_capture_ctx = EventCtx::default();
+        if matches!(&event, Event::Key(..)) {
+            root.on_event_capture(&event, &mut root_capture_ctx);
+            if root_capture_ctx.handled() {
+                return DispatchOutcome {
+                    handled: root_capture_ctx.handled(),
+                    repaint_requested: root_capture_ctx.repaint_requested(),
+                    invalidation: root_capture_ctx.invalidation(),
+                    stop_requested: root_capture_ctx.stop_requested(),
+                    messages: root_capture_ctx.take_messages(),
+                    animation_requests: root_capture_ctx.take_animation_requests(),
+                    worker_requests: root_capture_ctx.take_worker_requests(),
+                    default_prevented: false,
+                };
+            }
+        }
+
+        let mut outcome = {
+            let tree = self.active_widget_tree_mut().expect("tree should exist");
+            let focused = focused_node_id_tree(tree);
+            dispatch_event_tree(tree, focused, &event)
+        };
+
+        // Merge root key-capture side effects (if any) while preserving
+        // ordering: root-capture emissions happen before tree dispatch.
+        if matches!(&event, Event::Key(..)) {
+            outcome.handled |= root_capture_ctx.handled();
+            outcome.repaint_requested |= root_capture_ctx.repaint_requested();
+            outcome.invalidation.merge(root_capture_ctx.invalidation());
+            outcome.stop_requested |= root_capture_ctx.stop_requested();
+
+            let mut root_messages = root_capture_ctx.take_messages();
+            if !root_messages.is_empty() {
+                root_messages.extend(outcome.messages);
+                outcome.messages = root_messages;
+            }
+
+            let mut root_animation_requests = root_capture_ctx.take_animation_requests();
+            if !root_animation_requests.is_empty() {
+                root_animation_requests.extend(outcome.animation_requests);
+                outcome.animation_requests = root_animation_requests;
+            }
+
+            let mut root_worker_requests = root_capture_ctx.take_worker_requests();
+            if !root_worker_requests.is_empty() {
+                root_worker_requests.extend(outcome.worker_requests);
+                outcome.worker_requests = root_worker_requests;
+            }
+        }
+
+        // Root bridge for app-level behavior not mounted in the arena tree.
+        if !outcome.handled
+            && matches!(
+                &event,
+                Event::Action(_)
+                    | Event::Key(_)
+                    | Event::MouseDown(_)
+                    | Event::MouseUp(_)
+                    | Event::MouseScroll(_)
+                    | Event::AppFocus(_)
+            )
+        {
+            let mut root_event_ctx = EventCtx::default();
+            root.on_event(&event, &mut root_event_ctx);
+            outcome.handled |= root_event_ctx.handled();
+            outcome.repaint_requested |= root_event_ctx.repaint_requested();
+            outcome.invalidation.merge(root_event_ctx.invalidation());
+            outcome.stop_requested |= root_event_ctx.stop_requested();
+            outcome.messages.extend(root_event_ctx.take_messages());
+            outcome
+                .animation_requests
+                .extend(root_event_ctx.take_animation_requests());
+            outcome
+                .worker_requests
+                .extend(root_event_ctx.take_worker_requests());
+        }
+
+        if !outcome.handled
+            && let Event::Action(action) = &event
+        {
+            let mut app_action_ctx = EventCtx::default();
+            root.on_app_action(self, *action, &mut app_action_ctx);
+            outcome.handled |= app_action_ctx.handled();
+            outcome.repaint_requested |= app_action_ctx.repaint_requested();
+            outcome.invalidation.merge(app_action_ctx.invalidation());
+            outcome.stop_requested |= app_action_ctx.stop_requested();
+            outcome.messages.extend(app_action_ctx.take_messages());
+            outcome
+                .animation_requests
+                .extend(app_action_ctx.take_animation_requests());
+            outcome
+                .worker_requests
+                .extend(app_action_ctx.take_worker_requests());
+        }
+        outcome
+    }
+
     /// Dispatch an event to a specific target via the arena tree.
-    ///
-    /// Falls back to root-only dispatch when no tree exists.
     fn dispatch_event_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
         _target: NodeId,
         event: &Event,
     ) -> DispatchOutcome {
-        if self.active_widget_tree().is_some()
-            && matches!(event, Event::Action(Action::CommandPalette))
+        self.ensure_runtime_tree(root);
+        if matches!(event, Event::Action(Action::CommandPalette))
             && let Ok(target) = self.query_one("CommandPalette")
         {
             let tree = self.active_widget_tree_mut().expect("tree should exist");
@@ -4077,46 +4050,37 @@ impl App {
         }
 
         let palette_target = self.open_command_palette_target();
-        if let Some(tree) = self.active_widget_tree_mut() {
-            if let Some(palette_target) = palette_target
-                && !matches!(event, Event::Action(Action::CommandPalette))
-                && matches!(
-                    event,
-                    Event::Action(_)
-                        | Event::Key(_)
-                        | Event::MouseDown(_)
-                        | Event::MouseUp(_)
-                        | Event::MouseScroll(_)
-                        | Event::Tick(_)
-                )
-            {
-                return dispatch_event_to_target_tree(tree, palette_target, event);
-            }
-            dispatch_event_to_target_tree(tree, _target, event)
-        } else {
-            dispatch_event(root, event.clone())
+        let tree = self.active_widget_tree_mut().expect("tree should exist");
+        if let Some(palette_target) = palette_target
+            && !matches!(event, Event::Action(Action::CommandPalette))
+            && matches!(
+                event,
+                Event::Action(_)
+                    | Event::Key(_)
+                    | Event::MouseDown(_)
+                    | Event::MouseUp(_)
+                    | Event::MouseScroll(_)
+                    | Event::Tick(_)
+            )
+        {
+            return dispatch_event_to_target_tree(tree, palette_target, event);
         }
+        dispatch_event_to_target_tree(tree, _target, event)
     }
 
     /// Dispatch a scroll action via the arena tree.
-    ///
-    /// Falls back to root-only dispatch when no tree exists.
     fn dispatch_scroll_action_auto(
         &mut self,
         root: &mut dyn Widget,
         action: Action,
         hovered: Option<NodeId>,
     ) -> DispatchOutcome {
-        if let Some(tree) = self.active_widget_tree_mut() {
-            dispatch_scroll_action_tree(tree, action, hovered)
-        } else {
-            dispatch_event(root, Event::Action(action))
-        }
+        self.ensure_runtime_tree(root);
+        let tree = self.active_widget_tree_mut().expect("tree should exist");
+        dispatch_scroll_action_tree(tree, action, hovered)
     }
 
     /// Dispatch mouse scroll to a specific target via the arena tree.
-    ///
-    /// Falls back to root-only scroll when no tree exists.
     fn dispatch_mouse_scroll_to_target_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -4124,134 +4088,79 @@ impl App {
         delta_x: i32,
         delta_y: i32,
     ) -> DispatchOutcome {
-        if let Some(tree) = self.active_widget_tree_mut() {
-            dispatch_mouse_scroll_to_target_tree(tree, _target, delta_x, delta_y)
-        } else {
-            dispatch_mouse_scroll(root, delta_x, delta_y)
-        }
+        self.ensure_runtime_tree(root);
+        let tree = self.active_widget_tree_mut().expect("tree should exist");
+        dispatch_mouse_scroll_to_target_tree(tree, _target, delta_x, delta_y)
     }
 
     /// Dispatch a message queue via the arena tree.
-    ///
-    /// Falls back to root-only message delivery when no tree exists.
     fn dispatch_message_queue_auto(
         &mut self,
         root: &mut dyn Widget,
         initial: Vec<MessageEvent>,
     ) -> DispatchOutcome {
-        if self.active_widget_tree().is_some() {
-            let mut outcome = {
-                let tree = self.active_widget_tree_mut().expect("tree should exist");
-                dispatch_message_queue_tree(tree, initial.clone())
-            };
+        self.ensure_runtime_tree(root);
+        let mut outcome = {
+            let tree = self.active_widget_tree_mut().expect("tree should exist");
+            dispatch_message_queue_tree(tree, initial.clone())
+        };
 
-            // Tree routing delivers to arena nodes, but the TextualApp adapter root
-            // also hosts typed hooks (e.g. on_button_pressed). Forward top-level
-            // messages to root so app hooks still run in tree mode.
-            for message in initial {
-                let mut ctx = EventCtx::default();
-                root.on_message(&message, &mut ctx);
-                if !ctx.handled() {
-                    root.on_app_message(self, &message, &mut ctx);
-                }
-                outcome.handled |= ctx.handled();
-                outcome.repaint_requested |= ctx.repaint_requested();
-                outcome.invalidation.merge(ctx.invalidation());
-                outcome.stop_requested |= ctx.stop_requested();
-                outcome.messages.extend(ctx.take_messages());
-                outcome
-                    .animation_requests
-                    .extend(ctx.take_animation_requests());
-                outcome.worker_requests.extend(ctx.take_worker_requests());
+        // Tree routing delivers to arena nodes, but the TextualApp adapter root
+        // also hosts typed hooks (e.g. on_button_pressed). Forward top-level
+        // messages to root so app hooks still run in tree mode.
+        for message in initial {
+            let mut ctx = EventCtx::default();
+            root.on_message(&message, &mut ctx);
+            if !ctx.handled() {
+                root.on_app_message(self, &message, &mut ctx);
             }
-
+            outcome.handled |= ctx.handled();
+            outcome.repaint_requested |= ctx.repaint_requested();
+            outcome.invalidation.merge(ctx.invalidation());
+            outcome.stop_requested |= ctx.stop_requested();
+            outcome.messages.extend(ctx.take_messages());
             outcome
-        } else {
-            // Root-only fallback: deliver each message to root.on_message,
-            // re-queuing follow-up messages like the tree-based version.
-            use std::collections::VecDeque;
-            let mut handled = false;
-            let mut repaint_requested = false;
-            let mut invalidation = crate::event::InvalidationFlags::default();
-            let mut stop_requested = false;
-            let mut emitted = Vec::new();
-            let mut animation_requests = Vec::new();
-            let mut worker_requests = Vec::new();
-            let mut queue: VecDeque<MessageEvent> = initial.into();
-            const LIMIT: usize = 1024;
-            let mut processed = 0usize;
-            while let Some(message) = queue.pop_front() {
-                processed += 1;
-                if processed > LIMIT {
-                    break;
-                }
-                let mut ctx = EventCtx::default();
-                root.on_message(&message, &mut ctx);
-                if !ctx.handled() {
-                    root.on_app_message(self, &message, &mut ctx);
-                }
-                handled |= ctx.handled();
-                repaint_requested |= ctx.repaint_requested();
-                invalidation.merge(ctx.invalidation());
-                stop_requested |= ctx.stop_requested();
-                let next = ctx.take_messages();
-                animation_requests.extend(ctx.take_animation_requests());
-                worker_requests.extend(ctx.take_worker_requests());
-                if !next.is_empty() {
-                    queue.extend(next.clone());
-                    emitted.extend(next);
-                }
-            }
-            DispatchOutcome {
-                handled,
-                repaint_requested,
-                invalidation,
-                stop_requested,
-                messages: emitted,
-                animation_requests,
-                worker_requests,
-                default_prevented: false,
-            }
+                .animation_requests
+                .extend(ctx.take_animation_requests());
+            outcome.worker_requests.extend(ctx.take_worker_requests());
         }
+        outcome
     }
 
-    /// Check whether any widget is active, using tree mode or root-only mode.
-    fn any_widget_active_auto(&self, root: &mut dyn Widget) -> bool {
+    /// Check whether any widget is active in the arena tree.
+    fn any_widget_active_auto(&mut self, root: &mut dyn Widget) -> bool {
+        self.ensure_runtime_tree(root);
         if let Some(tree) = self.active_widget_tree() {
             any_widget_active_tree(tree)
         } else {
-            root.is_active()
+            false
         }
     }
 
-    /// Collect active binding hints via tree mode or root-only mode.
+    /// Collect active binding hints from the arena tree.
     fn active_binding_hints_auto(
-        &self,
+        &mut self,
         root: &mut dyn Widget,
     ) -> (Vec<crate::event::BindingHint>, Vec<NodeId>) {
+        self.ensure_runtime_tree(root);
         if let Some(tree) = self.active_widget_tree() {
             active_binding_hints_tree(tree)
         } else {
-            (root.binding_hints(), vec![])
+            (Vec::new(), Vec::new())
         }
     }
 
-    /// Get focused help metadata via tree mode or root-only mode.
-    fn focused_help_metadata_auto(&self, root: &mut dyn Widget) -> Option<(NodeId, String)> {
+    /// Get focused help metadata from the arena tree.
+    fn focused_help_metadata_auto(&mut self, root: &mut dyn Widget) -> Option<(NodeId, String)> {
+        self.ensure_runtime_tree(root);
         if let Some(tree) = self.active_widget_tree() {
             focused_help_metadata_tree(tree)
         } else {
-            if root.has_focus() {
-                let help = root.help_markup().map(str::trim).unwrap_or_default();
-                if !help.is_empty() {
-                    return Some((NodeId::default(), help.to_string()));
-                }
-            }
             None
         }
     }
 
-    /// Forward `on_mouse_move` via tree mode or root-only mode.
+    /// Forward `on_mouse_move` via the arena tree.
     pub(super) fn call_on_mouse_move_auto(
         &mut self,
         root: &mut dyn Widget,
@@ -4259,14 +4168,15 @@ impl App {
         x: u16,
         y: u16,
     ) -> bool {
+        self.ensure_runtime_tree(root);
         if let Some(tree) = self.active_widget_tree_mut() {
             call_on_mouse_move_tree(tree, _target, x, y)
         } else {
-            root.on_mouse_move(x, y)
+            false
         }
     }
 
-    /// Determine pointer shape for hover via tree or default fallback.
+    /// Determine pointer shape for hover via tree data.
     pub(super) fn pointer_shape_for_hover_auto(
         &self,
         _root: &mut dyn Widget,

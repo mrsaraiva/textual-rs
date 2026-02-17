@@ -79,10 +79,6 @@ impl VerticalScroll {
             .store(height.max(1), std::sync::atomic::Ordering::Relaxed);
     }
 
-    fn is_tree_mode(&self) -> bool {
-        self.children_extracted
-    }
-
     fn max_offset(&self) -> usize {
         let content = self.content_height.load(Ordering::Relaxed);
         let viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
@@ -135,7 +131,7 @@ impl Widget for VerticalScroll {
 
     fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.set_focus(focused);
         }
     }
@@ -151,7 +147,7 @@ impl Widget for VerticalScroll {
         self.viewport_height
             .store(viewport_height, Ordering::Relaxed);
 
-        if self.is_tree_mode() {
+        if self.children_extracted {
             let content_h = self.content_height.load(Ordering::Relaxed);
             let show_v = content_h > viewport_height;
             const V_SCROLLBAR_SIZE: usize = 2;
@@ -319,19 +315,19 @@ impl Widget for VerticalScroll {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_tick(tick);
         }
     }
@@ -340,7 +336,7 @@ impl Widget for VerticalScroll {
         self.viewport_width.store(width as usize, Ordering::Relaxed);
         self.viewport_height
             .store(height as usize, Ordering::Relaxed);
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_resize(width, height);
         }
     }
@@ -349,19 +345,19 @@ impl Widget for VerticalScroll {
         self.viewport_width.store(width as usize, Ordering::Relaxed);
         self.viewport_height
             .store(height as usize, Ordering::Relaxed);
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_layout(width, height);
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.children_extracted {
             self.sync_child_layout();
         }
 
@@ -403,7 +399,7 @@ impl Widget for VerticalScroll {
             }
         }
 
-        if self.is_tree_mode() {
+        if self.children_extracted {
             return;
         }
 
@@ -463,7 +459,7 @@ impl Widget for VerticalScroll {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.is_tree_mode() {
+        if self.children_extracted {
             return false;
         }
         self.sync_child_layout();
@@ -481,7 +477,7 @@ impl Widget for VerticalScroll {
 
     fn layout_height(&self) -> Option<usize> {
         self.height.or_else(|| {
-            if self.is_tree_mode() {
+            if self.children_extracted {
                 None
             } else {
                 self.child.layout_height()
@@ -512,7 +508,7 @@ mod tests {
             .with_child(Label::new("b"));
         let children = vs.take_composed_children();
         assert!(children.len() >= 2);
-        assert!(vs.is_tree_mode());
+        assert!(vs.children_extracted);
 
         vs.content_height.store(100, Ordering::Relaxed);
 
@@ -541,7 +537,7 @@ mod tests {
         let mut vs = VerticalScroll::new().with_child(Label::new("a"));
         vs.offset_y = 7;
         let _ = vs.take_composed_children();
-        assert!(vs.is_tree_mode());
+        assert!(vs.children_extracted);
 
         assert_eq!(vs.scroll_offset(), (0, 7));
         assert!(vs.clips_descendants_to_content());

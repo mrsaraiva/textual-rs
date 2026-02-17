@@ -37,10 +37,6 @@ impl Frame {
         self.border = border;
         self
     }
-
-    fn is_tree_mode(&self) -> bool {
-        self.child_extracted
-    }
 }
 
 impl Widget for Frame {
@@ -54,7 +50,7 @@ impl Widget for Frame {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             // Tree-mode: render border chrome only, with blank content inside.
             // The tree pipeline renders children separately.
             let border_width: usize = if self.border { 1 } else { 0 };
@@ -239,31 +235,31 @@ impl Widget for Frame {
     }
 
     fn on_mount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_mount();
         }
     }
 
     fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_unmount();
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_tick(tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_resize(width, height);
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             return;
         }
         let border_width: usize = if self.border { 1 } else { 0 };
@@ -279,25 +275,25 @@ impl Widget for Frame {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_event(event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_message(message, ctx);
         }
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.on_mouse_scroll(delta_x, delta_y, ctx);
         }
     }
@@ -320,14 +316,14 @@ impl Widget for Frame {
     }
 
     fn focusable(&self) -> bool {
-        if self.is_tree_mode() {
+        if self.child_extracted {
             return false;
         }
         self.child.focusable()
     }
 
     fn set_focus(&mut self, focused: bool) {
-        if !self.is_tree_mode() {
+        if !self.child_extracted {
             self.child.set_focus(focused);
         }
     }
@@ -386,10 +382,10 @@ mod tests {
     }
 
     #[test]
-    fn frame_is_tree_mode_after_extraction() {
+    fn frame_uses_tree_path_after_extraction() {
         let mut frame = Frame::new(Spacer::new(1));
-        assert!(!frame.is_tree_mode());
+        assert!(!frame.child_extracted);
         let _ = frame.take_composed_children();
-        assert!(frame.is_tree_mode());
+        assert!(frame.child_extracted);
     }
 }

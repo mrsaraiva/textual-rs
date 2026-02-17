@@ -1,14 +1,14 @@
 ---
 source: tests/keys_preview_snapshot.rs
-assertion_line: 91
+assertion_line: 100
 expression: buffer.debug_dump()
 ---
 lines:
 0: " ⭘                               Textual Keys                                   "
 1: "┌──────────────────────────────────────────────────────────────────────────────┐"
-2: "│ Press some keys!                                                             │"
-3: "│ To quit the app press Ctrl+Q twice or press the Quit button below.           │"
-4: "└──────────────────────────────────────────────────────────────────────────────┘"
+2: "                                                                                "
+3: "                                                                                "
+4: "                                                                                "
 5: "Key(key='a', character='a', name='a', is_printable=True)                        "
 6: "AppFocus: true                                                                  "
 7: "                                                                                "
@@ -17,7 +17,7 @@ lines:
 10: "                                                                                "
 11: "                                                                                "
 12: "                                                                                "
-13: "▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄"
-14: "█                Clear                 ██                 Quit                 █"
-15: "▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+13: "▄▄▄▄▄▄▄▄▄▄▄▄▄                                                                   "
+14: "█ Cle ██ Qu █                                                                   "
+15: "▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                   "
 meta:

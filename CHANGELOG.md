@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **refactor(runtime tree-only): remove legacy non-tree render compatibility paths and align container/tree contracts**
+  - Runtime/event-loop/render paths now operate on the arena tree as the single rendering/dispatch mode; legacy compatibility branches were removed from core flow.
+  - Container-family widgets were simplified to tree-driven behavior (no fallback child forwarding/render composition paths), reducing duplicated logic and stale compatibility state.
+  - Tree display/layout sync wiring was tightened across routing/help/runtime glue, with tests/snapshots updated to assert tree-only behavior.
+  - `TabbedContent` now applies `initial(...)` selection during pane registration (before mount), fixing nested tabbed-content initial visibility on first render in docs parity demos.
+
 - **refactor(containers): move container family out of legacy aliases and into dedicated modules**
   - `src/widgets/aliases.rs` now contains only `Static`; container/scroll implementations were migrated to `src/widgets/containers/*`.
   - Added dedicated container modules for thin wrappers (`horizontal`, `vertical`, `group`, `center/right/middle`, `item_grid`) and scroll widgets (`vertical_scroll`, `horizontal_scroll`, `scrollable_container`).

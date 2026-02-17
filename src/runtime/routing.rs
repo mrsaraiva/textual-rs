@@ -9,6 +9,7 @@ use crate::widgets::Widget;
 use super::dispatch_ctx::set_dispatch_recipient;
 use super::types::DispatchOutcome;
 
+#[cfg(test)]
 pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
     let event_debug = format!("{event:?}");
     let mut ctx = EventCtx::default();
@@ -863,7 +864,7 @@ mod message_tests {
         let outcome = dispatch_event(&mut root, Event::Key(key));
         assert_eq!(outcome.messages.len(), 1);
 
-        // Deliver message directly to root (mirrors production's root-only fallback).
+        // Deliver message directly to root for this unit test.
         let mut ctx = EventCtx::default();
         root.on_message(&outcome.messages[0], &mut ctx);
         assert!(ctx.handled());
@@ -1098,7 +1099,7 @@ mod message_tests {
         );
 
         let outcome = dispatch_scroll_action_tree(&mut tree, Action::ScrollDown, None);
-        // No focused/hovered → root-only dispatch. Children don't see the event
+        // No focused/hovered → root dispatch. Children don't see the event
         // because tree dispatch routes along root→focused path only.
         assert!(!outcome.handled);
         assert_eq!(first_hits.load(Ordering::Relaxed), 0);

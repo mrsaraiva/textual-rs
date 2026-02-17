@@ -152,7 +152,7 @@ pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
 /// Forward `on_mouse_move` to a specific node in the tree.
 ///
 /// Returns `true` if the widget reported a change.
-pub(crate) fn call_on_mouse_move_tree(
+pub fn call_on_mouse_move_tree(
     tree: &mut WidgetTree,
     target: NodeId,
     x: u16,
@@ -167,7 +167,7 @@ pub(crate) fn call_on_mouse_move_tree(
 
 /// Find the deepest visible node at a screen coordinate using tree layout
 /// geometry, independent of rendered segment metadata.
-pub(crate) fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId> {
+pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId> {
     let root = tree.root()?;
     let mut hit_any: Option<NodeId> = None;
     let mut hit_interactive: Option<NodeId> = None;
@@ -193,7 +193,7 @@ pub(crate) fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option
 
 /// Translate screen coordinates to content-local coordinates using tree node
 /// geometry (prefers `content_rect`, falls back to `layout_rect`).
-pub(crate) fn tree_content_local_coords(
+pub fn tree_content_local_coords(
     tree: &WidgetTree,
     target: NodeId,
     screen_x: u16,
