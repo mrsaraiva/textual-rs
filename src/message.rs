@@ -645,6 +645,13 @@ pub trait UserMessage: std::any::Any + Send + Sync + std::fmt::Debug + 'static {
     fn as_any(&self) -> &dyn std::any::Any;
     /// Clone into a boxed trait object.
     fn clone_box(&self) -> Box<dyn UserMessage>;
+    /// Whether this message can replace an older pending message.
+    ///
+    /// Called by the runtime queue coalescer with the *newer* message as
+    /// `self` and an older pending message as `pending`.
+    fn can_replace(&self, _pending: &dyn UserMessage) -> bool {
+        false
+    }
 }
 
 impl Clone for Box<dyn UserMessage> {
@@ -902,6 +909,30 @@ impl_message_from!(
     TimerCancelled,
     WorkerStateChanged,
 );
+
+impl Message {
+    /// Whether this (newer) message can replace the provided older pending message.
+    ///
+    /// Mirrors Python Textual's `Message.can_replace(pending)` queue semantics.
+    pub fn can_replace(&self, pending: &Message) -> bool {
+        use Message::*;
+        match (self, pending) {
+            (InputChanged(_), InputChanged(_))
+            | (TextAreaChanged(_), TextAreaChanged(_))
+            | (TextAreaSelectionChanged(_), TextAreaSelectionChanged(_))
+            | (DataTableCursorMoved(_), DataTableCursorMoved(_))
+            | (DataTableCellHighlighted(_), DataTableCellHighlighted(_))
+            | (DataTableRowHighlighted(_), DataTableRowHighlighted(_))
+            | (DataTableColumnHighlighted(_), DataTableColumnHighlighted(_))
+            | (TreeNodeHighlighted(_), TreeNodeHighlighted(_))
+            | (OptionHighlighted(_), OptionHighlighted(_))
+            | (KeyPanelScrolled(_), KeyPanelScrolled(_))
+            | (RichLogScrolled(_), RichLogScrolled(_)) => true,
+            (Custom(current), Custom(older)) => current.can_replace(older.as_ref()),
+            _ => false,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // MessageEvent / MessageEnvelope (unchanged structure)
@@ -1280,5 +1311,60 @@ mod tests {
         assert!(evt.control.is_none());
         let env = MessageEnvelope::new(evt);
         assert_eq!(env.control(), Some(node_id_from_ffi(1)));
+    }
+
+    // --- Message::can_replace ---
+
+    #[test]
+    fn message_can_replace_known_variants() {
+        let a = Message::InputChanged(InputChanged {
+            value: "a".into(),
+            validation: ValidationResult::success(),
+        });
+        let b = Message::InputChanged(InputChanged {
+            value: "ab".into(),
+            validation: ValidationResult::success(),
+        });
+        assert!(b.can_replace(&a));
+        assert!(
+            !Message::ButtonPressed(ButtonPressed {
+                description: "x".into(),
+            })
+            .can_replace(&Message::ButtonPressed(ButtonPressed {
+                description: "y".into(),
+            }))
+        );
+    }
+
+    #[derive(Debug, Clone)]
+    struct ReplaceableCustom {
+        key: u8,
+    }
+
+    impl UserMessage for ReplaceableCustom {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn clone_box(&self) -> Box<dyn UserMessage> {
+            Box::new(self.clone())
+        }
+
+        fn can_replace(&self, pending: &dyn UserMessage) -> bool {
+            pending
+                .as_any()
+                .downcast_ref::<ReplaceableCustom>()
+                .map(|older| older.key == self.key)
+                .unwrap_or(false)
+        }
+    }
+
+    #[test]
+    fn custom_message_can_replace_uses_user_hook() {
+        let older = Message::Custom(Box::new(ReplaceableCustom { key: 7 }));
+        let newer_same_key = Message::Custom(Box::new(ReplaceableCustom { key: 7 }));
+        let newer_other_key = Message::Custom(Box::new(ReplaceableCustom { key: 9 }));
+        assert!(newer_same_key.can_replace(&older));
+        assert!(!newer_other_key.can_replace(&older));
     }
 }

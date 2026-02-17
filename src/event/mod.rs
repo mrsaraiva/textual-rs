@@ -4,7 +4,7 @@ use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::style::{Color, Scalar, Spacing, Tint};
-use crate::worker::{WorkerRequest, WorkerRequestPayload};
+use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -736,11 +736,20 @@ impl EventCtx {
     /// Returns after recording the request — actual spawning happens in the
     /// runtime event loop after dispatch completes.
     pub fn request_worker(&mut self, name: Option<&str>) {
+        self.request_worker_with_payload(name, WorkerRequestPayload::default());
+    }
+
+    /// Request a background worker with an explicit payload.
+    pub fn request_worker_with_payload(
+        &mut self,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
         self.worker_requests.push(WorkerRequest {
             owner: self.node_id,
             exclusive_key: None,
             name: name.map(|s| s.to_string()),
-            payload: WorkerRequestPayload::default(),
+            payload,
         });
     }
 
@@ -749,12 +758,41 @@ impl EventCtx {
     /// Any existing worker with the same `key` owned by this widget will be
     /// cancelled before the new one starts.
     pub fn request_exclusive_worker(&mut self, key: &str, name: Option<&str>) {
+        self.request_exclusive_worker_with_payload(key, name, WorkerRequestPayload::default());
+    }
+
+    /// Request an exclusive background worker with an explicit payload.
+    pub fn request_exclusive_worker_with_payload(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
         self.worker_requests.push(WorkerRequest {
             owner: self.node_id,
             exclusive_key: Some(key.to_string()),
             name: name.map(|s| s.to_string()),
-            payload: WorkerRequestPayload::default(),
+            payload,
         });
+    }
+
+    /// Request a closure-backed background worker.
+    pub fn request_worker_task(
+        &mut self,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.request_worker_with_payload(name, WorkerRequestPayload::task(task));
+    }
+
+    /// Request a closure-backed exclusive background worker.
+    pub fn request_exclusive_worker_task(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.request_exclusive_worker_with_payload(key, name, WorkerRequestPayload::task(task));
     }
 
     /// Take pending worker requests (called by runtime after dispatch).
@@ -1310,6 +1348,39 @@ mod tests {
         assert_eq!(reqs[0].owner, owner);
         assert_eq!(reqs[0].exclusive_key.as_deref(), Some("search"));
         assert_eq!(reqs[0].name.as_deref(), Some("search-worker"));
+    }
+
+    #[test]
+    fn event_ctx_request_worker_with_payload() {
+        let owner = node_id_from_ffi(12);
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(owner);
+        ctx.request_worker_with_payload(
+            Some("digest"),
+            WorkerRequestPayload::ComputeDigest {
+                input: "abc".into(),
+                rounds: 2,
+                delay_per_round_ms: 0,
+                fail_with: None,
+            },
+        );
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].owner, owner);
+        assert!(matches!(
+            reqs[0].payload,
+            WorkerRequestPayload::ComputeDigest { rounds: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn event_ctx_request_worker_task_uses_task_payload() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(13));
+        ctx.request_worker_task(Some("task"), |_token| Ok(()));
+        let reqs = ctx.take_worker_requests();
+        assert_eq!(reqs.len(), 1);
+        assert!(matches!(reqs[0].payload, WorkerRequestPayload::Task(_)));
     }
 
     #[test]

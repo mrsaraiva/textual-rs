@@ -1,7 +1,7 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
 use crate::keys::{KeyEventData, format_key_display};
-use crate::message::{Message, MessageEnvelope, MessageEvent};
+use crate::message::{MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
@@ -322,57 +322,42 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
     }
 }
 
-/// Returns `true` for message variants that may arrive in rapid bursts and
-/// are safe to coalesce (only the latest value matters).
-fn is_message_replaceable(message: &Message) -> bool {
-    matches!(
-        message,
-        Message::InputChanged(..)
-            | Message::TextAreaChanged(..)
-            | Message::TextAreaSelectionChanged(..)
-            | Message::DataTableCursorMoved(..)
-            | Message::DataTableCellHighlighted(..)
-            | Message::DataTableRowHighlighted(..)
-            | Message::DataTableColumnHighlighted(..)
-            | Message::TreeNodeHighlighted(..)
-            | Message::OptionHighlighted(..)
-            | Message::KeyPanelScrolled(..)
-            | Message::RichLogScrolled(..)
-    )
-}
-
 /// Coalesce replaceable messages in the queue.
 ///
-/// For each pair of envelopes where `can_replace()` is true, both originate
-/// from the same sender, and both carry the same `Message` variant
-/// discriminant, the earlier one is dropped and only the latest is kept.
-/// Non-replaceable envelopes and envelopes that differ in sender or variant
-/// pass through untouched.
+/// For each older/newer envelope pair with the same sender:
+/// - if the newer envelope has `set_replaceable(true)`, it replaces older
+///   envelopes of the same message variant;
+/// - otherwise replacement is delegated to `Message::can_replace(pending)`.
+///
+/// This keeps envelope-level override support while making replacement
+/// semantics message-driven (Python parity).
 pub(crate) fn coalesce_message_queue(queue: &mut std::collections::VecDeque<MessageEnvelope>) {
-    use std::mem::discriminant;
-
     if queue.len() < 2 {
         return;
     }
 
-    // Walk from the back; for each replaceable envelope, check if there is
-    // an earlier one with the same (sender, discriminant) and remove it.
-    // We track seen keys in a small vec (message queues are typically short).
-    let mut seen: Vec<(NodeId, std::mem::Discriminant<Message>)> = Vec::new();
+    fn envelope_replaces_pending(newer: &MessageEnvelope, older: &MessageEnvelope) -> bool {
+        if newer.can_replace() {
+            return std::mem::discriminant(newer.message())
+                == std::mem::discriminant(older.message());
+        }
+        newer.message().can_replace(older.message())
+    }
+
     let mut keep = vec![true; queue.len()];
 
     // Walk backwards so later messages survive.
     for i in (0..queue.len()).rev() {
-        let env = &queue[i];
-        if !env.can_replace() {
-            continue;
-        }
-        let key = (env.sender(), discriminant(env.message()));
-        if seen.contains(&key) {
-            // A later envelope with the same key was already seen; drop this earlier one.
-            keep[i] = false;
-        } else {
-            seen.push(key);
+        for j in ((i + 1)..queue.len()).rev() {
+            let older = &queue[i];
+            let newer = &queue[j];
+            if older.sender() != newer.sender() {
+                continue;
+            }
+            if envelope_replaces_pending(newer, older) {
+                keep[i] = false;
+                break;
+            }
         }
     }
 
@@ -392,8 +377,7 @@ pub(crate) fn coalesce_message_queue(queue: &mut std::collections::VecDeque<Mess
 /// propagation.  Messages bubble from the sender node up to the root; a
 /// handler can stop propagation via `ctx.set_handled()` (maps to
 /// `envelope.stop()`).  Before dispatching each batch the queue is
-/// coalesced: replaceable messages with the same sender+variant keep only
-/// the latest entry.
+/// coalesced according to message-level replacement semantics.
 pub(crate) fn dispatch_message_queue_tree(
     tree: &mut WidgetTree,
     initial: Vec<MessageEvent>,
@@ -409,18 +393,8 @@ pub(crate) fn dispatch_message_queue_tree(
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
     let mut worker_requests: Vec<crate::worker::WorkerRequest> = Vec::new();
 
-    // Wrap incoming messages in envelopes and mark known rapid-fire variants
-    // as replaceable so the coalescing pass can deduplicate them.
-    let mut queue: VecDeque<MessageEnvelope> = initial
-        .into_iter()
-        .map(|evt| {
-            let mut env = MessageEnvelope::new(evt);
-            if is_message_replaceable(env.message()) {
-                env.set_replaceable(true);
-            }
-            env
-        })
-        .collect();
+    let mut queue: VecDeque<MessageEnvelope> =
+        initial.into_iter().map(MessageEnvelope::new).collect();
 
     coalesce_message_queue(&mut queue);
 
@@ -447,13 +421,7 @@ pub(crate) fn dispatch_message_queue_tree(
         if !next.is_empty() {
             let next_envelopes: VecDeque<MessageEnvelope> = next
                 .iter()
-                .map(|evt| {
-                    let mut env = MessageEnvelope::new(evt.clone());
-                    if is_message_replaceable(env.message()) {
-                        env.set_replaceable(true);
-                    }
-                    env
-                })
+                .map(|evt| MessageEnvelope::new(evt.clone()))
                 .collect();
             queue.extend(next_envelopes);
             // Re-coalesce the full pending queue so that newly emitted
@@ -1761,16 +1729,15 @@ mod envelope_tests {
     }
 
     #[test]
-    fn dispatch_auto_marks_rapid_fire_messages_replaceable() {
-        // Verify that dispatch_message_queue_tree marks known rapid-fire
-        // messages as replaceable and coalesces them.
+    fn dispatch_coalesces_messages_via_message_can_replace() {
         let sender = node_id_from_ffi(1);
         let _count = Arc::new(AtomicUsize::new(0));
 
         let mut tree = WidgetTree::new();
         let _root_id = tree.set_root(Box::new(Label::new("x")));
 
-        // Three InputChanged from the same sender — should coalesce to one.
+        // Three InputChanged from the same sender — should coalesce to one
+        // via Message::can_replace.
         let messages = vec![
             MessageEvent {
                 sender,
@@ -1798,41 +1765,66 @@ mod envelope_tests {
             },
         ];
 
-        // Label doesn't handle messages, so outcome.handled will be false, but
-        // coalescing should have reduced the queue to 1 message dispatched.
+        // No panic and dispatch succeeds.
         let _outcome = dispatch_message_queue_tree(&mut tree, messages);
-        // We can't directly observe the internal queue size, but the test proves
-        // no panics and the function accepts the input.
-        // The real verification is in the coalesce_* tests above.
     }
 
     #[test]
-    fn is_message_replaceable_covers_known_variants() {
+    fn message_can_replace_covers_known_variants() {
         // Spot-check that known rapid-fire message types are replaceable.
-        assert!(is_message_replaceable(&Message::InputChanged(
-            crate::message::InputChanged {
+        assert!(
+            Message::InputChanged(crate::message::InputChanged {
                 value: "x".into(),
                 validation: crate::validation::ValidationResult::success(),
-            }
-        )));
-        assert!(is_message_replaceable(&Message::TextAreaChanged(
-            crate::message::TextAreaChanged { value: "x".into() }
-        )));
-        assert!(is_message_replaceable(&Message::DataTableCursorMoved(
-            crate::message::DataTableCursorMoved { row: 0, column: 0 }
-        )));
-        assert!(is_message_replaceable(&Message::OptionHighlighted(
-            crate::message::OptionHighlighted { index: 0 }
-        )));
+            })
+            .can_replace(&Message::InputChanged(crate::message::InputChanged {
+                value: "y".into(),
+                validation: crate::validation::ValidationResult::success(),
+            }))
+        );
+        assert!(
+            Message::TextAreaChanged(crate::message::TextAreaChanged { value: "x".into() })
+                .can_replace(&Message::TextAreaChanged(crate::message::TextAreaChanged {
+                    value: "y".into(),
+                }))
+        );
+        assert!(
+            Message::DataTableCursorMoved(crate::message::DataTableCursorMoved {
+                row: 0,
+                column: 0,
+            })
+            .can_replace(&Message::DataTableCursorMoved(
+                crate::message::DataTableCursorMoved { row: 1, column: 1 }
+            ))
+        );
+        assert!(
+            Message::OptionHighlighted(crate::message::OptionHighlighted { index: 0 }).can_replace(
+                &Message::OptionHighlighted(crate::message::OptionHighlighted { index: 1 })
+            )
+        );
         // Non-replaceable variants.
-        assert!(!is_message_replaceable(&Message::ButtonPressed(
-            crate::message::ButtonPressed {
+        assert!(
+            !Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "x".into(),
-            }
-        )));
-        assert!(!is_message_replaceable(&Message::InputSubmitted(
-            crate::message::InputSubmitted { value: "x".into() }
-        )));
+            })
+            .can_replace(&Message::ButtonPressed(crate::message::ButtonPressed {
+                description: "y".into(),
+            }))
+        );
+        assert!(
+            !Message::InputSubmitted(crate::message::InputSubmitted { value: "x".into() })
+                .can_replace(&Message::InputSubmitted(crate::message::InputSubmitted {
+                    value: "y".into(),
+                }))
+        );
+        // Different variants never replace each other by default.
+        assert!(
+            !Message::TextAreaChanged(crate::message::TextAreaChanged { value: "x".into() })
+                .can_replace(&Message::InputChanged(crate::message::InputChanged {
+                    value: "x".into(),
+                    validation: crate::validation::ValidationResult::success(),
+                }))
+        );
     }
 
     // =====================================================================

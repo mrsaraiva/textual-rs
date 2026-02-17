@@ -7,9 +7,9 @@
 //! Widgets request workers via [`EventCtx`](crate::event::EventCtx); actual
 //! task spawning/execution is handled by the runtime event loop.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -403,7 +403,7 @@ pub(crate) fn process_worker_requests(
 }
 
 /// Payload that defines meaningful, deterministic worker behavior.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum WorkerRequestPayload {
     /// Perform deterministic CPU work with optional delay and error.
     ComputeDigest {
@@ -416,9 +416,20 @@ pub enum WorkerRequestPayload {
         /// If set, return this terminal error after all rounds complete.
         fail_with: Option<String>,
     },
+    /// User-supplied closure payload executed by the worker runtime.
+    ///
+    /// Supports arbitrary `FnOnce + Send` work units.
+    Task(SharedWorkerTask),
 }
 
 impl WorkerRequestPayload {
+    /// Create a closure-backed payload.
+    pub fn task(
+        job: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) -> Self {
+        Self::Task(SharedWorkerTask::new(Box::new(job)))
+    }
+
     /// Execute the requested worker payload.
     pub fn execute(self, token: CancellationToken) -> Result<(), String> {
         match self {
@@ -451,6 +462,7 @@ impl WorkerRequestPayload {
                 let _ = digest;
                 Ok(())
             }
+            Self::Task(task) => task.execute(token),
         }
     }
 }
@@ -483,6 +495,46 @@ pub struct WorkerRequest {
     pub name: Option<String>,
     /// Work definition executed by the spawned worker.
     pub payload: WorkerRequestPayload,
+}
+
+/// Clone-friendly wrapper for a single-use worker closure.
+///
+/// `WorkerRequest` is cloned in some runtime paths, so closure payloads must
+/// survive cloning. We keep the closure in a shared `Option`; the first
+/// execution consumes it and subsequent attempts return an explicit error.
+pub struct SharedWorkerTask {
+    inner: Arc<Mutex<Option<WorkerJob>>>,
+}
+
+impl SharedWorkerTask {
+    pub fn new(job: WorkerJob) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Some(job))),
+        }
+    }
+
+    pub fn execute(self, token: CancellationToken) -> Result<(), String> {
+        let Some(job) = self.inner.lock().ok().and_then(|mut guard| guard.take()) else {
+            return Err("worker task payload already consumed".to_string());
+        };
+        job(token)
+    }
+}
+
+impl Clone for SharedWorkerTask {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for SharedWorkerTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedWorkerTask")
+            .field("kind", &"closure")
+            .finish()
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -826,15 +878,20 @@ mod tests {
         assert_eq!(req.owner, owner);
         assert_eq!(req.exclusive_key.as_deref(), Some("load"));
         assert_eq!(req.name.as_deref(), Some("data-loader"));
-        assert_eq!(
-            req.payload,
+        match req.payload {
             WorkerRequestPayload::ComputeDigest {
-                input: "dataset".into(),
-                rounds: 2,
-                delay_per_round_ms: 0,
-                fail_with: None,
+                input,
+                rounds,
+                delay_per_round_ms,
+                fail_with,
+            } => {
+                assert_eq!(input, "dataset");
+                assert_eq!(rounds, 2);
+                assert_eq!(delay_per_round_ms, 0);
+                assert_eq!(fail_with, None);
             }
-        );
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 
     // ── State transition edge cases ───────────────────────────────────
@@ -1120,6 +1177,26 @@ mod tests {
         assert_eq!(changes[0].worker_id, worker_id);
         assert_eq!(changes[0].state, WorkerState::Cancelled);
         assert_eq!(reg.state(worker_id), Some(&WorkerState::Cancelled));
+    }
+
+    #[test]
+    fn process_worker_requests_executes_task_payload() {
+        let mut reg = WorkerRegistry::new();
+        let owner = node_id_from_ffi(31);
+        let requests = vec![WorkerRequest {
+            owner,
+            exclusive_key: None,
+            name: Some("closure".into()),
+            payload: WorkerRequestPayload::task(|_token| Ok(())),
+        }];
+        let mut changes = process_worker_requests(&mut reg, requests);
+        changes.extend(wait_for_request_changes(
+            &mut reg,
+            1usize.saturating_sub(changes.len()),
+            Duration::from_millis(100),
+        ));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].state, WorkerState::Success);
     }
 
     #[test]

@@ -173,6 +173,36 @@ pub struct WidgetSelectionAnchor {
 pub trait Widget: Send + Sync + Any {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
 
+    /// Render a single visual line (row) at `y` in widget-local coordinates.
+    ///
+    /// Default implementation renders the full widget and extracts one row.
+    fn render_line(&self, y: usize, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let lines = rich_rs::Segment::split_and_crop_lines(
+            self.render(console, options),
+            width,
+            None,
+            true,
+            false,
+        );
+        lines.get(y).cloned().unwrap_or_default().into()
+    }
+
+    /// Render a contiguous range of visual lines starting at `start_y`.
+    ///
+    /// Default implementation delegates to [`Self::render_line`] for each row.
+    fn render_lines(
+        &self,
+        start_y: usize,
+        line_count: usize,
+        console: &Console,
+        options: &ConsoleOptions,
+    ) -> Vec<Segments> {
+        (0..line_count)
+            .map(|offset| self.render_line(start_y + offset, console, options))
+            .collect()
+    }
+
     /// Declare child widgets for this widget.
     ///
     /// The runtime materializes these declarations into arena nodes during
@@ -1018,6 +1048,8 @@ mod tests {
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::{dispatch_recipient, set_dispatch_recipient};
     use crate::style::{Display, Layout, Overflow, Visibility};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn classify_identical_styles_returns_none() {
@@ -1215,5 +1247,80 @@ mod tests {
             Some(id_a),
             "dispatch context must be restored after sibling render"
         );
+    }
+
+    fn segments_text(segments: &Segments) -> String {
+        segments
+            .iter()
+            .map(|seg| seg.text.to_string())
+            .collect::<String>()
+    }
+
+    struct DefaultLineProbe;
+    impl Widget for DefaultLineProbe {
+        fn render(
+            &self,
+            _console: &rich_rs::Console,
+            _options: &rich_rs::ConsoleOptions,
+        ) -> rich_rs::Segments {
+            vec![rich_rs::Segment::new("alpha\nbeta".to_string())].into()
+        }
+    }
+
+    #[test]
+    fn render_line_default_extracts_requested_row() {
+        let widget = DefaultLineProbe;
+        let console = rich_rs::Console::new();
+        let mut options = rich_rs::ConsoleOptions::default();
+        options.size = (16, 2);
+        options.max_width = 16;
+        options.max_height = 2;
+
+        let line0 = widget.render_line(0, &console, &options);
+        let line1 = widget.render_line(1, &console, &options);
+        assert_eq!(segments_text(&line0).trim_end(), "alpha");
+        assert_eq!(segments_text(&line1).trim_end(), "beta");
+    }
+
+    struct CustomLineProbe {
+        calls: Arc<AtomicUsize>,
+    }
+    impl Widget for CustomLineProbe {
+        fn render(
+            &self,
+            _console: &rich_rs::Console,
+            _options: &rich_rs::ConsoleOptions,
+        ) -> rich_rs::Segments {
+            rich_rs::Segments::new()
+        }
+
+        fn render_line(
+            &self,
+            y: usize,
+            _console: &rich_rs::Console,
+            _options: &rich_rs::ConsoleOptions,
+        ) -> rich_rs::Segments {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            vec![rich_rs::Segment::new(format!("line-{y}"))].into()
+        }
+    }
+
+    #[test]
+    fn render_lines_default_delegates_to_render_line() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let widget = CustomLineProbe {
+            calls: calls.clone(),
+        };
+        let console = rich_rs::Console::new();
+        let mut options = rich_rs::ConsoleOptions::default();
+        options.size = (16, 3);
+        options.max_width = 16;
+        options.max_height = 3;
+
+        let lines = widget.render_lines(2, 3, &console, &options);
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert_eq!(segments_text(&lines[0]), "line-2");
+        assert_eq!(segments_text(&lines[1]), "line-3");
+        assert_eq!(segments_text(&lines[2]), "line-4");
     }
 }

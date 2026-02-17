@@ -46,6 +46,7 @@ use std::io;
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::Command;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
@@ -55,11 +56,18 @@ use types::{
     StylesheetReload, StylesheetWatcher,
 };
 
-use helpers::{
-    ClickTracker, apply_size, collect_focus_chain_tree, default_action_map,
-};
+use helpers::{ClickTracker, apply_size, collect_focus_chain_tree, default_action_map};
 
 type SuspendProcessFn = fn() -> io::Result<()>;
+type DataBindApplyFn =
+    dyn Fn(&mut dyn Widget, &(dyn Any + Send + Sync)) -> bool + Send + Sync + 'static;
+
+#[derive(Clone)]
+struct DataBinding {
+    key: String,
+    selector: String,
+    apply: Arc<DataBindApplyFn>,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SelectionClickState {
@@ -447,6 +455,10 @@ pub struct App {
     style_snapshot_cache: HashMap<NodeId, crate::style::Style>,
     /// Pending refresh targets requested via `DomQueryMut::refresh()`.
     pending_query_refresh_nodes: Vec<NodeId>,
+    /// App-scoped typed values used by `data_bind`.
+    data_values: HashMap<String, Arc<dyn Any + Send + Sync>>,
+    /// Declarative data-binding registrations.
+    data_bindings: Vec<DataBinding>,
     /// Runtime hook used by `action_suspend_process()` (injectable in tests).
     suspend_process_impl: SuspendProcessFn,
     /// Pending highlight clear: (node_id, clear_at_instant).
@@ -551,6 +563,8 @@ impl App {
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
             pending_query_refresh_nodes: Vec::new(),
+            data_values: HashMap::new(),
+            data_bindings: Vec::new(),
             suspend_process_impl: suspend_process_default,
             pending_highlight_clear: None,
             widget_tree: None,
@@ -770,6 +784,61 @@ impl App {
     ) -> std::result::Result<DomQueryMut<'_>, QueryError> {
         let nodes = self.query(selector)?.into_ids();
         Ok(DomQueryMut::new(self, nodes))
+    }
+
+    /// Store an app-scoped typed value.
+    ///
+    /// Any registered `data_bind` callbacks for this key are re-applied
+    /// immediately after update.
+    pub fn set_data<T>(&mut self, key: impl Into<String>, value: T)
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let key = key.into();
+        self.data_values.insert(key.clone(), Arc::new(value));
+        self.apply_data_bindings_for_key(&key);
+    }
+
+    /// Read an app-scoped typed value by key.
+    pub fn get_data<T>(&self, key: &str) -> Option<T>
+    where
+        T: Any + Clone + Send + Sync + 'static,
+    {
+        self.data_values
+            .get(key)
+            .and_then(|value| value.as_ref().downcast_ref::<T>())
+            .cloned()
+    }
+
+    /// Bind a data key to widgets matched by `selector`.
+    ///
+    /// Whenever `set_data(key, ...)` is called, the binder runs for each
+    /// matched widget with the latest typed value.
+    pub fn data_bind<T>(
+        &mut self,
+        key: impl Into<String>,
+        selector: impl Into<String>,
+        apply: impl Fn(&mut dyn Widget, &T) -> bool + Send + Sync + 'static,
+    ) -> std::result::Result<(), QueryError>
+    where
+        T: Any + Send + Sync + 'static,
+    {
+        let key = key.into();
+        let selector = selector.into();
+        Self::validate_selector(&selector)?;
+        let wrapped: Arc<DataBindApplyFn> = Arc::new(move |widget, value| {
+            value
+                .downcast_ref::<T>()
+                .map(|typed| apply(widget, typed))
+                .unwrap_or(false)
+        });
+        self.data_bindings.push(DataBinding {
+            key: key.clone(),
+            selector,
+            apply: wrapped,
+        });
+        self.apply_data_bindings_for_key(&key);
+        Ok(())
     }
 
     /// Apply `add_class` to all nodes matching `selector`.
@@ -1296,6 +1365,42 @@ impl App {
                 );
                 true
             }
+        }
+    }
+
+    fn apply_data_bindings_for_key(&mut self, key: &str) {
+        let Some(value) = self.data_values.get(key).cloned() else {
+            return;
+        };
+        let bindings: Vec<DataBinding> = self
+            .data_bindings
+            .iter()
+            .filter(|binding| binding.key == key)
+            .cloned()
+            .collect();
+        if bindings.is_empty() {
+            return;
+        }
+
+        let mut refresh_nodes: HashSet<NodeId> = HashSet::new();
+        for binding in bindings {
+            let node_ids = match self.query(&binding.selector) {
+                Ok(query) => query.into_ids(),
+                Err(_) => continue,
+            };
+            for node_id in node_ids {
+                let changed = self
+                    .with_widget_mut(node_id, |widget| (binding.apply)(widget, value.as_ref()))
+                    .unwrap_or(false);
+                if changed {
+                    refresh_nodes.insert(node_id);
+                }
+            }
+        }
+
+        if !refresh_nodes.is_empty() {
+            let refresh_nodes = refresh_nodes.into_iter().collect::<Vec<_>>();
+            self.request_query_refresh(&refresh_nodes);
         }
     }
 
@@ -2739,6 +2844,51 @@ mod tests {
         assert!(app.clear_on_next_render);
         let labels = app.query_children("Label").expect("selector parses");
         assert_eq!(labels.len(), 3);
+    }
+
+    #[test]
+    fn app_data_bind_applies_latest_typed_value_to_query_matches() {
+        #[derive(Default)]
+        struct DataBindProbe {
+            value: i32,
+        }
+
+        impl Widget for DataBindProbe {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let probe_id = tree.mount(root, Box::new(DataBindProbe::default()));
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        app.set_data("counter", 10_i32);
+        app.data_bind::<i32>("counter", "DataBindProbe", |widget, value| {
+            let Some(probe) = (widget as &mut dyn Any).downcast_mut::<DataBindProbe>() else {
+                return false;
+            };
+            let changed = probe.value != *value;
+            probe.value = *value;
+            changed
+        })
+        .expect("binding should register");
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        let probe = tree.get(probe_id).expect("probe exists").widget.as_ref() as &dyn Any;
+        let probe = probe.downcast_ref::<DataBindProbe>().expect("typed probe");
+        assert_eq!(probe.value, 10);
+
+        app.pending_query_refresh_nodes.clear();
+        app.set_data("counter", 33_i32);
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        let probe = tree.get(probe_id).expect("probe exists").widget.as_ref() as &dyn Any;
+        let probe = probe.downcast_ref::<DataBindProbe>().expect("typed probe");
+        assert_eq!(probe.value, 33);
+        assert_eq!(app.get_data::<i32>("counter"), Some(33));
+        assert!(app.pending_query_refresh_nodes.contains(&probe_id));
     }
 
     #[test]

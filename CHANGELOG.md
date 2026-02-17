@@ -8,6 +8,26 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **feat(worker): closure-backed worker tasks via `WorkerRequestPayload::Task`**
+  - Added `WorkerRequestPayload::Task(SharedWorkerTask)` variant for arbitrary `FnOnce + Send` work units.
+  - Added `SharedWorkerTask` — a clone-friendly `Arc<Mutex<Option<FnOnce>>>` wrapper so closure payloads survive `WorkerRequest` cloning in runtime paths.
+  - Added `EventCtx::request_worker_task()` and `request_exclusive_worker_task()` convenience methods for closure-backed workers.
+  - Added `EventCtx::request_worker_with_payload()` and `request_exclusive_worker_with_payload()` for passing explicit payloads.
+
+- **feat(messaging): `Message::can_replace()` — message-driven coalescing with `UserMessage` hook**
+  - Added `Message::can_replace(&pending)` encoding replacement semantics for all known rapid-fire variants (InputChanged, TextAreaChanged, DataTableCursorMoved, etc.).
+  - Added `UserMessage::can_replace()` default hook so custom messages can opt into coalescing.
+  - Refactored `coalesce_message_queue()` to delegate to `Message::can_replace()` rather than a routing-local `is_message_replaceable()` predicate, aligning with Python Textual's queue semantics.
+
+- **feat(runtime): app-scoped data binding (`App::set_data` / `get_data` / `data_bind`)**
+  - `App::set_data(key, value)` stores a typed value and immediately re-applies any registered bindings for that key.
+  - `App::get_data(key)` retrieves a typed value by key.
+  - `App::data_bind(key, selector, apply)` registers a typed callback; matched widgets are updated whenever the key changes.
+
+- **feat(widget): `Widget::render_line()` and `render_lines()` default methods**
+  - `render_line(y, ...)` extracts a single visual row; `render_lines(start_y, count, ...)` collects a contiguous range.
+  - Default implementations delegate to the existing `render()` path; widgets can override for efficient line-level rendering.
+
 - **refactor(runtime tree-only): remove legacy non-tree render compatibility paths and align container/tree contracts**
   - Runtime/event-loop/render paths now operate on the arena tree as the single rendering/dispatch mode; legacy compatibility branches were removed from core flow.
   - Container-family widgets were simplified to tree-driven behavior (no fallback child forwarding/render composition paths), reducing duplicated logic and stale compatibility state.
