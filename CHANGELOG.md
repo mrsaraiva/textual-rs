@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette modal layering): enforce topmost render priority in tree mode**
+  - Runtime child ordering now enforces `CommandPalette` as top-most among siblings during tree render collection, independent of mount order or parent `layers` declaration.
+  - This closes modal overlap cases where later-mounted siblings (for example dynamically mounted panels) could partially paint over an open command palette.
+  - `action_show_help_panel` mount behavior remains aligned with this model by targeting the app-content branch when a command-palette host exists.
+  - Added regression coverage for:
+    - sibling ordering that moves `CommandPalette` to the end/top in no-layer parents,
+    - full render-node collection ordering where command palette remains last/top-most,
+    - help-panel mount parent selection in command-palette-hosted runtime roots.
+
 - **[wip] feat(command-palette context awareness): dynamic system command text + stateful Keys action parity**
   - `TextualAppAdapter` now publishes built-in command-palette system commands from current app state (instead of relying on static one-time command text), including dynamic `Keys` help text:
     - `Show help for the focused widget and a summary of available keys`

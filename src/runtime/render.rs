@@ -1571,6 +1571,26 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
 ///
 /// Within each group, the original DOM order is preserved (stable sort).
 fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]) -> Vec<NodeId> {
+    let move_command_palette_last = |ordered: Vec<NodeId>| -> Vec<NodeId> {
+        // CommandPalette is a system-modal surface and should render on top of
+        // sibling widgets regardless of mount order/layer assignment.
+        let mut regular = Vec::with_capacity(ordered.len());
+        let mut palettes = Vec::new();
+        for child in ordered {
+            let is_command_palette = tree
+                .get(child)
+                .map(|node| node.widget.style_type() == "CommandPalette")
+                .unwrap_or(false);
+            if is_command_palette {
+                palettes.push(child);
+            } else {
+                regular.push(child);
+            }
+        }
+        regular.extend(palettes);
+        regular
+    };
+
     // Resolve the parent's `layers` declaration.
     let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|node| {
         let meta = crate::css::selector_meta_generic_with_classes(
@@ -1583,7 +1603,8 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
 
     let layer_order = match parent_layers {
         Some(ref layers) if !layers.is_empty() => layers,
-        _ => return children.to_vec(), // No layers declaration — keep DOM order.
+        _ => return move_command_palette_last(children.to_vec()),
+        // No layers declaration — keep DOM order except modal command palette priority.
     };
 
     // Resolve each child's `layer` property.
@@ -1623,8 +1644,8 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         .collect();
 
     indexed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-
-    indexed.iter().map(|&(_, i)| children[i]).collect()
+    let ordered: Vec<NodeId> = indexed.iter().map(|&(_, i)| children[i]).collect();
+    move_command_palette_last(ordered)
 }
 
 /// Distribute layout information to widgets using the arena tree + `NodeHitTestMap`.
@@ -1930,6 +1951,46 @@ mod tests {
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
         assert_eq!(sorted, vec![a, b]);
+    }
+
+    #[test]
+    fn sort_children_by_layer_moves_command_palette_last_without_layers() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, CommandPalette, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let palette = tree.mount(root, Box::new(CommandPalette::new(Label::new("body"))));
+        let other = tree.mount(root, Box::new(Label::new("other")));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        assert_eq!(
+            sorted,
+            vec![other, palette],
+            "command palette must render last/top-most among siblings"
+        );
+    }
+
+    #[test]
+    fn collect_render_nodes_keeps_command_palette_topmost_even_if_mounted_first() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, CommandPalette, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let palette = tree.mount(root, Box::new(CommandPalette::new(Label::new("body"))));
+        let other = tree.mount(root, Box::new(Label::new("other")));
+
+        let nodes = collect_render_nodes(&tree);
+        let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![root, other, palette]);
     }
 
     #[test]

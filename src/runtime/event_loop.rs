@@ -4200,16 +4200,20 @@ mod tests {
         }
         tree.mount(
             root_id,
-            Box::new(crate::widgets::CommandPalette::new(crate::widgets::Label::new(
-                "body",
-            ))),
+            Box::new(crate::widgets::CommandPalette::new(
+                crate::widgets::Label::new("body"),
+            )),
         );
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
 
-        let open = app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::CommandPalette));
-        assert!(open.handled, "open action should be handled by command palette");
+        let open =
+            app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::CommandPalette));
+        assert!(
+            open.handled,
+            "open action should be handled by command palette"
+        );
         let msg_outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, open.messages);
         assert!(!msg_outcome.stop_requested);
 
