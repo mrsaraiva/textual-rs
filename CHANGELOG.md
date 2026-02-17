@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(toast notifications): preserve title + body text in composed notification overlays**
+  - Removed duplicate manual vertical padding in `Toast::render`; toast spacing now comes from CSS padding/border in the shared styled render pipeline.
+  - Updated `Toast::layout_height()` to derive intrinsic height from actual content lines plus resolved CSS chrome, preventing fixed-height composition from clipping notification body lines.
+  - Added regression test `toast_title_and_message_survive_fixed_height_composition` to lock behavior for title+message notifications (including quit-help text).
+
 - **fix(runtime focus parity): clear widget focus on app blur and restore it on app refocus**
   - App runtime now mirrors Python Textual app-focus behavior:
     - on terminal `FocusLost`, capture currently focused tree node and clear widget focus,

@@ -228,23 +228,22 @@ impl Widget for Toast {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
 
-        // Python Textual toasts use padding: 1 1; our core style model currently only
-        // has horizontal line padding (`line-pad`), so keep vertical padding explicit.
-        out.push(Segment::new(" ".repeat(width)));
-        out.push(Segment::line());
-
         // Render title line if present.
         if let Some(title) = &self.title {
             out.push(Segment::styled(
                 rich_rs::set_cell_size(title, width),
                 title_style,
             ));
-            out.push(Segment::line());
+            if !self.message.is_empty() {
+                out.push(Segment::line());
+            }
         }
 
-        // Render message lines (always at least one line).
+        // Render message lines.
         if self.message.is_empty() {
-            out.push(Segment::new(" ".repeat(width)));
+            if self.title.is_none() {
+                out.push(Segment::new(" ".repeat(width)));
+            }
         } else {
             let lines: Vec<&str> = self.message.lines().collect();
             let line_count = lines.len();
@@ -255,17 +254,28 @@ impl Widget for Toast {
                 }
             }
         }
-        out.push(Segment::line());
-        out.push(Segment::new(" ".repeat(width)));
 
         out
     }
 
     fn layout_height(&self) -> Option<usize> {
         let title_lines = if self.title.is_some() { 1 } else { 0 };
-        let message_lines = self.message.lines().count().max(1);
-        let vertical_padding = 2;
-        let intrinsic = title_lines + message_lines + vertical_padding;
+        let message_lines = if self.message.is_empty() {
+            0
+        } else {
+            self.message.lines().count().max(1)
+        };
+        let content_lines = (title_lines + message_lines).max(1);
+
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (border_top, border_bottom, _border_left, _border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_height = usize::from(padding.top.saturating_add(padding.bottom))
+            .saturating_add(border_top)
+            .saturating_add(border_bottom);
+        let intrinsic = content_lines.saturating_add(chrome_height);
         fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
     }
 
@@ -293,5 +303,46 @@ impl Widget for Toast {
 impl Renderable for Toast {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::FrameBuffer;
+
+    #[test]
+    fn toast_title_and_message_survive_fixed_height_composition() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let toast = Toast::new(
+            "Press [b]ctrl+q[/b] to quit the app",
+            ToastSeverity::Information,
+        )
+        .with_title("Do you want to quit?");
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        let width = 50usize;
+        let height = toast.layout_height().expect("toast layout height");
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+
+        let rendered = toast.render_styled(&console, &options);
+        let lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        let lines = Segment::set_shape(&lines, width, Some(height), None, false);
+        let frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let text = frame.as_plain_lines().join("\n");
+
+        assert!(
+            text.contains("Do you want to quit?"),
+            "title should be visible in toast frame: {text:?}"
+        );
+        assert!(
+            text.contains("Press ctrl+q to quit the app"),
+            "message should be visible in toast frame: {text:?}"
+        );
     }
 }
