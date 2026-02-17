@@ -104,49 +104,6 @@ pub(crate) struct NodeHitTestMap {
 }
 
 impl NodeHitTestMap {
-    /// Build a `NodeHitTestMap` from a rendered frame buffer.
-    ///
-    /// Decodes the `textual:widget_id` metadata stored in each cell back to
-    /// `NodeId` via [`node_id_from_ffi`].
-    pub(crate) fn from_frame(frame: &FrameBuffer) -> Self {
-        let mut out = NodeHitTestMap::default();
-        for y in 0..frame.height {
-            for x in 0..frame.width {
-                let cell = frame.get(x, y);
-                let Some(meta) = cell.meta.as_ref() else {
-                    continue;
-                };
-                let Some(map) = meta.meta.as_ref() else {
-                    continue;
-                };
-                let Some(MetaValue::Int(id)) = map.get("textual:widget_id") else {
-                    continue;
-                };
-                if *id < 0 {
-                    continue;
-                }
-                let nid = node_id_from_ffi(*id as u64);
-                let xu = x as u16;
-                let yu = y as u16;
-                out.bounds
-                    .entry(nid)
-                    .and_modify(|r| {
-                        r.x0 = r.x0.min(xu);
-                        r.y0 = r.y0.min(yu);
-                        r.x1 = r.x1.max(xu);
-                        r.y1 = r.y1.max(yu);
-                    })
-                    .or_insert(Rect {
-                        x0: xu,
-                        y0: yu,
-                        x1: xu,
-                        y1: yu,
-                    });
-            }
-        }
-        out
-    }
-
     /// Look up the bounding rectangle for a given `NodeId`.
     pub(crate) fn rect(&self, id: NodeId) -> Option<Rect> {
         self.bounds.get(&id).copied()
@@ -188,6 +145,14 @@ impl NodeHitTestMap {
             screen_x.saturating_sub(origin_x),
             screen_y.saturating_sub(origin_y),
         )
+    }
+}
+
+impl From<&HitTestMap> for NodeHitTestMap {
+    fn from(hit_test: &HitTestMap) -> Self {
+        Self {
+            bounds: hit_test.bounds.clone(),
+        }
     }
 }
 
@@ -408,7 +373,9 @@ pub(crate) fn resize_trace_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirtyRegions, Rect};
+    use super::{DirtyRegions, HitTestMap, NodeHitTestMap, Rect};
+    use crate::node_id::node_id_from_ffi;
+    use std::collections::HashMap;
 
     #[test]
     fn dirty_regions_expand_by_one_cell() {
@@ -442,5 +409,34 @@ mod tests {
             dirty.as_render_regions(20, 10).is_none(),
             "many disjoint regions should fall back to full diff"
         );
+    }
+
+    #[test]
+    fn node_hit_test_map_from_hit_test_copies_bounds() {
+        let id_a = node_id_from_ffi(1);
+        let id_b = node_id_from_ffi(42);
+        let mut bounds = HashMap::new();
+        bounds.insert(
+            id_a,
+            Rect {
+                x0: 1,
+                y0: 2,
+                x1: 3,
+                y1: 4,
+            },
+        );
+        bounds.insert(
+            id_b,
+            Rect {
+                x0: 10,
+                y0: 11,
+                x1: 12,
+                y1: 13,
+            },
+        );
+
+        let hit = HitTestMap { bounds };
+        let node_hit = NodeHitTestMap::from(&hit);
+        assert_eq!(node_hit.bounds, hit.bounds);
     }
 }

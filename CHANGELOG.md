@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **perf(runtime hit-test): remove duplicate full-frame scan during tree layout info apply**
+  - Tree layout info distribution now reuses the `HitTestMap` already built in the render pipeline instead of rebuilding a second `NodeHitTestMap` from `FrameBuffer`.
+  - Added explicit `HitTestMap -> NodeHitTestMap` conversion and regression coverage for bounds preservation.
+  - Removes one full-frame metadata scan per render cycle in tree mode.
+
 - **fix(runtime loop): decouple tick cadence from render cadence under sustained input**
   - `run_with` and `run_widget_tree` now schedule ticks from a dedicated tick clock instead of render timestamps.
   - Immediate input renders no longer postpone `on_tick` / `Event::Tick` delivery while keys are held.

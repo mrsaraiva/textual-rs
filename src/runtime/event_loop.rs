@@ -4017,7 +4017,9 @@ impl App {
         });
         let _guard = set_style_context(sheet);
         if let Some(tree) = self.widget_tree.as_mut() {
-            let node_hit_test = super::types::NodeHitTestMap::from_frame(&self.frame);
+            // Reuse the hit-test map built during render instead of rescanning
+            // the full frame a second time.
+            let node_hit_test = super::types::NodeHitTestMap::from(&self.hit_test);
             apply_layout_info_tree(tree, &node_hit_test);
         }
     }
