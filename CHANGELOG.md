@@ -8,6 +8,22 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-16
+- **[wip] fix(command-palette parity polish): full-row hover semantics, render-geometry hit consistency, and blur-safe search-row surface**
+  - Command list hover/selection rendering now mirrors Python semantics:
+    - hover no longer mutates keyboard selection,
+    - hovered and selected states style both title + help rows with full-row background coverage,
+    - added explicit `option-list--option-hover` default CSS mapping for command-list rows.
+  - Command list text layout now honors option padding in render-time composition, keeping row alignment and highlight ranges consistent with configured CSS padding.
+  - Command palette mouse-move mapping now uses render viewport geometry (not only last layout pass), fixing last-row hover misses when render and layout heights diverge in tree-mode overlay paths.
+  - Search-row surface composition on app blur was fixed at the root:
+    - palette surface normalization now treats both `$background` and `$surface` as underlay colors to be composed onto panel surface,
+    - command input transparent/no-border rules now target the concrete rendered widget path (`Input.command-palette--input`), not only wrapper type selectors.
+  - Added regression coverage for:
+    - keyboard selection stability under hover,
+    - full-row selected/hover style propagation across title/help rows,
+    - palette hover clear/update behavior including last command rows,
+    - blur-state search-row panel surface preservation.
+
 - **[wip] fix(command-palette interaction parity): two-row hit mapping, hover-selection sync, and tick modal routing**
   - `CommandList` now maps mouse-down `y` coordinates from two-row visual layout (title + help) back to underlying option rows, so clicks on help rows resolve to the correct command entry.
   - Mouse move over `CommandList` now synchronizes keyboard selection with hovered command row, keeping pointer and keyboard interaction paths aligned.

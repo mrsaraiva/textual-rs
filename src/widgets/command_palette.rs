@@ -1,5 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::event::{
@@ -459,6 +460,10 @@ impl CommandList {
         self.list.offset()
     }
 
+    pub fn hovered_index(&self) -> Option<usize> {
+        self.list.hovered_index()
+    }
+
     pub fn set_selected(&mut self, index: usize) {
         self.list.set_selected(index);
     }
@@ -532,9 +537,17 @@ impl CommandList {
             .or_else(|| crate::style::parse_color_like("$background"))
             .unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
-        let base_title_style = crate::css::resolve_component_style(self, &["option-list--option"])
+        let option_style = crate::css::resolve_component_style(self, &["option-list--option"]);
+        let option_padding = option_style.effective_padding();
+        let left_pad = option_padding.left as usize;
+        let right_pad = option_padding.right as usize;
+        let base_title_style = option_style
             .to_rich_over(default_bg)
             .unwrap_or_else(rich_rs::Style::new);
+        let hover_style =
+            crate::css::resolve_component_style(self, &["option-list--option-hover"])
+                .to_rich_over(default_bg)
+                .unwrap_or(base_title_style);
         let selected_style =
             crate::css::resolve_component_style(self, &["option-list--option-highlighted"])
                 .to_rich_over(default_bg)
@@ -546,6 +559,7 @@ impl CommandList {
         });
         help_style.dim = Some(true);
         help_style.bold = Some(false);
+        help_style.bgcolor = None;
         let highlight_style = self
             .highlight_style_override
             .lock()
@@ -561,6 +575,7 @@ impl CommandList {
             .offset()
             .min(self.entries.len().saturating_sub(visible_items));
         let selected = self.selected().min(self.entries.len().saturating_sub(1));
+        let hovered = self.hovered_index();
 
         let pad_row = |line: &[Segment], pad_style: rich_rs::Style| -> Vec<Segment> {
             let mut adjusted =
@@ -586,27 +601,41 @@ impl CommandList {
             } else {
                 let entry = &self.entries[index];
                 let active = index == selected;
-                let title_style = if active {
+                let row_base_style = if active {
                     selected_style
+                } else if hovered == Some(index) {
+                    hover_style
                 } else {
                     base_title_style
                 };
-                let help_line_style = help_style;
                 let text = if is_help { &entry.help } else { &entry.title };
                 let style = if is_help {
-                    help_line_style
+                    row_base_style.combine(&help_style)
                 } else {
-                    title_style
+                    row_base_style
                 };
-                let mut rich_text = console.render_str(text, Some(true), None, None, None);
+                let available_width = width.saturating_sub(left_pad + right_pad).max(1);
+                let mut padded_text = String::new();
+                if left_pad > 0 {
+                    padded_text.push_str(&" ".repeat(left_pad));
+                }
+                padded_text.push_str(text);
+                let mut rich_text =
+                    console.render_str(&padded_text, Some(true), None, None, None);
                 rich_text.stylize_before(style, 0, None);
                 if !is_help && let Some(highlight_style) = highlight_style {
                     for &(start, end) in &entry.title_highlight_ranges {
-                        rich_text.stylize(start, end, highlight_style);
+                        rich_text.stylize(start + left_pad, end + left_pad, highlight_style);
                     }
                 }
                 let rendered = rich_text.render(console, options);
-                let lines = rich_rs::Segment::split_lines(rendered);
+                let lines = rich_rs::Segment::split_and_crop_lines(
+                    rendered,
+                    available_width + left_pad,
+                    None,
+                    false,
+                    false,
+                );
                 let first_line = lines.into_iter().next().unwrap_or_default();
                 pad_row(&first_line, style)
             };
@@ -684,14 +713,7 @@ impl Widget for CommandList {
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        let mut changed = self.list.on_mouse_move(x, y / 2);
-        let row = (y as usize) / 2;
-        let index = self.offset().saturating_add(row);
-        if index < self.entries.len() && self.selected() != index {
-            self.set_selected(index);
-            changed = true;
-        }
-        changed
+        self.list.on_mouse_move(x, y / 2)
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -741,6 +763,8 @@ pub struct CommandPalette {
     previously_focused_child: Option<NodeId>,
     layout_width: usize,
     layout_height: usize,
+    last_render_width: AtomicUsize,
+    last_render_height: AtomicUsize,
     styles: WidgetStyles,
     /// External providers registered via [`add_provider`](Self::add_provider).
     providers: Vec<Box<dyn Provider>>,
@@ -757,7 +781,6 @@ impl CommandPalette {
     const HEADER_ROWS: usize = Self::RESULTS_ROW_OFFSET;
     const SEARCH_ICON_X_OFFSET: usize = 2;
     const SEARCH_TEXT_X_OFFSET: usize = 5;
-    const RESULTS_X_OFFSET: usize = 2;
 
     pub fn new(child: impl Widget + 'static) -> Self {
         let commands = vec![
@@ -791,6 +814,8 @@ impl CommandPalette {
             previously_focused_child: None,
             layout_width: 1,
             layout_height: 1,
+            last_render_width: AtomicUsize::new(1),
+            last_render_height: AtomicUsize::new(1),
             styles: WidgetStyles::default(),
             providers: Vec::new(),
             provider_results: Vec::new(),
@@ -979,9 +1004,9 @@ impl CommandPalette {
         panel_width: usize,
         panel_height: usize,
     ) -> (usize, usize, usize, usize) {
-        let content_x = panel_x.saturating_add(Self::RESULTS_X_OFFSET);
+        let content_x = panel_x;
         let content_y = panel_y.saturating_add(Self::RESULTS_ROW_OFFSET);
-        let content_width = Self::palette_content_width(panel_width).saturating_sub(1).max(1);
+        let content_width = panel_width.max(1);
         let content_height = panel_height.saturating_sub(Self::RESULTS_ROW_OFFSET).max(1);
         (content_x, content_y, content_width, content_height)
     }
@@ -1158,6 +1183,9 @@ impl Widget for CommandPalette {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let (width, height) = options.size;
+        self.last_render_width.store(width.max(1), Ordering::Relaxed);
+        self.last_render_height
+            .store(height.max(1), Ordering::Relaxed);
         let tree_mode = self.is_tree_mode();
 
         if tree_mode && !self.open && !self.panel_visible {
@@ -1222,7 +1250,12 @@ impl Widget for CommandPalette {
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let app_bg = crate::style::parse_color_like("$background").map(|bg| bg.to_simple_opaque());
+        let background_bg = crate::style::parse_color_like("$background")
+            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0))
+            .to_simple_opaque();
+        let surface_bg = crate::style::parse_color_like("$surface")
+            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0))
+            .to_simple_opaque();
         let panel_bg = panel_style.bgcolor;
         let apply_panel_surface = |mut cell: Cell| -> Cell {
             let mut composed = match cell.style {
@@ -1231,7 +1264,8 @@ impl Widget for CommandPalette {
             };
             let keep_panel_bg = composed.bgcolor.is_none()
                 || matches!(composed.bgcolor, Some(rich_rs::SimpleColor::Default))
-                || app_bg.is_some_and(|bg| composed.bgcolor == Some(bg));
+                || composed.bgcolor == Some(background_bg)
+                || composed.bgcolor == Some(surface_bg);
             if keep_panel_bg {
                 composed.bgcolor = panel_bg;
             }
@@ -1386,7 +1420,11 @@ impl Widget for CommandPalette {
                     }
                     let mut seg = rich_rs::Segment::new(cell.text.clone());
                     seg.style = cell.style;
-                    seg.meta = cell.meta.clone();
+                    // Tree mode renders nested internal widgets via `WidgetRenderable`,
+                    // which can carry `NodeId::default()` metadata. Keep tree hit-testing
+                    // on the CommandPalette node itself so mouse routing consistently
+                    // runs through CommandPalette geometry mapping.
+                    seg.meta = None;
                     line.push(seg);
                 }
                 lines.push(line);
@@ -1839,6 +1877,52 @@ impl Widget for CommandPalette {
         if !self.is_tree_mode() {
             self.child.on_message(message, ctx);
         }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if !self.open {
+            return false;
+        }
+
+        let px = x as usize;
+        let py = y as usize;
+        let render_w = self
+            .last_render_width
+            .load(Ordering::Relaxed)
+            .max(self.layout_width)
+            .max(1);
+        let render_h = self
+            .last_render_height
+            .load(Ordering::Relaxed)
+            .max(self.layout_height)
+            .max(1);
+        let (_, target_panel_y, panel_w, panel_h) = self.palette_geometry(render_w, render_h);
+        let panel_y =
+            if self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y && target_panel_y > 0 {
+                target_panel_y
+            } else {
+                self.panel_render_y
+                    .round()
+                    .clamp(Self::CLOSED_PANEL_Y, target_panel_y as f32) as usize
+            };
+        let (results_x, results_y, results_w, results_h) =
+            self.palette_results_geometry(0, panel_y, panel_w, panel_h);
+
+        let inside_results = px >= results_x
+            && px < results_x.saturating_add(results_w)
+            && py >= results_y
+            && py < results_y.saturating_add(results_h);
+
+        if inside_results {
+            let local_x = px.saturating_sub(results_x) as u16;
+            let local_y = py.saturating_sub(results_y) as u16;
+            let changed = self.list.on_mouse_move(local_x, local_y);
+            return changed;
+        }
+
+        // Clear stale row hover when leaving the results area.
+        let changed = self.list.on_mouse_move(0, u16::MAX);
+        changed
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
@@ -2553,7 +2637,7 @@ mod tests {
     }
 
     #[test]
-    fn command_list_mouse_move_syncs_selected_with_hovered_row() {
+    fn command_list_mouse_move_keeps_keyboard_selection() {
         let mut list = CommandList::new();
         list.set_entries(vec![
             CommandListEntry {
@@ -2577,7 +2661,212 @@ mod tests {
 
         // y=4 corresponds to row 2 (third command title) in two-row layout.
         assert!(list.on_mouse_move(0, 4));
-        assert_eq!(list.selected(), 2);
+        assert_eq!(
+            list.selected(),
+            0,
+            "mouse hover should not overwrite keyboard selection"
+        );
+    }
+
+    #[test]
+    fn command_list_selected_row_styles_title_and_help_rows() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let mut list = CommandList::new();
+        list.set_entries(vec![CommandListEntry {
+            title: "Keys".to_string(),
+            help: "Show help text".to_string(),
+            title_highlight_ranges: Vec::new(),
+        }]);
+        list.on_layout(60, 4);
+        list.set_selected(0);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (60, 4);
+        options.max_width = 60;
+        options.max_height = 4;
+        let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
+
+        let title_bg = buf
+            .get(0, 0)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+        let help_bg = buf
+            .get(0, 1)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+        assert_eq!(title_bg, help_bg);
+        assert!(title_bg.is_some(), "selected rows should paint a full-width background");
+    }
+
+    #[test]
+    fn command_list_hover_row_styles_title_and_help_rows() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let mut list = CommandList::new();
+        list.set_entries(vec![
+            CommandListEntry {
+                title: "Keys".to_string(),
+                help: "Show help text".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+            CommandListEntry {
+                title: "Maximize".to_string(),
+                help: "Maximize focused widget".to_string(),
+                title_highlight_ranges: Vec::new(),
+            },
+        ]);
+        list.on_layout(60, 8);
+        list.set_selected(0);
+        assert!(list.on_mouse_move(0, 2));
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (60, 8);
+        options.max_width = 60;
+        options.max_height = 8;
+        let buf = FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
+
+        let selected_bg = buf
+            .get(0, 0)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+        let hover_title_bg = buf
+            .get(0, 2)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+        let hover_help_bg = buf
+            .get(0, 3)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+        assert_eq!(hover_title_bg, hover_help_bg);
+        assert!(
+            hover_title_bg.is_some(),
+            "hovered rows should paint a full-width background"
+        );
+        assert_ne!(
+            hover_title_bg, selected_bg,
+            "hover and selected backgrounds should remain visually distinct"
+        );
+    }
+
+    #[test]
+    fn command_palette_mouse_move_updates_and_clears_list_hover() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let (_, panel_y, panel_w, panel_h) =
+            palette.palette_geometry(palette.layout_width, palette.layout_height);
+        let (_, results_y, _, _) = palette.palette_results_geometry(0, panel_y, panel_w, panel_h);
+
+        // First result row (title of first command).
+        assert!(palette.on_mouse_move(3, results_y as u16));
+        assert_eq!(palette.list.hovered_index(), Some(0));
+
+        // Third visual row in results (title of second command).
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(2) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(1));
+
+        // Move outside results area; hover should clear.
+        assert!(palette.on_mouse_move(3, results_y.saturating_sub(1) as u16));
+        assert_eq!(palette.list.hovered_index(), None);
+    }
+
+    #[test]
+    fn command_palette_mouse_move_can_hover_last_command_rows() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(80, 20);
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let (_, panel_y, panel_w, panel_h) =
+            palette.palette_geometry(palette.layout_width, palette.layout_height);
+        let (_, results_y, _, _) = palette.palette_results_geometry(0, panel_y, panel_w, panel_h);
+
+        // Last command ("Theme") title/help occupy rows 8/9 in command-list visual space.
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(8) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(4));
+        let _ = palette.on_mouse_move(3, results_y.saturating_add(9) as u16);
+        assert_eq!(palette.list.hovered_index(), Some(4));
+
+        // Entering directly on the help row from outside results should also set hover.
+        assert!(palette.on_mouse_move(3, results_y.saturating_sub(1) as u16));
+        assert_eq!(palette.list.hovered_index(), None);
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(9) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(4));
+    }
+
+    #[test]
+    fn command_palette_hover_uses_render_geometry_when_layout_is_shorter() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(95, 16);
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        // Simulate tree-mode render where CommandPalette receives full viewport
+        // options while on_layout was called with a shorter height.
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (95, 35);
+        options.max_width = 95;
+        options.max_height = 35;
+        let _ = Widget::render(&palette, &console, &options);
+
+        let (_, panel_y, panel_w, panel_h) = palette.palette_geometry(95, 35);
+        let (_, results_y, _, _) = palette.palette_results_geometry(0, panel_y, panel_w, panel_h);
+
+        // Last command title row in 2-row command-list layout.
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(8) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(4));
+    }
+
+    #[test]
+    fn command_palette_search_row_keeps_panel_bg_when_app_blurs() {
+        let _guard = set_style_context(crate::css::default_widget_stylesheet());
+        let mut palette = CommandPalette::new(Label::new("body"));
+        palette.on_layout(95, 35);
+
+        let mut open_ctx = EventCtx::default();
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        assert!(palette.is_open());
+
+        let mut blur_ctx = EventCtx::default();
+        palette.query.on_event(&Event::AppFocus(false), &mut blur_ctx);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (95, 35);
+        options.max_width = 95;
+        options.max_height = 35;
+        let buf =
+            FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&palette), None);
+
+        let (panel_x, panel_y, panel_w, _) = palette.palette_geometry(95, 35);
+        let search_y = panel_y.saturating_add(CommandPalette::SEARCH_ROW_OFFSET);
+        let search_icon_x = panel_x.saturating_add(CommandPalette::SEARCH_ICON_X_OFFSET);
+        let panel_bg = crate::css::resolve_component_style(&palette, &["command-palette--panel"])
+            .to_rich()
+            .and_then(|style| style.bgcolor)
+            .expect("panel bg must resolve");
+
+        for tx in search_icon_x..panel_x.saturating_add(panel_w).min(95) {
+            let bg = buf.get(tx, search_y).style.as_ref().and_then(|style| style.bgcolor);
+            assert_eq!(
+                bg,
+                Some(panel_bg),
+                "search row x={} should keep panel bg when app blurs",
+                tx
+            );
+        }
     }
 
     #[test]

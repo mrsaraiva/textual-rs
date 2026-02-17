@@ -748,7 +748,10 @@ SearchIcon {
     width: 2;
 }
 
-CommandInput, CommandInput:focus {
+CommandInput,
+CommandInput:focus,
+Input.command-palette--input,
+Input.command-palette--input:focus {
     border: none;
     width: 1fr;
     padding-left: 0;
@@ -794,6 +797,10 @@ CommandList > .option-list--option-highlighted {
     fg: $block-cursor-blurred-foreground;
     bg: $block-cursor-blurred-background;
     text-style: $block-cursor-blurred-text-style;
+}
+
+CommandList > .option-list--option-hover {
+    bg: $block-hover-background;
 }
 
 CommandList:nocolor > .option-list--option-highlighted {

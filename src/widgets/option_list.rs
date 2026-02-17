@@ -140,6 +140,11 @@ impl OptionList {
         self.cursor.highlighted()
     }
 
+    /// The currently hovered option index, or `None`.
+    pub fn hovered_index(&self) -> Option<usize> {
+        self.hovered_index
+    }
+
     /// The current scroll offset (first visible item index).
     pub fn offset_for_click(&self) -> usize {
         self.offset

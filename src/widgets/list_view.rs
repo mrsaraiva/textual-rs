@@ -61,6 +61,10 @@ impl ListView {
         self.offset
     }
 
+    pub fn hovered_index(&self) -> Option<usize> {
+        self.hovered_index
+    }
+
     pub fn items(&self) -> &[String] {
         &self.items
     }
