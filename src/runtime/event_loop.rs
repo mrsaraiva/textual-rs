@@ -5860,6 +5860,9 @@ mod tests {
         }
 
         let mut app = test_app_with_tree(tree);
+        // Prevent environment-dependent SIGTSTP suspension during this action-matrix
+        // coverage test; we only need to verify routing/handling, not real process stop.
+        app.set_suspend_process_impl_for_test(|| Ok(()));
         app.add_mode("home", || Box::new(RuntimeModeScreen));
         app.add_mode("main", || Box::new(RuntimeModeScreen));
         let mut runtime_root = StyleNode::new("RuntimeRoot");
