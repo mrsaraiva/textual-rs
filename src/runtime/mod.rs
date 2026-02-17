@@ -481,8 +481,7 @@ impl App {
                 hint: BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
                     .with_group("command_palette")
-                    .with_priority(true)
-                    .with_system(true),
+                    .with_priority(true),
             }),
             theme: Theme::default(),
             dark_mode: true,
@@ -1334,8 +1333,7 @@ impl App {
                     hint: BindingHint::new("ctrl+p", "palette")
                         .with_key_display("^p")
                         .with_group("command_palette")
-                        .with_priority(true)
-                        .with_system(true),
+                        .with_priority(true),
                 });
             }
         } else {
@@ -1354,8 +1352,7 @@ impl App {
             hint: BindingHint::new(key.display_key(), description.into())
                 .with_key_display(key_display.into())
                 .with_group("command_palette")
-                .with_priority(true)
-                .with_system(true),
+                .with_priority(true),
         });
     }
 

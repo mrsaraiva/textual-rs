@@ -38,10 +38,11 @@ until the API stabilizes.
   - Added regression test `action_show_help_panel_invalidates_binding_and_help_caches`.
 
 - **fix(key-panel parity): hide hidden/system bindings in HelpPanel key list**
-  - `KeyPanel::set_binding_hints()` now filters out non-visible (`show=false`) and system bindings to match Python key-panel semantics.
+  - `KeyPanel::set_binding_hints()` now filters out only `system` bindings (hidden bindings are preserved), matching Python key-panel semantics.
   - Added dedupe for repeated key/description pairs from merged hint sources.
   - Footer-only grouping metadata is no longer carried into `KeyPanel` rows.
-  - Added regression test `binding_hints_filter_hidden_and_system_entries`.
+  - Removed Rust-only key table headers/dividers and the extra KeyPanel title row to align HelpPanel visual structure with Python.
+  - Added regression test `binding_hints_filter_system_entries_only`.
 
 - **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
   - `SystemCommandsProvider` now matches Python-style behavior:

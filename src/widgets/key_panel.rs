@@ -39,30 +39,7 @@ impl BindingsTable {
     }
 
     fn line_count(&self) -> usize {
-        if self.bindings.is_empty() {
-            1
-        } else {
-            let group_count = self.count_groups();
-            if group_count > 0 {
-                // Header + divider + data rows + group_title per group + separator between groups
-                self.bindings.len() + 2 + group_count + (group_count - 1)
-            } else {
-                // Header + divider + data rows.
-                self.bindings.len() + 2
-            }
-        }
-    }
-
-    fn count_groups(&self) -> usize {
-        let mut seen: Vec<Option<&str>> = Vec::new();
-        for binding in &self.bindings {
-            let g = binding.group.as_deref();
-            if !seen.iter().any(|s| *s == g) {
-                seen.push(g);
-            }
-        }
-        // Group headers are shown only when there are multiple distinct groups
-        if seen.len() <= 1 { 0 } else { seen.len() }
+        self.bindings.len().max(1)
     }
 
     fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
@@ -122,7 +99,7 @@ impl BindingsTable {
     }
 
     fn lines(&self, width: usize) -> Vec<Vec<Segment>> {
-        let (key_style, description_style, divider_style, header_style) = self.component_styles();
+        let (key_style, description_style, _divider_style, _header_style) = self.component_styles();
         if self.bindings.is_empty() {
             return vec![adjust_line_length_no_bg(
                 &[Segment::styled(
@@ -143,88 +120,21 @@ impl BindingsTable {
             .max(3);
 
         let mut out = Vec::new();
-        let key_head = rich_rs::set_cell_size("Key", key_column_width.max(3));
-        out.push(adjust_line_length_no_bg(
-            &[
-                Segment::new(" ".to_string()),
-                Segment::styled(key_head, header_style),
-                Segment::styled("  ".to_string(), divider_style),
-                Segment::styled("Description".to_string(), header_style),
-            ],
-            width,
-        ));
-        out.push(adjust_line_length_no_bg(
-            &[Segment::styled("─".repeat(width), divider_style)],
-            width,
-        ));
-
-        // Determine if we need group separators
-        let use_groups = self.count_groups() > 0;
-
-        if use_groups {
-            // Collect unique groups in order of first appearance
-            let mut group_order: Vec<Option<String>> = Vec::new();
-            for binding in &self.bindings {
-                let g = binding.group.clone();
-                if !group_order.iter().any(|existing| *existing == g) {
-                    group_order.push(g);
-                }
-            }
-
-            let group_title_style = rich_rs::Style::new()
-                .with_color(
-                    parse_color_like("$text")
-                        .or_else(|| parse_color_like("$foreground"))
-                        .unwrap_or_else(|| crate::style::Color::rgb(215, 219, 224))
-                        .to_simple_opaque(),
-                )
-                .with_bold(true)
-                .with_dim(true);
-
-            for (group_idx, group) in group_order.iter().enumerate() {
-                if group_idx > 0 {
-                    // Blank separator line between groups
-                    out.push(adjust_line_length_no_bg(
-                        &[Segment::new(" ".repeat(width))],
-                        width,
-                    ));
-                }
-                let title = group.as_deref().unwrap_or("General");
-                out.push(adjust_line_length_no_bg(
-                    &[
-                        Segment::new(" ".to_string()),
-                        Segment::styled(title.to_string(), group_title_style),
-                    ],
-                    width,
-                ));
-                for binding in &self.bindings {
-                    if binding.group == *group {
-                        let key = rich_rs::set_cell_size(&binding.key, key_column_width);
-                        out.push(adjust_line_length_no_bg(
-                            &[
-                                Segment::new(" ".to_string()),
-                                Segment::styled(key, key_style),
-                                Segment::styled("  ".to_string(), divider_style),
-                                Segment::styled(binding.description.clone(), description_style),
-                            ],
-                            width,
-                        ));
-                    }
-                }
-            }
-        } else {
-            for binding in &self.bindings {
-                let key = rich_rs::set_cell_size(&binding.key, key_column_width);
-                out.push(adjust_line_length_no_bg(
-                    &[
-                        Segment::new(" ".to_string()),
-                        Segment::styled(key, key_style),
-                        Segment::styled("  ".to_string(), divider_style),
-                        Segment::styled(binding.description.clone(), description_style),
-                    ],
-                    width,
-                ));
-            }
+        for binding in &self.bindings {
+            let key_len = rich_rs::cell_len(&binding.key);
+            let key = format!(
+                "{}{}",
+                " ".repeat(key_column_width.saturating_sub(key_len)),
+                binding.key
+            );
+            out.push(adjust_line_length_no_bg(
+                &[
+                    Segment::styled(key, key_style),
+                    Segment::new("  ".to_string()),
+                    Segment::styled(binding.description.clone(), description_style),
+                ],
+                width,
+            ));
         }
         out
     }
@@ -324,8 +234,8 @@ impl KeyPanel {
         let mut seen = std::collections::BTreeSet::new();
         let mut mapped = Vec::new();
         for hint in bindings {
-            // Python parity: key panel hides non-visible and system bindings.
-            if !hint.show || hint.system {
+            // Python parity: key panel hides only system bindings.
+            if hint.system {
                 continue;
             }
             let key = hint.key_display.clone().unwrap_or_else(|| hint.key.clone());
@@ -388,11 +298,7 @@ impl Widget for KeyPanel {
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(height, Ordering::Relaxed);
         const V_SCROLLBAR_SIZE: usize = 1;
-
-        let title_line =
-            adjust_line_length_no_bg(&[Segment::new(format!(" {} ", self.title))], width);
-
-        let body_viewport = height.saturating_sub(1).max(1);
+        let body_viewport = height.max(1);
         let mut viewport_width = width;
         let mut table_lines = self.table.lines(viewport_width);
         let mut content_height = table_lines.len().max(1);
@@ -457,14 +363,10 @@ impl Widget for KeyPanel {
         }
 
         let mut out = Segments::new();
-        out.extend(title_line);
-        if height > 1 {
-            out.push(Segment::line());
-            for (index, line) in body.into_iter().enumerate() {
-                out.extend(line);
-                if index + 1 < body_viewport {
-                    out.push(Segment::line());
-                }
+        for (index, line) in body.into_iter().enumerate() {
+            out.extend(line);
+            if index + 1 < body_viewport {
+                out.push(Segment::line());
             }
         }
         out
@@ -653,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn binding_hints_filter_hidden_and_system_entries() {
+    fn binding_hints_filter_system_entries_only() {
         let mut panel = KeyPanel::new();
         let hints = vec![
             BindingHint::new("ctrl+p", "Palette")
@@ -663,13 +565,15 @@ mod tests {
             BindingHint::new("j", "Jessica"),
             BindingHint::new("p", "Paul").with_system(true),
             BindingHint::new("l", "Leto"),
+            BindingHint::new("tab", "Focus Next").hidden(true),
         ];
         panel.set_binding_hints(&hints);
         assert_eq!(
             panel.table.bindings,
             vec![
                 FooterBinding::new("j", "Jessica"),
-                FooterBinding::new("l", "Leto")
+                FooterBinding::new("l", "Leto"),
+                FooterBinding::new("tab", "Focus Next")
             ]
         );
     }
@@ -677,13 +581,15 @@ mod tests {
     #[test]
     fn scroll_action_posts_scrolled_message() {
         let console = Console::new();
-        let options = options_for(&console, 32, 5);
+        let options = options_for(&console, 32, 4);
         let mut panel = KeyPanel::new().with_bindings(vec![
             FooterBinding::new("a", "one"),
             FooterBinding::new("b", "two"),
             FooterBinding::new("c", "three"),
             FooterBinding::new("d", "four"),
             FooterBinding::new("e", "five"),
+            FooterBinding::new("f", "six"),
+            FooterBinding::new("g", "seven"),
         ]);
         let _ = panel.render(&console, &options);
 
