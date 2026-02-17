@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **[wip] perf(command-palette keypath): scope repaint invalidation to palette widget when safe**
+  - In tree mode with command palette open, key events that only mutate palette-local state now invalidate the palette widget region instead of forcing global repaint.
+  - Safety guard keeps global invalidation whenever key handling emits follow-up messages or requests style/layout invalidation.
+  - This reduces unnecessary full-frame redraw pressure on palette navigation/search keypresses while preserving correctness paths.
+
 - **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
   - `SystemCommandsProvider` now matches Python-style behavior:
     - discovery (`query == ""`) is alphabetical by title,

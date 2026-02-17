@@ -1898,7 +1898,7 @@ impl App {
                         // directly through event dispatch and skip declarative/app
                         // bindings for normal app actions. This matches modal input
                         // capture semantics (typing should search, not switch tabs).
-                        if self.open_command_palette_target().is_some() {
+                        if let Some(palette_target) = self.open_command_palette_target() {
                             let mut key_outcome =
                                 self.dispatch_event_auto(root, Event::Key(key.clone()));
                             debug_input(&format!(
@@ -1907,10 +1907,18 @@ impl App {
                                 key_outcome.repaint_requested,
                                 key_outcome.messages.len()
                             ));
+                            let palette_scope = if key_outcome.messages.is_empty()
+                                && !key_outcome.invalidation.layout
+                                && !key_outcome.invalidation.style
+                            {
+                                InvalidationScope::Widget(palette_target)
+                            } else {
+                                InvalidationScope::Global
+                            };
                             self.absorb_outcome(
                                 &mut key_outcome,
                                 &mut pending_invalidation,
-                                InvalidationScope::Global,
+                                palette_scope,
                             );
                             let mut msg_outcome = self
                                 .dispatch_message_queue_with_runtime(root, key_outcome.messages);
