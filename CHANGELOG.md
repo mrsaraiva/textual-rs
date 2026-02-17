@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **refactor(renderables parity): introduce Python-style base renderables modules and extract shared bar logic**
+  - Added `src/renderables/{bar,blank,gradient,styled,text_opacity,tint}.rs` and exposed them through `crate::renderables`.
+  - Kept existing renderables (`Digits`, `Sparkline`) alongside the new module set to mirror Python Textual structure in a Rust-idiomatic form.
+  - Moved tabs underline rendering to shared `renderables::Bar`, removing duplicated half-cell bar composition logic from `Tabs`.
+  - Added regression coverage for each new renderable module (dimensions, styling behavior, metadata hooks, and color processing paths).
+
 - **feat(button actions): wire `Button::with_action(...)` into runtime action dispatch**
   - Added `Message::ActionDispatchRequested` and runtime handling to parse/resolve/execute declarative action strings from button presses.
   - `Button` now emits `ActionDispatchRequested` when an action is set (and suppresses `ButtonPressed`, matching Python precedence).

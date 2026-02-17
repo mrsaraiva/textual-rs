@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -196,66 +196,6 @@ impl Underline {
             styles: WidgetStyles::default(),
         }
     }
-
-    fn render_underline_line(
-        width: usize,
-        start: f32,
-        end: f32,
-        base_style: rich_rs::Style,
-        active_style: rich_rs::Style,
-    ) -> Vec<Segment> {
-        if width == 0 {
-            return Vec::new();
-        }
-        let mut start = start.max(0.0);
-        let mut end = end.min(width as f32);
-        if (start == 0.0 && end == 0.0) || end < 0.0 || start > end {
-            return vec![Segment::styled("━".repeat(width), base_style)];
-        }
-        start = (start * 2.0).round() / 2.0;
-        end = (end * 2.0).round() / 2.0;
-
-        let half_start = (start - start.trunc()).abs() > f32::EPSILON;
-        let half_end = (end - end.trunc()).abs() > f32::EPSILON;
-        let mut out = Vec::new();
-
-        let initial_len = (start - 0.5) as i32;
-        if initial_len > 0 {
-            out.push(Segment::styled(
-                "━".repeat(initial_len as usize),
-                base_style.clone(),
-            ));
-        }
-        if !half_start && start > 0.0 {
-            out.push(Segment::styled("╸".to_string(), base_style.clone()));
-        }
-
-        let bar_width = (end as i32) - (start as i32);
-        if half_start {
-            let mut highlight = String::from("╺");
-            if bar_width > 1 {
-                highlight.push_str(&"━".repeat((bar_width - 1) as usize));
-            }
-            out.push(Segment::styled(highlight, active_style.clone()));
-        } else if bar_width > 0 {
-            out.push(Segment::styled(
-                "━".repeat(bar_width as usize),
-                active_style.clone(),
-            ));
-        }
-        if half_end {
-            out.push(Segment::styled("╸".to_string(), active_style.clone()));
-        }
-
-        if !half_end && (end - width as f32).abs() > f32::EPSILON {
-            out.push(Segment::styled("╺".to_string(), base_style.clone()));
-        }
-        let tail_len = (width as i32) - (end as i32) - 1;
-        if tail_len > 0 {
-            out.push(Segment::styled("━".repeat(tail_len as usize), base_style));
-        }
-        out
-    }
 }
 
 impl Widget for Underline {
@@ -292,10 +232,8 @@ impl Widget for Underline {
         if let Some(fg) = bar_style.color {
             active_style = active_style.with_color(fg);
         }
-        let line = Self::render_underline_line(width, start, end, base_style, active_style);
-        let mut out = Segments::new();
-        out.extend(line);
-        out
+        let bar = crate::renderables::Bar::new((start, end), active_style, base_style).width(width);
+        bar.render(_console, options)
     }
 }
 

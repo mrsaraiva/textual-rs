@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 use crate::style::Color;
 use crate::widgets::{
-    adjust_line_length_no_bg, fixed_height_from_constraints, Widget, WidgetStyles,
+    Widget, WidgetStyles, adjust_line_length_no_bg, fixed_height_from_constraints,
 };
 
 /// Unicode bar characters for sparkline rendering (8 levels, bottom to top).
