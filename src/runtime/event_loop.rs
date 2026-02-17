@@ -1647,10 +1647,10 @@ impl App {
 
         let mut tick: u64 = 0;
         let tick_rate = Duration::from_millis(100);
-        let mut last_render = Instant::now();
+        let mut last_tick = Instant::now();
 
         loop {
-            let timeout = tick_rate.saturating_sub(last_render.elapsed());
+            let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
                 match event::read()? {
                     CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
@@ -1671,12 +1671,12 @@ impl App {
                 }
             }
 
-            if last_render.elapsed() >= tick_rate {
+            if last_tick.elapsed() >= tick_rate {
                 let _ = self.poll_stylesheet();
                 let renderable = render(self, tick);
                 self.render(&renderable)?;
                 tick += 1;
-                last_render = Instant::now();
+                last_tick = Instant::now();
             }
         }
 
@@ -1782,7 +1782,7 @@ impl App {
         let mut previous_focus: Option<NodeId> =
             self.widget_tree.as_ref().and_then(focused_node_id_tree);
 
-        let mut last_render = Instant::now();
+        let mut last_tick = Instant::now();
         let mut pending_input_event: Option<CrosstermEvent> = None;
         let mut last_mouse_pos: Option<(u16, u16)> = None;
 
@@ -1813,7 +1813,7 @@ impl App {
             } else {
                 idle_tick_rate
             };
-            let tick_timeout = tick_rate.saturating_sub(last_render.elapsed());
+            let tick_timeout = tick_rate.saturating_sub(last_tick.elapsed());
             let timeout = self
                 .animator
                 .next_timeout(now)
@@ -2037,7 +2037,6 @@ impl App {
                                 self.apply_layout_info_to_tree();
                                 self.publish_devtools_snapshot(root);
                                 pending_invalidation = PendingInvalidation::default();
-                                last_render = Instant::now();
                                 immediate_render_us = render_started.elapsed().as_micros();
                             }
                             if event::poll(Duration::ZERO)? {
@@ -2945,7 +2944,6 @@ impl App {
                 self.apply_layout_info_to_tree();
                 self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
-                last_render = Instant::now();
                 rendered_immediately_for_input = true;
                 immediate_render_us = render_started.elapsed().as_micros();
             }
@@ -2956,7 +2954,7 @@ impl App {
                 pending_input_event = Some(event::read()?);
                 // Fairness guard: keep low-latency input draining, but do not
                 // starve Tick delivery under sustained keyboard input.
-                let tick_due = last_render.elapsed() >= tick_rate;
+                let tick_due = last_tick.elapsed() >= tick_rate;
                 if !tick_due {
                     if timing_on {
                         debug_timing(&format!(
@@ -3071,11 +3069,10 @@ impl App {
                 self.apply_layout_info_to_tree();
                 self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
-                last_render = Instant::now();
                 normal_render_us = render_started.elapsed().as_micros();
             }
 
-            if last_render.elapsed() >= tick_rate {
+            if last_tick.elapsed() >= tick_rate {
                 let mut sheet = self.default_stylesheet.clone();
                 sheet.extend(&self.stylesheet);
                 let _active = set_app_active(self.app_active);
@@ -3176,10 +3173,10 @@ impl App {
                     self.apply_layout_info_to_tree();
                     self.publish_devtools_snapshot(root);
                     pending_invalidation = PendingInvalidation::default();
-                    last_render = Instant::now();
                     tick_render_us = render_started.elapsed().as_micros();
                 }
                 prev_any_active = any_active;
+                last_tick = Instant::now();
                 tick += 1;
             }
 

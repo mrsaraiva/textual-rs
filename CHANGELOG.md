@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(runtime loop): decouple tick cadence from render cadence under sustained input**
+  - `run_with` and `run_widget_tree` now schedule ticks from a dedicated tick clock instead of render timestamps.
+  - Immediate input renders no longer postpone `on_tick` / `Event::Tick` delivery while keys are held.
+  - Preserves low-latency input rendering while keeping time-driven tick behavior progressing (with normal jitter under load).
+
 - **[wip] perf(runtime loop): input-priority render path + reduced per-loop style/tick pressure**
   - Added an input-priority fast path in `run_widget_tree`: when input handling marks content dirty, runtime renders immediately before slower housekeeping phases, reducing visible key-to-frame latency.
   - When immediate input render completes and more terminal input is already queued, runtime now drains queued input first (next loop turn) to reduce visible backlog under rapid key navigation.
