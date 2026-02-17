@@ -714,6 +714,10 @@ fn split_runtime_control_messages(
                         ));
                     }
                 }
+                // Keep lifecycle/control visibility messages observable by
+                // widgets (e.g. CommandPalette/TextualAppAdapter) after runtime
+                // applies the state change.
+                pass.deliver.push(event);
             }
             Message::AppNotify(crate::message::AppNotify {
                 message,
@@ -760,6 +764,10 @@ fn split_runtime_control_messages(
                         ));
                     }
                 }
+                // Keep lifecycle/control visibility messages observable by
+                // widgets (e.g. CommandPalette/TextualAppAdapter) after runtime
+                // applies the state change.
+                pass.deliver.push(event);
             }
             Message::AppSimulateKey(crate::message::AppSimulateKey { key }) => {
                 if let Some(synthetic) = parse_simulated_key(&key) {
@@ -5177,6 +5185,49 @@ mod tests {
         fn compose(&self) -> Box<dyn Widget> {
             Box::new(AppRoot::new())
         }
+    }
+
+    #[derive(Default)]
+    struct HelpPanelMessageProbe {
+        show_messages: usize,
+        hide_messages: usize,
+    }
+
+    impl Widget for HelpPanelMessageProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+            match message.message {
+                Message::AppShowHelpPanel(_) => self.show_messages += 1,
+                Message::AppHideHelpPanel(_) => self.hide_messages += 1,
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn runtime_help_panel_control_messages_are_delivered_to_widgets() {
+        let mut app = App::new().expect("app runtime should initialize");
+        let mut root = HelpPanelMessageProbe::default();
+        let sender = node_id_from_ffi(1);
+        let messages = vec![
+            MessageEvent {
+                sender,
+                message: Message::AppShowHelpPanel(crate::message::AppShowHelpPanel),
+                control: Some(sender),
+            },
+            MessageEvent {
+                sender,
+                message: Message::AppHideHelpPanel(crate::message::AppHideHelpPanel),
+                control: Some(sender),
+            },
+        ];
+
+        let _ = app.dispatch_message_queue_with_runtime(&mut root, messages);
+        assert_eq!(root.show_messages, 1);
+        assert_eq!(root.hide_messages, 1);
     }
 
     #[test]

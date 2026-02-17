@@ -66,11 +66,27 @@ pub trait Provider: Send + Sync + 'static {
 /// Built-in provider that serves the static list of [`PaletteCommand`]s.
 pub struct SystemCommandsProvider {
     commands: Vec<PaletteCommand>,
+    indexed: Vec<SystemCommandEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct SystemCommandEntry {
+    command: PaletteCommand,
+    title_lower: String,
 }
 
 impl SystemCommandsProvider {
     pub fn new(commands: Vec<PaletteCommand>) -> Self {
-        Self { commands }
+        let indexed = commands
+            .iter()
+            .cloned()
+            .into_iter()
+            .map(|command| SystemCommandEntry {
+                title_lower: command.title.to_lowercase(),
+                command,
+            })
+            .collect();
+        Self { commands, indexed }
     }
 
     /// Borrow the current command list.
@@ -89,29 +105,27 @@ impl Provider for SystemCommandsProvider {
     fn search(&self, query: &str) -> Vec<ProviderResult> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
-            return self
-                .commands
-                .iter()
-                .map(|cmd| ProviderResult {
-                    id: cmd.id.clone(),
-                    title: cmd.title.clone(),
-                    help: cmd.help.clone(),
+            let mut sorted = self.indexed.iter().collect::<Vec<_>>();
+            sorted.sort_by(|a, b| a.title_lower.cmp(&b.title_lower));
+            return sorted
+                .into_iter()
+                .map(|entry| ProviderResult {
+                    id: entry.command.id.clone(),
+                    title: entry.command.title.clone(),
+                    help: entry.command.help.clone(),
                     score: 0.0,
                 })
                 .collect();
         }
-        self.commands
+        self.indexed
             .iter()
-            .filter_map(|cmd| {
-                let best = [&cmd.id, &cmd.title, &cmd.help]
-                    .iter()
-                    .filter_map(|text| FuzzyMatcher::score(&needle, &text.to_lowercase()))
-                    .max();
-                best.map(|score| ProviderResult {
-                    id: cmd.id.clone(),
-                    title: cmd.title.clone(),
-                    help: cmd.help.clone(),
-                    score: score as f64,
+            .filter_map(|entry| {
+                // Python parity: system command search score is based on title only.
+                FuzzyMatcher::score(&needle, &entry.title_lower).map(|score| ProviderResult {
+                    id: entry.command.id.clone(),
+                    title: entry.command.title.clone(),
+                    help: entry.command.help.clone(),
+                    score,
                 })
             })
             .collect()
@@ -122,16 +136,64 @@ impl Provider for SystemCommandsProvider {
 // FuzzyMatcher
 // ---------------------------------------------------------------------------
 
-/// Simple fuzzy matcher: scores a query against text based on character positions,
-/// consecutive-match bonuses, and start-of-word bonuses.
+/// Python Textual-aligned fuzzy matcher.
+///
+/// Ranking semantics intentionally mirror `textual.fuzzy.FuzzySearch`:
+/// - case-insensitive subsequence matching,
+/// - score boost for word-start hits,
+/// - score boost for contiguous groups,
+/// - substring fast-path with multiplier.
 pub struct FuzzyMatcher;
 
 impl FuzzyMatcher {
-    /// Return matched character indices when `query` is a subsequence of `text`.
-    /// Matching is case-insensitive.
-    pub fn match_indices(query: &str, text: &str) -> Option<Vec<usize>> {
+    fn first_letter_positions(candidate: &[char]) -> std::collections::HashSet<usize> {
+        let mut starts = std::collections::HashSet::new();
+        let mut in_word = false;
+        for (idx, ch) in candidate.iter().enumerate() {
+            let is_word = ch.is_alphanumeric() || *ch == '_';
+            if is_word && !in_word {
+                starts.insert(idx);
+            }
+            in_word = is_word;
+        }
+        starts
+    }
+
+    fn score_positions(candidate: &[char], positions: &[usize]) -> f64 {
+        if positions.is_empty() {
+            return 0.0;
+        }
+        let first_letters = Self::first_letter_positions(candidate);
+        let offset_count = positions.len() as f64;
+        let first_letter_hits = positions
+            .iter()
+            .filter(|offset| first_letters.contains(offset))
+            .count() as f64;
+
+        let mut groups = 1usize;
+        let mut last = positions[0];
+        for &offset in positions.iter().skip(1) {
+            if offset != last + 1 {
+                groups += 1;
+            }
+            last = offset;
+        }
+        let normalized_groups = (offset_count - (groups.saturating_sub(1) as f64)) / offset_count;
+        (offset_count + first_letter_hits) * (1.0 + normalized_groups * normalized_groups)
+    }
+
+    fn find_subslice(haystack: &[char], needle: &[char]) -> Option<usize> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    fn best_match_indices(query: &str, text: &str) -> Option<(f64, Vec<usize>)> {
         if query.is_empty() {
-            return Some(Vec::new());
+            return Some((0.0, Vec::new()));
         }
         let query_chars: Vec<char> = query.chars().map(|ch| ch.to_ascii_lowercase()).collect();
         let text_chars: Vec<char> = text.chars().map(|ch| ch.to_ascii_lowercase()).collect();
@@ -139,27 +201,86 @@ impl FuzzyMatcher {
             return None;
         }
 
-        let mut qi = 0usize;
-        let mut indices = Vec::with_capacity(query_chars.len());
-        for (ti, tc) in text_chars.iter().enumerate() {
-            if qi < query_chars.len() && *tc == query_chars[qi] {
-                indices.push(ti);
-                qi += 1;
+        // Python parity: quick substring fast-path with multiplier.
+        if let Some(start) = Self::find_subslice(&text_chars, &query_chars) {
+            let offsets = (start..start + query_chars.len()).collect::<Vec<_>>();
+            let base = Self::score_positions(&text_chars, &offsets);
+            let exact = text_chars == query_chars;
+            let boosted = base * if exact { 2.0 } else { 1.5 };
+            return Some((boosted, offsets));
+        }
+
+        let mut letter_positions = Vec::with_capacity(query_chars.len());
+        let mut position = 0usize;
+
+        for (offset, &needle) in query_chars.iter().enumerate() {
+            let last_index = text_chars.len().saturating_sub(offset);
+            let mut positions = Vec::new();
+            let mut index = position;
+            while index < text_chars.len() {
+                if let Some(found_rel) = text_chars[index..].iter().position(|&ch| ch == needle) {
+                    let location = index + found_rel;
+                    positions.push(location);
+                    index = location + 1;
+                    if index >= last_index {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            if positions.is_empty() {
+                return None;
+            }
+            position = positions[0] + 1;
+            letter_positions.push(positions);
+        }
+
+        let mut best: Option<(f64, Vec<usize>)> = None;
+        let query_len = query_chars.len();
+        let mut stack: Vec<usize> = Vec::with_capacity(query_len);
+
+        fn recurse(
+            letter_positions: &[Vec<usize>],
+            positions_index: usize,
+            stack: &mut Vec<usize>,
+            candidate_chars: &[char],
+            best: &mut Option<(f64, Vec<usize>)>,
+        ) {
+            for &offset in &letter_positions[positions_index] {
+                if stack.last().is_some_and(|last| offset <= *last) {
+                    continue;
+                }
+                stack.push(offset);
+                if positions_index + 1 == letter_positions.len() {
+                    let score = FuzzyMatcher::score_positions(candidate_chars, stack);
+                    match best {
+                        Some((best_score, _)) if *best_score >= score => {}
+                        _ => *best = Some((score, stack.clone())),
+                    }
+                } else {
+                    recurse(
+                        letter_positions,
+                        positions_index + 1,
+                        stack,
+                        candidate_chars,
+                        best,
+                    );
+                }
+                let _ = stack.pop();
             }
         }
-        if qi == query_chars.len() {
-            Some(indices)
-        } else {
-            None
-        }
+
+        recurse(&letter_positions, 0, &mut stack, &text_chars, &mut best);
+        best
     }
 
     /// Convert matched indices into contiguous `[start, end)` character ranges.
     pub fn highlight_ranges(query: &str, text: &str) -> Vec<(usize, usize)> {
-        let Some(indices) = Self::match_indices(query, text) else {
+        let Some((score, indices)) = Self::best_match_indices(query, text) else {
             return Vec::new();
         };
-        if indices.is_empty() {
+        if score <= 0.0 || indices.is_empty() {
             return Vec::new();
         }
 
@@ -181,56 +302,8 @@ impl FuzzyMatcher {
 
     /// Returns a score if all characters in `query` appear (in order) in `text`.
     /// Higher score = better match. Returns `None` if no match.
-    pub fn score(query: &str, text: &str) -> Option<u32> {
-        if query.is_empty() {
-            return Some(0);
-        }
-
-        let query_chars: Vec<char> = query.chars().collect();
-        let text_chars: Vec<char> = text.chars().collect();
-
-        if query_chars.len() > text_chars.len() {
-            return None;
-        }
-
-        let mut qi = 0;
-        let mut score: u32 = 0;
-        let mut prev_match_pos: Option<usize> = None;
-
-        for (ti, &tc) in text_chars.iter().enumerate() {
-            if qi < query_chars.len() && tc == query_chars[qi] {
-                // Base score per character matched
-                score += 10;
-
-                // Consecutive match bonus
-                if let Some(prev) = prev_match_pos {
-                    if ti == prev + 1 {
-                        score += 5;
-                    }
-                }
-
-                // Start-of-word bonus (first char or preceded by separator)
-                if ti == 0
-                    || text_chars
-                        .get(ti.wrapping_sub(1))
-                        .map_or(false, |&c| c == ' ' || c == '_' || c == '-')
-                {
-                    score += 8;
-                }
-
-                // Early position bonus (penalize late matches less)
-                score += (text_chars.len().saturating_sub(ti) as u32).min(5);
-
-                prev_match_pos = Some(ti);
-                qi += 1;
-            }
-        }
-
-        if qi == query_chars.len() {
-            Some(score)
-        } else {
-            None
-        }
+    pub fn score(query: &str, text: &str) -> Option<f64> {
+        Self::best_match_indices(query, text).map(|(score, _)| score)
     }
 }
 
@@ -769,6 +842,8 @@ pub struct CommandPalette {
     providers: Vec<Box<dyn Provider>>,
     /// Merged results from all providers, sorted by descending score.
     provider_results: Vec<ProviderResult>,
+    /// Last query used to build `provider_results`.
+    last_built_query: String,
 }
 
 impl CommandPalette {
@@ -788,12 +863,11 @@ impl CommandPalette {
                 "Keys",
                 "Show help for the focused widget and a summary of available keys",
             ),
-            PaletteCommand::new("maximize", "Maximize", "Maximize the focused widget"),
             PaletteCommand::new("quit", "Quit", "Quit the application as soon as possible"),
             PaletteCommand::new(
                 "screenshot",
                 "Screenshot",
-                "Save an SVG screenshot of the current screen",
+                "Save an SVG 'screenshot' of the current screen",
             ),
             PaletteCommand::new("theme", "Theme", "Change the current theme"),
         ];
@@ -819,8 +893,9 @@ impl CommandPalette {
             styles: WidgetStyles::default(),
             providers: Vec::new(),
             provider_results: Vec::new(),
+            last_built_query: String::new(),
         };
-        out.rebuild_results();
+        out.rebuild_results(true);
         out
     }
 
@@ -837,13 +912,13 @@ impl CommandPalette {
 
     pub fn with_commands(mut self, commands: Vec<PaletteCommand>) -> Self {
         self.system_provider = SystemCommandsProvider::new(commands);
-        self.rebuild_results();
+        self.rebuild_results(true);
         self
     }
 
     pub fn set_commands(&mut self, commands: Vec<PaletteCommand>) {
         self.system_provider = SystemCommandsProvider::new(commands);
-        self.rebuild_results();
+        self.rebuild_results(true);
     }
 
     pub fn is_open(&self) -> bool {
@@ -1011,8 +1086,11 @@ impl CommandPalette {
         (content_x, content_y, content_width, content_height)
     }
 
-    fn rebuild_results(&mut self) {
+    fn rebuild_results(&mut self, force: bool) -> bool {
         let query = self.query.text().trim().to_string();
+        if !force && query == self.last_built_query {
+            return false;
+        }
 
         // System provider always contributes (it holds the built-in commands).
         let mut all: Vec<ProviderResult> = self.system_provider.search(&query);
@@ -1032,6 +1110,7 @@ impl CommandPalette {
         });
 
         self.provider_results = all;
+        self.last_built_query = query.clone();
 
         let entries = self
             .provider_results
@@ -1043,6 +1122,7 @@ impl CommandPalette {
             })
             .collect::<Vec<_>>();
         self.list.set_entries(entries);
+        true
     }
 
     fn focused_widget_id(widget: &dyn Widget) -> Option<NodeId> {
@@ -1099,7 +1179,7 @@ impl CommandPalette {
             self.query.set_focus(true);
             self.list.set_visible(true);
             self.list.set_populating(false);
-            self.rebuild_results();
+            self.rebuild_results(true);
             let target_y = self.panel_target_y();
             let start_y = if was_visible {
                 self.panel_render_y
@@ -1905,8 +1985,9 @@ impl Widget for CommandPalette {
             // In tree mode, InputChanged sender may be the focused branch node
             // rather than the inline query widget node. The open palette owns
             // query updates, so rebuild on any InputChanged while open.
-            self.rebuild_results();
-            ctx.request_repaint();
+            if self.rebuild_results(false) {
+                ctx.request_repaint();
+            }
             ctx.set_handled();
             return;
         }
@@ -2819,17 +2900,19 @@ mod tests {
             palette.palette_geometry(palette.layout_width, palette.layout_height);
         let (_, results_y, _, _) = palette.palette_results_geometry(0, panel_y, panel_w, panel_h);
 
-        // Last command ("Theme") title/help occupy rows 8/9 in command-list visual space.
-        assert!(palette.on_mouse_move(3, results_y.saturating_add(8) as u16));
-        assert_eq!(palette.list.hovered_index(), Some(4));
-        let _ = palette.on_mouse_move(3, results_y.saturating_add(9) as u16);
-        assert_eq!(palette.list.hovered_index(), Some(4));
+        let last = palette.provider_results.len().saturating_sub(1);
+        let last_title_row = last.saturating_mul(2);
+        let last_help_row = last_title_row.saturating_add(1);
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(last_title_row) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(last));
+        let _ = palette.on_mouse_move(3, results_y.saturating_add(last_help_row) as u16);
+        assert_eq!(palette.list.hovered_index(), Some(last));
 
         // Entering directly on the help row from outside results should also set hover.
         assert!(palette.on_mouse_move(3, results_y.saturating_sub(1) as u16));
         assert_eq!(palette.list.hovered_index(), None);
-        assert!(palette.on_mouse_move(3, results_y.saturating_add(9) as u16));
-        assert_eq!(palette.list.hovered_index(), Some(4));
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(last_help_row) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(last));
     }
 
     #[test]
@@ -2853,8 +2936,10 @@ mod tests {
         let (_, results_y, _, _) = palette.palette_results_geometry(0, panel_y, panel_w, panel_h);
 
         // Last command title row in 2-row command-list layout.
-        assert!(palette.on_mouse_move(3, results_y.saturating_add(8) as u16));
-        assert_eq!(palette.list.hovered_index(), Some(4));
+        let last = palette.provider_results.len().saturating_sub(1);
+        let last_title_row = last.saturating_mul(2);
+        assert!(palette.on_mouse_move(3, results_y.saturating_add(last_title_row) as u16));
+        assert_eq!(palette.list.hovered_index(), Some(last));
     }
 
     #[test]
@@ -3073,7 +3158,7 @@ mod tests {
                         id: id.to_string(),
                         title: title.to_string(),
                         help: help.to_string(),
-                        score: s as f64,
+                        score: s,
                     })
                 })
                 .collect()
@@ -3110,6 +3195,49 @@ mod tests {
     }
 
     #[test]
+    fn system_commands_provider_search_scores_title_only() {
+        let commands = vec![PaletteCommand::new(
+            "keys",
+            "Keys",
+            "Show help for the focused widget and a summary of available keys",
+        )];
+        let provider = SystemCommandsProvider::new(commands);
+        let results = provider.search("focused");
+        assert!(
+            results.is_empty(),
+            "title-only scoring should not match query text present only in help"
+        );
+    }
+
+    #[test]
+    fn system_commands_provider_discovery_is_alpha_but_search_keeps_source_order_for_ties() {
+        let commands = vec![
+            PaletteCommand::new("theme", "Theme", "Change theme"),
+            PaletteCommand::new("quit", "Quit", "Quit app"),
+            PaletteCommand::new("keys", "Keys", "Show keys"),
+            PaletteCommand::new("screenshot", "Screenshot", "Take screenshot"),
+        ];
+        let provider = SystemCommandsProvider::new(commands);
+
+        let discover_titles = provider
+            .search("")
+            .into_iter()
+            .map(|result| result.title)
+            .collect::<Vec<_>>();
+        assert_eq!(discover_titles, vec!["Keys", "Quit", "Screenshot", "Theme"]);
+
+        let searched = provider.search("e");
+        assert!(
+            !searched.is_empty(),
+            "query should produce matches for tie-order check"
+        );
+        assert_eq!(
+            searched[0].id, "theme",
+            "search-mode tie ordering should preserve provider source order"
+        );
+    }
+
+    #[test]
     fn provider_results_sorted_by_score_across_providers() {
         let s1 = Arc::new(AtomicUsize::new(0));
         let d1 = Arc::new(AtomicUsize::new(0));
@@ -3135,7 +3263,7 @@ mod tests {
         palette.set_open(true, &mut ctx);
 
         palette.query.set_text("a");
-        palette.rebuild_results();
+        palette.rebuild_results(true);
 
         assert_eq!(s1.load(Ordering::Relaxed), 1);
         assert_eq!(s2.load(Ordering::Relaxed), 1);
@@ -3189,8 +3317,8 @@ mod tests {
         let mut ctx = EventCtx::default();
         palette.set_open(true, &mut ctx);
 
-        // 5 built-in + 1 provider = 6 results on empty query.
-        assert_eq!(palette.provider_results.len(), 6);
+        // 4 built-in + 1 provider = 5 results on empty query.
+        assert_eq!(palette.provider_results.len(), 5);
         let ids: Vec<&str> = palette
             .provider_results
             .iter()
@@ -3226,7 +3354,7 @@ mod tests {
         assert_eq!(FuzzyMatcher::highlight_ranges("ey", "Keys"), vec![(1, 3)]);
         assert_eq!(
             FuzzyMatcher::highlight_ranges("ss", "Screenshot"),
-            vec![(0, 1), (5, 6)]
+            vec![(0, 1), (6, 7)]
         );
         assert!(FuzzyMatcher::highlight_ranges("zzz", "Keys").is_empty());
     }

@@ -305,16 +305,20 @@ impl<T: TextualApp> TextualAppAdapter<T> {
                 help: keys_help.to_string(),
             },
             CommandPaletteCommand {
-                id: "maximize".to_string(),
-                title: "Maximize".to_string(),
-                help: "Maximize the focused widget".to_string(),
-            },
-            CommandPaletteCommand {
                 id: "screenshot".to_string(),
                 title: "Screenshot".to_string(),
                 help: "Save an SVG 'screenshot' of the current screen".to_string(),
             },
         ]
+    }
+
+    fn sync_help_panel_visible_from_runtime(&mut self, app: &App) -> bool {
+        let runtime_visible = app.query("HelpPanel").is_ok_and(|query| !query.is_empty());
+        if runtime_visible != self.help_panel_visible {
+            self.help_panel_visible = runtime_visible;
+            return true;
+        }
+        false
     }
 
     fn publish_command_palette_commands(&mut self, ctx: &mut EventCtx) {
@@ -327,14 +331,6 @@ impl<T: TextualApp> TextualAppAdapter<T> {
                 commands.push(command);
             }
         }
-        commands.sort_by(|a, b| {
-            let by_title = a.title.to_lowercase().cmp(&b.title.to_lowercase());
-            if by_title.is_eq() {
-                a.id.cmp(&b.id)
-            } else {
-                by_title
-            }
-        });
         if !commands.is_empty() {
             ctx.post_message(Message::CommandPaletteSetCommands(
                 crate::message::CommandPaletteSetCommands { commands },
@@ -734,6 +730,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        if self.sync_help_panel_visible_from_runtime(app) && self.command_palette_visible {
+            self.publish_command_palette_commands(ctx);
+        }
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1383,6 +1382,11 @@ mod tests {
         assert_eq!(
             keys_help,
             "Show help for the focused widget and a summary of available keys"
+        );
+
+        assert!(
+            !open_commands.iter().any(|command| command.id == "maximize"),
+            "unsupported maximize command should not be published until runtime maximize exists"
         );
 
         let mut show_ctx = EventCtx::default();

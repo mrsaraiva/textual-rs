@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-17
+- **[wip] fix(command-palette parity/runtime): align system-command scoring + dynamic help-panel command state updates**
+  - `SystemCommandsProvider` now matches Python-style behavior:
+    - discovery (`query == ""`) is alphabetical by title,
+    - search scoring for built-in/system commands is title-only,
+    - fuzzy scoring/highlighting paths were updated to Python-aligned ranking semantics.
+  - Command-list rebuild churn reduced by skipping duplicate query rebuilds when input text is unchanged.
+  - `TextualAppAdapter` command publishing now:
+    - synchronizes `help_panel_visible` from runtime state/messages while palette is open,
+    - republishes command text when help-panel visibility changes,
+    - omits unsupported `maximize` until runtime maximize/minimize semantics exist.
+  - Runtime now forwards `AppShowHelpPanel` / `AppHideHelpPanel` control messages through widget delivery so palette/app adapters can react to visibility transitions.
+  - Added/updated regression tests for help-panel control-message delivery and provider ordering/scoring expectations.
+
 ### 2026-02-16
 - **[wip] fix(command-palette modal layering): enforce topmost render priority in tree mode**
   - Runtime child ordering now enforces `CommandPalette` as top-most among siblings during tree render collection, independent of mount order or parent `layers` declaration.
