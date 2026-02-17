@@ -310,57 +310,53 @@ HelpPanel {
     padding-right: 1;
     layout: vertical;
     height: 100%;
-}
 
-HelpPanel:ansi {
-    bg: ansi_default;
-    border-left: vkey ansi_black;
-}
+    &:ansi {
+        background: ansi_default;
+        border-left: vkey ansi_black;
 
-HelpPanel:ansi Markdown {
-    bg: ansi_default;
-}
+        Markdown, KeyPanel {
+            background: ansi_default;
+        }
 
-HelpPanel:ansi KeyPanel {
-    bg: ansi_default;
-}
+        .bindings-table--divide {
+            color: transparent;
+        }
+    }
 
-HelpPanel:ansi .bindings-table--divider {
-    fg: transparent;
-}
+    #widget-help {
+        height: auto;
+        max-height: 50%;
+        width: 1fr;
+        padding: 0;
+        margin: 0;
+        padding: 1 0;
+        margin-top: 1;
+        display: none;
+        background: $panel;
 
-HelpPanel > #widget-help {
-    height: auto;
-    max-height: 50%;
-    width: 1fr;
-    padding: 0;
-    margin: 0;
-    padding: 1 0;
-    margin-top: 1;
-    display: none;
-    bg: $panel;
-}
+        &:ansi {
+            background: ansi_default;
+        }
 
-HelpPanel > #widget-help:ansi {
-    bg: ansi_default;
-}
+        MarkdownBlock {
+            padding-left: 2;
+            padding-right: 2;
+        }
+    }
 
-HelpPanel.-show-help > #widget-help {
-    display: block;
-}
+    &.-show-help #widget-help {
+        display: block;
+    }
 
-HelpPanel > #widget-help > MarkdownBlock {
-    padding-left: 2;
-    padding-right: 2;
-}
-
-HelpPanel > KeyPanel#keys-help {
-    width: 1fr;
-    height: 1fr;
-    min-width: initial;
-    split: initial;
-    border-left: none;
-    padding: 0;
+    KeyPanel#keys-help {
+        width: 1fr;
+        height: 1fr;
+        min-width: initial;
+        split: initial;
+        border-left: none;
+        padding: 0;
+    }
 }
 
 KeyPanel {
@@ -373,30 +369,30 @@ KeyPanel {
     height: 1fr;
     padding-right: 1;
     align: center top;
-}
 
-KeyPanel > BindingsTable > .bindings-table--key {
-    fg: $text-accent;
-    text-style: bold;
-    padding: 0 1;
-}
+    & > BindingsTable > .bindings-table--key {
+        color: $text-accent;
+        text-style: bold;
+        padding: 0 1;
+    }
 
-KeyPanel > BindingsTable > .bindings-table--description {
-    fg: $foreground;
-}
+    & > BindingsTable > .bindings-table--description {
+        color: $foreground;
+    }
 
-KeyPanel > BindingsTable > .bindings-table--divider {
-    fg: transparent;
-}
+    & > BindingsTable > .bindings-table--divider {
+        color: transparent;
+    }
 
-KeyPanel > BindingsTable > .bindings-table--header {
-    fg: $text-primary;
-    text-style: underline;
-}
+    & > BindingsTable > .bindings-table--header {
+        color: $text-primary;
+        text-style: underline;
+    }
 
-KeyPanel > #bindings-table {
-    width: auto;
-    height: auto;
+    #bindings-table {
+        width: auto;
+        height: auto;
+    }
 }
 
 BindingsTable {

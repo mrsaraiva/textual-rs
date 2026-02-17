@@ -797,8 +797,11 @@ impl Widget for TabbedContent {
             return Vec::new();
         }
         vec![
-            BindingHint::new("left/right", "Switch tab")
-                .with_key_display("←/→")
+            BindingHint::new("left", "Previous tab")
+                .with_key_display("←")
+                .hidden(true),
+            BindingHint::new("right", "Next tab")
+                .with_key_display("→")
                 .hidden(true),
         ]
     }
