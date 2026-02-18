@@ -13,6 +13,14 @@ macro_rules! delegate_widget_to {
                 self.$field.focusable()
             }
 
+            fn can_focus(&self) -> bool {
+                self.$field.can_focus()
+            }
+
+            fn can_focus_children(&self) -> bool {
+                self.$field.can_focus_children()
+            }
+
             fn set_focus(&mut self, focused: bool) {
                 self.$field.set_focus(focused);
             }
@@ -103,6 +111,14 @@ macro_rules! delegate_widget_to {
                 self.$field.bindings()
             }
 
+            fn execute_action(
+                &mut self,
+                action: &crate::action::ParsedAction,
+                ctx: &mut crate::event::EventCtx,
+            ) -> bool {
+                self.$field.execute_action(action, ctx)
+            }
+
             fn styles(&self) -> Option<&crate::widgets::WidgetStyles> {
                 self.$field.styles()
             }
@@ -111,40 +127,17 @@ macro_rules! delegate_widget_to {
                 self.$field.styles_mut()
             }
         }
+
+        impl rich_rs::Renderable for $wrapper {
+            fn render(
+                &self,
+                console: &rich_rs::Console,
+                options: &rich_rs::ConsoleOptions,
+            ) -> rich_rs::Segments {
+                crate::widgets::Widget::render(self, console, options)
+            }
+        }
     };
 }
 
 pub(crate) use delegate_widget_to;
-
-pub(crate) fn align_line_horizontal(
-    line: &[rich_rs::Segment],
-    width: usize,
-    child_width: usize,
-    offset: usize,
-) -> Vec<rich_rs::Segment> {
-    let width = width.max(1);
-    let child_width = child_width.max(1).min(width);
-    let offset = offset.min(width.saturating_sub(child_width));
-    let mut out = Vec::new();
-    if offset > 0 {
-        out.push(rich_rs::Segment::new(" ".repeat(offset)));
-    }
-    out.extend(crate::widgets::helpers::adjust_line_length_no_bg(
-        line,
-        child_width,
-    ));
-    let tail = width.saturating_sub(offset + child_width);
-    if tail > 0 {
-        out.push(rich_rs::Segment::new(" ".repeat(tail)));
-    }
-    out
-}
-
-pub(crate) fn effective_rendered_height(lines: &[Vec<rich_rs::Segment>]) -> usize {
-    let last_non_blank = lines.iter().rposition(|line| {
-        line.iter()
-            .filter(|segment| !segment.is_control())
-            .any(|segment| segment.text.chars().any(|ch| ch != ' '))
-    });
-    last_non_blank.map(|idx| idx + 1).unwrap_or(1)
-}

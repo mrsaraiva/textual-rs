@@ -135,18 +135,27 @@ pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
         Some(r) => r,
         None => return Vec::new(),
     };
-    tree.walk_depth_first(root)
-        .into_iter()
-        .filter(|&id| {
-            tree.get(id)
-                .map(|node| {
-                    node.display
-                        && node.visibility == crate::style::Visibility::Visible
-                        && node.widget.focusable()
-                })
-                .unwrap_or(false)
-        })
-        .collect()
+    let mut focus_chain = Vec::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(node) = tree.get(id) else {
+            continue;
+        };
+        if !node.display || node.visibility != crate::style::Visibility::Visible {
+            continue;
+        }
+
+        if node.widget.focusable() {
+            focus_chain.push(id);
+        }
+
+        if node.widget.can_focus_children() {
+            for &child in tree.children(id).iter().rev() {
+                stack.push(child);
+            }
+        }
+    }
+    focus_chain
 }
 
 /// Forward `on_mouse_move` to a specific node in the tree.

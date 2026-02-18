@@ -476,6 +476,14 @@ pub trait Widget: Send + Sync + Any {
     fn can_focus(&self) -> bool {
         self.focusable()
     }
+    /// Whether this widget allows focus traversal into descendant widgets.
+    ///
+    /// Scrollable containers in Python Textual expose this as a constructor-level
+    /// policy (`can_focus_children`). The default keeps existing behavior by
+    /// allowing traversal into descendants.
+    fn can_focus_children(&self) -> bool {
+        true
+    }
     fn set_focus(&mut self, _focused: bool) {}
     /// Whether the widget is disabled (used for `:disabled` selector matching).
     fn is_disabled(&self) -> bool {

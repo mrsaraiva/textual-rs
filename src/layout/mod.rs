@@ -11,7 +11,7 @@
 use crate::node_id::NodeId;
 #[cfg(test)]
 use crate::style::Dock;
-use crate::style::{Display, Layout};
+use crate::style::{Align, Display, HorizontalAlign, Layout, VerticalAlign};
 #[cfg(test)]
 use crate::widget_tree::Rect;
 use crate::widget_tree::WidgetTree;
@@ -35,6 +35,151 @@ pub use vertical::layout_vertical;
 use common::get_node_style;
 use dock::layout_dock_fill;
 use split::{arrange_split, layout_absolute};
+
+fn shift_rect_x(rect: crate::widget_tree::Rect, delta: i32) -> crate::widget_tree::Rect {
+    let x0 = (rect.x0 as i32 + delta).max(0) as u16;
+    let x1 = (rect.x1 as i32 + delta).max(0) as u16;
+    crate::widget_tree::Rect {
+        x0,
+        y0: rect.y0,
+        x1,
+        y1: rect.y1,
+    }
+}
+
+fn shift_rect_y(rect: crate::widget_tree::Rect, delta: i32) -> crate::widget_tree::Rect {
+    let y0 = (rect.y0 as i32 + delta).max(0) as u16;
+    let y1 = (rect.y1 as i32 + delta).max(0) as u16;
+    crate::widget_tree::Rect {
+        x0: rect.x0,
+        y0,
+        x1: rect.x1,
+        y1,
+    }
+}
+
+fn apply_parent_align(
+    tree: &mut WidgetTree,
+    children: &[NodeId],
+    available: Region,
+    strategy: Layout,
+    align: Option<Align>,
+) {
+    let Some(align) = align else {
+        return;
+    };
+    if children.is_empty() {
+        return;
+    }
+
+    match strategy {
+        Layout::Vertical => {
+            // Horizontal alignment per child.
+            for &child in children {
+                let Some(node) = tree.get(child) else {
+                    continue;
+                };
+                let layout = node.layout_rect;
+                let width = layout.x1.saturating_sub(layout.x0);
+                let target_x = match align.horizontal {
+                    HorizontalAlign::Left => available.x,
+                    HorizontalAlign::Center => available
+                        .x
+                        .saturating_add(available.width.saturating_sub(width) / 2),
+                    HorizontalAlign::Right => available.x.saturating_add(available.width.saturating_sub(width)),
+                };
+                let dx = target_x as i32 - layout.x0 as i32;
+                if dx != 0
+                    && let Some(node) = tree.get_mut(child)
+                {
+                    node.layout_rect = shift_rect_x(node.layout_rect, dx);
+                    node.content_rect = shift_rect_x(node.content_rect, dx);
+                }
+            }
+
+            // Vertical alignment for the stacked block.
+            let mut min_y = u16::MAX;
+            let mut max_y = 0u16;
+            for &child in children {
+                if let Some(node) = tree.get(child) {
+                    min_y = min_y.min(node.layout_rect.y0);
+                    max_y = max_y.max(node.layout_rect.y1);
+                }
+            }
+            if min_y == u16::MAX {
+                return;
+            }
+            let used_h = max_y.saturating_sub(min_y);
+            let dy = match align.vertical {
+                VerticalAlign::Top => 0i32,
+                VerticalAlign::Middle => (available.height.saturating_sub(used_h) / 2) as i32,
+                VerticalAlign::Bottom => available.height.saturating_sub(used_h) as i32,
+            };
+            if dy != 0 {
+                for &child in children {
+                    if let Some(node) = tree.get_mut(child) {
+                        node.layout_rect = shift_rect_y(node.layout_rect, dy);
+                        node.content_rect = shift_rect_y(node.content_rect, dy);
+                    }
+                }
+            }
+        }
+        Layout::Horizontal => {
+            // Vertical alignment per child.
+            for &child in children {
+                let Some(node) = tree.get(child) else {
+                    continue;
+                };
+                let layout = node.layout_rect;
+                let height = layout.y1.saturating_sub(layout.y0);
+                let target_y = match align.vertical {
+                    VerticalAlign::Top => available.y,
+                    VerticalAlign::Middle => available
+                        .y
+                        .saturating_add(available.height.saturating_sub(height) / 2),
+                    VerticalAlign::Bottom => {
+                        available.y.saturating_add(available.height.saturating_sub(height))
+                    }
+                };
+                let dy = target_y as i32 - layout.y0 as i32;
+                if dy != 0
+                    && let Some(node) = tree.get_mut(child)
+                {
+                    node.layout_rect = shift_rect_y(node.layout_rect, dy);
+                    node.content_rect = shift_rect_y(node.content_rect, dy);
+                }
+            }
+
+            // Horizontal alignment for the row block.
+            let mut min_x = u16::MAX;
+            let mut max_x = 0u16;
+            for &child in children {
+                if let Some(node) = tree.get(child) {
+                    min_x = min_x.min(node.layout_rect.x0);
+                    max_x = max_x.max(node.layout_rect.x1);
+                }
+            }
+            if min_x == u16::MAX {
+                return;
+            }
+            let used_w = max_x.saturating_sub(min_x);
+            let dx = match align.horizontal {
+                HorizontalAlign::Left => 0i32,
+                HorizontalAlign::Center => (available.width.saturating_sub(used_w) / 2) as i32,
+                HorizontalAlign::Right => available.width.saturating_sub(used_w) as i32,
+            };
+            if dx != 0 {
+                for &child in children {
+                    if let Some(node) = tree.get_mut(child) {
+                        node.layout_rect = shift_rect_x(node.layout_rect, dx);
+                        node.content_rect = shift_rect_x(node.content_rect, dx);
+                    }
+                }
+            }
+        }
+        Layout::Grid => {}
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Top-level dispatch
@@ -167,12 +312,14 @@ pub fn resolve_layout(
             match strategy {
                 Layout::Vertical => {
                     layout_vertical(tree, &flow, inner, viewport);
+                    apply_parent_align(tree, &flow, inner, Layout::Vertical, style.align);
                 }
                 Layout::Grid => {
                     layout_grid(tree, &flow, inner, viewport, &style);
                 }
                 Layout::Horizontal => {
                     layout_horizontal(tree, &flow, inner, viewport);
+                    apply_parent_align(tree, &flow, inner, Layout::Horizontal, style.align);
                 }
             }
         }

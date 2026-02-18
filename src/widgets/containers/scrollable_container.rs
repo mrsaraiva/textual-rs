@@ -2,18 +2,25 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::compose::ComposeResult;
 use crate::event::{Event, EventCtx};
-use crate::widgets::{Widget, WidgetStyles};
+use crate::widgets::{BindingDecl, Container, Widget, WidgetStyles};
 
-use super::VerticalScroll;
+use super::ScrollView;
 
 pub struct ScrollableContainer {
-    inner: VerticalScroll,
+    inner: ScrollView,
+    can_focus: bool,
+    can_focus_children: bool,
+    can_maximize: Option<bool>,
 }
 
 impl ScrollableContainer {
     pub fn new() -> Self {
         Self {
-            inner: VerticalScroll::new(),
+            inner: ScrollView::new(Container::new()),
+            can_focus: true,
+            can_focus_children: true,
+            // Python default for ScrollableContainer.
+            can_maximize: Some(false),
         }
     }
 
@@ -40,6 +47,50 @@ impl ScrollableContainer {
         self.inner = self.inner.scroll_step(step);
         self
     }
+
+    pub fn scroll_step_x(mut self, step: usize) -> Self {
+        self.inner = self.inner.scroll_step_x(step);
+        self
+    }
+
+    pub fn set_scroll_step(&mut self, step: usize) {
+        self.inner.set_scroll_step(step);
+    }
+
+    pub fn set_scroll_step_x(&mut self, step: usize) {
+        self.inner.set_scroll_step_x(step);
+    }
+
+    pub fn scroll_by(&mut self, delta: i32) {
+        self.inner.scroll_by(delta);
+    }
+
+    pub fn scroll_by_x(&mut self, delta: i32) {
+        self.inner.scroll_by_x(delta);
+    }
+
+    pub fn set_virtual_content_size(&self, width: usize, height: usize) {
+        self.inner.set_virtual_content_size(width, height);
+    }
+
+    pub fn with_can_focus(mut self, can_focus: bool) -> Self {
+        self.can_focus = can_focus;
+        self
+    }
+
+    pub fn with_can_focus_children(mut self, can_focus_children: bool) -> Self {
+        self.can_focus_children = can_focus_children;
+        self
+    }
+
+    pub fn with_can_maximize(mut self, can_maximize: Option<bool>) -> Self {
+        self.can_maximize = can_maximize;
+        self
+    }
+
+    pub fn can_maximize(&self) -> bool {
+        self.can_maximize.unwrap_or(self.can_focus)
+    }
 }
 
 impl Default for ScrollableContainer {
@@ -54,11 +105,28 @@ impl Widget for ScrollableContainer {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+        let mut extracted = self.inner.take_composed_children();
+        if extracted.len() == 1 {
+            let mut child = extracted.pop().expect("single child");
+            let any = &mut *child as &mut dyn std::any::Any;
+            if let Some(container) = any.downcast_mut::<Container>() {
+                return container.take_composed_children();
+            }
+            return vec![child];
+        }
+        extracted
     }
 
     fn focusable(&self) -> bool {
-        self.inner.focusable()
+        self.can_focus
+    }
+
+    fn can_focus(&self) -> bool {
+        self.can_focus
+    }
+
+    fn can_focus_children(&self) -> bool {
+        self.can_focus_children
     }
 
     fn set_focus(&mut self, focused: bool) {
@@ -71,6 +139,15 @@ impl Widget for ScrollableContainer {
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.inner.render(console, options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &crate::debug::DebugLayout,
+    ) -> Segments {
+        self.inner.render_with_debug(console, options, debug)
     }
 
     fn on_mount(&mut self) {
@@ -121,6 +198,43 @@ impl Widget for ScrollableContainer {
         self.inner.layout_height()
     }
 
+    fn content_width(&self) -> Option<usize> {
+        self.inner.content_width()
+    }
+
+    fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {
+        let mut bindings = self.inner.bindings();
+        bindings.push(BindingDecl::new("ctrl+pageup", "page_left", "Page left").hidden());
+        bindings.push(BindingDecl::new("ctrl+pagedown", "page_right", "Page right").hidden());
+        bindings
+    }
+
+    fn execute_action(&mut self, action: &crate::action::ParsedAction, ctx: &mut EventCtx) -> bool {
+        match action.name.as_str() {
+            "page_left" => {
+                let before = self.inner.offset_x();
+                let page = self.inner.layout_height().unwrap_or(1).max(1);
+                self.inner.scroll_by_x(-(page as i32));
+                if self.inner.offset_x() != before {
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
+                true
+            }
+            "page_right" => {
+                let before = self.inner.offset_x();
+                let page = self.inner.layout_height().unwrap_or(1).max(1);
+                self.inner.scroll_by_x(page as i32);
+                if self.inner.offset_x() != before {
+                    ctx.request_repaint();
+                }
+                ctx.set_handled();
+                true
+            }
+            _ => self.inner.execute_action(action, ctx),
+        }
+    }
+
     fn styles(&self) -> Option<&WidgetStyles> {
         self.inner.styles()
     }
@@ -134,6 +248,14 @@ impl Widget for ScrollableContainer {
 mod tests {
     use super::*;
     use crate::prelude::Label;
+
+    #[test]
+    fn scrollable_container_defaults_match_python_policies() {
+        let sc = ScrollableContainer::new();
+        assert!(sc.focusable());
+        assert!(sc.can_focus_children());
+        assert!(!sc.can_maximize());
+    }
 
     #[test]
     fn scrollable_container_forwards_scroll_offset() {

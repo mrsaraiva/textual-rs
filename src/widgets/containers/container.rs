@@ -71,49 +71,9 @@ impl Widget for Container {
         std::mem::take(&mut self.children)
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height_limit = options.size.1.max(1);
-
-        if !self.children_extracted {
-            let mut lines: Vec<Vec<Segment>> = Vec::new();
-            for child in &self.children {
-                if lines.len() >= height_limit {
-                    break;
-                }
-                let remaining = height_limit.saturating_sub(lines.len()).max(1);
-                let child_h = child.layout_height().unwrap_or(remaining).max(1);
-
-                let mut child_options = options.clone();
-                child_options.size = (width, child_h.min(remaining));
-                child_options.max_width = width;
-                child_options.max_height = child_h.min(remaining);
-
-                let segments = child.render_styled(console, &child_options);
-                let mut child_lines =
-                    Segment::split_and_crop_lines(segments, width, None, true, false);
-                if let Some(intrinsic) = child.layout_height() {
-                    child_lines = Segment::set_shape(
-                        &child_lines,
-                        width,
-                        Some(intrinsic.min(remaining).max(1)),
-                        None,
-                        false,
-                    );
-                }
-                lines.extend(child_lines);
-            }
-            lines = Segment::set_shape(&lines, width, Some(height_limit), None, false);
-            let line_count = lines.len();
-            let mut out = Segments::new();
-            for (idx, line) in lines.into_iter().enumerate() {
-                out.extend(line);
-                if idx + 1 < line_count {
-                    out.push(Segment::line());
-                }
-            }
-            return out;
-        }
 
         // Chrome-only render. Children are rendered through the arena tree.
         let meta = css::selector_meta_generic(self);
@@ -150,52 +110,32 @@ impl Widget for Container {
         options: &ConsoleOptions,
         debug: &DebugLayout,
     ) -> Segments {
-        if !self.children_extracted {
-            let width = options.size.0.max(1);
-            let height_limit = options.size.1.max(1);
-            let mut out_lines: Vec<Vec<Segment>> = Vec::new();
-
-            for (idx, child) in self.children.iter().enumerate() {
-                if out_lines.len() >= height_limit {
-                    break;
-                }
-                let child_height = child.layout_height().unwrap_or(1).max(1);
-                let mut child_options = options.clone();
-                child_options.size = (width, child_height);
-                child_options.max_width = width;
-                child_options.max_height = child_height;
-
-                let child_segments = child.render_styled(console, &child_options);
-                let child_lines =
-                    Segment::split_and_crop_lines(child_segments, width, None, true, false);
-                let debug_height = child_height.max(3);
-                let label = if debug.show_sizes {
-                    Some(format!("{width}x{debug_height}"))
-                } else {
-                    None
-                };
-                let boxed = apply_debug_box(
-                    child_lines,
-                    width,
-                    debug_height,
-                    label.as_deref(),
-                    debug.style_for(idx),
-                );
-                out_lines.extend(boxed);
+        let rendered = Widget::render(self, console, options);
+        let width = options.size.0.max(1);
+        let height_limit = options.size.1.max(1);
+        let mut lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        lines = Segment::set_shape(&lines, width, Some(height_limit), None, false);
+        let label = if debug.show_sizes {
+            Some(format!("{width}x{height_limit}"))
+        } else {
+            None
+        };
+        let boxed = apply_debug_box(
+            lines,
+            width,
+            height_limit,
+            label.as_deref(),
+            debug.style_for(0),
+        );
+        let line_count = boxed.len();
+        let mut out = Segments::new();
+        for (idx, line) in boxed.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
             }
-
-            out_lines = Segment::set_shape(&out_lines, width, Some(height_limit), None, false);
-            let line_count = out_lines.len();
-            let mut out = Segments::new();
-            for (idx, line) in out_lines.into_iter().enumerate() {
-                out.extend(line);
-                if idx + 1 < line_count {
-                    out.push(Segment::line());
-                }
-            }
-            return out;
         }
-        Widget::render(self, console, options)
+        out
     }
 
     fn on_mount(&mut self) {}

@@ -2,7 +2,7 @@ use crate::compose::ComposeResult;
 use crate::widgets::Widget;
 
 use super::thin::delegate_widget_to;
-use super::{Horizontal, RowAlign};
+use super::Horizontal;
 
 pub struct HorizontalGroup {
     inner: Horizontal,
@@ -29,10 +29,6 @@ impl HorizontalGroup {
         self.inner.push(child);
     }
 
-    pub fn align(mut self, align: RowAlign) -> Self {
-        self.inner = self.inner.align(align);
-        self
-    }
 }
 
 delegate_widget_to!(HorizontalGroup, inner);
