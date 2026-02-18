@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-17
+- **fix(tree scroll parity): propagate root virtual extents + root scroll offsets in arena-tree render path**
+  - Root-level `ScrollView`/`VerticalScroll`/`HorizontalScroll`/`ScrollableContainer` now receive tree-derived virtual content size in tree mode, so Home/End and scrollbar limits reflect laid-out child bounds.
+  - Tree rendering now applies root widget scroll offsets to child paint origin (matching non-root scroll behavior), fixing cases where offsets changed but visible rows/columns did not move.
+  - `ScrollEnd` now advances both axes in `ScrollView` (Python-aligned semantics).
+  - Mouse wheel input now maps vertical wheel deltas to horizontal scrolling for horizontal-only scroll containers (`overflow-y: hidden` + horizontal overflow enabled).
+  - Added/updated container parity coverage for scroll Home/End behavior across `ScrollView`, `ScrollableContainer`, `VerticalScroll`, and `HorizontalScroll`.
+
 - **feat(worker): closure-backed worker tasks via `WorkerRequestPayload::Task`**
   - Added `WorkerRequestPayload::Task(SharedWorkerTask)` variant for arbitrary `FnOnce + Send` work units.
   - Added `SharedWorkerTask` — a clone-friendly `Arc<Mutex<Option<FnOnce>>>` wrapper so closure payloads survive `WorkerRequest` cloning in runtime paths.

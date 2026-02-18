@@ -3,17 +3,18 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::compose::ComposeResult;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::style::{ScrollbarGutter, ScrollbarVisibility, parse_color_like};
+use crate::style::{Overflow, ScrollbarGutter, ScrollbarVisibility, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
 use crate::renderables::Blank;
 use crate::widgets::{
-    BindingDecl, Spacer, Widget, WidgetStyles,
+    BindingDecl, Container, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
@@ -78,6 +79,32 @@ impl ScrollView {
         }
     }
 
+    fn child_container_mut(&mut self) -> Option<&mut Container> {
+        let child_any = &mut *self.child as &mut dyn std::any::Any;
+        child_any.downcast_mut::<Container>()
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        if let Some(container) = self.child_container_mut() {
+            container.push(child);
+        }
+        self
+    }
+
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        if let Some(container) = self.child_container_mut() {
+            let existing = std::mem::replace(container, Container::new());
+            *container = existing.with_compose(children);
+        }
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        if let Some(container) = self.child_container_mut() {
+            container.push(child);
+        }
+    }
+
     pub fn height(mut self, height: usize) -> Self {
         self.height = Some(height.max(1));
         self
@@ -120,9 +147,17 @@ impl ScrollView {
         self
     }
 
+    pub fn set_scroll_step(&mut self, step: usize) {
+        self.scroll_step = step.max(1);
+    }
+
     pub fn scroll_step_x(mut self, step: usize) -> Self {
         self.scroll_step_x = step.max(1);
         self
+    }
+
+    pub fn set_scroll_step_x(&mut self, step: usize) {
+        self.scroll_step_x = step.max(1);
     }
 
     pub fn offset_y(&self) -> usize {
@@ -1312,13 +1347,19 @@ impl Widget for ScrollView {
                     return;
                 }
                 Action::ScrollEnd => {
+                    let before_x = self.offset_x;
                     let before_y = self.offset_y;
                     self.scroll_to(self.max_offset());
+                    self.scroll_to_x(self.max_offset_x());
+                    self.request_offset_x_animation(before_x, self.offset_x, ctx);
                     self.request_offset_y_animation(before_y, self.offset_y, ctx);
                     debug_input(&format!(
-                        "[scrollview] action=ScrollEnd before_y={} after_y={} max_y={}",
+                        "[scrollview] action=ScrollEnd before=({}, {}) after=({}, {}) max=({}, {})",
+                        before_x,
                         before_y,
+                        self.offset_x,
                         self.offset_y,
+                        self.max_offset_x(),
                         self.max_offset()
                     ));
                     ctx.set_handled();
@@ -1442,19 +1483,33 @@ impl Widget for ScrollView {
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+        // Horizontal-only scroll containers use wheel Y deltas to scroll X.
+        let mut resolved_dx = delta_x;
+        let mut resolved_dy = delta_y;
+        let overflow_x = self.styles.style.overflow_x.unwrap_or(Overflow::Auto);
+        let overflow_y = self.styles.style.overflow_y.unwrap_or(Overflow::Auto);
+        if resolved_dx == 0
+            && resolved_dy != 0
+            && matches!(overflow_y, Overflow::Hidden)
+            && !matches!(overflow_x, Overflow::Hidden)
+        {
+            resolved_dx = resolved_dy;
+            resolved_dy = 0;
+        }
+
         let before_x = self.offset_x;
         let before_y = self.offset_y;
 
-        if delta_y != 0 {
-            self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
+        if resolved_dy != 0 {
+            self.scroll_by(resolved_dy.saturating_mul(self.scroll_step as i32));
         }
-        if delta_x != 0 {
-            self.scroll_by_x(delta_x.saturating_mul(self.scroll_step_x as i32));
+        if resolved_dx != 0 {
+            self.scroll_by_x(resolved_dx.saturating_mul(self.scroll_step_x as i32));
         }
         debug_input(&format!(
             "[scrollview] mouse dx={} dy={} before=({}, {}) after=({}, {}) max=({}, {})",
-            delta_x,
-            delta_y,
+            resolved_dx,
+            resolved_dy,
             before_x,
             before_y,
             self.offset_x,
