@@ -496,10 +496,11 @@ pub enum AppRootScrollbarAxis {
     Vertical,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AppRootScrollbarScrollTo {
     pub axis: AppRootScrollbarAxis,
-    pub offset: usize,
+    pub offset: f32,
+    pub animate: bool,
 }
 
 // ---------------------------------------------------------------------------

@@ -302,12 +302,14 @@ impl App {
             let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
             let (root_scroll_x, root_scroll_y) = if using_screen_tree {
                 tree.get(root_id)
-                    .map(|node| node.widget.scroll_offset())
-                    .unwrap_or((0, 0))
+                    .map(|node| node.widget.scroll_offset_f32())
+                    .unwrap_or((0.0, 0.0))
             } else {
-                widget.scroll_offset()
+                widget.scroll_offset_f32()
             };
-            if scrollbar_drag_trace_enabled() && (root_scroll_x != 0 || root_scroll_y != 0) {
+            if scrollbar_drag_trace_enabled()
+                && (root_scroll_x.abs() > f32::EPSILON || root_scroll_y.abs() > f32::EPSILON)
+            {
                 let mut child_summary = Vec::new();
                 for &child_id in &child_ids {
                     if let Some(node) = tree.get(child_id) {
@@ -325,7 +327,7 @@ impl App {
                     }
                 }
                 debug_render(&format!(
-                    "[render-root-scroll] using_screen_tree={} root_scroll=({}, {}) children=[{}]",
+                    "[render-root-scroll] using_screen_tree={} root_scroll=({:.3}, {:.3}) children=[{}]",
                     using_screen_tree,
                     root_scroll_x,
                     root_scroll_y,
@@ -347,8 +349,8 @@ impl App {
                 })
                 .unwrap_or_else(|| ClipRect::for_frame(&next));
             let scroll_ctx = TreeRenderCtx {
-                origin_x: -(root_scroll_x as i32),
-                origin_y: -(root_scroll_y as i32),
+                origin_x: -(root_scroll_x.round() as i32),
+                origin_y: -(root_scroll_y.round() as i32),
                 clip: scroll_clip,
             };
             for child_id in child_ids {
@@ -913,11 +915,11 @@ fn render_tree_node(
         }
     }
     let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
-    let (scroll_x, scroll_y) = node.widget.scroll_offset();
+    let (scroll_x, scroll_y) = node.widget.scroll_offset_f32();
     let base_child_ctx = child_ctx;
     let mut scrolled_child_ctx = child_ctx;
-    scrolled_child_ctx.origin_x -= scroll_x as i32;
-    scrolled_child_ctx.origin_y -= scroll_y as i32;
+    scrolled_child_ctx.origin_x -= scroll_x.round() as i32;
+    scrolled_child_ctx.origin_y -= scroll_y.round() as i32;
     let has_scroll_viewport =
         if let Some((viewport_w, viewport_h)) = node.widget.scroll_viewport_size() {
             let content_rect = node_content_or_layout_rect(node);
@@ -1882,14 +1884,19 @@ fn app_root_content_extent(
     content_rect: crate::widget_tree::Rect,
     scrollbar_children: AppRootScrollbarChildren,
 ) -> (usize, usize) {
-    let mut virtual_w = 0usize;
-    let mut virtual_h = 0usize;
+    let mut min_x: Option<u16> = None;
+    let mut min_y: Option<u16> = None;
+    let mut max_x = 0u16;
+    let mut max_y = 0u16;
     let mut saw_visible_child = false;
     for &child_id in tree.children(node_id) {
         if Some(child_id) == scrollbar_children.vertical
             || Some(child_id) == scrollbar_children.horizontal
             || Some(child_id) == scrollbar_children.corner
         {
+            continue;
+        }
+        if node_is_docked(tree, child_id) {
             continue;
         }
         let Some(child) = tree.get(child_id) else {
@@ -1900,15 +1907,20 @@ fn app_root_content_extent(
         }
         saw_visible_child = true;
         let child_rect = child.layout_rect;
-        let child_extent_x = child_rect.x1.saturating_sub(content_rect.x0) as usize;
-        let child_extent_y = child_rect.y1.saturating_sub(content_rect.y0) as usize;
-        virtual_w = virtual_w.max(child_extent_x);
-        virtual_h = virtual_h.max(child_extent_y);
+        min_x = Some(min_x.map_or(child_rect.x0, |value| value.min(child_rect.x0)));
+        min_y = Some(min_y.map_or(child_rect.y0, |value| value.min(child_rect.y0)));
+        max_x = max_x.max(child_rect.x1);
+        max_y = max_y.max(child_rect.y1);
     }
     if !saw_visible_child {
-        virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
-        virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+        let virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
+        let virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+        return (virtual_w.max(1), virtual_h.max(1));
     }
+    let origin_x = min_x.unwrap_or(content_rect.x0);
+    let origin_y = min_y.unwrap_or(content_rect.y0);
+    let virtual_w = max_x.saturating_sub(origin_x) as usize;
+    let virtual_h = max_y.saturating_sub(origin_y) as usize;
     (virtual_w.max(1), virtual_h.max(1))
 }
 
@@ -1935,7 +1947,7 @@ fn apply_app_root_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) 
                 node.classes.iter().cloned(),
             );
             let style = resolve_style(node.widget.as_ref(), &meta);
-            let (offset_x, offset_y) = node.widget.scroll_offset();
+            let (offset_x, offset_y) = node.widget.scroll_offset_f32();
             (node.content_rect, style, offset_x, offset_y)
         };
         let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
@@ -2030,7 +2042,10 @@ fn apply_app_root_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) 
                 if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
                     scrollbar.set_window_virtual_size(geometry.content_height);
                     scrollbar.set_window_size(geometry.viewport_height);
-                    scrollbar.set_position(geometry.clamp_offset_y(offset_y) as f32);
+                    if !scrollbar.grabbed() {
+                        let max_offset = geometry.max_offset_y() as f32;
+                        scrollbar.set_position(offset_y.clamp(0.0, max_offset));
+                    }
                 }
             }
         }
@@ -2058,7 +2073,10 @@ fn apply_app_root_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) 
                 if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
                     scrollbar.set_window_virtual_size(geometry.content_width);
                     scrollbar.set_window_size(geometry.viewport_width);
-                    scrollbar.set_position(geometry.clamp_offset_x(offset_x) as f32);
+                    if !scrollbar.grabbed() {
+                        let max_offset = geometry.max_offset_x() as f32;
+                        scrollbar.set_position(offset_x.clamp(0.0, max_offset));
+                    }
                 }
             }
         }

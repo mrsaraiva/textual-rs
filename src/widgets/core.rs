@@ -453,6 +453,16 @@ pub trait Widget: Send + Sync + Any {
         (0, 0)
     }
 
+    /// Return content scroll offset (float precision) applied to descendants
+    /// during render.
+    ///
+    /// Default implementation preserves compatibility by deriving from
+    /// `scroll_offset()`.
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        let (x, y) = self.scroll_offset();
+        (x as f32, y as f32)
+    }
+
     /// Return the effective visible scroll viewport size `(width, height)`.
     ///
     /// Widgets that reserve space for scrollbars should override this so tree

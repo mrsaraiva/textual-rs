@@ -673,7 +673,8 @@ mod tests {
                     sender: node_id_from_ffi(0),
                     message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
                         axis: AppRootScrollbarAxis::Vertical,
-                        offset: 16,
+                        offset: 16.0,
+                        animate: false,
                     }),
                     control: None,
                 },

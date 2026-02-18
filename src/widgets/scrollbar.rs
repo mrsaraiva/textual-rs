@@ -68,40 +68,113 @@ impl ScrollBarRender {
         back_color: Color,
         thumb_color: Color,
     ) -> Vec<Vec<Segment>> {
-        let (thumb_start, thumb_len) = Self::thumb_range(
-            track_len,
-            self.virtual_size,
-            self.window_size,
-            self.position,
-        );
-        let track_style = rich_rs::Style::new().with_bgcolor(back_color.to_simple_opaque());
-        let thumb_style = rich_rs::Style::new().with_bgcolor(thumb_color.to_simple_opaque());
+        const FRACTION_BARS: usize = 8;
+        const VERTICAL_BARS: [&str; FRACTION_BARS] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", " "];
+        const HORIZONTAL_BARS: [&str; FRACTION_BARS] = ["▉", "▊", "▋", "▌", "▍", "▎", "▏", " "];
 
+        let track_len = track_len.max(1);
+        let track_style = rich_rs::Style::new().with_bgcolor(back_color.to_simple_opaque());
+        let thumb_fill_style = rich_rs::Style::new().with_bgcolor(thumb_color.to_simple_opaque());
+        let edge_style = rich_rs::Style::new()
+            .with_bgcolor(back_color.to_simple_opaque())
+            .with_color(thumb_color.to_simple_opaque());
         if self.vertical {
-            let mut lines = Vec::with_capacity(track_len.max(1));
-            for row in 0..track_len.max(1) {
-                let style = if row >= thumb_start && row < thumb_start.saturating_add(thumb_len) {
-                    thumb_style
-                } else {
-                    track_style
-                };
-                lines.push(vec![
-                    Segment::styled(" ".to_string(), style);
-                    self.thickness.max(1)
-                ]);
+            let cell = " ".repeat(self.thickness.max(1));
+            let mut lines = vec![vec![Segment::styled(cell.clone(), track_style)]; track_len];
+            let scrollable = self.window_size > 0
+                && self.virtual_size > self.window_size
+                && self.virtual_size != track_len;
+            if !scrollable {
+                return lines;
+            }
+            let bar_ratio = self.virtual_size as f32 / track_len as f32;
+            let thumb_size = (self.window_size as f32 / bar_ratio).max(1.0);
+            let max_position = self.virtual_size.saturating_sub(self.window_size) as f32;
+            let clamped_position = self.position.clamp(0.0, max_position);
+            let position_ratio = if max_position > 0.0 {
+                clamped_position / max_position
+            } else {
+                0.0
+            };
+            let position = (track_len as f32 - thumb_size).max(0.0) * position_ratio;
+            let start = (position * FRACTION_BARS as f32).max(0.0).floor() as usize;
+            let end = start.saturating_add((thumb_size * FRACTION_BARS as f32).ceil() as usize);
+            let start_index = (start / FRACTION_BARS).min(track_len.saturating_sub(1));
+            let start_bar = start % FRACTION_BARS;
+            let end_index = (end / FRACTION_BARS).min(track_len);
+            let end_bar = end % FRACTION_BARS;
+
+            for row in start_index..end_index {
+                if row < lines.len() {
+                    lines[row] = vec![Segment::styled(cell.clone(), thumb_fill_style)];
+                }
+            }
+
+            if start_index < lines.len() {
+                let glyph = VERTICAL_BARS[FRACTION_BARS - 1 - start_bar];
+                if glyph != " " {
+                    lines[start_index] = vec![Segment::styled(
+                        glyph.repeat(self.thickness.max(1)),
+                        edge_style,
+                    )];
+                }
+            }
+            if end_index < lines.len() {
+                let glyph = VERTICAL_BARS[FRACTION_BARS - 1 - end_bar];
+                if glyph != " " {
+                    // Tail partial should preserve fill at the top of the cell
+                    // and taper toward the bottom.
+                    lines[end_index] = vec![Segment::styled(
+                        glyph.repeat(self.thickness.max(1)),
+                        edge_style.with_reverse(true),
+                    )];
+                }
             }
             lines
         } else {
-            let mut row = Vec::with_capacity(track_len.max(1));
-            for col in 0..track_len.max(1) {
-                let style = if col >= thumb_start && col < thumb_start.saturating_add(thumb_len) {
-                    thumb_style
+            let mut row = vec![Segment::styled(" ".to_string(), track_style); track_len];
+            let scrollable = self.window_size > 0
+                && self.virtual_size > self.window_size
+                && self.virtual_size != track_len;
+            if scrollable {
+                let bar_ratio = self.virtual_size as f32 / track_len as f32;
+                let thumb_size = (self.window_size as f32 / bar_ratio).max(1.0);
+                let max_position = self.virtual_size.saturating_sub(self.window_size) as f32;
+                let clamped_position = self.position.clamp(0.0, max_position);
+                let position_ratio = if max_position > 0.0 {
+                    clamped_position / max_position
                 } else {
-                    track_style
+                    0.0
                 };
-                row.push(Segment::styled(" ".to_string(), style));
+                let position = (track_len as f32 - thumb_size).max(0.0) * position_ratio;
+                let start = (position * FRACTION_BARS as f32).max(0.0).floor() as usize;
+                let end = start.saturating_add((thumb_size * FRACTION_BARS as f32).ceil() as usize);
+                let start_index = (start / FRACTION_BARS).min(track_len.saturating_sub(1));
+                let start_bar = start % FRACTION_BARS;
+                let end_index = (end / FRACTION_BARS).min(track_len);
+                let end_bar = end % FRACTION_BARS;
+
+                for col in start_index..end_index {
+                    if col < row.len() {
+                        row[col] = Segment::styled(" ".to_string(), thumb_fill_style);
+                    }
+                }
+
+                if start_index < row.len() {
+                    if start_bar > 0 {
+                        let glyph = HORIZONTAL_BARS[start_bar - 1];
+                        row[start_index] =
+                            Segment::styled(glyph.to_string(), edge_style.with_reverse(true));
+                    }
+                }
+                if end_index < row.len() {
+                    let glyph = HORIZONTAL_BARS[FRACTION_BARS - 1 - end_bar];
+                    if glyph != " " {
+                        row[end_index] = Segment::styled(glyph.to_string(), edge_style);
+                    }
+                }
             }
-            vec![row]
+            vec![row; self.thickness.max(1)]
         }
     }
 }
@@ -530,6 +603,15 @@ pub struct ScrollBar {
     styles: WidgetStyles,
 }
 
+const DRAG_POSITION_GRANULARITY_STEPS: f32 = 8.0;
+// Fixed gain to match thumb-drag feel with wheel scrolling.
+const THUMB_DRAG_GAIN_FIXED: f32 = 0.7;
+
+fn quantize_drag_position(position: f32) -> f32 {
+    // Python parity: scrollbar position granularity is 1/8th of a cell.
+    (position * DRAG_POSITION_GRANULARITY_STEPS).trunc() / DRAG_POSITION_GRANULARITY_STEPS
+}
+
 impl ScrollBar {
     pub fn new(vertical: bool, thickness: usize) -> Self {
         Self {
@@ -700,7 +782,8 @@ impl Widget for ScrollBar {
                     ctx.post_message(Message::AppRootScrollbarScrollTo(
                         AppRootScrollbarScrollTo {
                             axis: self.axis(),
-                            offset: clamped,
+                            offset: clamped as f32,
+                            animate: true,
                         },
                     ));
                 }
@@ -708,6 +791,8 @@ impl Widget for ScrollBar {
             }
             Event::MouseMove(MouseMoveEvent {
                 target,
+                x,
+                y,
                 screen_x,
                 screen_y,
                 ..
@@ -717,17 +802,31 @@ impl Widget for ScrollBar {
                 } else {
                     *screen_x as usize
                 };
+                let local_pointer = if self.vertical {
+                    *y as usize
+                } else {
+                    *x as usize
+                };
                 let max_pos = max_offset(self.window_virtual_size, self.window_size.max(1)) as f32;
                 let scale = self.window_virtual_size as f32 / self.window_size.max(1) as f32;
                 let delta = screen_pointer as f32 - self.grab_anchor_screen as f32;
-                let next_pos = (self.grabbed_position + delta * scale).clamp(0.0, max_pos);
+                let gain = THUMB_DRAG_GAIN_FIXED;
+                let mut next_pos =
+                    quantize_drag_position(self.grabbed_position + delta * scale * gain)
+                        .clamp(0.0, max_pos);
+                let track_len = self.track_len.max(1);
+                if local_pointer == 0 {
+                    next_pos = 0.0;
+                } else if local_pointer >= track_len.saturating_sub(1) {
+                    next_pos = max_pos;
+                }
                 if (next_pos - self.position).abs() > f32::EPSILON {
                     self.position = next_pos;
-                    let next = next_pos.clamp(0.0, max_pos) as usize;
                     ctx.post_message(Message::AppRootScrollbarScrollTo(
                         AppRootScrollbarScrollTo {
                             axis: self.axis(),
-                            offset: next,
+                            offset: next_pos,
+                            animate: true,
                         },
                     ));
                 }
@@ -840,7 +939,7 @@ impl Widget for ScrollBarCorner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::MouseUpEvent;
+    use crate::event::{MouseDownEvent, MouseMoveEvent, MouseUpEvent};
 
     #[test]
     fn policy_resolve_handles_vertical_overflow_with_lane() {
@@ -910,5 +1009,70 @@ mod tests {
         assert!(!bar.grabbed);
         assert_eq!(bar.grab_offset, 0);
         assert_eq!(bar.grab_anchor_screen, 0);
+    }
+
+    #[test]
+    fn drag_position_quantizes_to_eighth_cells() {
+        assert!((quantize_drag_position(1.24) - 1.125).abs() < f32::EPSILON);
+        assert!((quantize_drag_position(1.25) - 1.25).abs() < f32::EPSILON);
+        assert!((quantize_drag_position(1.37) - 1.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn fixed_gain_uses_constant() {
+        assert!((THUMB_DRAG_GAIN_FIXED - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn vertical_thumb_drag_one_row_matches_wheel_step_with_fixed_gain() {
+        // Match the modal01 scenario from logs: content=50, viewport=34.
+        let mut bar = ScrollBar::new(true, 2);
+        let id = bar.node_id();
+        bar.set_window_virtual_size(50);
+        bar.set_window_size(34);
+        bar.on_layout(2, 34);
+
+        // Start drag on thumb at top.
+        let mut down_ctx = EventCtx::default();
+        bar.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        // Move pointer by one terminal row.
+        let mut move_ctx = EventCtx::default();
+        bar.on_event(
+            &Event::MouseMove(MouseMoveEvent {
+                target: id,
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut move_ctx,
+        );
+        assert!(move_ctx.handled());
+
+        let messages = move_ctx.take_messages();
+        let mut emitted_offset = None;
+        let mut emitted_animate = None;
+        for msg in messages {
+            if let Message::AppRootScrollbarScrollTo(payload) = msg.message {
+                emitted_offset = Some(payload.offset);
+                emitted_animate = Some(payload.animate);
+            }
+        }
+        let offset = emitted_offset.expect("expected drag to emit app-root scroll message");
+        assert_eq!(emitted_animate, Some(true));
+        // 1 row drag at scale 50/34, with fixed gain 0.7, quantized to 1/8.
+        // Effective target is ~1 line per row (wheel parity).
+        assert!((offset - 1.0).abs() < f32::EPSILON);
     }
 }

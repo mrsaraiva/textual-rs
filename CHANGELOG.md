@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-18
+- **fix(app-root scrollbar drag parity): animate root scroll-to updates and keep fixed thumb gain**
+  - `AppRootScrollbarScrollTo` now carries float offsets and animation intent so scrollbar drag/click route through the same animated root offset pipeline instead of immediate integer jumps.
+  - Added float-preserving root scroll offset plumbing (`Widget::scroll_offset_f32`) and root animation handlers for `approot.offset_x` / `approot.offset_y`.
+  - Normalized tree render consumption of root/widget scroll offsets to use rounded float offsets and guarded scrollbar thumb-position sync while dragging.
+  - Removed temporary env-gated drag gain modes and kept the fixed gain path as default behavior for predictable drag feel.
+
 - **fix(screen scrollbar parity): stabilize AppRoot scrollbar lane hit/drag behavior**
   - Kept AppRoot scrollbar lanes in fixed screen-space for hit-testing/local coordinate mapping (matching render-time scroll exclusion), fixing thumb-drag edge cases near max offset.
   - Added regression coverage for AppRoot scrollbar-child scroll transform exclusion and stable local coordinate mapping under non-zero root scroll offsets.

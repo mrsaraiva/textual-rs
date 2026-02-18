@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
@@ -7,13 +8,15 @@ use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::DebugLayout;
 use crate::debug::debug_input;
-use crate::event::{Event, EventCtx};
+use crate::event::{
+    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+};
 use crate::message::{AppRootScrollbarAxis, AppRootScrollbarScrollTo, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{
     ScrollBar, ScrollBarCorner, Widget, WidgetStyles, helpers::fixed_height_from_constraints,
-    scrollbar_clamp_offset, scrollbar_max_offset,
+    scrollbar_max_offset,
 };
 
 pub struct AppRoot {
@@ -21,8 +24,8 @@ pub struct AppRoot {
     children_extracted: bool,
     focused: Option<NodeId>,
     styles: WidgetStyles,
-    offset_x: usize,
-    offset_y: usize,
+    offset_x: f32,
+    offset_y: f32,
     scroll_step_x: usize,
     scroll_step_y: usize,
     content_width: AtomicUsize,
@@ -40,6 +43,17 @@ const APP_ROOT_TYPE_ALIASES: &[&str] = &["AppRoot"];
 pub(crate) const APP_ROOT_VSCROLLBAR_ID: &str = "__app_root_vscrollbar";
 pub(crate) const APP_ROOT_HSCROLLBAR_ID: &str = "__app_root_hscrollbar";
 pub(crate) const APP_ROOT_SCROLLBAR_CORNER_ID: &str = "__app_root_scrollbar_corner";
+const APP_ROOT_OFFSET_X_ATTR: &str = "approot.offset_x";
+const APP_ROOT_OFFSET_Y_ATTR: &str = "approot.offset_y";
+const APP_ROOT_SCROLL_ANIMATION_DURATION: Duration = Duration::from_millis(100);
+
+fn scrollbar_clamp_offset_f32(offset: f32, content_len: usize, viewport_len: usize) -> f32 {
+    if !offset.is_finite() {
+        return 0.0;
+    }
+    let max = scrollbar_max_offset(content_len.max(1), viewport_len.max(1)) as f32;
+    offset.clamp(0.0, max)
+}
 
 fn scrollbar_drag_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -65,8 +79,8 @@ impl AppRoot {
             children_extracted: false,
             focused: None,
             styles: WidgetStyles::default(),
-            offset_x: 0,
-            offset_y: 0,
+            offset_x: 0.0,
+            offset_y: 0.0,
             scroll_step_x: 2,
             scroll_step_y: 1,
             content_width: AtomicUsize::new(0),
@@ -137,27 +151,27 @@ impl AppRoot {
         self.content_height.store(height.max(1), Ordering::Relaxed);
     }
 
-    fn max_offset_y(&self) -> usize {
+    fn max_offset_y(&self) -> f32 {
         scrollbar_max_offset(
             self.content_height.load(Ordering::Relaxed).max(1),
             self.viewport_height.load(Ordering::Relaxed).max(1),
-        )
+        ) as f32
     }
 
     fn clamp_offsets(&mut self) {
-        self.offset_x = scrollbar_clamp_offset(
+        self.offset_x = scrollbar_clamp_offset_f32(
             self.offset_x,
             self.content_width.load(Ordering::Relaxed).max(1),
             self.viewport_width.load(Ordering::Relaxed).max(1),
         );
-        self.offset_y = scrollbar_clamp_offset(
+        self.offset_y = scrollbar_clamp_offset_f32(
             self.offset_y,
             self.content_height.load(Ordering::Relaxed).max(1),
             self.viewport_height.load(Ordering::Relaxed).max(1),
         );
     }
 
-    fn apply_scrollbar_offset(&mut self, axis: AppRootScrollbarAxis, offset: usize) -> bool {
+    fn apply_scrollbar_offset(&mut self, axis: AppRootScrollbarAxis, offset: f32) -> bool {
         let (before_x, before_y) = (self.offset_x, self.offset_y);
         match axis {
             AppRootScrollbarAxis::Horizontal => self.offset_x = offset,
@@ -165,6 +179,57 @@ impl AppRoot {
         }
         self.clamp_offsets();
         self.offset_x != before_x || self.offset_y != before_y
+    }
+
+    fn clamped_axis_offset(&self, axis: AppRootScrollbarAxis, offset: f32) -> f32 {
+        match axis {
+            AppRootScrollbarAxis::Horizontal => scrollbar_clamp_offset_f32(
+                offset,
+                self.content_width.load(Ordering::Relaxed).max(1),
+                self.viewport_width.load(Ordering::Relaxed).max(1),
+            ),
+            AppRootScrollbarAxis::Vertical => scrollbar_clamp_offset_f32(
+                offset,
+                self.content_height.load(Ordering::Relaxed).max(1),
+                self.viewport_height.load(Ordering::Relaxed).max(1),
+            ),
+        }
+    }
+
+    fn axis_offset(&self, axis: AppRootScrollbarAxis) -> f32 {
+        match axis {
+            AppRootScrollbarAxis::Horizontal => self.offset_x,
+            AppRootScrollbarAxis::Vertical => self.offset_y,
+        }
+    }
+
+    fn request_scroll_animation(
+        &mut self,
+        axis: AppRootScrollbarAxis,
+        to: f32,
+        ctx: &mut EventCtx,
+    ) -> bool {
+        let from = self.axis_offset(axis);
+        let to = self.clamped_axis_offset(axis, to);
+        if (to - from).abs() <= f32::EPSILON {
+            return false;
+        }
+        let attr = match axis {
+            AppRootScrollbarAxis::Horizontal => APP_ROOT_OFFSET_X_ATTR,
+            AppRootScrollbarAxis::Vertical => APP_ROOT_OFFSET_Y_ATTR,
+        };
+        ctx.request_animation(
+            AnimationRequest::new(
+                self.node_id(),
+                attr,
+                from,
+                to,
+                APP_ROOT_SCROLL_ANIMATION_DURATION,
+            )
+            .with_ease(AnimationEase::OutCubic)
+            .with_level(AnimationLevel::Basic),
+        );
+        true
     }
 }
 
@@ -221,11 +286,11 @@ impl Widget for AppRoot {
         .max(1);
         let content_w = self.content_width.load(Ordering::Relaxed).max(1);
         let content_h = self.content_height.load(Ordering::Relaxed).max(1);
-        let clamped_offset_x = scrollbar_clamp_offset(self.offset_x, content_w, viewport_w);
-        let clamped_offset_y = scrollbar_clamp_offset(self.offset_y, content_h, viewport_h);
+        let clamped_offset_x = scrollbar_clamp_offset_f32(self.offset_x, content_w, viewport_w);
+        let clamped_offset_y = scrollbar_clamp_offset_f32(self.offset_y, content_h, viewport_h);
         if scrollbar_drag_trace_enabled() {
             debug_input(&format!(
-                "[app-root-geom] self=0x{:x} node={} widget={}x{} content={}x{} viewport={}x{} offsets=({}, {})",
+                "[app-root-geom] self=0x{:x} node={} widget={}x{} content={}x{} viewport={}x{} offsets=({:.3}, {:.3})",
                 self as *const _ as usize,
                 crate::node_id::node_id_to_ffi(self.node_id()),
                 width,
@@ -300,6 +365,37 @@ impl Widget for AppRoot {
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::AnimationValue(AnimationValueEvent {
+            target,
+            attribute,
+            value,
+            done,
+        }) = event
+        {
+            if *target == self.node_id() {
+                if attribute == APP_ROOT_OFFSET_Y_ATTR {
+                    let next = self.clamped_axis_offset(AppRootScrollbarAxis::Vertical, *value);
+                    if (next - self.offset_y).abs() > f32::EPSILON {
+                        self.offset_y = next;
+                        ctx.request_layout_invalidation();
+                    }
+                    let _ = done;
+                    ctx.set_handled();
+                    return;
+                }
+                if attribute == APP_ROOT_OFFSET_X_ATTR {
+                    let next = self.clamped_axis_offset(AppRootScrollbarAxis::Horizontal, *value);
+                    if (next - self.offset_x).abs() > f32::EPSILON {
+                        self.offset_x = next;
+                        ctx.request_layout_invalidation();
+                    }
+                    let _ = done;
+                    ctx.set_handled();
+                    return;
+                }
+            }
+        }
+
         let Event::Action(action) = event else {
             return;
         };
@@ -307,35 +403,35 @@ impl Widget for AppRoot {
         let before_x = self.offset_x;
         let before_y = self.offset_y;
         match action {
-            crate::event::Action::ScrollHome => self.offset_y = 0,
+            crate::event::Action::ScrollHome => self.offset_y = 0.0,
             crate::event::Action::ScrollEnd => self.offset_y = self.max_offset_y(),
             crate::event::Action::ScrollUp => {
-                self.offset_y = self.offset_y.saturating_sub(self.scroll_step_y)
+                self.offset_y = (self.offset_y - self.scroll_step_y as f32).max(0.0);
             }
             crate::event::Action::ScrollDown => {
-                self.offset_y = self.offset_y.saturating_add(self.scroll_step_y)
+                self.offset_y += self.scroll_step_y as f32;
             }
             crate::event::Action::ScrollPageUp => {
                 let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                self.offset_y = self.offset_y.saturating_sub(page);
+                self.offset_y = (self.offset_y - page as f32).max(0.0);
             }
             crate::event::Action::ScrollPageDown => {
                 let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                self.offset_y = self.offset_y.saturating_add(page);
+                self.offset_y += page as f32;
             }
             crate::event::Action::ScrollLeft => {
-                self.offset_x = self.offset_x.saturating_sub(self.scroll_step_x)
+                self.offset_x = (self.offset_x - self.scroll_step_x as f32).max(0.0);
             }
             crate::event::Action::ScrollRight => {
-                self.offset_x = self.offset_x.saturating_add(self.scroll_step_x)
+                self.offset_x += self.scroll_step_x as f32;
             }
             crate::event::Action::ScrollPageLeft => {
                 let page = self.viewport_width.load(Ordering::Relaxed).max(1);
-                self.offset_x = self.offset_x.saturating_sub(page);
+                self.offset_x = (self.offset_x - page as f32).max(0.0);
             }
             crate::event::Action::ScrollPageRight => {
                 let page = self.viewport_width.load(Ordering::Relaxed).max(1);
-                self.offset_x = self.offset_x.saturating_add(page);
+                self.offset_x += page as f32;
             }
             _ => return,
         }
@@ -351,12 +447,20 @@ impl Widget for AppRoot {
     }
 
     fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo { axis, offset }) =
-            &msg.message
+        let Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
+            axis,
+            offset,
+            animate,
+        }) = &msg.message
         else {
             return;
         };
-        if self.apply_scrollbar_offset(*axis, *offset) {
+        let changed = if *animate {
+            self.request_scroll_animation(*axis, *offset, ctx)
+        } else {
+            self.apply_scrollbar_offset(*axis, *offset)
+        };
+        if changed {
             ctx.request_layout_invalidation();
         }
         ctx.set_handled();
@@ -367,14 +471,10 @@ impl Widget for AppRoot {
         let before_y = self.offset_y;
 
         if delta_y != 0 {
-            self.offset_y = self
-                .offset_y
-                .saturating_add_signed(delta_y.saturating_mul(self.scroll_step_y as i32) as isize);
+            self.offset_y += delta_y.saturating_mul(self.scroll_step_y as i32) as f32;
         }
         if delta_x != 0 {
-            self.offset_x = self
-                .offset_x
-                .saturating_add_signed(delta_x.saturating_mul(self.scroll_step_x as i32) as isize);
+            self.offset_x += delta_x.saturating_mul(self.scroll_step_x as i32) as f32;
         }
         self.clamp_offsets();
 
@@ -405,12 +505,29 @@ impl Widget for AppRoot {
 
     fn scroll_offset(&self) -> (usize, usize) {
         (
-            scrollbar_clamp_offset(
+            scrollbar_clamp_offset_f32(
+                self.offset_x,
+                self.content_width.load(Ordering::Relaxed).max(1),
+                self.viewport_width.load(Ordering::Relaxed).max(1),
+            )
+            .round() as usize,
+            scrollbar_clamp_offset_f32(
+                self.offset_y,
+                self.content_height.load(Ordering::Relaxed).max(1),
+                self.viewport_height.load(Ordering::Relaxed).max(1),
+            )
+            .round() as usize,
+        )
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (
+            scrollbar_clamp_offset_f32(
                 self.offset_x,
                 self.content_width.load(Ordering::Relaxed).max(1),
                 self.viewport_width.load(Ordering::Relaxed).max(1),
             ),
-            scrollbar_clamp_offset(
+            scrollbar_clamp_offset_f32(
                 self.offset_y,
                 self.content_height.load(Ordering::Relaxed).max(1),
                 self.viewport_height.load(Ordering::Relaxed).max(1),
@@ -690,7 +807,8 @@ mod focus_tests {
                 sender: NodeId::default(),
                 message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
                     axis: AppRootScrollbarAxis::Vertical,
-                    offset: 24,
+                    offset: 24.0,
+                    animate: false,
                 }),
                 control: Some(NodeId::default()),
             },
@@ -713,6 +831,40 @@ mod focus_tests {
     }
 
     #[test]
+    fn app_root_scrollbar_message_requests_animation_when_enabled() {
+        let mut root = AppRoot::new();
+        root.on_layout(20, 10);
+        root.set_virtual_content_size(20, 200);
+
+        let mut ctx = EventCtx::default();
+        root.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
+                    axis: AppRootScrollbarAxis::Vertical,
+                    offset: 24.5,
+                    animate: true,
+                }),
+                control: Some(NodeId::default()),
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(
+            root.scroll_offset_f32().1,
+            0.0,
+            "animated message should not jump offset immediately"
+        );
+        let requests = ctx.take_animation_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].target, root.node_id());
+        assert_eq!(requests[0].attribute, APP_ROOT_OFFSET_Y_ATTR);
+        assert_eq!(requests[0].start, 0.0);
+        assert_eq!(requests[0].end, 24.5);
+    }
+
+    #[test]
     fn app_root_scrollbar_message_clamps_to_bounds() {
         let mut root = AppRoot::new();
         root.on_layout(20, 10);
@@ -724,7 +876,8 @@ mod focus_tests {
                 sender: NodeId::default(),
                 message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
                     axis: AppRootScrollbarAxis::Vertical,
-                    offset: 999,
+                    offset: 999.0,
+                    animate: false,
                 }),
                 control: Some(NodeId::default()),
             },
@@ -737,5 +890,30 @@ mod focus_tests {
             25,
             "offset should clamp to max(content - viewport)"
         );
+    }
+
+    #[test]
+    fn app_root_scrollbar_message_preserves_fractional_offset() {
+        let mut root = AppRoot::new();
+        root.on_layout(20, 10);
+        root.set_virtual_content_size(20, 200);
+
+        let mut ctx = EventCtx::default();
+        root.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
+                    axis: AppRootScrollbarAxis::Vertical,
+                    offset: 24.5,
+                    animate: false,
+                }),
+                control: Some(NodeId::default()),
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(root.scroll_offset_f32().1, 24.5);
+        assert_eq!(root.scroll_offset().1, 25);
     }
 }
