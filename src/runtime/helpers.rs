@@ -5,6 +5,9 @@ use crate::event::{
 };
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
+use crate::widgets::{
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+};
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
 
@@ -325,7 +328,7 @@ fn descendant_uses_ancestor_scroll(
     let Some(child_id) = child_on_path else {
         return true;
     };
-    !node_is_docked(tree, child_id)
+    !node_is_docked(tree, child_id) && !node_is_app_root_scrollbar(tree, child_id)
 }
 
 fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
@@ -336,6 +339,16 @@ fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
         selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
     let resolved = resolve_style(node.widget.as_ref(), &meta);
     resolved.dock.is_some()
+}
+
+fn node_is_app_root_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
+    let Some(node) = tree.get(node_id) else {
+        return false;
+    };
+    matches!(
+        node.widget.style_id(),
+        Some(APP_ROOT_VSCROLLBAR_ID | APP_ROOT_HSCROLLBAR_ID | APP_ROOT_SCROLLBAR_CORNER_ID)
+    )
 }
 
 /// Check whether any widget in the tree reports `is_active() == true`.
@@ -527,11 +540,16 @@ impl ClickTracker {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+
     use super::*;
     use crate::css::{default_widget_stylesheet, set_style_context};
+    use crate::event::EventCtx;
+    use crate::message::{AppRootScrollbarAxis, AppRootScrollbarScrollTo, Message, MessageEvent};
     use crate::node_id::node_id_from_ffi;
+    use crate::widget_tree::Rect;
     use crate::widget_tree::WidgetTree;
-    use crate::widgets::{AppRoot, Footer, Label};
+    use crate::widgets::{AppRoot, Footer, Label, Widget};
     use crossterm::event::KeyEvent;
 
     #[test]
@@ -585,6 +603,100 @@ mod tests {
         let map = default_action_map();
         let ctrl_c = KeyBind::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(map.lookup(&ctrl_c), Some(Action::CopySelectedText));
+    }
+
+    #[test]
+    fn app_root_scrollbar_child_does_not_inherit_root_scroll_transform() {
+        let mut root = AppRoot::new();
+        let extracted = root.take_composed_children();
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(root));
+        for child in extracted {
+            tree.mount(root_id, child);
+        }
+
+        let vbar_id = tree
+            .children(root_id)
+            .iter()
+            .copied()
+            .find(|id| {
+                tree.get(*id).and_then(|node| node.widget.style_id())
+                    == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
+            })
+            .expect("app root vertical scrollbar child should exist");
+
+        assert!(
+            !descendant_uses_ancestor_scroll(&tree, root_id, vbar_id),
+            "app root scrollbar lane must stay in unscrolled screen space"
+        );
+    }
+
+    #[test]
+    fn app_root_scrollbar_local_coords_stay_stable_when_root_is_scrolled() {
+        let mut root = AppRoot::new();
+        let extracted = root.take_composed_children();
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(root));
+        for child in extracted {
+            tree.mount(root_id, child);
+        }
+
+        let vbar_id = tree
+            .children(root_id)
+            .iter()
+            .copied()
+            .find(|id| {
+                tree.get(*id).and_then(|node| node.widget.style_id())
+                    == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
+            })
+            .expect("app root vertical scrollbar child should exist");
+
+        if let Some(root_node) = tree.get_mut(root_id) {
+            root_node.layout_rect = Rect {
+                x0: 0,
+                y0: 0,
+                x1: 114,
+                y1: 34,
+            };
+            root_node.content_rect = root_node.layout_rect;
+            let any = root_node.widget.as_mut() as &mut dyn Any;
+            let app_root = any
+                .downcast_mut::<AppRoot>()
+                .expect("root widget should be AppRoot");
+            app_root.on_layout(114, 34);
+            app_root.set_virtual_content_size(114, 50);
+            let mut ctx = EventCtx::default();
+            app_root.on_message(
+                &MessageEvent {
+                    sender: node_id_from_ffi(0),
+                    message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
+                        axis: AppRootScrollbarAxis::Vertical,
+                        offset: 16,
+                    }),
+                    control: None,
+                },
+                &mut ctx,
+            );
+        }
+
+        if let Some(vbar) = tree.get_mut(vbar_id) {
+            vbar.layout_rect = Rect {
+                x0: 112,
+                y0: 0,
+                x1: 114,
+                y1: 34,
+            };
+            vbar.content_rect = vbar.layout_rect;
+        }
+
+        let (lx, ly) = tree_content_local_coords(&tree, vbar_id, 113, 8);
+        assert_eq!(
+            (lx, ly),
+            (1, 8),
+            "root scroll offset must not shift app-root scrollbar local pointer mapping"
+        );
     }
 
     // ── Enter/Leave generation tests ─────────────────────────────────

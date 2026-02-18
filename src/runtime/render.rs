@@ -11,7 +11,10 @@ use crate::style::{
     parse_color_like,
 };
 use crate::widget_tree::WidgetTree;
-use crate::widgets::{Overlay, Toast, Widget, border_spacing_from_style, crop_line_horizontal};
+use crate::widgets::{
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID, Overlay,
+    ScrollBar, ScrollbarPolicy, Toast, Widget, border_spacing_from_style, crop_line_horizontal,
+};
 
 use rich_rs::{ControlType, Renderable, Segment, Segments};
 use std::sync::OnceLock;
@@ -932,7 +935,7 @@ fn render_tree_node(
             false
         };
     for child_id in child_ids {
-        let use_scroll_ctx = has_scroll_viewport && !node_is_docked(tree, child_id);
+        let use_scroll_ctx = has_scroll_viewport && child_uses_parent_scroll(tree, child_id);
         let mut next_ctx = if use_scroll_ctx {
             scrolled_child_ctx
         } else {
@@ -974,7 +977,11 @@ fn render_tree_node(
 
 fn root_child_uses_root_scroll(tree: &WidgetTree, root_id: NodeId, child_id: NodeId) -> bool {
     let _ = root_id;
-    !node_is_docked(tree, child_id)
+    child_uses_parent_scroll(tree, child_id)
+}
+
+fn child_uses_parent_scroll(tree: &WidgetTree, child_id: NodeId) -> bool {
+    !node_is_docked(tree, child_id) && !node_is_app_root_scrollbar(tree, child_id)
 }
 
 fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
@@ -985,6 +992,16 @@ fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
         selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
     let resolved = resolve_style(node.widget.as_ref(), &meta);
     resolved.dock.is_some()
+}
+
+fn node_is_app_root_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
+    let Some(node) = tree.get(node_id) else {
+        return false;
+    };
+    matches!(
+        node.widget.style_id(),
+        Some(APP_ROOT_VSCROLLBAR_ID | APP_ROOT_HSCROLLBAR_ID | APP_ROOT_SCROLLBAR_CORNER_ID)
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -1744,6 +1761,9 @@ fn root_tree_virtual_content_size(tree: &WidgetTree) -> Option<(usize, usize)> {
         let Some(child) = tree.get(child_id) else {
             continue;
         };
+        if node_is_app_root_scrollbar(tree, child_id) {
+            continue;
+        }
         if !child.display {
             continue;
         }
@@ -1819,6 +1839,274 @@ fn apply_root_tree_virtual_content_size_in_tree(tree: &mut WidgetTree) {
 // `layout_rect`/`content_rect` for every tree node before rendering.
 // ===========================================================================
 
+#[derive(Default, Clone, Copy)]
+struct AppRootScrollbarChildren {
+    vertical: Option<NodeId>,
+    horizontal: Option<NodeId>,
+    corner: Option<NodeId>,
+}
+
+fn app_root_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> AppRootScrollbarChildren {
+    let mut children = AppRootScrollbarChildren::default();
+    for &child_id in tree.children(parent) {
+        let Some(child) = tree.get(child_id) else {
+            continue;
+        };
+        match child.widget.style_id() {
+            Some(APP_ROOT_VSCROLLBAR_ID) => children.vertical = Some(child_id),
+            Some(APP_ROOT_HSCROLLBAR_ID) => children.horizontal = Some(child_id),
+            Some(APP_ROOT_SCROLLBAR_CORNER_ID) => children.corner = Some(child_id),
+            _ => {}
+        }
+    }
+    children
+}
+
+fn set_runtime_display(tree: &mut WidgetTree, node_id: NodeId, show: bool) {
+    if let Some(node) = tree.get_mut(node_id) {
+        node.runtime_display = show;
+        node.display = node.css_display && node.runtime_display;
+    }
+}
+
+fn set_layout_rect(tree: &mut WidgetTree, node_id: NodeId, rect: crate::widget_tree::Rect) {
+    if let Some(node) = tree.get_mut(node_id) {
+        node.layout_rect = rect;
+        node.content_rect = rect;
+    }
+}
+
+fn app_root_content_extent(
+    tree: &WidgetTree,
+    node_id: NodeId,
+    content_rect: crate::widget_tree::Rect,
+    scrollbar_children: AppRootScrollbarChildren,
+) -> (usize, usize) {
+    let mut virtual_w = 0usize;
+    let mut virtual_h = 0usize;
+    let mut saw_visible_child = false;
+    for &child_id in tree.children(node_id) {
+        if Some(child_id) == scrollbar_children.vertical
+            || Some(child_id) == scrollbar_children.horizontal
+            || Some(child_id) == scrollbar_children.corner
+        {
+            continue;
+        }
+        let Some(child) = tree.get(child_id) else {
+            continue;
+        };
+        if !child.display {
+            continue;
+        }
+        saw_visible_child = true;
+        let child_rect = child.layout_rect;
+        let child_extent_x = child_rect.x1.saturating_sub(content_rect.x0) as usize;
+        let child_extent_y = child_rect.y1.saturating_sub(content_rect.y0) as usize;
+        virtual_w = virtual_w.max(child_extent_x);
+        virtual_h = virtual_h.max(child_extent_y);
+    }
+    if !saw_visible_child {
+        virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
+        virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+    }
+    (virtual_w.max(1), virtual_h.max(1))
+}
+
+fn apply_app_root_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
+    let Some(root) = tree.root() else {
+        return;
+    };
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        let scrollbar_children = app_root_scrollbar_children(tree, node_id);
+        if scrollbar_children.vertical.is_none()
+            && scrollbar_children.horizontal.is_none()
+            && scrollbar_children.corner.is_none()
+        {
+            continue;
+        }
+
+        let (content_rect, style, offset_x, offset_y) = {
+            let Some(node) = tree.get(node_id) else {
+                continue;
+            };
+            let meta = selector_meta_generic_with_classes(
+                node.widget.as_ref(),
+                node.classes.iter().cloned(),
+            );
+            let style = resolve_style(node.widget.as_ref(), &meta);
+            let (offset_x, offset_y) = node.widget.scroll_offset();
+            (node.content_rect, style, offset_x, offset_y)
+        };
+        let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
+        let content_h = content_rect.y1.saturating_sub(content_rect.y0).max(1) as usize;
+
+        let mut geometry = {
+            let (virtual_w, virtual_h) =
+                app_root_content_extent(tree, node_id, content_rect, scrollbar_children);
+            let policy = ScrollbarPolicy::from_style(&style, 2, 1);
+            policy.resolve(
+                content_w,
+                content_h,
+                virtual_w.max(content_w),
+                virtual_h.max(content_h),
+            )
+        };
+
+        if geometry.viewport_width != content_w || geometry.viewport_height != content_h {
+            if let Some(id) = scrollbar_children.vertical {
+                set_runtime_display(tree, id, false);
+            }
+            if let Some(id) = scrollbar_children.horizontal {
+                set_runtime_display(tree, id, false);
+            }
+            if let Some(id) = scrollbar_children.corner {
+                set_runtime_display(tree, id, false);
+            }
+
+            crate::layout::resolve_layout(
+                tree,
+                node_id,
+                crate::layout::Region::new(
+                    content_rect.x0,
+                    content_rect.y0,
+                    geometry.viewport_width as u16,
+                    geometry.viewport_height as u16,
+                ),
+                viewport,
+            );
+
+            geometry = {
+                let (virtual_w, virtual_h) =
+                    app_root_content_extent(tree, node_id, content_rect, scrollbar_children);
+                let policy = ScrollbarPolicy::from_style(&style, 2, 1);
+                policy.resolve(
+                    content_w,
+                    content_h,
+                    virtual_w.max(content_w),
+                    virtual_h.max(content_h),
+                )
+            };
+        }
+
+        let viewport_rect = crate::widget_tree::Rect {
+            x0: content_rect.x0,
+            y0: content_rect.y0,
+            x1: content_rect
+                .x0
+                .saturating_add(geometry.viewport_width as u16),
+            y1: content_rect
+                .y0
+                .saturating_add(geometry.viewport_height as u16),
+        };
+        if let Some(node) = tree.get_mut(node_id) {
+            node.content_rect = viewport_rect;
+            let any = node.widget.as_mut() as &mut dyn std::any::Any;
+            if let Some(root) = any.downcast_mut::<crate::widgets::AppRoot>() {
+                root.set_virtual_content_size(geometry.content_width, geometry.content_height);
+            }
+        }
+
+        if let Some(v_id) = scrollbar_children.vertical {
+            let show = geometry.vertical_lane_width > 0;
+            set_runtime_display(tree, v_id, show);
+            let rect = if show {
+                crate::widget_tree::Rect {
+                    x0: content_rect
+                        .x0
+                        .saturating_add(geometry.viewport_width as u16),
+                    y0: content_rect.y0,
+                    x1: content_rect.x1,
+                    y1: content_rect
+                        .y0
+                        .saturating_add(geometry.viewport_height as u16),
+                }
+            } else {
+                crate::widget_tree::Rect::ZERO
+            };
+            set_layout_rect(tree, v_id, rect);
+            if let Some(node) = tree.get_mut(v_id) {
+                let any = node.widget.as_mut() as &mut dyn std::any::Any;
+                if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                    scrollbar.set_window_virtual_size(geometry.content_height);
+                    scrollbar.set_window_size(geometry.viewport_height);
+                    scrollbar.set_position(geometry.clamp_offset_y(offset_y) as f32);
+                }
+            }
+        }
+
+        if let Some(h_id) = scrollbar_children.horizontal {
+            let show = geometry.horizontal_lane_height > 0;
+            set_runtime_display(tree, h_id, show);
+            let rect = if show {
+                crate::widget_tree::Rect {
+                    x0: content_rect.x0,
+                    y0: content_rect
+                        .y0
+                        .saturating_add(geometry.viewport_height as u16),
+                    x1: content_rect
+                        .x0
+                        .saturating_add(geometry.viewport_width as u16),
+                    y1: content_rect.y1,
+                }
+            } else {
+                crate::widget_tree::Rect::ZERO
+            };
+            set_layout_rect(tree, h_id, rect);
+            if let Some(node) = tree.get_mut(h_id) {
+                let any = node.widget.as_mut() as &mut dyn std::any::Any;
+                if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                    scrollbar.set_window_virtual_size(geometry.content_width);
+                    scrollbar.set_window_size(geometry.viewport_width);
+                    scrollbar.set_position(geometry.clamp_offset_x(offset_x) as f32);
+                }
+            }
+        }
+
+        if let Some(c_id) = scrollbar_children.corner {
+            let show = geometry.vertical_lane_width > 0 && geometry.horizontal_lane_height > 0;
+            set_runtime_display(tree, c_id, show);
+            let rect = if show {
+                crate::widget_tree::Rect {
+                    x0: content_rect
+                        .x0
+                        .saturating_add(geometry.viewport_width as u16),
+                    y0: content_rect
+                        .y0
+                        .saturating_add(geometry.viewport_height as u16),
+                    x1: content_rect.x1,
+                    y1: content_rect.y1,
+                }
+            } else {
+                crate::widget_tree::Rect::ZERO
+            };
+            set_layout_rect(tree, c_id, rect);
+        }
+    }
+}
+
+fn hide_app_root_scrollbar_children_for_flow_layout(tree: &mut WidgetTree) {
+    let Some(root) = tree.root() else {
+        return;
+    };
+    for node_id in tree.walk_depth_first(root) {
+        let children = app_root_scrollbar_children(tree, node_id);
+        if children.vertical.is_none() && children.horizontal.is_none() && children.corner.is_none()
+        {
+            continue;
+        }
+        if let Some(v_id) = children.vertical {
+            set_runtime_display(tree, v_id, false);
+        }
+        if let Some(h_id) = children.horizontal {
+            set_runtime_display(tree, h_id, false);
+        }
+        if let Some(c_id) = children.corner {
+            set_runtime_display(tree, c_id, false);
+        }
+    }
+}
+
 /// Run the CSS-layout pass on the widget tree.
 ///
 /// Sets the root node's `layout_rect`/`content_rect` to the full viewport,
@@ -1837,6 +2125,7 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
 
     // Sync CSS display/visibility values to WidgetNode fields before layout.
     crate::css::apply_display_visibility_to_tree(tree);
+    hide_app_root_scrollbar_children_for_flow_layout(tree);
 
     let available = crate::layout::Region::new(0, 0, viewport.0, viewport.1);
 
@@ -1848,6 +2137,7 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
 
     // Resolve children's layout rects.
     crate::layout::resolve_layout(tree, root_id, available, viewport);
+    apply_app_root_scrollbar_layout(tree, viewport);
 
     // Optional per-node rect trace for layout debugging.
     if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
@@ -2108,6 +2398,9 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
                 let Some(child) = tree.get(child_id) else {
                     continue;
                 };
+                if node_is_app_root_scrollbar(tree, child_id) {
+                    continue;
+                }
                 if !child.display {
                     continue;
                 }
@@ -2543,44 +2836,62 @@ mod tests {
 
     #[test]
     fn layout_info_sets_app_root_virtual_content_in_tree_mode() {
+        use crate::css::StyleSheet;
         use crate::widget_tree::WidgetTree;
-        use crate::widgets::{AppRoot, Label};
-        use rich_rs::{Console, ConsoleOptions, Segment};
+        use crate::widgets::{APP_ROOT_VSCROLLBAR_ID, AppRoot, Container, Label};
 
-        let sheet = crate::css::default_widget_stylesheet();
+        let mut sheet = crate::css::default_widget_stylesheet();
+        sheet.extend(&StyleSheet::parse(
+            "AppRoot { scrollbar-visibility: visible; scrollbar-gutter: stable; }",
+        ));
         let _guard = crate::css::set_style_context(sheet);
 
         let mut tree = WidgetTree::new();
-        let root_id = tree.set_root(Box::new(
-            AppRoot::new().with_child(Label::new("line\n".repeat(80))),
-        ));
+        let root_id = tree.set_root(Box::new(Container::new()));
+        let app_root_id = tree.mount(
+            root_id,
+            Box::new(AppRoot::new().with_child(Label::new("line\nline"))),
+        );
 
-        // Enter tree mode by extracting root children into the arena.
+        // Extract AppRoot children into the arena (including dedicated scrollbar lanes).
         let children = {
-            let root = tree.get_mut(root_id).expect("root exists");
-            root.widget.take_composed_children()
+            let app_root = tree.get_mut(app_root_id).expect("app root exists");
+            app_root.widget.take_composed_children()
         };
         for child in children {
-            tree.mount(root_id, child);
+            tree.mount(app_root_id, child);
         }
 
         run_layout_pass(&mut tree, (40, 10));
         apply_layout_info_tree_from_layout_rects(&mut tree);
+        let root = tree.get(app_root_id).expect("app root exists");
+        let viewport_rect = root.content_rect;
+        assert_eq!(
+            viewport_rect.x1.saturating_sub(viewport_rect.x0),
+            38,
+            "app root viewport should exclude dedicated vertical scrollbar lane"
+        );
 
-        let console = Console::default();
-        let mut options = ConsoleOptions::default();
-        options.size = (40, 10);
-        options.max_width = 40;
-        options.max_height = 10;
-
-        let root = tree.get(root_id).expect("root exists");
-        let rendered = root.widget.render_styled(&console, &options);
-        let lines = Segment::split_and_crop_lines(rendered, 40, None, true, false);
-
-        assert_eq!(lines.len(), 10, "app root should render full viewport");
+        let vertical_scrollbar = tree
+            .children(app_root_id)
+            .iter()
+            .filter_map(|&child_id| tree.get(child_id).map(|node| (child_id, node)))
+            .find(|(_, node)| node.widget.style_id() == Some(APP_ROOT_VSCROLLBAR_ID))
+            .expect("app root vertical scrollbar child should exist");
+        let lane_rect = vertical_scrollbar.1.layout_rect;
+        assert_eq!(
+            lane_rect.x1.saturating_sub(lane_rect.x0),
+            2,
+            "vertical scrollbar lane width should match Screen defaults"
+        );
+        assert_eq!(
+            lane_rect.y1.saturating_sub(lane_rect.y0),
+            10,
+            "vertical scrollbar lane height should span viewport height"
+        );
         assert!(
-            lines.iter().any(|line| line.len() > 1),
-            "app root should paint scrollbar chrome when content exceeds viewport"
+            vertical_scrollbar.1.display,
+            "vertical scrollbar node should be visible when content overflows"
         );
     }
 

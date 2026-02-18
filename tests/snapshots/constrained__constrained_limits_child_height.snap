@@ -1,6 +1,6 @@
 ---
 source: tests/constrained.rs
-assertion_line: 22
+assertion_line: 23
 expression: buf.debug_dump()
 ---
 lines:
@@ -10,3 +10,7 @@ lines:
 3: "            "
 4: "            "
 meta:
+(5,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967299)}) }
+(6,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967299)}) }
+(5,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967299)}) }
+(6,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967299)}) }

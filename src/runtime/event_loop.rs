@@ -2714,6 +2714,46 @@ impl App {
                                         mouse.row,
                                         is_drag && down_target.is_some(),
                                     );
+
+                                    let (local_x, local_y) = self.content_local_coords_auto(
+                                        target,
+                                        mouse.column,
+                                        mouse.row,
+                                    );
+                                    let move_event =
+                                        Event::MouseMove(crate::event::MouseMoveEvent {
+                                            target,
+                                            screen_x: mouse.column,
+                                            screen_y: mouse.row,
+                                            x: local_x,
+                                            y: local_y,
+                                        });
+                                    let mut move_outcome = self.dispatch_event_to_target_auto(
+                                        root,
+                                        target,
+                                        &move_event,
+                                    );
+                                    self.absorb_outcome(
+                                        &mut move_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    let mut move_msg_outcome = self
+                                        .dispatch_message_queue_with_runtime(
+                                            root,
+                                            move_outcome.messages,
+                                        );
+                                    self.absorb_outcome(
+                                        &mut move_msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if move_outcome.stop_requested
+                                        || move_msg_outcome.stop_requested
+                                    {
+                                        break 'event_loop;
+                                    }
+
                                     if changed {
                                         if matches!(mouse.kind, MouseEventKind::Drag(_)) {
                                             // Dragging scrollbar thumbs can shift large composed
@@ -2890,6 +2930,7 @@ impl App {
                             }
                             MouseEventKind::Up(_) => {
                                 self.end_selection_drag();
+                                let down_target = self.click_tracker.down_target();
                                 let target = self.widget_at_auto(mouse.column, mouse.row);
                                 let (x, y) = target
                                     .map(|id| {
@@ -2914,6 +2955,50 @@ impl App {
                                         self.click_tracker.down_target().map(node_id_to_ffi)
                                     ));
                                 }
+                                // Mouse-up must be delivered to the original mouse-down owner
+                                // (capture-style semantics), even if pointer has drifted.
+                                if let Some(capture_target) =
+                                    down_target.filter(|id| Some(*id) != target)
+                                {
+                                    let (cx, cy) = self.content_local_coords_auto(
+                                        capture_target,
+                                        mouse.column,
+                                        mouse.row,
+                                    );
+                                    let capture_up = Event::MouseUp(MouseUpEvent {
+                                        target: Some(capture_target),
+                                        screen_x: mouse.column,
+                                        screen_y: mouse.row,
+                                        x: cx,
+                                        y: cy,
+                                    });
+                                    let mut capture_outcome = self.dispatch_event_to_target_auto(
+                                        root,
+                                        capture_target,
+                                        &capture_up,
+                                    );
+                                    self.absorb_outcome(
+                                        &mut capture_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    let mut capture_msg_outcome = self
+                                        .dispatch_message_queue_with_runtime(
+                                            root,
+                                            capture_outcome.messages,
+                                        );
+                                    self.absorb_outcome(
+                                        &mut capture_msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if capture_outcome.stop_requested
+                                        || capture_msg_outcome.stop_requested
+                                    {
+                                        break 'event_loop;
+                                    }
+                                }
+
                                 let mut outcome = if let Some(target) = target {
                                     self.dispatch_event_to_target_auto(root, target, &up_event)
                                 } else {

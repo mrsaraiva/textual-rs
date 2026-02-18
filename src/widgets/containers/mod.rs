@@ -25,6 +25,9 @@ mod vertical_group;
 mod vertical_scroll;
 
 pub use app_root::AppRoot;
+pub(crate) use app_root::{
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+};
 pub use center::Center;
 pub use center_middle::CenterMiddle;
 pub use constrained::Constrained;

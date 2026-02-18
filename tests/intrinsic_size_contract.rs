@@ -425,13 +425,21 @@ fn collapsible_width_tracks_padding_delta() {
 #[test]
 fn content_switcher_width_tracks_padding_delta() {
     let mut compact_switcher = ContentSwitcher::new();
-    compact_switcher.add_content(Label::new("Switcher child"), Some("pane-a"), true);
+    compact_switcher.add_content(
+        Label::new("Switcher child").with_shrink(true),
+        Some("pane-a"),
+        true,
+    );
     let mut compact = Box::new(compact_switcher);
     set_inline_border_box_padding(compact.as_mut(), 0);
     let compact_w = measure_child_width(compact);
 
     let mut padded_switcher = ContentSwitcher::new();
-    padded_switcher.add_content(Label::new("Switcher child"), Some("pane-a"), true);
+    padded_switcher.add_content(
+        Label::new("Switcher child").with_shrink(true),
+        Some("pane-a"),
+        true,
+    );
     let mut padded = Box::new(padded_switcher);
     set_inline_border_box_padding(padded.as_mut(), 2);
     let padded_w = measure_child_width(padded);
@@ -538,11 +546,13 @@ fn data_table_width_tracks_padding_delta() {
 
 #[test]
 fn panel_width_tracks_padding_delta() {
-    let mut compact = Box::new(Panel::new(Label::new("Panel child")).border(false));
+    let mut compact =
+        Box::new(Panel::new(Label::new("Panel child").with_shrink(true)).border(false));
     set_inline_border_box_padding(compact.as_mut(), 0);
     let compact_w = measure_child_width(compact);
 
-    let mut padded = Box::new(Panel::new(Label::new("Panel child")).border(false));
+    let mut padded =
+        Box::new(Panel::new(Label::new("Panel child").with_shrink(true)).border(false));
     set_inline_border_box_padding(padded.as_mut(), 2);
     let padded_w = measure_child_width(padded);
 

@@ -53,6 +53,9 @@ pub use command_palette::{
     CommandInput, CommandList, CommandPalette, CommandPaletteScreen, FuzzyMatcher, PaletteCommand,
     SearchIcon, SystemModalScreen,
 };
+pub(crate) use containers::{
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+};
 pub use containers::{
     AppRoot, Center, CenterMiddle, Constrained, Container, Frame, Grid, Horizontal,
     HorizontalGroup, HorizontalScroll, ItemGrid, Middle, Node, Overlay, Panel, Right, Row,
@@ -93,7 +96,11 @@ pub use radio_set::RadioSet;
 pub use rich_log::RichLog;
 pub use rule::{LineStyle, Rule, RuleOrientation};
 pub use scrollbar::{
-    ScrollBar, ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo,
+    ScrollBar, ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo, ScrollbarAxis,
+    ScrollbarGeometry, ScrollbarHit, ScrollbarPart, ScrollbarPolicy,
+    clamp_offset as scrollbar_clamp_offset, drag_to_offset as scrollbar_drag_to_offset,
+    max_offset as scrollbar_max_offset, scroll_by as scrollbar_scroll_by,
+    scroll_end as scrollbar_scroll_end, thumb_range as scrollbar_thumb_range,
 };
 pub use select::Select;
 pub use selection_list::{Selection, SelectionList, SelectionListString};

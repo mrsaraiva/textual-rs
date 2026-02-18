@@ -21,3 +21,7 @@ lines:
 14: "█ Cle ██ Qu █                                                                   "
 15: "▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                   "
 meta:
+(1,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967311)}) }
+(5,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967311)}) }
+(8,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967313)}) }
+(11,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967313)}) }

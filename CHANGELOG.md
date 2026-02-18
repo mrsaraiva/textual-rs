@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-18
+- **fix(screen scrollbar parity): stabilize AppRoot scrollbar lane hit/drag behavior**
+  - Kept AppRoot scrollbar lanes in fixed screen-space for hit-testing/local coordinate mapping (matching render-time scroll exclusion), fixing thumb-drag edge cases near max offset.
+  - Added regression coverage for AppRoot scrollbar-child scroll transform exclusion and stable local coordinate mapping under non-zero root scroll offsets.
+  - Improved `ScrollBar` drag/release handling and style-token rendering parity so thumb interaction no longer sticks after end-of-track drags.
+
 - **fix(modal01 parity): center dialog question text via core `content-align` + remove button row artifacts**
   - Added core content-alignment application in the shared widget render pipeline so `content-align` (horizontal + vertical) is respected for plain widgets like `Label`, not only widget-specific render paths.
   - Added `Label::with_id(...)` / `style_id()` support so example parity CSS selectors (for example `#question`) target the actual label widget instead of wrapper nodes.

@@ -487,6 +487,22 @@ pub struct CommandPaletteSetCommands {
 }
 
 // ---------------------------------------------------------------------------
+// Per-message structs — root scrollbars
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppRootScrollbarAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppRootScrollbarScrollTo {
+    pub axis: AppRootScrollbarAxis,
+    pub offset: usize,
+}
+
+// ---------------------------------------------------------------------------
 // Per-message structs — data table
 // ---------------------------------------------------------------------------
 
@@ -771,6 +787,8 @@ pub enum Message {
     // Command palette
     CommandPaletteCommandSelected(CommandPaletteCommandSelected),
     CommandPaletteSetCommands(CommandPaletteSetCommands),
+    // Root scrollbars
+    AppRootScrollbarScrollTo(AppRootScrollbarScrollTo),
     // Data table
     DataTableCursorMoved(DataTableCursorMoved),
     DataTableHeaderSelected(DataTableHeaderSelected),
@@ -884,6 +902,7 @@ impl_message_from!(
     ActionDispatchRequested,
     CommandPaletteCommandSelected,
     CommandPaletteSetCommands,
+    AppRootScrollbarScrollTo,
     DataTableCursorMoved,
     DataTableHeaderSelected,
     DataTableCellActivated,

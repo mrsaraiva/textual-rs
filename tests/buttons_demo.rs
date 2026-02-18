@@ -130,31 +130,32 @@ fn disabled_non_flat_primary_text_is_dimmer_than_enabled() {
     ));
     let _guard = set_style_context(stylesheet);
 
-    let mut root = AppRoot::new().with_child(
-        Row::new()
-            .with_child(Button::primary("Primary!"))
-            .with_child(Button::primary("Primary!").disabled(true)),
-    );
+    let mut root = Row::new()
+        .with_child(Button::primary("Primary!"))
+        .with_child(Button::primary("Primary!").disabled(true));
     let buf = render_tree(&mut root, 40, 5);
     let plain = buf.as_plain_lines().join("\n");
 
-    let line = plain
-        .lines()
-        .find(|line| line.contains("Primary!"))
-        .expect("line");
-    let first = line.find("Primary!").expect("first primary");
-    let second = line[first + "Primary!".len()..]
-        .find("Primary!")
-        .map(|offset| first + "Primary!".len() + offset)
-        .expect("second primary");
-    let y = plain
-        .lines()
-        .enumerate()
-        .find_map(|(row, row_text)| row_text.contains("Primary!").then_some(row))
-        .expect("row for primary labels");
+    let mut labels: Vec<(usize, usize)> = Vec::new();
+    for (row, row_text) in plain.lines().enumerate() {
+        let mut search_from = 0usize;
+        while let Some(offset) = row_text[search_from..].find("Primary!") {
+            let x = search_from + offset;
+            labels.push((x, row));
+            search_from = x + "Primary!".len();
+        }
+    }
+    assert!(
+        labels.len() >= 2,
+        "expected at least two Primary! labels, got:\n{}",
+        buf.debug_dump()
+    );
+    labels.sort_by_key(|(x, y)| (*y, *x));
+    let (first_x, first_y) = labels[0];
+    let (second_x, second_y) = labels[1];
 
-    let enabled_cell = buf.get(first, y);
-    let disabled_cell = buf.get(second, y);
+    let enabled_cell = buf.get(first_x, first_y);
+    let disabled_cell = buf.get(second_x, second_y);
     let enabled_style = enabled_cell.style.expect("enabled button style");
     let disabled_style = disabled_cell.style.expect("disabled button style");
     let enabled_fg = simple_color_rgb(enabled_style.color.expect("enabled fg"));

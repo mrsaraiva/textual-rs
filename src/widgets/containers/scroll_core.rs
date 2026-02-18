@@ -1,4 +1,5 @@
 use super::scroll_view::ScrollView;
+use crate::widgets::scrollbar;
 
 /// Shared scroll math helpers used across scroll container wrappers.
 ///
@@ -8,19 +9,19 @@ pub struct ScrollCore;
 
 impl ScrollCore {
     pub fn max_offset(content_len: usize, viewport_len: usize) -> usize {
-        ScrollView::line_max_offset(content_len, viewport_len)
+        scrollbar::max_offset(content_len, viewport_len)
     }
 
     pub fn clamp_offset(offset: usize, content_len: usize, viewport_len: usize) -> usize {
-        ScrollView::line_clamp_offset(offset, content_len, viewport_len)
+        scrollbar::clamp_offset(offset, content_len, viewport_len)
     }
 
     pub fn scroll_by(offset: usize, delta: i32, content_len: usize, viewport_len: usize) -> usize {
-        ScrollView::line_scroll_by(offset, delta, content_len, viewport_len)
+        scrollbar::scroll_by(offset, delta, content_len, viewport_len)
     }
 
     pub fn scroll_end(content_len: usize, viewport_len: usize) -> usize {
-        ScrollView::line_scroll_end(content_len, viewport_len)
+        scrollbar::scroll_end(content_len, viewport_len)
     }
 
     pub fn thumb(
@@ -29,7 +30,7 @@ impl ScrollCore {
         viewport_len: usize,
         offset: usize,
     ) -> (usize, usize) {
-        ScrollView::line_scrollbar_thumb(track_len, content_len, viewport_len, offset)
+        scrollbar::thumb_range(track_len, content_len, viewport_len, offset)
     }
 
     pub fn drag_offset(
@@ -40,7 +41,7 @@ impl ScrollCore {
         viewport_len: usize,
         current_offset: usize,
     ) -> usize {
-        ScrollView::line_drag_offset(
+        scrollbar::drag_to_offset(
             pointer,
             grab_offset,
             track_len,

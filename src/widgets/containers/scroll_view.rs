@@ -13,6 +13,7 @@ use crate::style::{Overflow, ScrollbarGutter, ScrollbarVisibility, parse_color_l
 use crate::action::ParsedAction;
 use crate::node_id::NodeId;
 use crate::renderables::Blank;
+use crate::widgets::scrollbar;
 use crate::widgets::{
     BindingDecl, Container, Spacer, Widget, WidgetStyles,
     helpers::{
@@ -177,7 +178,7 @@ impl ScrollView {
     }
 
     pub(crate) fn line_max_offset(content_len: usize, viewport_len: usize) -> usize {
-        content_len.saturating_sub(viewport_len.max(1))
+        scrollbar::max_offset(content_len, viewport_len)
     }
 
     pub(crate) fn line_clamp_offset(
@@ -185,7 +186,7 @@ impl ScrollView {
         content_len: usize,
         viewport_len: usize,
     ) -> usize {
-        offset.min(Self::line_max_offset(content_len, viewport_len))
+        scrollbar::clamp_offset(offset, content_len, viewport_len)
     }
 
     pub(crate) fn line_scroll_by(
@@ -194,16 +195,11 @@ impl ScrollView {
         content_len: usize,
         viewport_len: usize,
     ) -> usize {
-        let next = if delta.is_negative() {
-            offset.saturating_sub(delta.unsigned_abs() as usize)
-        } else {
-            offset.saturating_add(delta as usize)
-        };
-        Self::line_clamp_offset(next, content_len, viewport_len)
+        scrollbar::scroll_by(offset, delta, content_len, viewport_len)
     }
 
     pub(crate) fn line_scroll_end(content_len: usize, viewport_len: usize) -> usize {
-        content_len.saturating_sub(viewport_len.max(1))
+        scrollbar::scroll_end(content_len, viewport_len)
     }
 
     pub(crate) fn line_scrollbar_thumb(
@@ -212,33 +208,7 @@ impl ScrollView {
         viewport_len: usize,
         offset: usize,
     ) -> (usize, usize) {
-        if track_len == 0 {
-            return (0, 0);
-        }
-        if content_len <= viewport_len {
-            return (0, track_len);
-        }
-        // Match Textual's scrollbar sizing/positioning model:
-        // thumb_size = max(1, window_size / (virtual_size / track_size))
-        // thumb_start = floor((track_size - thumb_size) * position_ratio)
-        let track_f = track_len as f64;
-        let virtual_f = content_len as f64;
-        let window_f = viewport_len as f64;
-        let bar_ratio = virtual_f / track_f;
-        let thumb_size_f = (window_f / bar_ratio).max(1.0);
-        let thumb_len = thumb_size_f.ceil().clamp(1.0, track_f) as usize;
-
-        let max_offset = content_len.saturating_sub(viewport_len);
-        if max_offset == 0 {
-            return (0, thumb_len);
-        }
-        let position_ratio = (offset.min(max_offset) as f64) / (max_offset as f64);
-        let travel_f = (track_f - thumb_size_f).max(0.0);
-        let thumb_start = (travel_f * position_ratio)
-            .floor()
-            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f64)
-            as usize;
-        (thumb_start, thumb_len)
+        scrollbar::thumb_range(track_len, content_len, viewport_len, offset)
     }
 
     pub(crate) fn line_drag_offset(
@@ -247,27 +217,16 @@ impl ScrollView {
         track_len: usize,
         content_len: usize,
         viewport_len: usize,
-        _current_offset: usize,
+        current_offset: usize,
     ) -> usize {
-        let max_offset = Self::line_max_offset(content_len, viewport_len);
-        if max_offset == 0 || viewport_len == 0 || track_len == 0 {
-            return 0;
-        }
-
-        // Map pointer position directly to thumb travel and then to content offset.
-        // This avoids feedback-loop oscillation from delta/current-offset based drag math.
-        let (_thumb_start, thumb_len) =
-            Self::line_scrollbar_thumb(track_len, content_len, viewport_len, 0);
-        let thumb_travel = track_len.saturating_sub(thumb_len);
-        if thumb_travel == 0 {
-            return 0;
-        }
-
-        let thumb_origin = pointer.saturating_sub(grab_offset).min(thumb_travel);
-        let ratio = (thumb_origin as f64) / (thumb_travel as f64);
-        (ratio * (max_offset as f64))
-            .round()
-            .clamp(0.0, max_offset as f64) as usize
+        scrollbar::drag_to_offset(
+            pointer,
+            grab_offset,
+            track_len,
+            content_len,
+            viewport_len,
+            current_offset,
+        )
     }
 
     pub(crate) fn line_scrollbar_styles() -> (rich_rs::Style, rich_rs::Style, rich_rs::Style) {

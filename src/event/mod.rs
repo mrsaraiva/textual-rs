@@ -30,6 +30,16 @@ pub struct MouseUpEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MouseMoveEvent {
+    pub target: NodeId,
+    pub screen_x: u16,
+    pub screen_y: u16,
+    /// Content-local coordinates (origin at widget content top-left).
+    pub x: u16,
+    pub y: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseScrollEvent {
     pub target: Option<NodeId>,
     pub screen_x: u16,
@@ -285,6 +295,7 @@ pub enum Event {
     BindingsChanged(Vec<BindingHint>),
     MouseDown(MouseDownEvent),
     MouseUp(MouseUpEvent),
+    MouseMove(MouseMoveEvent),
     MouseScroll(MouseScrollEvent),
     Enter(MouseEnterEvent),
     Leave(MouseLeaveEvent),
