@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-18
+- **fix(modal01 parity): center dialog question text via core `content-align` + remove button row artifacts**
+  - Added core content-alignment application in the shared widget render pipeline so `content-align` (horizontal + vertical) is respected for plain widgets like `Label`, not only widget-specific render paths.
+  - Added `Label::with_id(...)` / `style_id()` support so example parity CSS selectors (for example `#question`) target the actual label widget instead of wrapper nodes.
+  - Updated docs `modal01` example composition to mirror Python structure more closely (direct `Grid` children with id-bearing question label).
+  - Narrowed text-style suppression metadata handling (`textual:no_text_style`) so synthetic line-padding/centering spaces keep background fill while avoiding reverse/bold text artifacts on button focus rows.
+
 ### 2026-02-17
 - **fix(tree scroll parity): propagate root virtual extents + root scroll offsets in arena-tree render path**
   - Root-level `ScrollView`/`VerticalScroll`/`HorizontalScroll`/`ScrollableContainer` now receive tree-derived virtual content size in tree mode, so Home/End and scrollbar limits reflect laid-out child bounds.

@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
@@ -73,6 +73,16 @@ impl std::fmt::Debug for Button {
 }
 
 impl Button {
+    fn no_style_space_segment(width: usize) -> Segment {
+        let mut segment = Segment::new(" ".repeat(width));
+        let mut map = std::collections::BTreeMap::new();
+        map.insert("textual:no_text_style".to_string(), MetaValue::Bool(true));
+        let mut meta = StyleMeta::new();
+        meta.meta = Some(std::sync::Arc::new(map));
+        segment.meta = Some(meta);
+        segment
+    }
+
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -594,14 +604,14 @@ impl Widget for Button {
         let label_width = rich_rs::cell_len(label).min(width);
         let left = width.saturating_sub(label_width) / 2;
         let right = width.saturating_sub(label_width) - left;
-        let line = format!(
-            "{}{}{}",
-            " ".repeat(left),
-            rich_rs::set_cell_size(label, label_width),
-            " ".repeat(right)
-        );
         let mut out = Segments::new();
-        out.push(Segment::new(line));
+        if left > 0 {
+            out.push(Self::no_style_space_segment(left));
+        }
+        out.push(Segment::new(rich_rs::set_cell_size(label, label_width)));
+        if right > 0 {
+            out.push(Self::no_style_space_segment(right));
+        }
         out
     }
 

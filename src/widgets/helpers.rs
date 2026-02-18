@@ -1,4 +1,4 @@
-use rich_rs::{Renderable, Segment, Segments};
+use rich_rs::{MetaValue, Renderable, Segment, Segments, StyleMeta};
 use std::sync::OnceLock;
 
 use crate::debug::{border_debug_matches, debug_border};
@@ -48,9 +48,19 @@ pub(crate) fn adjust_line_length_no_bg(line: &[Segment], width: usize) -> Vec<Se
     let mut out = Segment::adjust_line_length(line, width, None, false);
     let len = Segment::get_line_length(&out);
     if len < width {
-        out.push(Segment::new(" ".repeat(width - len)));
+        out.push(no_text_style_space_segment(width - len));
     }
     out
+}
+
+fn no_text_style_space_segment(width: usize) -> Segment {
+    let mut segment = Segment::new(" ".repeat(width));
+    let mut map = std::collections::BTreeMap::new();
+    map.insert("textual:no_text_style".to_string(), MetaValue::Bool(true));
+    let mut meta = StyleMeta::new();
+    meta.meta = Some(std::sync::Arc::new(map));
+    segment.meta = Some(meta);
+    segment
 }
 
 pub(crate) fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<Vec<Segment>> {
@@ -747,8 +757,8 @@ pub(crate) fn apply_line_pad(
     lines = Segment::set_shape(&lines, content_width.max(1), None, None, false);
 
     let mut padded: Vec<Vec<Segment>> = Vec::with_capacity(lines.len());
-    let left = vec![Segment::new(" ".repeat(line_pad))];
-    let right = vec![Segment::new(" ".repeat(line_pad))];
+    let left = vec![no_text_style_space_segment(line_pad)];
+    let right = vec![no_text_style_space_segment(line_pad)];
 
     for line in lines {
         let mut row: Vec<Segment> = Vec::new();

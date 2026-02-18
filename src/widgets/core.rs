@@ -8,7 +8,7 @@ use crate::event::{Action, BindingHint, Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::node_id::{self, NodeId};
 use crate::reactive::ReactiveWidget;
-use crate::style::{Color, Position, Style};
+use crate::style::{Color, HorizontalAlign, Position, Style, VerticalAlign};
 
 use super::helpers;
 
@@ -753,6 +753,16 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         rich_rs::Segment::split_and_crop_lines(segments, content_width, None, false, false)
     };
 
+    if let Some(content_align) = resolved.content_align {
+        lines = apply_content_alignment(
+            lines,
+            content_width + line_pad * 2,
+            content_height,
+            content_align.horizontal,
+            content_align.vertical,
+        );
+    }
+
     let has_surface_paint = resolved.bg.is_some()
         || resolved.hatch.is_some()
         || resolved.border_top.is_set()
@@ -867,6 +877,66 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         segments
     };
     tag_widget_meta(node_id, segments)
+}
+
+fn apply_content_alignment(
+    lines: Vec<Vec<rich_rs::Segment>>,
+    content_width: usize,
+    content_height: usize,
+    horizontal: HorizontalAlign,
+    vertical: VerticalAlign,
+) -> Vec<Vec<rich_rs::Segment>> {
+    let mut aligned: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
+    for mut line in lines {
+        let has_synthetic_padding = line.iter().any(|segment| {
+            segment
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.meta.as_ref())
+                .and_then(|meta| meta.get("textual:no_text_style"))
+                .is_some_and(|value| matches!(value, MetaValue::Bool(true)))
+        });
+        let line_width = if has_synthetic_padding {
+            rich_rs::Segment::get_line_length(&line).min(content_width)
+        } else {
+            let line_text = line
+                .iter()
+                .map(|segment| segment.text.as_ref())
+                .collect::<String>();
+            rich_rs::cell_len(line_text.trim_end()).min(content_width)
+        };
+        let left_pad = match horizontal {
+            HorizontalAlign::Left => 0,
+            HorizontalAlign::Center => content_width.saturating_sub(line_width) / 2,
+            HorizontalAlign::Right => content_width.saturating_sub(line_width),
+        };
+        if left_pad > 0 {
+            line.insert(0, rich_rs::Segment::new(" ".repeat(left_pad)));
+        }
+        aligned.push(helpers::adjust_line_length_no_bg(&line, content_width));
+    }
+
+    if aligned.len() >= content_height {
+        aligned.truncate(content_height);
+        return aligned;
+    }
+
+    let extra_rows = content_height.saturating_sub(aligned.len());
+    let top_pad = match vertical {
+        VerticalAlign::Top => 0,
+        VerticalAlign::Middle => extra_rows / 2,
+        VerticalAlign::Bottom => extra_rows,
+    };
+    if top_pad == 0 {
+        return aligned;
+    }
+
+    let mut out = Vec::with_capacity(top_pad + aligned.len());
+    for _ in 0..top_pad {
+        out.push(Vec::new());
+    }
+    out.extend(aligned);
+    out
 }
 
 impl LayoutConstraints {

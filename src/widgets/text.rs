@@ -34,6 +34,7 @@ impl LabelVariant {
 
 #[derive(Debug, Clone)]
 pub struct Label {
+    id: Option<String>,
     text: String,
     wrap: bool,
     markup: bool,
@@ -48,6 +49,7 @@ pub struct Label {
 impl Label {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
+            id: None,
             text: text.into(),
             wrap: true,
             markup: false,
@@ -58,6 +60,11 @@ impl Label {
             classes: vec!["label".to_string()],
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn text(&self) -> &str {
@@ -178,6 +185,10 @@ impl Widget for Label {
 
     fn style_classes(&self) -> &[String] {
         &self.classes
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {

@@ -1805,6 +1805,8 @@ pub struct Grid {
     col_gaps: usize,
     row_sizes: Option<Vec<usize>>,
     col_sizes: Option<Vec<usize>>,
+    style_id: Option<String>,
+    classes: Vec<String>,
     styles: WidgetStyles,
 }
 
@@ -1821,6 +1823,8 @@ impl Grid {
             col_gaps: 0,
             row_sizes: None,
             col_sizes: None,
+            style_id: None,
+            classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
     }
@@ -1835,6 +1839,50 @@ impl Grid {
 
     pub fn with_cell(mut self, row: usize, col: usize, child: impl Widget + 'static) -> Self {
         self.set(row, col, child);
+        self
+    }
+
+    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.push(child);
+        self
+    }
+
+    pub fn with_compose(mut self, children: ComposeResult) -> Self {
+        for decl in children {
+            match decl.builder {
+                crate::compose::WidgetBuilder::Ready(widget) => self.push_boxed(widget),
+            }
+        }
+        self
+    }
+
+    pub fn push(&mut self, child: impl Widget + 'static) {
+        self.push_boxed(Box::new(child));
+    }
+
+    fn push_boxed(&mut self, child: Box<dyn Widget>) {
+        if let Some(idx) = self.cells.iter().position(|cell| cell.is_none()) {
+            self.cells[idx] = Some(child);
+        } else {
+            // Allow overflow so tree-mode grid auto-placement can flow into extra rows.
+            self.cells.push(Some(child));
+        }
+    }
+
+    pub fn id(mut self, value: impl Into<String>) -> Self {
+        self.style_id = Some(value.into());
+        self
+    }
+
+    pub fn class(mut self, value: impl Into<String>) -> Self {
+        self.classes.push(value.into());
+        self
+    }
+
+    pub fn classes(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        for value in values {
+            self.classes.push(value.into());
+        }
         self
     }
 
@@ -2242,6 +2290,14 @@ impl Widget for Grid {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.style_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 }
 

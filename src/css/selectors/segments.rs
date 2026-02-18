@@ -34,20 +34,25 @@ pub(crate) fn apply_style_to_segments(
                 }
             }
 
-            let rich_attrs = rich_attrs;
+            let mut no_text_style = false;
             if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
                 if let Some(MetaValue::Bool(true)) = meta.get("textual:no_style") {
                     return seg;
+                }
+                if let Some(MetaValue::Bool(true)) = meta.get("textual:no_text_style") {
+                    no_text_style = true;
                 }
                 if let Some(MetaValue::Bool(true)) = meta.get("textual:no_bg") {
                     // We'll clear bgcolor after composing below.
                 }
             }
-            if let Some(rich_attrs) = rich_attrs {
-                seg.style = Some(match seg.style {
-                    Some(existing) => rich_attrs.combine(&existing),
-                    None => rich_attrs,
-                });
+            if !no_text_style {
+                if let Some(rich_attrs) = rich_attrs {
+                    seg.style = Some(match seg.style {
+                        Some(existing) => rich_attrs.combine(&existing),
+                        None => rich_attrs,
+                    });
+                }
             }
             let mut no_bg = false;
             if let Some(meta) = seg.meta.as_ref().and_then(|meta| meta.meta.as_ref()) {
