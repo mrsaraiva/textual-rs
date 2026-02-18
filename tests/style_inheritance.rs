@@ -59,10 +59,7 @@ impl Widget for BackgroundFill {
             return Vec::new();
         }
         self.child_extracted = true;
-        vec![std::mem::replace(
-            &mut self.child,
-            Box::new(Spacer::new(1)),
-        )]
+        vec![std::mem::replace(&mut self.child, Box::new(Spacer::new(1)))]
     }
 
     fn render(&self, _console: &Console, options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {
@@ -71,7 +68,11 @@ impl Widget for BackgroundFill {
     }
 }
 
-fn render_widget(root: &mut dyn Widget, width: usize, height: usize) -> textual::render::FrameBuffer {
+fn render_widget(
+    root: &mut dyn Widget,
+    width: usize,
+    height: usize,
+) -> textual::render::FrameBuffer {
     let console = Console::new();
     let mut tree = build_widget_tree_from_root(root).expect("tree should exist");
     render_tree_to_frame(&mut tree, root, &console, width, height)

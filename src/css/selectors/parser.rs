@@ -359,59 +359,66 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
         return None;
     }
 
-    // Split off pseudo-classes (`Button:disabled`, `.foo:focus`, etc).
-    let mut pseudo_parts = selector.split(':');
-    let base_selector = pseudo_parts.next().unwrap_or("").trim();
-    let pseudos: Vec<PseudoClass> = pseudo_parts
-        .filter_map(|part| {
-            let name = part.trim();
-            if name.is_empty() {
-                return None;
-            }
-            // Ignore any `:pseudo(...)` forms for now.
-            let name = name.split('(').next().unwrap_or(name).trim().to_lowercase();
-            match name.as_str() {
-                "disabled" => Some(PseudoClass::Disabled),
-                "focus" | "focused" => Some(PseudoClass::Focus),
-                "blur" => Some(PseudoClass::Blur),
-                "focus-within" | "focus_within" => Some(PseudoClass::FocusWithin),
-                "hover" => Some(PseudoClass::Hover),
-                "active" => Some(PseudoClass::Active),
-                "dark" => Some(PseudoClass::Dark),
-                "light" => Some(PseudoClass::Light),
-                "inline" => Some(PseudoClass::Inline),
-                "ansi" => Some(PseudoClass::Ansi),
-                "nocolor" => Some(PseudoClass::NoColor),
-                "can-focus" | "can_focus" => Some(PseudoClass::CanFocus),
-                "even" => Some(PseudoClass::Even),
-                "odd" => Some(PseudoClass::Odd),
-                "first-child" | "first_child" => Some(PseudoClass::FirstChild),
-                "last-child" | "last_child" => Some(PseudoClass::LastChild),
-                _ => None,
-            }
-        })
-        .collect();
-
     let mut type_name: Option<String> = None;
     let mut id: Option<String> = None;
     let mut classes: Vec<String> = Vec::new();
+    let mut pseudos: Vec<PseudoClass> = Vec::new();
 
-    let mut chars = base_selector.chars().peekable();
+    let mut chars = selector.chars().peekable();
     let mut current = String::new();
-    let mut mode: Option<char> = None;
+    let mut mode: Option<char> = None; // '#', '.', ':', or None for type
+
+    let mut flush = |mode: Option<char>, token: &str| {
+        if token.is_empty() {
+            return;
+        }
+        match mode {
+            None => {
+                if type_name.is_none() {
+                    type_name = Some(token.to_string());
+                }
+            }
+            Some('#') => id = Some(token.to_string()),
+            Some('.') => classes.push(token.to_string()),
+            Some(':') => {
+                // Ignore any `:pseudo(...)` forms for now.
+                let name = token
+                    .split('(')
+                    .next()
+                    .unwrap_or(token)
+                    .trim()
+                    .to_lowercase();
+                let pseudo = match name.as_str() {
+                    "disabled" => Some(PseudoClass::Disabled),
+                    "focus" | "focused" => Some(PseudoClass::Focus),
+                    "blur" => Some(PseudoClass::Blur),
+                    "focus-within" | "focus_within" => Some(PseudoClass::FocusWithin),
+                    "hover" => Some(PseudoClass::Hover),
+                    "active" => Some(PseudoClass::Active),
+                    "dark" => Some(PseudoClass::Dark),
+                    "light" => Some(PseudoClass::Light),
+                    "inline" => Some(PseudoClass::Inline),
+                    "ansi" => Some(PseudoClass::Ansi),
+                    "nocolor" => Some(PseudoClass::NoColor),
+                    "can-focus" | "can_focus" => Some(PseudoClass::CanFocus),
+                    "even" => Some(PseudoClass::Even),
+                    "odd" => Some(PseudoClass::Odd),
+                    "first-child" | "first_child" => Some(PseudoClass::FirstChild),
+                    "last-child" | "last_child" => Some(PseudoClass::LastChild),
+                    _ => None,
+                };
+                if let Some(pseudo) = pseudo {
+                    pseudos.push(pseudo);
+                }
+            }
+            _ => {}
+        }
+    };
 
     while let Some(ch) = chars.next() {
         match ch {
-            '#' | '.' => {
-                if mode.is_none() && !current.is_empty() {
-                    type_name = Some(current.clone());
-                } else if let Some(mode) = mode {
-                    match mode {
-                        '#' => id = Some(current.clone()),
-                        '.' => classes.push(current.clone()),
-                        _ => {}
-                    }
-                }
+            '#' | '.' | ':' => {
+                flush(mode, current.trim());
                 current.clear();
                 mode = Some(ch);
             }
@@ -419,14 +426,7 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
         }
     }
 
-    if !current.is_empty() {
-        match mode {
-            None => type_name = Some(current),
-            Some('#') => id = Some(current),
-            Some('.') => classes.push(current),
-            _ => {}
-        }
-    }
+    flush(mode, current.trim());
 
     let mut selector = StyleSelector::default();
     if let Some(type_name) = type_name {
@@ -3233,6 +3233,26 @@ mod tests {
         assert!(selectors.iter().any(|s| s == "Label.bar"));
         assert!(selectors.iter().any(|s| s == "Button.foo"));
         assert!(selectors.iter().any(|s| s == "Button.bar"));
+    }
+
+    #[test]
+    fn parse_selector_with_interleaved_pseudo_and_class() {
+        let chain =
+            parse_selector_chain("Screen:ansi.-screen-suspended").expect("selector should parse");
+        assert_eq!(chain.parts().len(), 1);
+        let selector = &chain.parts()[0];
+        assert_eq!(selector.type_name(), Some("Screen"));
+        assert!(
+            selector
+                .classes()
+                .iter()
+                .any(|class| class == "-screen-suspended"),
+            "expected class -screen-suspended to be preserved"
+        );
+        assert!(
+            selector.pseudos().contains(&PseudoClass::Ansi),
+            "expected :ansi pseudo to be parsed"
+        );
     }
 
     #[test]

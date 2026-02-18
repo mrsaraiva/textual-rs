@@ -2,9 +2,9 @@ use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
-use textual::widgets::WidgetRenderable;
 use textual::style::AutoColor;
 use textual::style::parse_color_like;
+use textual::widgets::WidgetRenderable;
 
 fn render_with_sheet(
     root: &mut dyn Widget,

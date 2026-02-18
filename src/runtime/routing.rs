@@ -285,6 +285,23 @@ pub(crate) fn dispatch_scroll_action_tree(
         }
     }
 
+    // In tree mode, the arena root is often an app adapter wrapper while the
+    // actual screen/content root is the first visible child. Route scroll
+    // actions there before trying root-only fallback so PageUp/PageDown remain
+    // deterministic regardless of focus/hover state.
+    if let Some(root_id) = tree.root()
+        && let Some(target) = tree.children(root_id).iter().copied().find(|child_id| {
+            tree.get(*child_id).is_some_and(|node| {
+                node.display && node.visibility == crate::style::Visibility::Visible
+            })
+        })
+    {
+        let outcome = dispatch_event_to_target_tree(tree, target, &event);
+        if outcome.handled || outcome.repaint_requested || !outcome.messages.is_empty() {
+            return outcome;
+        }
+    }
+
     dispatch_event_tree(tree, None, &event)
 }
 
@@ -1057,7 +1074,8 @@ mod message_tests {
 
     #[test]
     fn scroll_actions_fallback_to_global_when_no_target_handles() {
-        // Without focus or hover, scroll dispatches to root node only.
+        // Without focus or hover, scroll dispatches to the first visible child
+        // under the arena root (screen/content root fallback).
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let first_hits = Arc::new(AtomicUsize::new(0));
@@ -1067,10 +1085,8 @@ mod message_tests {
         );
 
         let outcome = dispatch_scroll_action_tree(&mut tree, Action::ScrollDown, None);
-        // No focused/hovered → root dispatch. Children don't see the event
-        // because tree dispatch routes along root→focused path only.
-        assert!(!outcome.handled);
-        assert_eq!(first_hits.load(Ordering::Relaxed), 0);
+        assert!(outcome.handled);
+        assert_eq!(first_hits.load(Ordering::Relaxed), 1);
     }
 
     #[test]

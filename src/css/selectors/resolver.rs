@@ -21,6 +21,20 @@ fn widget_cache_id<T: Widget + ?Sized>(w: &T) -> NodeId {
     node_id_from_ffi(ptr)
 }
 
+fn widget_is_screen<T: Widget + ?Sized>(widget: &T) -> bool {
+    widget.style_type() == "Screen"
+        || widget
+            .style_type_aliases()
+            .iter()
+            .any(|alias| *alias == "Screen")
+}
+
+fn widget_focused_state<T: Widget + ?Sized>(widget: &T) -> bool {
+    // Python parity: active screen style behaves as :focus when app is active
+    // even though keyboard focus may be on a descendant widget.
+    (widget.has_focus() || widget_is_screen(widget)) && app_is_active()
+}
+
 impl StyleSheet {
     pub(super) fn style_for<T: Widget + ?Sized>(&self, _widget: &T, meta: &SelectorMeta) -> Style {
         self.style_for_meta(meta)
@@ -80,7 +94,7 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
         classes: widget.style_classes().to_vec(),
         states: SelectorStates {
             disabled: widget.is_disabled(),
-            focused: widget.has_focus() && app_is_active(),
+            focused: widget_focused_state(widget),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
             inline: pseudos.inline,
@@ -131,7 +145,7 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
         classes: classes.iter().map(|s| (*s).to_string()).collect(),
         states: SelectorStates {
             disabled: widget.is_disabled(),
-            focused: widget.has_focus() && app_is_active(),
+            focused: widget_focused_state(widget),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
             inline: pseudos.inline,

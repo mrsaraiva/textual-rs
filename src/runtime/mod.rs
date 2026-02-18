@@ -2084,7 +2084,7 @@ impl App {
         // Forward updated coordinates so widgets can track intra-widget mouse position.
         let moved_changed = if let Some(id) = self.hovered {
             let (lx, ly) = self.content_local_coords_auto(id, x as u16, y as u16);
-            self.call_on_mouse_move_auto(root, id, lx, ly)
+            self.call_on_mouse_move_auto(root, id, lx, ly, false)
         } else {
             // No hover target: forward through the real root widget so app
             // wrappers can still observe pointer movement outside widget hits.
@@ -2181,6 +2181,17 @@ impl App {
         if let Some(tree) = self.active_widget_tree() {
             let tree_target = widget_at_tree_layout(tree, x, y);
             let chosen_raw = choose_deeper_target(tree, frame_target, tree_target);
+            let chosen_raw = match (frame_target, tree_target, chosen_raw) {
+                (Some(frame), Some(tree_hit), Some(chosen))
+                    if chosen == tree_hit
+                        && frame != tree_hit
+                        && is_ancestor_or_self(tree, frame, tree_hit)
+                        && point_hits_scrollbar_lane(tree, frame, x, y) =>
+                {
+                    Some(frame)
+                }
+                _ => chosen_raw,
+            };
             // Guard tree-only fallback with frame geometry presence to avoid
             // startup false positives from coarse layout-only hits.
             let chosen = match (frame_target, chosen_raw) {
@@ -2376,6 +2387,32 @@ fn choose_deeper_target(
         (None, Some(tree_hit)) => Some(tree_hit),
         (None, None) => None,
     }
+}
+
+fn point_hits_scrollbar_lane(tree: &WidgetTree, target: NodeId, x: u16, y: u16) -> bool {
+    let Some(node) = tree.get(target) else {
+        return false;
+    };
+    let Some((viewport_w, viewport_h)) = node.widget.scroll_viewport_size() else {
+        return false;
+    };
+    let rect = node.layout_rect;
+    let px = x as usize;
+    let py = y as usize;
+    let x0 = rect.x0 as usize;
+    let y0 = rect.y0 as usize;
+    let x1 = rect.x1 as usize;
+    let y1 = rect.y1 as usize;
+    if px < x0 || py < y0 || px >= x1 || py >= y1 {
+        return false;
+    }
+    let local_x = px.saturating_sub(x0);
+    let local_y = py.saturating_sub(y0);
+    let widget_w = x1.saturating_sub(x0);
+    let widget_h = y1.saturating_sub(y0);
+    let in_vertical_lane = viewport_w < widget_w && local_x >= viewport_w;
+    let in_horizontal_lane = viewport_h < widget_h && local_y >= viewport_h;
+    in_vertical_lane || in_horizontal_lane
 }
 
 fn hit_test_contains_point(hit_test: &HitTestMap, target: NodeId, x: u16, y: u16) -> bool {
@@ -2609,6 +2646,37 @@ mod tests {
 
         let chosen = choose_deeper_target(&tree, Some(frame_target), Some(tree_target));
         assert_eq!(chosen, Some(frame_target));
+    }
+
+    struct ScrollLaneProbe {
+        viewport: (usize, usize),
+    }
+
+    impl Widget for ScrollLaneProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
+            Some(self.viewport)
+        }
+    }
+
+    #[test]
+    fn point_hits_scrollbar_lane_detects_vertical_lane() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(ScrollLaneProbe { viewport: (8, 5) }));
+        {
+            let node = tree.get_mut(root).expect("root exists");
+            node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 0,
+                x1: 10,
+                y1: 5,
+            };
+        }
+        assert!(point_hits_scrollbar_lane(&tree, root, 9, 2));
+        assert!(!point_hits_scrollbar_lane(&tree, root, 7, 2));
     }
 
     #[test]

@@ -180,11 +180,7 @@ impl Widget for Constrained {
         } else {
             self.child.layout_height()
         };
-        match (
-            constraints.min_height,
-            constraints.max_height,
-            child_height,
-        ) {
+        match (constraints.min_height, constraints.max_height, child_height) {
             (Some(min), Some(max), Some(child)) => Some(child.max(min).min(max)),
             (Some(min), Some(max), None) if min == max => Some(min),
             (Some(min), _, Some(child)) => Some(child.max(min)),

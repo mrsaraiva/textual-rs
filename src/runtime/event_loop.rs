@@ -25,7 +25,7 @@ use super::dispatch_ctx::set_dispatch_recipient;
 use super::helpers::{
     any_widget_active_tree, call_on_mouse_move_tree, collect_focus_chain_tree,
     generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
-    should_quit_key, widget_at_tree_layout,
+    should_quit_key, tree_content_local_coords, widget_at_tree_layout,
 };
 use super::render::apply_layout_info_tree;
 use super::routing::{
@@ -170,6 +170,23 @@ fn input_event_kind(event: &CrosstermEvent) -> &'static str {
         CrosstermEvent::FocusGained => "focus_gained",
         CrosstermEvent::Paste(_) => "paste",
     }
+}
+
+fn scrollbar_drag_trace_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("TEXTUAL_DEBUG_SCROLLBAR_DRAG_TRACE")
+            .ok()
+            .map(|value| {
+                let normalized = value.trim().to_ascii_lowercase();
+                !(normalized.is_empty()
+                    || normalized == "0"
+                    || normalized == "false"
+                    || normalized == "off"
+                    || normalized == "no")
+            })
+            .unwrap_or(false)
+    })
 }
 
 fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut DispatchOutcome) {
@@ -977,12 +994,17 @@ fn snapshot_for(
     app_active: bool,
     app_pseudos: AppRuntimePseudos,
 ) -> SelectorSnapshot {
+    let is_screen = widget.style_type() == "Screen"
+        || widget
+            .style_type_aliases()
+            .iter()
+            .any(|alias| *alias == "Screen");
     SelectorSnapshot {
         type_name: widget.style_type().to_string(),
         style_id: widget.style_id().map(str::to_string),
         classes: widget.style_classes().to_vec(),
         disabled: widget.is_disabled(),
-        focused: widget.has_focus() && app_active,
+        focused: (widget.has_focus() || is_screen) && app_active,
         hovered: widget.is_hovered(),
         active: widget.is_active(),
         inline: app_pseudos.inline,
@@ -2664,6 +2686,53 @@ impl App {
                                 if self.update_hover_tooltip(mouse.column, mouse.row) {
                                     pending_invalidation.request_full_content();
                                 }
+                                let is_drag = matches!(mouse.kind, MouseEventKind::Drag(_));
+                                let down_target = self.click_tracker.down_target();
+                                let move_target = if is_drag {
+                                    down_target
+                                        .or_else(|| self.widget_at_auto(mouse.column, mouse.row))
+                                } else {
+                                    self.widget_at_auto(mouse.column, mouse.row)
+                                };
+
+                                if is_drag && scrollbar_drag_trace_enabled() {
+                                    debug_input(&format!(
+                                        "[scrollbar-drag] move screen=({}, {}) down_target={:?} hovered={:?} chosen_target={:?}",
+                                        mouse.column,
+                                        mouse.row,
+                                        down_target.map(node_id_to_ffi),
+                                        self.hovered.map(node_id_to_ffi),
+                                        move_target.map(node_id_to_ffi),
+                                    ));
+                                }
+
+                                if let Some(target) = move_target {
+                                    let changed = self.call_on_mouse_move_auto(
+                                        root,
+                                        target,
+                                        mouse.column,
+                                        mouse.row,
+                                        is_drag && down_target.is_some(),
+                                    );
+                                    if changed {
+                                        if matches!(mouse.kind, MouseEventKind::Drag(_)) {
+                                            // Dragging scrollbar thumbs can shift large composed
+                                            // regions and produce stale strip artifacts if only
+                                            // partial regions are updated. Force full content
+                                            // invalidation per drag update.
+                                            pending_invalidation.request_flags(
+                                                crate::event::InvalidationFlags::layout(),
+                                            );
+                                            pending_invalidation.request_full_content();
+                                        } else {
+                                            pending_invalidation.request_full_content();
+                                        }
+                                    }
+
+                                    // `call_on_mouse_move_auto` bubbles target -> root, so root
+                                    // drag handlers participate without a second explicit root
+                                    // dispatch.
+                                }
                             }
                             MouseEventKind::Down(btn) => {
                                 debug_input(&format!(
@@ -2696,6 +2765,17 @@ impl App {
                                         mouse.row,
                                         button,
                                     );
+                                    if scrollbar_drag_trace_enabled() {
+                                        debug_input(&format!(
+                                            "[scrollbar-drag] down target={} local=({}, {}) screen=({}, {}) button={}",
+                                            node_id_to_ffi(target),
+                                            x,
+                                            y,
+                                            mouse.column,
+                                            mouse.row,
+                                            button
+                                        ));
+                                    }
                                     let down_event = Event::MouseDown(MouseDownEvent {
                                         target,
                                         screen_x: mouse.column,
@@ -2823,6 +2903,17 @@ impl App {
                                     x,
                                     y,
                                 });
+                                if scrollbar_drag_trace_enabled() {
+                                    debug_input(&format!(
+                                        "[scrollbar-drag] up target={:?} local=({}, {}) screen=({}, {}) down_target_before_clear={:?}",
+                                        target.map(node_id_to_ffi),
+                                        x,
+                                        y,
+                                        mouse.column,
+                                        mouse.row,
+                                        self.click_tracker.down_target().map(node_id_to_ffi)
+                                    ));
+                                }
                                 let mut outcome = if let Some(target) = target {
                                     self.dispatch_event_to_target_auto(root, target, &up_event)
                                 } else {
@@ -2954,12 +3045,14 @@ impl App {
                                     outcome.repaint_requested,
                                     outcome.messages.len()
                                 ));
+                                // Scroll bubbling may be handled by an ancestor (including the
+                                // root screen), which can shift large portions of the composed
+                                // frame. Use global invalidation for the hook-path outcome to
+                                // avoid stale region artifacts.
                                 self.absorb_outcome(
                                     &mut outcome,
                                     &mut pending_invalidation,
-                                    target
-                                        .map(InvalidationScope::Widget)
-                                        .unwrap_or(InvalidationScope::Global),
+                                    InvalidationScope::Global,
                                 );
                                 let mut msg_outcome = self
                                     .dispatch_message_queue_with_runtime(root, outcome.messages);
@@ -4167,10 +4260,21 @@ impl App {
         _target: NodeId,
         x: u16,
         y: u16,
+        capture_only: bool,
     ) -> bool {
         self.ensure_runtime_tree(root);
         if let Some(tree) = self.active_widget_tree_mut() {
-            call_on_mouse_move_tree(tree, _target, x, y)
+            if capture_only {
+                let (lx, ly) = tree_content_local_coords(tree, _target, x, y);
+                if let Some(node) = tree.get_mut(_target) {
+                    let _dispatch_guard = set_dispatch_recipient(_target);
+                    node.widget.on_mouse_move(lx, ly)
+                } else {
+                    false
+                }
+            } else {
+                call_on_mouse_move_tree(tree, _target, x, y)
+            }
         } else {
             false
         }

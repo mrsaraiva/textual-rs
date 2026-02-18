@@ -1,3 +1,4 @@
+use crate::css::{resolve_style, selector_meta_generic_with_classes};
 use crate::driver::PointerShape;
 use crate::event::{
     Action, ActionMap, ClickEvent, Event, KeyBind, MouseEnterEvent, MouseLeaveEvent,
@@ -158,20 +159,38 @@ pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
     focus_chain
 }
 
-/// Forward `on_mouse_move` to a specific node in the tree.
+/// Forward `on_mouse_move` through the target bubble path (target → root).
 ///
-/// Returns `true` if the widget reported a change.
+/// Coordinates are provided in screen space and translated per node to
+/// content-local coordinates before invoking `on_mouse_move`.
+///
+/// Returns `true` when any widget on the path reports a change.
 pub fn call_on_mouse_move_tree(
     tree: &mut WidgetTree,
     target: NodeId,
-    x: u16,
-    y: u16,
+    screen_x: u16,
+    screen_y: u16,
 ) -> bool {
-    if let Some(node) = tree.get_mut(target) {
-        node.widget.on_mouse_move(x, y)
-    } else {
-        false
+    let mut changed = false;
+    let path = build_path_to_node_local(tree, target);
+    for &node_id in path.iter().rev() {
+        let (x, y) = tree_content_local_coords(tree, node_id, screen_x, screen_y);
+        if let Some(node) = tree.get_mut(node_id) {
+            changed |= node.widget.on_mouse_move(x, y);
+        }
     }
+    changed
+}
+
+fn build_path_to_node_local(tree: &WidgetTree, target: NodeId) -> Vec<NodeId> {
+    let mut path = Vec::new();
+    let mut cur = Some(target);
+    while let Some(id) = cur {
+        path.push(id);
+        cur = tree.parent(id);
+    }
+    path.reverse();
+    path
 }
 
 /// Find the deepest visible node at a screen coordinate using tree layout
@@ -187,8 +206,30 @@ pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId
         if !node.display || node.visibility != crate::style::Visibility::Visible {
             continue;
         }
+        let mut render_shift_x: i32 = 0;
+        let mut render_shift_y: i32 = 0;
+        let apply_root_scroll = root_scroll_applies_to_subtree(tree, node_id);
+        for ancestor_id in tree.ancestors(node_id) {
+            let Some(ancestor) = tree.get(ancestor_id) else {
+                continue;
+            };
+            if ancestor_id == root && !apply_root_scroll {
+                continue;
+            }
+            if !descendant_uses_ancestor_scroll(tree, ancestor_id, node_id) {
+                continue;
+            }
+            let (ox, oy) = ancestor.widget.scroll_offset();
+            render_shift_x -= ox as i32;
+            render_shift_y -= oy as i32;
+        }
         let rect = node.layout_rect;
-        let inside = x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1;
+        let x0 = i32::from(rect.x0) + render_shift_x;
+        let x1 = i32::from(rect.x1) + render_shift_x;
+        let y0 = i32::from(rect.y0) + render_shift_y;
+        let y1 = i32::from(rect.y1) + render_shift_y;
+        let inside =
+            i32::from(x) >= x0 && i32::from(x) < x1 && i32::from(y) >= y0 && i32::from(y) < y1;
         if !inside {
             continue;
         }
@@ -221,10 +262,18 @@ pub fn tree_content_local_coords(
     // translation here so pointer coordinates map to rendered positions.
     let mut render_shift_x: i32 = 0;
     let mut render_shift_y: i32 = 0;
+    let root = tree.root();
+    let apply_root_scroll = root_scroll_applies_to_subtree(tree, target);
     for ancestor_id in tree.ancestors(target) {
         let Some(ancestor) = tree.get(ancestor_id) else {
             continue;
         };
+        if Some(ancestor_id) == root && !apply_root_scroll {
+            continue;
+        }
+        if !descendant_uses_ancestor_scroll(tree, ancestor_id, target) {
+            continue;
+        }
         let (ox, oy) = ancestor.widget.scroll_offset();
         render_shift_x -= ox as i32;
         render_shift_y -= oy as i32;
@@ -235,6 +284,58 @@ pub fn tree_content_local_coords(
     let local_x = i32::from(screen_x).saturating_sub(origin_x).max(0) as u16;
     let local_y = i32::from(screen_y).saturating_sub(origin_y).max(0) as u16;
     (local_x, local_y)
+}
+
+fn root_scroll_applies_to_subtree(tree: &WidgetTree, node_id: NodeId) -> bool {
+    let Some(root_id) = tree.root() else {
+        return true;
+    };
+    if node_id == root_id {
+        return false;
+    }
+    let mut cursor = node_id;
+    let mut direct_child = None;
+    while let Some(parent) = tree.parent(cursor) {
+        if parent == root_id {
+            direct_child = Some(cursor);
+            break;
+        }
+        cursor = parent;
+    }
+    let Some(child_id) = direct_child else {
+        return true;
+    };
+    descendant_uses_ancestor_scroll(tree, root_id, child_id)
+}
+
+fn descendant_uses_ancestor_scroll(
+    tree: &WidgetTree,
+    ancestor_id: NodeId,
+    descendant_id: NodeId,
+) -> bool {
+    let mut cursor = descendant_id;
+    let mut child_on_path = None;
+    while let Some(parent) = tree.parent(cursor) {
+        if parent == ancestor_id {
+            child_on_path = Some(cursor);
+            break;
+        }
+        cursor = parent;
+    }
+    let Some(child_id) = child_on_path else {
+        return true;
+    };
+    !node_is_docked(tree, child_id)
+}
+
+fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
+    let Some(node) = tree.get(node_id) else {
+        return false;
+    };
+    let meta =
+        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
+    let resolved = resolve_style(node.widget.as_ref(), &meta);
+    resolved.dock.is_some()
 }
 
 /// Check whether any widget in the tree reports `is_active() == true`.
@@ -390,6 +491,11 @@ impl ClickTracker {
         });
     }
 
+    /// Current mousedown target, used as drag-capture owner while a button is held.
+    pub fn down_target(&self) -> Option<NodeId> {
+        self.down.map(|down| down.target)
+    }
+
     /// Record a mouseup. If the target matches the previous mousedown target,
     /// returns a `(NodeId, Event::Click)` pair.
     pub fn on_mouse_up(
@@ -422,7 +528,10 @@ impl ClickTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::css::{default_widget_stylesheet, set_style_context};
     use crate::node_id::node_id_from_ffi;
+    use crate::widget_tree::WidgetTree;
+    use crate::widgets::{AppRoot, Footer, Label};
     use crossterm::event::KeyEvent;
 
     #[test]
@@ -605,5 +714,49 @@ mod tests {
         // Second mouseup without new mousedown → no click
         let result = tracker.on_mouse_up(Some(id), 0, 0, 0, 0);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn root_scroll_skips_docked_root_child_subtrees() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let label = tree.mount(root, Box::new(Label::new("content")));
+        let footer = tree.mount(root, Box::new(Footer::new()));
+
+        // Emulate a docked layout result: root content excludes a bottom footer band.
+        if let Some(root_node) = tree.get_mut(root) {
+            root_node.content_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 0,
+                x1: 80,
+                y1: 23,
+            };
+        }
+        if let Some(label_node) = tree.get_mut(label) {
+            label_node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 0,
+                x1: 80,
+                y1: 23,
+            };
+        }
+        if let Some(footer_node) = tree.get_mut(footer) {
+            footer_node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 23,
+                x1: 80,
+                y1: 24,
+            };
+        }
+
+        assert!(
+            root_scroll_applies_to_subtree(&tree, label),
+            "non-docked root children should move with root scroll"
+        );
+        assert!(
+            !root_scroll_applies_to_subtree(&tree, footer),
+            "docked root children should ignore root scroll translation"
+        );
     }
 }

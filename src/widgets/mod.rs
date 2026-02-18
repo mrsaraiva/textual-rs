@@ -30,9 +30,9 @@ mod radio_button;
 mod radio_set;
 mod rich_log;
 mod rule;
+mod scrollbar;
 mod select;
 mod selection_list;
-mod scrollbar;
 mod spacer;
 mod switch;
 mod tabbed_content;
@@ -92,9 +92,11 @@ pub use radio_button::RadioButton;
 pub use radio_set::RadioSet;
 pub use rich_log::RichLog;
 pub use rule::{LineStyle, Rule, RuleOrientation};
+pub use scrollbar::{
+    ScrollBar, ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo,
+};
 pub use select::Select;
 pub use selection_list::{Selection, SelectionList, SelectionListString};
-pub use scrollbar::{ScrollBar, ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo};
 pub use spacer::Spacer;
 pub use switch::Switch;
 pub use tabbed_content::{TabPane, TabbedContent};

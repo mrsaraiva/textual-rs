@@ -56,7 +56,8 @@ impl ScrollBarRender {
         let travel = (track_len as f32 - thumb_size).max(0.0);
         let thumb_start = (travel * ratio)
             .floor()
-            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f32) as usize;
+            .clamp(0.0, (track_len.saturating_sub(thumb_len)) as f32)
+            as usize;
         (thumb_start, thumb_len)
     }
 
@@ -83,7 +84,10 @@ impl ScrollBarRender {
                 } else {
                     track_style
                 };
-                lines.push(vec![Segment::styled(" ".to_string(), style); self.thickness.max(1)]);
+                lines.push(vec![
+                    Segment::styled(" ".to_string(), style);
+                    self.thickness.max(1)
+                ]);
             }
             lines
         } else {

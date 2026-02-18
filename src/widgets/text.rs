@@ -54,7 +54,9 @@ impl Label {
             wrap: true,
             markup: false,
             expand: false,
-            shrink: true,
+            // Match Textual Label defaults: labels don't shrink to intrinsic width
+            // unless explicitly requested.
+            shrink: false,
             layout_width: 0,
             variant: None,
             classes: vec!["label".to_string()],
@@ -92,7 +94,7 @@ impl Label {
         self
     }
 
-    /// When true, the widget shrinks to its content width (default: true).
+    /// When true, the widget shrinks to its content width (default: false).
     pub fn with_shrink(mut self, shrink: bool) -> Self {
         self.shrink = shrink;
         self
@@ -942,6 +944,16 @@ Head of House Atreides.
         assert_eq!(
             after_zero, stable,
             "zero-width hidden layout updates must not collapse width to 1 and inflate height"
+        );
+    }
+
+    #[test]
+    fn label_defaults_to_non_shrinking_width_hint() {
+        let label = Label::new("I must not fear.");
+        assert_eq!(
+            label.content_width(),
+            None,
+            "Label default should match Textual: no intrinsic shrink width unless explicitly enabled"
         );
     }
 

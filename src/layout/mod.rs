@@ -86,7 +86,9 @@ fn apply_parent_align(
                     HorizontalAlign::Center => available
                         .x
                         .saturating_add(available.width.saturating_sub(width) / 2),
-                    HorizontalAlign::Right => available.x.saturating_add(available.width.saturating_sub(width)),
+                    HorizontalAlign::Right => available
+                        .x
+                        .saturating_add(available.width.saturating_sub(width)),
                 };
                 let dx = target_x as i32 - layout.x0 as i32;
                 if dx != 0
@@ -137,9 +139,9 @@ fn apply_parent_align(
                     VerticalAlign::Middle => available
                         .y
                         .saturating_add(available.height.saturating_sub(height) / 2),
-                    VerticalAlign::Bottom => {
-                        available.y.saturating_add(available.height.saturating_sub(height))
-                    }
+                    VerticalAlign::Bottom => available
+                        .y
+                        .saturating_add(available.height.saturating_sub(height)),
                 };
                 let dy = target_y as i32 - layout.y0 as i32;
                 if dy != 0

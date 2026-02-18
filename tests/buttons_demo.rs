@@ -102,12 +102,9 @@ fn buttons_demo_header_renders_with_button_tcss_loaded() {
     stylesheet.extend(&StyleSheet::parse(&css));
     let _guard = set_style_context(stylesheet);
 
-    let mut root = AppRoot::new().with_child(
-        Horizontal::new().with_child(
-            VerticalScroll::new()
-                .with_child(Static::new("Standard Buttons").class("header")),
-        ),
-    );
+    let mut root = AppRoot::new().with_child(Horizontal::new().with_child(
+        VerticalScroll::new().with_child(Static::new("Standard Buttons").class("header")),
+    ));
     let buf = render_tree(&mut root, 40, 5);
     let plain = buf.as_plain_lines().join("\n");
     let _position = plain

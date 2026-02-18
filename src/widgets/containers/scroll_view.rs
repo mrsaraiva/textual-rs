@@ -247,23 +247,27 @@ impl ScrollView {
         track_len: usize,
         content_len: usize,
         viewport_len: usize,
-        current_offset: usize,
+        _current_offset: usize,
     ) -> usize {
         let max_offset = Self::line_max_offset(content_len, viewport_len);
-        if max_offset == 0 || viewport_len == 0 {
-            0
-        } else {
-            // Use pointer delta scaled by virtual/window ratio for smoother drag updates.
-            // This follows Textual's scrollbar drag model more closely than mapping through
-            // coarse thumb travel cells.
-            let (thumb_start, _thumb_len) =
-                Self::line_scrollbar_thumb(track_len, content_len, viewport_len, current_offset);
-            let current_pointer = thumb_start.saturating_add(grab_offset);
-            let delta = (pointer as i64) - (current_pointer as i64);
-            let scale = (content_len as f64) / (viewport_len as f64);
-            let next = (current_offset as f64) + (delta as f64) * scale;
-            next.round().clamp(0.0, max_offset as f64) as usize
+        if max_offset == 0 || viewport_len == 0 || track_len == 0 {
+            return 0;
         }
+
+        // Map pointer position directly to thumb travel and then to content offset.
+        // This avoids feedback-loop oscillation from delta/current-offset based drag math.
+        let (_thumb_start, thumb_len) =
+            Self::line_scrollbar_thumb(track_len, content_len, viewport_len, 0);
+        let thumb_travel = track_len.saturating_sub(thumb_len);
+        if thumb_travel == 0 {
+            return 0;
+        }
+
+        let thumb_origin = pointer.saturating_sub(grab_offset).min(thumb_travel);
+        let ratio = (thumb_origin as f64) / (thumb_travel as f64);
+        (ratio * (max_offset as f64))
+            .round()
+            .clamp(0.0, max_offset as f64) as usize
     }
 
     pub(crate) fn line_scrollbar_styles() -> (rich_rs::Style, rich_rs::Style, rich_rs::Style) {
@@ -1815,5 +1819,70 @@ mod tests {
             50,
             "content_width must be preserved in tree-mode render"
         );
+    }
+
+    #[test]
+    fn line_drag_offset_is_stable_for_same_pointer() {
+        let pointer = 13;
+        let grab_offset = 4;
+        let track_len = 32;
+        let content_len = 50;
+        let viewport_len = 32;
+
+        let a = ScrollView::line_drag_offset(
+            pointer,
+            grab_offset,
+            track_len,
+            content_len,
+            viewport_len,
+            0,
+        );
+        let b = ScrollView::line_drag_offset(
+            pointer,
+            grab_offset,
+            track_len,
+            content_len,
+            viewport_len,
+            6,
+        );
+        let c = ScrollView::line_drag_offset(
+            pointer,
+            grab_offset,
+            track_len,
+            content_len,
+            viewport_len,
+            18,
+        );
+
+        assert_eq!(a, b, "drag mapping must not depend on current_offset");
+        assert_eq!(b, c, "drag mapping must be stable for same pointer");
+    }
+
+    #[test]
+    fn line_drag_offset_is_monotonic() {
+        let grab_offset = 0;
+        let track_len = 32;
+        let content_len = 50;
+        let viewport_len = 32;
+
+        let mut previous = 0usize;
+        for pointer in 0..track_len {
+            let offset = ScrollView::line_drag_offset(
+                pointer,
+                grab_offset,
+                track_len,
+                content_len,
+                viewport_len,
+                0,
+            );
+            assert!(
+                offset >= previous,
+                "offset must not decrease as pointer increases: pointer={} prev={} now={}",
+                pointer,
+                previous,
+                offset
+            );
+            previous = offset;
+        }
     }
 }

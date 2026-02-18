@@ -453,6 +453,14 @@ pub trait Widget: Send + Sync + Any {
         (0, 0)
     }
 
+    /// Return the effective visible scroll viewport size `(width, height)`.
+    ///
+    /// Widgets that reserve space for scrollbars should override this so tree
+    /// rendering can clip scrolled descendants to the real viewport.
+    fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
+        None
+    }
+
     /// Whether descendant rendering should be clipped to this widget's content box.
     ///
     /// Default widgets do not clip descendants.

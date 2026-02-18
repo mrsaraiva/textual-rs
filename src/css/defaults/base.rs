@@ -8,6 +8,7 @@ pub(super) const DEFAULT_CSS: &str = r#"
 Screen {
     layout: vertical;
     overflow-y: auto;
+    overflow-x: hidden;
     bg: $background;
 
     &:inline {
@@ -20,19 +21,19 @@ Screen {
     &:ansi {
         background: ansi_default;
         color: ansi_default;
-
-        &.-screen-suspended {
-            text-style: dim;
-
-            ScrollBar {
-                text-style: not dim;
-            }
-        }
     }
 
     & .screen--selection {
         background: $primary 50%;
     }
+}
+
+Screen:ansi.-screen-suspended {
+    text-style: dim;
+}
+
+Screen:ansi.-screen-suspended ScrollBar {
+    text-style: not dim;
 }
 
 ModalScreen {

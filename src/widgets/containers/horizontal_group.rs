@@ -1,8 +1,8 @@
 use crate::compose::ComposeResult;
 use crate::widgets::Widget;
 
-use super::thin::delegate_widget_to;
 use super::Horizontal;
+use super::thin::delegate_widget_to;
 
 pub struct HorizontalGroup {
     inner: Horizontal,
@@ -28,7 +28,6 @@ impl HorizontalGroup {
     pub fn push(&mut self, child: impl Widget + 'static) {
         self.inner.push(child);
     }
-
 }
 
 delegate_widget_to!(HorizontalGroup, inner);

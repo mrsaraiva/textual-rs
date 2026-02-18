@@ -293,8 +293,12 @@ fn focus_node(tree: &mut WidgetTree, target: NodeId) -> bool {
             &Event::Blur(BlurEvent { node: current_id }),
         );
     }
-    textual::runtime::dispatch_event_to_target_tree(tree, target, &Event::Focus(FocusEvent { node: target }))
-        .handled
+    textual::runtime::dispatch_event_to_target_tree(
+        tree,
+        target,
+        &Event::Focus(FocusEvent { node: target }),
+    )
+    .handled
 }
 
 fn send_key_to_focus(tree: &mut WidgetTree, key: KeyEventData) -> bool {
