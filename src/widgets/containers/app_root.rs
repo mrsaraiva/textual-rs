@@ -39,7 +39,7 @@ pub struct AppRoot {
 #[cfg(test)]
 use crate::event::Action;
 
-const APP_ROOT_TYPE_ALIASES: &[&str] = &["AppRoot"];
+const APP_ROOT_TYPE_ALIASES: &[&str] = &["AppRoot", "App"];
 pub(crate) const APP_ROOT_VSCROLLBAR_ID: &str = "__app_root_vscrollbar";
 pub(crate) const APP_ROOT_HSCROLLBAR_ID: &str = "__app_root_hscrollbar";
 pub(crate) const APP_ROOT_SCROLLBAR_CORNER_ID: &str = "__app_root_scrollbar_corner";
@@ -779,6 +779,10 @@ mod focus_tests {
         assert!(
             root.style_type_aliases().contains(&"AppRoot"),
             "AppRoot alias should remain available for compatibility selectors"
+        );
+        assert!(
+            root.style_type_aliases().contains(&"App"),
+            "App alias enables canonical App:* selectors from Python defaults"
         );
     }
 

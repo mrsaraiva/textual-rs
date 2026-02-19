@@ -14,6 +14,10 @@ HeaderIcon {
     }
 }
 
+Header .header--icon.-hover {
+    bg: $foreground 10%;
+}
+
 HeaderClockSpace {
     dock: right;
     width: 10;
@@ -32,6 +36,16 @@ HeaderTitle {
     text-overflow: ellipsis;
     content-align: center middle;
     width: 100%;
+}
+
+App:blur HeaderTitle,
+App:blur Header .header--title {
+    text-opacity: 50%;
+}
+
+/* Component fallback for current monolithic Header render path. */
+App:blur Header .header--title {
+    text-style: dim;
 }
 
 Header {

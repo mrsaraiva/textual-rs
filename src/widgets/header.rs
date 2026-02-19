@@ -4,12 +4,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
+
+const COMMAND_PALETTE_HINT_GROUP: &str = "command_palette";
+const DEFAULT_COMMAND_PALETTE_KEY: &str = "ctrl+p";
+const DEFAULT_COMMAND_PALETTE_TOOLTIP: &str = "Open command palette";
 
 #[derive(Debug, Clone)]
 pub struct Header {
@@ -24,6 +28,8 @@ pub struct Header {
     icon: String,
     icon_hover: bool,
     pressed_icon: Option<bool>,
+    command_palette_action_key: Option<String>,
+    command_palette_tooltip: Option<String>,
     icon_width: usize,
     clock_width: usize,
     show_clock: bool,
@@ -45,6 +51,8 @@ impl Header {
             icon: "⭘".to_string(),
             icon_hover: false,
             pressed_icon: None,
+            command_palette_action_key: Some(DEFAULT_COMMAND_PALETTE_KEY.to_string()),
+            command_palette_tooltip: Some(DEFAULT_COMMAND_PALETTE_TOOLTIP.to_string()),
             icon_width: 8,
             clock_width: 10,
             show_clock: false,
@@ -235,6 +243,35 @@ impl Header {
             style.to_rich().unwrap_or_else(rich_rs::Style::new)
         }
     }
+
+    fn normalize_tooltip(text: Option<&str>) -> Option<String> {
+        text.map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn command_palette_hint(bindings: &[BindingHint]) -> Option<&BindingHint> {
+        bindings
+            .iter()
+            .find(|hint| hint.group.as_deref() == Some(COMMAND_PALETTE_HINT_GROUP))
+    }
+
+    fn apply_bindings(&mut self, bindings: &[BindingHint]) -> bool {
+        let (next_action_key, next_tooltip) =
+            if let Some(hint) = Self::command_palette_hint(bindings) {
+                (
+                    Some(hint.key.clone()),
+                    Self::normalize_tooltip(hint.tooltip.as_deref()),
+                )
+            } else {
+                (None, None)
+            };
+        let changed = self.command_palette_action_key != next_action_key
+            || self.command_palette_tooltip != next_tooltip;
+        self.command_palette_action_key = next_action_key;
+        self.command_palette_tooltip = next_tooltip;
+        changed
+    }
 }
 
 impl Widget for Header {
@@ -284,13 +321,24 @@ impl Widget for Header {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
                     ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
+                    if let Some(action_key) = self.command_palette_action_key.as_ref() {
+                        ctx.post_message(Message::AppSimulateKey(AppSimulateKey {
+                            key: action_key.clone(),
+                        }));
+                    }
+                    ctx.request_repaint();
                     ctx.set_handled();
                     return;
                 }
                 self.tall = !self.tall;
                 ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
-                ctx.request_repaint();
+                ctx.request_layout_invalidation();
                 ctx.set_handled();
+            }
+            Event::BindingsChanged(bindings) => {
+                if self.apply_bindings(bindings) {
+                    ctx.request_repaint();
+                }
             }
             Event::AppFocus(false) => {
                 self.pressed_icon = None;
@@ -343,6 +391,7 @@ impl Widget for Header {
                 " ".repeat(self.icon_width.saturating_sub(icon_core_width))
             )
         };
+        let icon_blank = " ".repeat(self.icon_width);
         let clock_seconds = Self::current_clock_seconds();
         self.last_clock_second
             .store(clock_seconds, Ordering::Relaxed);
@@ -351,8 +400,8 @@ impl Widget for Header {
         } else {
             String::new()
         };
+        let right_width = self.clock_width.min(width.saturating_sub(1));
         let right_text = {
-            let right_width = self.clock_width.min(width.saturating_sub(1));
             let clipped = rich_rs::set_cell_size(&right_label, right_width);
             if rich_rs::cell_len(&clipped) >= right_width {
                 clipped
@@ -364,9 +413,10 @@ impl Widget for Header {
                 )
             }
         };
+        let right_blank = " ".repeat(right_width);
         let center_width = width
             .saturating_sub(self.icon_width.min(width))
-            .saturating_sub(rich_rs::cell_len(&right_text))
+            .saturating_sub(right_width)
             .max(1);
         let title_width = rich_rs::cell_len(&line_text).min(center_width);
         let left_pad = center_width.saturating_sub(title_width) / 2;
@@ -377,6 +427,7 @@ impl Widget for Header {
             rich_rs::set_cell_size(&line_text, title_width),
             " ".repeat(right_pad)
         );
+        let center_blank = " ".repeat(center_width);
 
         let icon_style = if self.icon_hover {
             self.component_style(&["header--icon", "-hover"])
@@ -386,19 +437,49 @@ impl Widget for Header {
         let title_style = self.component_style(&["header--title"]);
         let clock_style = self.component_style(&["header--clock"]);
 
-        let mut first_line = Vec::new();
-        first_line.push(Segment::styled(icon_text, icon_style));
-        first_line.push(Segment::styled(center_text, title_style));
-        first_line.push(Segment::styled(right_text, clock_style));
-        let first_line = adjust_line_length_no_bg(&first_line, width);
-
         let mut out = Segments::new();
-        out.extend(first_line);
         if self.tall {
-            for _ in 0..2 {
-                out.push(Segment::line());
-                out.push(Segment::new(" ".repeat(width)));
-            }
+            let first_line = adjust_line_length_no_bg(
+                &[
+                    Segment::styled(icon_blank.clone(), icon_style),
+                    Segment::styled(center_text, title_style),
+                    Segment::styled(right_blank.clone(), clock_style),
+                ],
+                width,
+            );
+            out.extend(first_line);
+            out.push(Segment::line());
+
+            let second_line = adjust_line_length_no_bg(
+                &[
+                    Segment::styled(icon_text, icon_style),
+                    Segment::new(center_blank.clone()),
+                    Segment::styled(right_text, clock_style),
+                ],
+                width,
+            );
+            out.extend(second_line);
+            out.push(Segment::line());
+
+            let third_line = adjust_line_length_no_bg(
+                &[
+                    Segment::styled(icon_blank, icon_style),
+                    Segment::new(center_blank),
+                    Segment::styled(right_blank, clock_style),
+                ],
+                width,
+            );
+            out.extend(third_line);
+        } else {
+            let first_line = adjust_line_length_no_bg(
+                &[
+                    Segment::styled(icon_text, icon_style),
+                    Segment::styled(center_text, title_style),
+                    Segment::styled(right_text, clock_style),
+                ],
+                width,
+            );
+            out.extend(first_line);
         }
         out
     }
@@ -441,6 +522,13 @@ impl Widget for Header {
         }
     }
 
+    fn tooltip(&self) -> Option<String> {
+        if !self.icon_hover {
+            return None;
+        }
+        Self::normalize_tooltip(self.command_palette_tooltip.as_deref())
+    }
+
     fn is_active(&self) -> bool {
         if !self.show_clock {
             return false;
@@ -461,7 +549,7 @@ impl ReactiveWidget for Header {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{MouseDownEvent, MouseUpEvent};
+    use crate::event::{BindingHint, MouseDownEvent, MouseUpEvent};
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
     use slotmap::SlotMap;
@@ -502,6 +590,10 @@ mod tests {
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
+        assert!(
+            ctx.invalidation().layout,
+            "tall toggle should request layout invalidation for immediate relayout"
+        );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].sender, id);
@@ -542,8 +634,104 @@ mod tests {
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
+        assert!(matches!(
+            messages[1].message,
+            Message::AppSimulateKey(AppSimulateKey { ref key }) if key == "ctrl+p"
+        ));
+    }
+
+    #[test]
+    fn header_bindings_update_palette_tooltip_and_action_key() {
+        let mut header = Header::new();
+        let mut ctx = EventCtx::default();
+        header.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("f1", "Help"),
+                BindingHint::new("ctrl+k", "palette")
+                    .with_group("command_palette")
+                    .with_tooltip("Open command palette"),
+            ]),
+            &mut ctx,
+        );
+        assert!(ctx.repaint_requested());
+        assert_eq!(header.command_palette_action_key.as_deref(), Some("ctrl+k"));
+        assert_eq!(
+            header.command_palette_tooltip.as_deref(),
+            Some("Open command palette")
+        );
+    }
+
+    #[test]
+    fn header_icon_tooltip_matches_palette_hint() {
+        let mut header = Header::new();
+        header.set_hovered(true);
+        assert!(header.on_mouse_move(0, 0));
+        assert_eq!(header.tooltip().as_deref(), Some("Open command palette"));
+
+        assert!(header.on_mouse_move(20, 0));
+        assert_eq!(header.tooltip(), None);
+    }
+
+    #[test]
+    fn header_icon_click_without_palette_binding_emits_no_palette_action() {
+        let mut header = Header::new();
+        let mut bindings_ctx = EventCtx::default();
+        header.on_event(
+            &Event::BindingsChanged(vec![BindingHint::new("f1", "Help")]),
+            &mut bindings_ctx,
+        );
+
+        let id = NodeId::default();
+        let mut down_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                x: 0,
+                y: 0,
+                screen_x: 0,
+                screen_y: 0,
+                target: id,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut up_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 0,
+                y: 0,
+                screen_x: 0,
+                screen_y: 0,
+                target: Some(id),
+            }),
+            &mut up_ctx,
+        );
+        let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
+    }
+
+    #[test]
+    fn header_tall_renders_icon_on_middle_row() {
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (40, 3);
+        options.max_width = 40;
+        options.max_height = 3;
+        let header = Header::new().title("ModalApp").tall(true);
+        let frame = crate::render::FrameBuffer::from_renderable(&console, &options, &header, None);
+        let lines = frame.as_plain_lines();
+        assert_eq!(lines.len(), 3);
+        assert!(
+            !lines[0].contains("⭘"),
+            "top row should keep icon lane blank in tall mode"
+        );
+        assert!(
+            lines[1].contains("⭘"),
+            "middle row should contain icon in tall mode"
+        );
     }
 
     #[test]
