@@ -27,7 +27,7 @@ use super::helpers::{
     generate_enter_leave_events, mouse_scroll_deltas, pointer_shape_for_hover_tree,
     should_quit_key, tree_content_local_coords, widget_at_tree_layout,
 };
-use super::render::apply_layout_info_tree;
+use super::render::apply_layout_info_tree_from_layout_rects;
 use super::routing::{
     active_binding_hints_tree, dispatch_event_broadcast_tree, dispatch_event_to_target_tree,
     dispatch_event_tree, dispatch_message_queue_tree, dispatch_mouse_scroll,
@@ -4444,11 +4444,12 @@ impl App {
             nocolor: self.app_nocolor,
         });
         let _guard = set_style_context(sheet);
-        // Reuse the hit-test map built during render instead of rescanning
-        // the full frame a second time.
-        let node_hit_test = super::types::NodeHitTestMap::from(&self.hit_test);
+        // Always drive widget on_layout from solved tree geometry, not from
+        // painted hit-test bounds. Hit-test rects can exclude transparent /
+        // overpainted areas and collapse scroll viewport state (e.g. AppRoot),
+        // which then clips subsequent renders and causes visible flicker.
         if let Some(tree) = self.active_widget_tree_mut() {
-            apply_layout_info_tree(tree, &node_hit_test);
+            apply_layout_info_tree_from_layout_rects(tree);
         }
     }
 }
@@ -6576,6 +6577,70 @@ mod tests {
         let mut app = super::App::new().expect("app should initialize for runtime tests");
         app.widget_tree = Some(tree);
         app
+    }
+
+    #[test]
+    fn apply_layout_info_to_tree_uses_tree_geometry_not_hit_test_bounds() {
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let log_id = tree.mount(
+            root_id,
+            Box::new(crate::widgets::Log::new().auto_scroll(false)),
+        );
+
+        if let Some(node) = tree.get_mut(root_id) {
+            node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 0,
+                x1: 80,
+                y1: 24,
+            };
+            node.content_rect = node.layout_rect;
+        }
+        if let Some(node) = tree.get_mut(log_id) {
+            node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 1,
+                x1: 69,
+                y1: 23,
+            };
+            node.content_rect = node.layout_rect;
+        }
+
+        let mut app = test_app_with_tree(tree);
+        // Simulate sparse painted metadata where the root only appears in a
+        // narrow right-side strip. This must not collapse AppRoot viewport.
+        app.hit_test.bounds.insert(
+            root_id,
+            crate::runtime::types::Rect {
+                x0: 69,
+                y0: 1,
+                x1: 79,
+                y1: 22,
+            },
+        );
+        app.hit_test.bounds.insert(
+            log_id,
+            crate::runtime::types::Rect {
+                x0: 0,
+                y0: 1,
+                x1: 11,
+                y1: 22,
+            },
+        );
+
+        app.apply_layout_info_to_tree();
+
+        let viewport = app
+            .active_widget_tree()
+            .and_then(|tree| tree.get(root_id))
+            .and_then(|node| node.widget.scroll_viewport_size())
+            .expect("AppRoot viewport should be available");
+        assert_eq!(
+            viewport,
+            (80, 24),
+            "viewport must follow solved layout rects, not painted hit-test bounds",
+        );
     }
 
     #[test]

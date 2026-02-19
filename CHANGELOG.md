@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **fix(runtime hover/render parity): stop no-scrollbar content flicker on mouse hover**
+  - Fixed post-render tree layout propagation to use solved tree geometry (`layout_rect`) instead of painted hit-test bounds, preventing `AppRoot`/scroll viewport collapse on sparse paint frames.
+  - This resolves hover-driven text clipping/flicker in modal/log-style views when vertical scrollbar lanes are hidden.
+  - Removed the obsolete hit-test-driven tree layout propagation path to keep a single canonical layout-info source.
+  - Added regression coverage ensuring post-render layout propagation does not shrink viewport state from narrow hit-test strips.
+
 - **fix(tooltip parity): unify header/footer hover tooltips on shared system `Tooltip` with canonical placement behavior**
   - Replaced runtime-only hover-bubble composition with a shared tree-mounted system `Tooltip` widget (`#textual-tooltip`) so header/footer/tooltips follow the same CSS defaults and composition path.
   - Added widget-level tooltip anchors (`Widget::tooltip_anchor`) and wired `HeaderIcon` / `Footer` anchors to stabilize placement to Python-equivalent hit regions.

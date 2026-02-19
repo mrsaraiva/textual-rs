@@ -23,8 +23,8 @@ use std::sync::OnceLock;
 
 use super::App;
 use super::types::{
-    HitTestMap, NodeHitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS,
-    TOAST_SIDE_MARGIN, resize_trace_enabled,
+    HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS, TOAST_SIDE_MARGIN,
+    resize_trace_enabled,
 };
 
 fn scrollbar_drag_trace_enabled() -> bool {
@@ -2337,53 +2337,12 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
     move_command_palette_last(ordered)
 }
 
-/// Distribute layout information to widgets using the arena tree + `NodeHitTestMap`.
-///
-/// This is the P1-12 replacement for `App::apply_layout_info` which uses
-/// recursive `visit_children_mut`. Walks the tree depth-first and calls
-/// `on_layout(content_w, content_h)` on each widget whose bounding rect
-/// appears in the hit-test map.
-pub(crate) fn apply_layout_info_tree(tree: &mut WidgetTree, hit_test: &NodeHitTestMap) {
-    let root = match tree.root() {
-        Some(r) => r,
-        None => return,
-    };
-    let node_ids = tree.walk_depth_first(root);
-    for node_id in node_ids {
-        let Some(rect) = hit_test.rect(node_id) else {
-            continue;
-        };
-        let Some(node) = tree.get(node_id) else {
-            continue;
-        };
-        let meta = crate::css::selector_meta_generic_with_classes(
-            node.widget.as_ref(),
-            node.classes.iter().cloned(),
-        );
-        let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
-        let line_pad = resolved.line_pad.unwrap_or(0) as usize;
-        let (top, bottom, left, right) = border_spacing_from_style(&resolved);
-        let full_w = rect.x1.saturating_sub(rect.x0) as usize + 1;
-        let full_h = rect.y1.saturating_sub(rect.y0) as usize + 1;
-        let content_w = full_w
-            .saturating_sub(left + right)
-            .saturating_sub(line_pad.saturating_mul(2))
-            .max(1) as u16;
-        let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
-
-        // Re-borrow mutably for on_layout.
-        if let Some(node) = tree.get_mut(node_id) {
-            node.widget.on_layout(content_w, content_h);
-        }
-    }
-}
-
 /// Distribute layout information to widgets using precomputed `layout_rect`s.
 ///
-/// This is the pre-render companion to [`apply_layout_info_tree`]: after
-/// `run_layout_pass` but before paint, widgets receive `on_layout(...)` based
-/// on their solved tree geometry so layout-dependent render state is correct on
-/// the first rendered frame.
+/// After `run_layout_pass` but before paint, widgets receive `on_layout(...)`
+/// based on their solved tree geometry so layout-dependent render state is
+/// correct on the first rendered frame (and remains stable across subsequent
+/// post-render layout propagation).
 pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
     let root = match tree.root() {
         Some(r) => r,

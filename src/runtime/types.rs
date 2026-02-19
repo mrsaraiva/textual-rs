@@ -302,7 +302,13 @@ impl PendingInvalidation {
         }
         if let Some(rect) = hit_test.rect(id) {
             self.content_regions.invalidate_rect(rect);
+            return;
         }
+        // If the hit-test map has no bounds for the target, region-scoped diff
+        // would produce an empty update while still advancing the internal
+        // framebuffer, causing visible flicker on subsequent diffs. Fall back to
+        // full-content invalidation to keep terminal/frame state synchronized.
+        self.content_regions.invalidate_all();
     }
 
     pub(crate) fn request_flags(&mut self, flags: InvalidationFlags) {
@@ -349,7 +355,7 @@ pub(crate) fn resize_trace_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirtyRegions, HitTestMap, NodeHitTestMap, Rect};
+    use super::{DirtyRegions, HitTestMap, NodeHitTestMap, PendingInvalidation, Rect};
     use crate::node_id::node_id_from_ffi;
     use std::collections::HashMap;
 
@@ -414,5 +420,18 @@ mod tests {
         let hit = HitTestMap { bounds };
         let node_hit = NodeHitTestMap::from(&hit);
         assert_eq!(node_hit.bounds, hit.bounds);
+    }
+
+    #[test]
+    fn request_widget_rect_without_bounds_falls_back_to_full_invalidation() {
+        let mut pending = PendingInvalidation::default();
+        let hit = HitTestMap::default();
+        let missing = node_id_from_ffi(99);
+        pending.request_widget_rect(&hit, missing);
+        assert!(pending.flags.content, "content flag should be set");
+        assert!(
+            pending.content_regions.is_full(),
+            "missing widget bounds must escalate to full invalidation to avoid empty region diffs"
+        );
     }
 }
