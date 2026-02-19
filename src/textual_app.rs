@@ -11,7 +11,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
-use crate::style::Position;
+use crate::style::{Position, Scalar};
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
 use crate::{App, Result};
@@ -267,6 +267,8 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             // Keep command palette always mounted for global app bindings, but
             // out of normal flow so it behaves as a modal overlay.
             styles.style.position = Some(Position::Absolute);
+            styles.style.width = Some(Scalar::Percent(100.0));
+            styles.style.height = Some(Scalar::Percent(100.0));
         }
         command_palette
     }

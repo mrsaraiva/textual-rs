@@ -12,7 +12,7 @@ use crate::style::{
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
-    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID, CommandPalette,
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, Overlay,
     RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
     SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
@@ -650,44 +650,6 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 // Tree-driven compositor: render each widget at its layout_rect position
 // ===========================================================================
 
-fn command_palette_panel_clip(
-    widget: &dyn Widget,
-    width: usize,
-    height: usize,
-    dest_x: i32,
-    dest_y: i32,
-) -> Option<ClipRect> {
-    let any = widget as &dyn std::any::Any;
-    let palette = any.downcast_ref::<CommandPalette>()?;
-    let (panel_x, panel_y, panel_w, panel_h) = palette.tree_panel_geometry(width, height)?;
-    Some(ClipRect {
-        x0: dest_x + panel_x as i32,
-        y0: dest_y + panel_y as i32,
-        x1: dest_x + panel_x as i32 + panel_w as i32,
-        y1: dest_y + panel_y as i32 + panel_h as i32,
-    })
-}
-
-fn apply_dim_overlay(frame: &mut FrameBuffer, clip: ClipRect, exclude: Option<ClipRect>) {
-    let frame_clip = ClipRect::for_frame(frame);
-    let Some(paint_clip) = clip.intersect(frame_clip) else {
-        return;
-    };
-    let exclude = exclude.and_then(|rect| rect.intersect(paint_clip));
-
-    for y in paint_clip.y0..paint_clip.y1 {
-        for x in paint_clip.x0..paint_clip.x1 {
-            if exclude
-                .is_some_and(|rect| x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1)
-            {
-                continue;
-            }
-            let cell = frame.get_mut(x as usize, y as usize);
-            cell.style = Some(cell.style.unwrap_or_default().with_dim(true));
-        }
-    }
-}
-
 /// Recursively render a tree node and its children into the frame buffer.
 ///
 /// Each widget is rendered at its `layout_rect` position with CSS style
@@ -726,11 +688,6 @@ fn render_tree_node(
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
-        if let Some(panel_clip) =
-            command_palette_panel_clip(node.widget.as_ref(), w, h, dest_x, dest_y)
-        {
-            apply_dim_overlay(frame, ctx.clip, Some(panel_clip));
-        }
         let screen_underlay = if matches!(resolved.overlay, Some(OverlayMode::Screen)) {
             Some(capture_underlay_snapshot(
                 frame, dest_x, dest_y, w, h, ctx.clip,
@@ -771,6 +728,23 @@ fn render_tree_node(
                     .join("")
             ),
         );
+        if node.widget.preserve_underlay() && !segments.is_empty() {
+            if let Some(bg) = resolved.bg {
+                let widget_clip = ClipRect {
+                    x0: dest_x,
+                    y0: dest_y,
+                    x1: dest_x + w as i32,
+                    y1: dest_y + h as i32,
+                };
+                if let Some(paint_clip) = ctx.clip.intersect(widget_clip) {
+                    if bg.a == u8::MAX {
+                        fill_rect_with_background(frame, paint_clip, bg);
+                    } else if bg.a > 0 {
+                        tint_rect_with_background(frame, paint_clip, bg);
+                    }
+                }
+            }
+        }
 
         // P2-31: When text-wrap is nowrap with an overflow mode, don't pre-crop
         // lines so that apply_text_overflow_to_line can handle truncation with
@@ -1194,6 +1168,9 @@ fn tint_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, tint: Colo
                 .map(color_from_simple)
                 .unwrap_or_else(|| Color::rgb(0, 0, 0));
             style = style.with_bgcolor(tint.flatten_over(under_bg).to_simple_opaque());
+            if let Some(fg) = style.color.map(color_from_simple) {
+                style = style.with_color(tint.flatten_over(fg).to_simple_opaque());
+            }
             cell.style = Some(style);
             frame.set_cell(x, y, cell);
         }
@@ -2998,23 +2975,52 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_tree_open_dims_underlay_but_not_panel_surface() {
+    fn command_palette_tree_open_tints_underlay_but_not_panel_surface() {
         use crate::event::{Action, Event, EventCtx};
-        use crate::style::Position;
+        use crate::style::{Position, Scalar};
         use crate::widget_tree::WidgetTree;
-        use crate::widgets::{AppRoot, CommandPalette, Label, Spacer};
+        use crate::widgets::{AppRoot, CommandPalette, Spacer};
+        use rich_rs::{Segment, Segments, SimpleColor, Style};
+
+        struct StyledUnderlay;
+
+        impl Widget for StyledUnderlay {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                let mut segment = Segment::new("Fear is the mind-killer.");
+                segment.style = Some(
+                    Style::new()
+                        .with_color(SimpleColor::Rgb {
+                            r: 240,
+                            g: 240,
+                            b: 240,
+                        })
+                        .with_bgcolor(SimpleColor::Rgb {
+                            r: 80,
+                            g: 30,
+                            b: 30,
+                        }),
+                );
+                vec![segment].into()
+            }
+        }
 
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        tree.mount(root, Box::new(Label::new("Fear is the mind-killer.")));
+        tree.mount(root, Box::new(StyledUnderlay));
 
         let mut palette =
             CommandPalette::new(Spacer::new(1)).with_tree_wrapped_child_visible(false);
         if let Some(styles) = palette.styles_mut() {
             styles.style.position = Some(Position::Absolute);
+            styles.style.width = Some(Scalar::Percent(100.0));
+            styles.style.height = Some(Scalar::Percent(100.0));
         }
         let palette_id = tree.mount(root, Box::new(palette));
 
@@ -3026,6 +3032,60 @@ mod tests {
             tree.mount(palette_id, child);
         }
 
+        let resolved_bg = {
+            let node = tree.get(palette_id).expect("palette node should exist");
+            let meta = crate::css::selector_meta_generic_with_classes(
+                node.widget.as_ref(),
+                node.classes.iter().cloned(),
+            );
+            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+            resolved.bg
+        };
+        let bg = resolved_bg.expect("CommandPalette must resolve a background color");
+        assert!(
+            bg.a > 0 && bg.a < u8::MAX,
+            "CommandPalette background should be translucent for shared dim path (alpha={})",
+            bg.a
+        );
+
+        let console = rich_rs::Console::new();
+        let mut root_widget = AppRoot::new();
+        let baseline_frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
+        let palette_rect = tree
+            .get(palette_id)
+            .expect("palette node should exist")
+            .layout_rect;
+        let palette_node = tree.get(palette_id).expect("palette node should exist");
+        assert!(
+            palette_node.widget.preserve_underlay(),
+            "palette should opt into preserve-underlay rendering"
+        );
+        assert!(palette_node.display, "palette node should be displayed");
+        assert_eq!(
+            palette_node.visibility,
+            crate::style::Visibility::Visible,
+            "palette node should be visible"
+        );
+        assert!(
+            palette_rect.x1 > palette_rect.x0 && palette_rect.y1 > palette_rect.y0,
+            "palette layout rect should be non-zero after layout"
+        );
+        assert_eq!(
+            palette_rect.x0, 0,
+            "runtime-host command palette should start at screen left"
+        );
+        assert_eq!(
+            palette_rect.y0, 0,
+            "runtime-host command palette should start at screen top"
+        );
+        let sample_x = usize::from(palette_rect.x0).min(59);
+        let sample_y = usize::from(palette_rect.y0).min(13);
+        let baseline_underlay_style = baseline_frame
+            .get(sample_x, sample_y)
+            .style
+            .clone()
+            .unwrap_or_default();
+
         {
             let node = tree.get_mut(palette_id).expect("palette node should exist");
             let mut ctx = EventCtx::default();
@@ -3033,21 +3093,30 @@ mod tests {
                 .on_event(&Event::Action(Action::CommandPalette), &mut ctx);
         }
 
-        let console = rich_rs::Console::new();
-        let mut root_widget = AppRoot::new();
         let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
 
-        let underlay_cell = frame.get(0, 0);
-        assert_eq!(underlay_cell.text, "F");
-        let underlay_style = underlay_cell.style.clone().unwrap_or_default();
-        assert_eq!(
+        let underlay_style = frame
+            .get(sample_x, sample_y)
+            .style
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            underlay_style.bgcolor != baseline_underlay_style.bgcolor
+                || underlay_style.color != baseline_underlay_style.color,
+            "underlay outside the palette panel should be visually tinted when palette is open"
+        );
+        assert_ne!(
             underlay_style.dim,
             Some(true),
-            "underlay outside the palette panel should be dimmed when palette is open"
+            "shared dim path should tint background instead of forcing dim text style"
         );
 
         let panel_cell = frame.get(1, 3);
         let panel_style = panel_cell.style.clone().unwrap_or_default();
+        assert!(
+            panel_style.bgcolor.is_some(),
+            "panel surface should be painted when palette is open"
+        );
         assert_ne!(
             panel_style.dim,
             Some(true),
@@ -3419,6 +3488,83 @@ mod tests {
         assert!(
             lines.contains("BASE_VISIBLE"),
             "modal screen with translucent background should preserve underlay content"
+        );
+    }
+
+    #[test]
+    fn modal_screen_layer_tints_underlay_colors() {
+        use rich_rs::{Segment, Segments, SimpleColor, Style};
+
+        struct StyledUnderlay;
+
+        impl Widget for StyledUnderlay {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                let mut segment = Segment::new("BASE_VISIBLE");
+                segment.style = Some(
+                    Style::new()
+                        .with_color(SimpleColor::Rgb {
+                            r: 240,
+                            g: 240,
+                            b: 240,
+                        })
+                        .with_bgcolor(SimpleColor::Rgb {
+                            r: 80,
+                            g: 30,
+                            b: 30,
+                        }),
+                );
+                vec![segment].into()
+            }
+        }
+
+        struct EmptyOverlayWidget;
+
+        impl Widget for EmptyOverlayWidget {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct ModalOverlayScreen;
+
+        impl crate::screen::Screen for ModalOverlayScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(EmptyOverlayWidget)
+            }
+        }
+
+        let mut app = App::new().expect("app should initialize");
+        app.options.size = (80, 24);
+        app.options.max_width = 80;
+        app.options.max_height = 24;
+
+        let mut root = crate::widgets::AppRoot::new().with_child(StyledUnderlay);
+        app.build_widget_tree(&mut root);
+        app.render_widget(&mut root)
+            .expect("baseline render should succeed");
+        let baseline = app.frame.get(0, 0).style.clone().unwrap_or_default();
+
+        app.push_screen(Box::new(ModalOverlayScreen));
+        app.render_widget(&mut root)
+            .expect("modal render should succeed");
+        let modal = app.frame.get(0, 0).style.clone().unwrap_or_default();
+
+        assert!(
+            modal.bgcolor != baseline.bgcolor || modal.color != baseline.color,
+            "modal screen should tint underlay colors through shared alpha compositing path"
+        );
+        assert_ne!(
+            modal.dim,
+            Some(true),
+            "modal dim path should not force dim text style flag"
         );
     }
 

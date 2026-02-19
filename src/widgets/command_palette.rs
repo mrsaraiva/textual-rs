@@ -1075,17 +1075,6 @@ impl CommandPalette {
         Some((panel_x, panel_y, panel_width, panel_height))
     }
 
-    pub(crate) fn tree_panel_geometry(
-        &self,
-        width: usize,
-        height: usize,
-    ) -> Option<(usize, usize, usize, usize)> {
-        if !self.is_tree_mode() {
-            return None;
-        }
-        self.rendered_panel_geometry(width, height)
-    }
-
     fn palette_geometry(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"]);
         let panel_x = 0usize;

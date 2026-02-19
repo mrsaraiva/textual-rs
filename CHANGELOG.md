@@ -13,6 +13,12 @@ until the API stabilizes.
   - Runtime tree rendering now composites visible app + screen layers back-to-front with per-layer stylesheet isolation and opaque/translucent modal background semantics aligned to Python defaults.
   - Added regression coverage for modal/non-modal underlay behavior and style-sheet isolation across composed screen layers.
 
+- **[wip] refactor(shared dim path): route command palette underlay dimming through background-alpha compositor path**
+  - Removed command-palette-specific runtime dim branch (`with_dim(true)` + panel exclusion) and switched to shared preserve-underlay background tint composition.
+  - Shared tint composition now blends both background and foreground colors, improving modal-style dim parity with Python overlays/screens.
+  - Runtime command-palette host is now explicitly full-viewport (`position: absolute; width: 100%; height: 100%`) so the shared dim path applies across the entire app surface.
+  - Added/updated regression coverage for command palette tree-mode tint behavior while preserving undimmed panel surface.
+
 - **fix(app-root scrollbar parity): reclaim viewport width when overflow disappears**
   - Tree layout-info propagation now feeds `AppRoot` with its solved viewport (`content_rect`) dimensions instead of full layout box dimensions, keeping internal viewport state aligned with runtime scrollbar geometry.
   - This lets app-global scrollbar lanes collapse cleanly on resize when content no longer overflows, so content immediately reclaims horizontal space (Python-equivalent behavior).
