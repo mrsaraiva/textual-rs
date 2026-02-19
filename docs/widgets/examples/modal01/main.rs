@@ -12,11 +12,13 @@ impl Widget for QuitDialogRoot {
     }
 
     fn compose(&self) -> ComposeResult {
-        compose![Grid::new(2, 2)
-            .id("dialog")
-            .with_child(Label::new("Are you sure you want to quit?").with_id("question"))
-            .with_child(Button::error("Quit").with_action("app.quit"))
-            .with_child(Button::primary("Cancel").with_action("app.pop_screen"))]
+        compose![
+            Grid::new(2, 2)
+                .id("dialog")
+                .with_child(Label::new("Are you sure you want to quit?").with_id("question"))
+                .with_child(Button::error("Quit").with_action("app.quit"))
+                .with_child(Button::primary("Cancel").with_action("app.pop_screen"))
+        ]
     }
 
     fn render(&self, _console: &rich_rs::Console, _options: &rich_rs::ConsoleOptions) -> Segments {
