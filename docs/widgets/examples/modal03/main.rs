@@ -136,3 +136,65 @@ impl TextualApp for ModalApp {
 fn main() -> Result<()> {
     run_sync(ModalApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn q_key() -> KeyEventData {
+        KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
+    }
+
+    fn button_pressed_event(button: NodeId) -> MessageEvent {
+        MessageEvent {
+            sender: button,
+            message: Message::ButtonPressed(ButtonPressed {
+                description: "test".to_string(),
+            }),
+            control: Some(button),
+        }
+    }
+
+    #[test]
+    fn modal03_quit_button_dismisses_and_requests_stop() {
+        let mut definition = ModalApp::default();
+        let mut app = App::new().expect("app should initialize");
+
+        let mut key_ctx = EventCtx::default();
+        definition.on_key_with_app(&mut app, &q_key(), &mut key_ctx);
+        assert!(key_ctx.handled());
+        assert_eq!(app.screen_count(), 1);
+
+        let quit = app
+            .query_one("#quit Button")
+            .expect("quit button should exist in pushed screen");
+        let mut message_ctx = EventCtx::default();
+        definition.on_message_with_app(&mut app, &button_pressed_event(quit), &mut message_ctx);
+
+        assert!(message_ctx.handled());
+        assert!(message_ctx.stop_requested());
+        assert_eq!(app.screen_count(), 0);
+    }
+
+    #[test]
+    fn modal03_cancel_button_dismisses_without_stop_request() {
+        let mut definition = ModalApp::default();
+        let mut app = App::new().expect("app should initialize");
+
+        let mut key_ctx = EventCtx::default();
+        definition.on_key_with_app(&mut app, &q_key(), &mut key_ctx);
+        assert!(key_ctx.handled());
+        assert_eq!(app.screen_count(), 1);
+
+        let cancel = app
+            .query_one("#cancel Button")
+            .expect("cancel button should exist in pushed screen");
+        let mut message_ctx = EventCtx::default();
+        definition.on_message_with_app(&mut app, &button_pressed_event(cancel), &mut message_ctx);
+
+        assert!(message_ctx.handled());
+        assert!(!message_ctx.stop_requested());
+        assert_eq!(app.screen_count(), 0);
+    }
+}

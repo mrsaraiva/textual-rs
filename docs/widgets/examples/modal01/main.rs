@@ -72,3 +72,27 @@ impl TextualApp for Modal01App {
 fn main() -> Result<()> {
     run_sync(Modal01App)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modal01_screen_is_non_modal() {
+        let screen = QuitScreen;
+        assert!(!screen.is_modal());
+    }
+
+    #[test]
+    fn modal01_registers_quit_mode_and_pushes_screen() {
+        let mut definition = Modal01App;
+        let mut app = App::new().expect("app should initialize");
+        definition
+            .configure(&mut app)
+            .expect("modal01 configure should succeed");
+
+        assert_eq!(app.screen_count(), 0);
+        assert!(app.action_push_screen("quit"));
+        assert_eq!(app.screen_count(), 1);
+    }
+}
