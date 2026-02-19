@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::compose::ComposeResult;
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 
@@ -14,6 +15,327 @@ use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 const COMMAND_PALETTE_HINT_GROUP: &str = "command_palette";
 const DEFAULT_COMMAND_PALETTE_KEY: &str = "ctrl+p";
 const DEFAULT_COMMAND_PALETTE_TOOLTIP: &str = "Open command palette";
+
+#[derive(Debug, Clone)]
+pub struct HeaderIcon {
+    icon: String,
+    pressed: bool,
+    command_palette_action_key: Option<String>,
+    command_palette_tooltip: Option<String>,
+    styles: WidgetStyles,
+}
+
+impl HeaderIcon {
+    pub fn new(icon: impl Into<String>) -> Self {
+        Self {
+            icon: icon.into(),
+            pressed: false,
+            command_palette_action_key: Some(DEFAULT_COMMAND_PALETTE_KEY.to_string()),
+            command_palette_tooltip: Some(DEFAULT_COMMAND_PALETTE_TOOLTIP.to_string()),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    fn normalize_tooltip(text: Option<&str>) -> Option<String> {
+        text.map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    }
+
+    fn command_palette_hint(bindings: &[BindingHint]) -> Option<&BindingHint> {
+        bindings
+            .iter()
+            .find(|hint| hint.group.as_deref() == Some(COMMAND_PALETTE_HINT_GROUP))
+    }
+
+    fn apply_bindings(&mut self, bindings: &[BindingHint]) -> bool {
+        let (next_action_key, next_tooltip) =
+            if let Some(hint) = Self::command_palette_hint(bindings) {
+                (
+                    Some(hint.key.clone()),
+                    Self::normalize_tooltip(hint.tooltip.as_deref()),
+                )
+            } else {
+                (None, None)
+            };
+        let changed = self.command_palette_action_key != next_action_key
+            || self.command_palette_tooltip != next_tooltip;
+        self.command_palette_action_key = next_action_key;
+        self.command_palette_tooltip = next_tooltip;
+        changed
+    }
+}
+
+impl Widget for HeaderIcon {
+    fn style_type(&self) -> &'static str {
+        "HeaderIcon"
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::BindingsChanged(bindings) => {
+                if self.apply_bindings(bindings) {
+                    ctx.request_repaint();
+                }
+            }
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+                self.pressed = true;
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) => {
+                if !self.pressed {
+                    return;
+                }
+                self.pressed = false;
+                if mouse.target.is_some_and(|target| target == self.node_id()) {
+                    ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
+                    if self.command_palette_action_key.is_some() {
+                        ctx.post_message(Message::AppCommandPalette(AppCommandPalette));
+                    }
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                }
+            }
+            Event::AppFocus(false) => {
+                self.pressed = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.pressed
+    }
+
+    fn tooltip(&self) -> Option<String> {
+        Self::normalize_tooltip(self.command_palette_tooltip.as_deref())
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        let mut out = Segments::new();
+        out.push(Segment::new(self.icon.clone()));
+        out
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for HeaderIcon {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HeaderTitle {
+    title: String,
+    subtitle: Option<String>,
+    default_title: String,
+    default_subtitle: Option<String>,
+    styles: WidgetStyles,
+}
+
+impl HeaderTitle {
+    pub fn new(
+        default_title: impl Into<String>,
+        default_subtitle: Option<String>,
+        title: impl Into<String>,
+        subtitle: Option<String>,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            subtitle,
+            default_title: default_title.into(),
+            default_subtitle,
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    fn line_text(&self) -> String {
+        match &self.subtitle {
+            Some(subtitle) if !subtitle.is_empty() => format!("{} — {}", self.title, subtitle),
+            _ => self.title.clone(),
+        }
+    }
+}
+
+impl Widget for HeaderTitle {
+    fn style_type(&self) -> &'static str {
+        "HeaderTitle"
+    }
+
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        if let Message::ScreenTitleChanged(ScreenTitleChanged {
+            ref title,
+            ref sub_title,
+        }) = message.message
+        {
+            self.title = title
+                .as_deref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.default_title.clone());
+            self.subtitle = sub_title
+                .as_deref()
+                .map(|s| Some(s.to_string()))
+                .unwrap_or_else(|| self.default_subtitle.clone());
+            ctx.request_repaint();
+        }
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        let mut out = Segments::new();
+        out.push(Segment::new(self.line_text()));
+        out
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for HeaderTitle {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HeaderClockSpace {
+    styles: WidgetStyles,
+}
+
+impl HeaderClockSpace {
+    pub fn new() -> Self {
+        Self {
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Default for HeaderClockSpace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Widget for HeaderClockSpace {
+    fn style_type(&self) -> &'static str {
+        "HeaderClockSpace"
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for HeaderClockSpace {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HeaderClock {
+    time_format: String,
+    last_clock_second: Arc<AtomicU64>,
+    styles: WidgetStyles,
+}
+
+impl HeaderClock {
+    pub fn new(time_format: impl Into<String>) -> Self {
+        Self {
+            time_format: time_format.into(),
+            last_clock_second: Arc::new(AtomicU64::new(0)),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    fn current_clock_seconds() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    fn format_clock(&self, epoch_seconds: u64) -> String {
+        let day_seconds = epoch_seconds % 86_400;
+        let hours = day_seconds / 3_600;
+        let minutes = (day_seconds % 3_600) / 60;
+        let seconds = day_seconds % 60;
+
+        let h = format!("{hours:02}");
+        let m = format!("{minutes:02}");
+        let s = format!("{seconds:02}");
+        let hms = format!("{h}:{m}:{s}");
+
+        let mut formatted = self.time_format.clone();
+        formatted = formatted.replace("%X", &hms);
+        formatted = formatted.replace("%T", &hms);
+        formatted = formatted.replace("%H", &h);
+        formatted = formatted.replace("%M", &m);
+        formatted = formatted.replace("%S", &s);
+        if formatted == self.time_format {
+            hms
+        } else {
+            formatted
+        }
+    }
+}
+
+impl Widget for HeaderClock {
+    fn style_type(&self) -> &'static str {
+        "HeaderClock"
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        let seconds = Self::current_clock_seconds();
+        self.last_clock_second.store(seconds, Ordering::Relaxed);
+        let mut out = Segments::new();
+        out.push(Segment::new(self.format_clock(seconds)));
+        out
+    }
+
+    fn is_active(&self) -> bool {
+        let current = Self::current_clock_seconds();
+        current != self.last_clock_second.load(Ordering::Relaxed)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+impl Renderable for HeaderClock {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Header {
@@ -35,6 +357,7 @@ pub struct Header {
     show_clock: bool,
     time_format: String,
     last_clock_second: Arc<AtomicU64>,
+    children_extracted: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -58,6 +381,7 @@ impl Header {
             show_clock: false,
             time_format: "%X".to_string(),
             last_clock_second: Arc::new(AtomicU64::new(0)),
+            children_extracted: false,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
@@ -275,6 +599,31 @@ impl Header {
 }
 
 impl Widget for Header {
+    fn compose(&self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        let mut children: Vec<Box<dyn Widget>> = Vec::with_capacity(3);
+        children.push(Box::new(HeaderIcon::new(self.icon.clone())));
+        children.push(Box::new(HeaderTitle::new(
+            self.default_title.clone(),
+            self.default_subtitle.clone(),
+            self.title.clone(),
+            self.subtitle.clone(),
+        )));
+        if self.show_clock {
+            children.push(Box::new(HeaderClock::new(self.time_format.clone())));
+        } else {
+            children.push(Box::new(HeaderClockSpace::new()));
+        }
+        children
+    }
+
     fn style_type(&self) -> &'static str {
         "Header"
     }
@@ -298,6 +647,11 @@ impl Widget for Header {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::MouseDown(mouse) => {
+                if self.children_extracted {
+                    self.pressed_icon = Some(false);
+                    ctx.set_handled();
+                    return;
+                }
                 if mouse.target != self.node_id() {
                     return;
                 }
@@ -305,6 +659,19 @@ impl Widget for Header {
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
+                if self.children_extracted {
+                    let Some(_pressed_non_icon) = self.pressed_icon.take() else {
+                        return;
+                    };
+                    if mouse.target.is_none() {
+                        return;
+                    }
+                    self.tall = !self.tall;
+                    ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
+                    ctx.request_layout_invalidation();
+                    ctx.set_handled();
+                    return;
+                }
                 if !mouse.target.is_some_and(|t| t == self.node_id()) {
                     self.pressed_icon = None;
                     return;
@@ -321,10 +688,8 @@ impl Widget for Header {
                     // Parity with Python Header: icon click is handled separately and
                     // shouldn't toggle header height.
                     ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
-                    if let Some(action_key) = self.command_palette_action_key.as_ref() {
-                        ctx.post_message(Message::AppSimulateKey(AppSimulateKey {
-                            key: action_key.clone(),
-                        }));
+                    if self.command_palette_action_key.is_some() {
+                        ctx.post_message(Message::AppCommandPalette(AppCommandPalette));
                     }
                     ctx.request_repaint();
                     ctx.set_handled();
@@ -378,6 +743,10 @@ impl Widget for Header {
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.children_extracted {
+            return Segments::new();
+        }
+
         let width = options.size.0.max(1);
         let line_text = self.line_text();
         let icon_text = format!(" {} ", self.icon);
@@ -638,7 +1007,65 @@ mod tests {
         assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
         assert!(matches!(
             messages[1].message,
-            Message::AppSimulateKey(AppSimulateKey { ref key }) if key == "ctrl+p"
+            Message::AppCommandPalette(AppCommandPalette)
+        ));
+    }
+
+    #[test]
+    fn header_take_composed_children_uses_python_widget_structure() {
+        let mut header = Header::new().title("ModalApp").show_clock(true);
+        let children = header.take_composed_children();
+        assert_eq!(children.len(), 3);
+        let types: Vec<&'static str> = children.iter().map(|child| child.style_type()).collect();
+        assert_eq!(types, vec!["HeaderIcon", "HeaderTitle", "HeaderClock"]);
+        assert!(header.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn header_take_composed_children_uses_clock_space_when_clock_disabled() {
+        let mut header = Header::new().title("ModalApp").show_clock(false);
+        let children = header.take_composed_children();
+        let types: Vec<&'static str> = children.iter().map(|child| child.style_type()).collect();
+        assert_eq!(types, vec!["HeaderIcon", "HeaderTitle", "HeaderClockSpace"]);
+    }
+
+    #[test]
+    fn header_tree_mode_toggles_from_child_target_click() {
+        let mut header = Header::new();
+        let _ = header.take_composed_children();
+        let child_id = NodeId::default();
+
+        let mut down_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                x: 4,
+                y: 0,
+                screen_x: 4,
+                screen_y: 0,
+                target: child_id,
+            }),
+            &mut down_ctx,
+        );
+        assert!(down_ctx.handled());
+
+        let mut up_ctx = EventCtx::default();
+        header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 4,
+                y: 0,
+                screen_x: 4,
+                screen_y: 0,
+                target: Some(child_id),
+            }),
+            &mut up_ctx,
+        );
+        assert!(up_ctx.handled());
+        assert!(up_ctx.invalidation().layout);
+        let messages = up_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0].message,
+            Message::HeaderToggled(HeaderToggled { tall: true })
         ));
     }
 
@@ -891,5 +1318,49 @@ mod tests {
         let mut ctx2 = EventCtx::default();
         header.on_message(&msg2, &mut ctx2);
         assert_eq!(header.title, "App"); // back to default
+    }
+
+    #[test]
+    fn header_title_blur_rule_tracks_app_active_state() {
+        use crate::css::{
+            default_widget_stylesheet, resolve_style, selector_meta_generic, set_app_active,
+            set_style_context, with_style_stack,
+        };
+        use crate::widgets::AppRoot;
+
+        let _style_guard = set_style_context(default_widget_stylesheet());
+        let app_root = AppRoot::new();
+        let title = HeaderTitle::new("ModalApp", None, "ModalApp", None);
+
+        let active_opacity = {
+            let _active_guard = set_app_active(true);
+            let app_meta = selector_meta_generic(&app_root);
+            let app_style = resolve_style(&app_root, &app_meta);
+            with_style_stack(app_meta, app_style, || {
+                let title_meta = selector_meta_generic(&title);
+                resolve_style(&title, &title_meta).text_opacity
+            })
+        };
+
+        let blur_opacity = {
+            let _active_guard = set_app_active(false);
+            let app_meta = selector_meta_generic(&app_root);
+            let app_style = resolve_style(&app_root, &app_meta);
+            with_style_stack(app_meta, app_style, || {
+                let title_meta = selector_meta_generic(&title);
+                resolve_style(&title, &title_meta).text_opacity
+            })
+        };
+
+        assert_ne!(
+            active_opacity,
+            Some(50),
+            "title should not be dimmed while app is focused"
+        );
+        assert_eq!(
+            blur_opacity,
+            Some(50),
+            "title should dim when app is blurred"
+        );
     }
 }

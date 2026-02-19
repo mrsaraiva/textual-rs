@@ -73,7 +73,7 @@ pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
 pub use data_table::{CursorType, DataTable};
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};
-pub use header::Header;
+pub use header::{Header, HeaderClock, HeaderClockSpace, HeaderIcon, HeaderTitle};
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::adjust_line_length_no_bg;

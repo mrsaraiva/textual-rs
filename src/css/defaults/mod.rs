@@ -240,58 +240,6 @@ mod tests {
     }
 
     #[test]
-    fn header_footer_includes_component_blur_dim_rule_for_header_title() {
-        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
-        let mut found = false;
-        for rule in sheet.rules() {
-            let parts = rule.selector_chain().parts();
-            if parts.len() == 3
-                && parts[0].type_name() == Some("App")
-                && !parts[0].pseudos().is_empty()
-                && parts[1].type_name() == Some("Header")
-                && parts[2]
-                    .classes()
-                    .iter()
-                    .any(|class| class == "header--title")
-            {
-                assert_eq!(rule.style().text_opacity, Some(50));
-                found = true;
-            }
-        }
-        assert!(
-            found,
-            "expected App:blur Header .header--title rule for current Header component rendering"
-        );
-    }
-
-    #[test]
-    fn header_footer_includes_component_hover_rule_for_header_icon() {
-        let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
-        let mut found = false;
-        for rule in sheet.rules() {
-            let parts = rule.selector_chain().parts();
-            if parts.len() == 2
-                && parts[0].type_name() == Some("Header")
-                && parts[1]
-                    .classes()
-                    .iter()
-                    .any(|class| class == "header--icon")
-                && parts[1].classes().iter().any(|class| class == "-hover")
-            {
-                assert!(
-                    rule.style().bg.is_some(),
-                    "expected background style for component hover rule"
-                );
-                found = true;
-            }
-        }
-        assert!(
-            found,
-            "expected Header .header--icon.-hover fallback rule for component rendering"
-        );
-    }
-
-    #[test]
     fn footer_has_dock_bottom() {
         let sheet = StyleSheet::parse(header_footer::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Footer");

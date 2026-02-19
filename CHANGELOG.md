@@ -8,6 +8,12 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **fix(header parity): align header composition/interactions with Python widget structure**
+  - `Header` now composes canonical child widgets (`HeaderIcon`, `HeaderTitle`, `HeaderClock` / `HeaderClockSpace`) instead of relying on monolithic component-class rendering in tree mode.
+  - Restored canonical selector behavior by removing temporary component fallback rules/tests and relying on Python-aligned defaults (`HeaderIcon:hover`, `App:blur HeaderTitle`).
+  - Header icon clicks now dispatch the command palette action message path (`AppCommandPalette`) while preserving the command-palette binding hint/tooltip contract.
+  - Added regression coverage for composed header structure, tree-mode header toggle behavior, and app-focus-driven `HeaderTitle` dimming.
+
 - **refactor(scrollbar phase2 cleanup): remove widget-local inline scrollbar branches for migrated hosts**
   - `Log`, `RichLog`, `KeyPanel`, and `DataTable` no longer maintain inline scrollbar paint/drag paths after dedicated scrollbar-child migration.
   - Removed legacy widget-local drag state branches from these widgets; scrollbar interaction now flows through dedicated `ScrollBar` children + `Message::ScrollbarScrollTo`.
