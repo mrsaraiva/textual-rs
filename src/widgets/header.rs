@@ -8,7 +8,7 @@ use crate::compose::ComposeResult;
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 
-use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
+use super::helpers::{empty_classes, fixed_height_from_constraints};
 use super::{Widget, WidgetStyles};
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -19,9 +19,12 @@ const DEFAULT_COMMAND_PALETTE_TOOLTIP: &str = "Open command palette";
 #[derive(Debug, Clone)]
 pub struct HeaderIcon {
     icon: String,
+    hovered: bool,
     pressed: bool,
     command_palette_action_key: Option<String>,
     command_palette_tooltip: Option<String>,
+    layout_width: u16,
+    layout_height: u16,
     styles: WidgetStyles,
 }
 
@@ -29,9 +32,12 @@ impl HeaderIcon {
     pub fn new(icon: impl Into<String>) -> Self {
         Self {
             icon: icon.into(),
+            hovered: false,
             pressed: false,
             command_palette_action_key: Some(DEFAULT_COMMAND_PALETTE_KEY.to_string()),
             command_palette_tooltip: Some(DEFAULT_COMMAND_PALETTE_TOOLTIP.to_string()),
+            layout_width: 1,
+            layout_height: 1,
             styles: WidgetStyles::default(),
         }
     }
@@ -101,6 +107,7 @@ impl Widget for HeaderIcon {
                 }
             }
             Event::AppFocus(false) => {
+                self.hovered = false;
                 self.pressed = false;
             }
             _ => {}
@@ -111,8 +118,27 @@ impl Widget for HeaderIcon {
         self.pressed
     }
 
+    fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        self.hovered = hovered;
+    }
+
     fn tooltip(&self) -> Option<String> {
         Self::normalize_tooltip(self.command_palette_tooltip.as_deref())
+    }
+
+    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
+        let width = self.layout_width.max(1);
+        let height = self.layout_height.max(1);
+        Some((width / 2, height.saturating_sub(1)))
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.layout_width = width.max(1);
+        self.layout_height = height.max(1);
     }
 
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
@@ -346,17 +372,10 @@ pub struct Header {
     /// The default (app-level) subtitle, used as fallback when no screen subtitle is active.
     default_subtitle: Option<String>,
     tall: bool,
-    hovered: bool,
     icon: String,
-    icon_hover: bool,
-    pressed_icon: Option<bool>,
-    command_palette_action_key: Option<String>,
-    command_palette_tooltip: Option<String>,
-    icon_width: usize,
-    clock_width: usize,
+    pressed: bool,
     show_clock: bool,
     time_format: String,
-    last_clock_second: Arc<AtomicU64>,
     children_extracted: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
@@ -370,17 +389,10 @@ impl Header {
             default_title: "textual-rs".to_string(),
             default_subtitle: None,
             tall: false,
-            hovered: false,
             icon: "⭘".to_string(),
-            icon_hover: false,
-            pressed_icon: None,
-            command_palette_action_key: Some(DEFAULT_COMMAND_PALETTE_KEY.to_string()),
-            command_palette_tooltip: Some(DEFAULT_COMMAND_PALETTE_TOOLTIP.to_string()),
-            icon_width: 8,
-            clock_width: 10,
+            pressed: false,
             show_clock: false,
             time_format: "%X".to_string(),
-            last_clock_second: Arc::new(AtomicU64::new(0)),
             children_extracted: false,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -520,82 +532,6 @@ impl Header {
         self.time_format = time_format.into();
         self
     }
-
-    fn line_text(&self) -> String {
-        match &self.subtitle {
-            Some(subtitle) if !subtitle.is_empty() => format!(" {} — {}", self.title, subtitle),
-            _ => format!(" {}", self.title),
-        }
-    }
-
-    fn current_clock_seconds() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    }
-
-    fn format_clock(&self, epoch_seconds: u64) -> String {
-        let day_seconds = epoch_seconds % 86_400;
-        let hours = day_seconds / 3_600;
-        let minutes = (day_seconds % 3_600) / 60;
-        let seconds = day_seconds % 60;
-
-        let h = format!("{hours:02}");
-        let m = format!("{minutes:02}");
-        let s = format!("{seconds:02}");
-        let hms = format!("{h}:{m}:{s}");
-
-        let mut formatted = self.time_format.clone();
-        formatted = formatted.replace("%X", &hms);
-        formatted = formatted.replace("%T", &hms);
-        formatted = formatted.replace("%H", &h);
-        formatted = formatted.replace("%M", &m);
-        formatted = formatted.replace("%S", &s);
-        if formatted == self.time_format {
-            hms
-        } else {
-            formatted
-        }
-    }
-
-    fn component_style(&self, classes: &[&str]) -> rich_rs::Style {
-        let style = crate::css::resolve_component_style(self, classes);
-        if style.is_empty() {
-            rich_rs::Style::new()
-        } else {
-            style.to_rich().unwrap_or_else(rich_rs::Style::new)
-        }
-    }
-
-    fn normalize_tooltip(text: Option<&str>) -> Option<String> {
-        text.map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    }
-
-    fn command_palette_hint(bindings: &[BindingHint]) -> Option<&BindingHint> {
-        bindings
-            .iter()
-            .find(|hint| hint.group.as_deref() == Some(COMMAND_PALETTE_HINT_GROUP))
-    }
-
-    fn apply_bindings(&mut self, bindings: &[BindingHint]) -> bool {
-        let (next_action_key, next_tooltip) =
-            if let Some(hint) = Self::command_palette_hint(bindings) {
-                (
-                    Some(hint.key.clone()),
-                    Self::normalize_tooltip(hint.tooltip.as_deref()),
-                )
-            } else {
-                (None, None)
-            };
-        let changed = self.command_palette_action_key != next_action_key
-            || self.command_palette_tooltip != next_tooltip;
-        self.command_palette_action_key = next_action_key;
-        self.command_palette_tooltip = next_tooltip;
-        changed
-    }
 }
 
 impl Widget for Header {
@@ -632,95 +568,35 @@ impl Widget for Header {
         true
     }
 
-    fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
-        if !self.hovered {
-            return false;
-        }
-        let new_hover = (x as usize) < self.icon_width;
-        if new_hover != self.icon_hover {
-            self.icon_hover = new_hover;
-            return true;
-        }
-        false
-    }
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) => {
-                if self.children_extracted {
-                    self.pressed_icon = Some(false);
-                    ctx.set_handled();
-                    return;
-                }
-                if mouse.target != self.node_id() {
-                    return;
-                }
-                self.pressed_icon = Some((mouse.x as usize) < self.icon_width);
+            Event::MouseDown(_mouse) => {
+                self.pressed = true;
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
-                if self.children_extracted {
-                    let Some(_pressed_non_icon) = self.pressed_icon.take() else {
-                        return;
-                    };
-                    if mouse.target.is_none() {
-                        return;
-                    }
-                    self.tall = !self.tall;
-                    ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
-                    ctx.request_layout_invalidation();
-                    ctx.set_handled();
+                if !self.pressed {
                     return;
                 }
-                if !mouse.target.is_some_and(|t| t == self.node_id()) {
-                    self.pressed_icon = None;
-                    return;
-                }
-                let released_on_icon = (mouse.x as usize) < self.icon_width;
-                let Some(pressed_icon) = self.pressed_icon.take() else {
-                    return;
-                };
-                if pressed_icon != released_on_icon {
-                    ctx.set_handled();
-                    return;
-                }
-                if released_on_icon {
-                    // Parity with Python Header: icon click is handled separately and
-                    // shouldn't toggle header height.
-                    ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
-                    if self.command_palette_action_key.is_some() {
-                        ctx.post_message(Message::AppCommandPalette(AppCommandPalette));
-                    }
-                    ctx.request_repaint();
-                    ctx.set_handled();
+                self.pressed = false;
+                if mouse.target.is_none() {
                     return;
                 }
                 self.tall = !self.tall;
                 ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
                 ctx.request_layout_invalidation();
+                ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::BindingsChanged(bindings) => {
-                if self.apply_bindings(bindings) {
-                    ctx.request_repaint();
-                }
-            }
             Event::AppFocus(false) => {
-                self.pressed_icon = None;
-                if self.hovered || self.icon_hover {
-                    self.hovered = false;
-                    self.icon_hover = false;
-                    ctx.request_repaint();
-                }
+                self.pressed = false;
             }
             _ => {}
         }
     }
 
     fn on_unmount(&mut self) {
-        self.hovered = false;
-        self.icon_hover = false;
-        self.pressed_icon = None;
+        self.pressed = false;
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
@@ -743,112 +619,15 @@ impl Widget for Header {
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.children_extracted {
-            return Segments::new();
-        }
-
+        // Composition-only header surface; children render icon/title/clock.
         let width = options.size.0.max(1);
-        let line_text = self.line_text();
-        let icon_text = format!(" {} ", self.icon);
-        let icon_core_width = rich_rs::cell_len(&icon_text);
-        let icon_text = if icon_core_width >= self.icon_width {
-            rich_rs::set_cell_size(&icon_text, self.icon_width)
-        } else {
-            format!(
-                "{}{}",
-                icon_text,
-                " ".repeat(self.icon_width.saturating_sub(icon_core_width))
-            )
-        };
-        let icon_blank = " ".repeat(self.icon_width);
-        let clock_seconds = Self::current_clock_seconds();
-        self.last_clock_second
-            .store(clock_seconds, Ordering::Relaxed);
-        let right_label = if self.show_clock {
-            self.format_clock(clock_seconds)
-        } else {
-            String::new()
-        };
-        let right_width = self.clock_width.min(width.saturating_sub(1));
-        let right_text = {
-            let clipped = rich_rs::set_cell_size(&right_label, right_width);
-            if rich_rs::cell_len(&clipped) >= right_width {
-                clipped
-            } else {
-                format!(
-                    "{}{}",
-                    clipped,
-                    " ".repeat(right_width - rich_rs::cell_len(&clipped))
-                )
-            }
-        };
-        let right_blank = " ".repeat(right_width);
-        let center_width = width
-            .saturating_sub(self.icon_width.min(width))
-            .saturating_sub(right_width)
-            .max(1);
-        let title_width = rich_rs::cell_len(&line_text).min(center_width);
-        let left_pad = center_width.saturating_sub(title_width) / 2;
-        let right_pad = center_width.saturating_sub(title_width + left_pad);
-        let center_text = format!(
-            "{}{}{}",
-            " ".repeat(left_pad),
-            rich_rs::set_cell_size(&line_text, title_width),
-            " ".repeat(right_pad)
-        );
-        let center_blank = " ".repeat(center_width);
-
-        let icon_style = if self.icon_hover {
-            self.component_style(&["header--icon", "-hover"])
-        } else {
-            self.component_style(&["header--icon"])
-        };
-        let title_style = self.component_style(&["header--title"]);
-        let clock_style = self.component_style(&["header--clock"]);
-
+        let height = options.size.1.max(1);
         let mut out = Segments::new();
-        if self.tall {
-            let first_line = adjust_line_length_no_bg(
-                &[
-                    Segment::styled(icon_blank.clone(), icon_style),
-                    Segment::styled(center_text, title_style),
-                    Segment::styled(right_blank.clone(), clock_style),
-                ],
-                width,
-            );
-            out.extend(first_line);
-            out.push(Segment::line());
-
-            let second_line = adjust_line_length_no_bg(
-                &[
-                    Segment::styled(icon_text, icon_style),
-                    Segment::new(center_blank.clone()),
-                    Segment::styled(right_text, clock_style),
-                ],
-                width,
-            );
-            out.extend(second_line);
-            out.push(Segment::line());
-
-            let third_line = adjust_line_length_no_bg(
-                &[
-                    Segment::styled(icon_blank, icon_style),
-                    Segment::new(center_blank),
-                    Segment::styled(right_blank, clock_style),
-                ],
-                width,
-            );
-            out.extend(third_line);
-        } else {
-            let first_line = adjust_line_length_no_bg(
-                &[
-                    Segment::styled(icon_text, icon_style),
-                    Segment::styled(center_text, title_style),
-                    Segment::styled(right_text, clock_style),
-                ],
-                width,
-            );
-            out.extend(first_line);
+        for row in 0..height {
+            out.push(Segment::new(" ".repeat(width)));
+            if row + 1 < height {
+                out.push(Segment::line());
+            }
         }
         out
     }
@@ -878,32 +657,6 @@ impl Widget for Header {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        if !hovered {
-            self.icon_hover = false;
-        }
-    }
-
-    fn tooltip(&self) -> Option<String> {
-        if !self.icon_hover {
-            return None;
-        }
-        Self::normalize_tooltip(self.command_palette_tooltip.as_deref())
-    }
-
-    fn is_active(&self) -> bool {
-        if !self.show_clock {
-            return false;
-        }
-        let current = Self::current_clock_seconds();
-        current != self.last_clock_second.load(Ordering::Relaxed)
     }
 }
 
@@ -973,11 +726,11 @@ mod tests {
     }
 
     #[test]
-    fn header_icon_click_does_not_emit_toggle_message() {
-        let mut header = Header::new();
+    fn header_icon_click_emits_command_palette_action() {
+        let mut icon = HeaderIcon::new("⭘");
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        header.on_event(
+        icon.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 0,
                 y: 0,
@@ -989,8 +742,8 @@ mod tests {
         );
         assert!(down_ctx.handled());
 
-        let mut ctx = EventCtx::default();
-        header.on_event(
+        let mut up_ctx = EventCtx::default();
+        icon.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 0,
                 y: 0,
@@ -998,11 +751,10 @@ mod tests {
                 screen_y: 0,
                 target: Some(id),
             }),
-            &mut ctx,
+            &mut up_ctx,
         );
 
-        assert!(ctx.handled());
-        let messages = ctx.take_messages();
+        let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 2);
         assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
         assert!(matches!(
@@ -1070,10 +822,31 @@ mod tests {
     }
 
     #[test]
-    fn header_bindings_update_palette_tooltip_and_action_key() {
+    fn header_tree_mode_mouse_up_without_press_is_noop() {
         let mut header = Header::new();
-        let mut ctx = EventCtx::default();
+        let _ = header.take_composed_children();
+        let child_id = NodeId::default();
+        let mut up_ctx = EventCtx::default();
         header.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                x: 4,
+                y: 0,
+                screen_x: 4,
+                screen_y: 0,
+                target: Some(child_id),
+            }),
+            &mut up_ctx,
+        );
+        assert!(!up_ctx.handled());
+        assert!(up_ctx.take_messages().is_empty());
+        assert!(!header.tall);
+    }
+
+    #[test]
+    fn header_icon_bindings_update_palette_tooltip_and_action_key() {
+        let mut icon = HeaderIcon::new("⭘");
+        let mut ctx = EventCtx::default();
+        icon.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("f1", "Help"),
                 BindingHint::new("ctrl+k", "palette")
@@ -1083,36 +856,50 @@ mod tests {
             &mut ctx,
         );
         assert!(ctx.repaint_requested());
-        assert_eq!(header.command_palette_action_key.as_deref(), Some("ctrl+k"));
+        assert_eq!(icon.command_palette_action_key.as_deref(), Some("ctrl+k"));
         assert_eq!(
-            header.command_palette_tooltip.as_deref(),
+            icon.command_palette_tooltip.as_deref(),
             Some("Open command palette")
         );
     }
 
     #[test]
-    fn header_icon_tooltip_matches_palette_hint() {
-        let mut header = Header::new();
-        header.set_hovered(true);
-        assert!(header.on_mouse_move(0, 0));
-        assert_eq!(header.tooltip().as_deref(), Some("Open command palette"));
+    fn header_icon_hover_state_drives_hover_selector() {
+        use crate::css::{
+            default_widget_stylesheet, resolve_style, selector_meta_generic, set_style_context,
+        };
 
-        assert!(header.on_mouse_move(20, 0));
-        assert_eq!(header.tooltip(), None);
+        let _style_guard = set_style_context(default_widget_stylesheet());
+        let mut icon = HeaderIcon::new("⭘");
+        let normal = resolve_style(&icon, &selector_meta_generic(&icon)).bg;
+        icon.set_hovered(true);
+        let hovered = resolve_style(&icon, &selector_meta_generic(&icon)).bg;
+        assert_ne!(hovered, normal);
+        assert!(hovered.is_some());
+    }
+
+    #[test]
+    fn header_icon_tooltip_anchor_tracks_layout_bottom_row() {
+        let mut icon = HeaderIcon::new("⭘");
+        icon.on_layout(8, 1);
+        assert_eq!(icon.tooltip_anchor(), Some((4, 0)));
+
+        icon.on_layout(8, 3);
+        assert_eq!(icon.tooltip_anchor(), Some((4, 2)));
     }
 
     #[test]
     fn header_icon_click_without_palette_binding_emits_no_palette_action() {
-        let mut header = Header::new();
+        let mut icon = HeaderIcon::new("⭘");
         let mut bindings_ctx = EventCtx::default();
-        header.on_event(
+        icon.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("f1", "Help")]),
             &mut bindings_ctx,
         );
 
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        header.on_event(
+        icon.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 0,
                 y: 0,
@@ -1125,7 +912,7 @@ mod tests {
         assert!(down_ctx.handled());
 
         let mut up_ctx = EventCtx::default();
-        header.on_event(
+        icon.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 0,
                 y: 0,
@@ -1141,14 +928,13 @@ mod tests {
     }
 
     #[test]
-    fn header_tall_renders_icon_on_middle_row() {
+    fn header_tall_tree_render_moves_icon_to_middle_row() {
+        use crate::runtime::{build_widget_tree_from_root, render_tree_to_frame};
+
+        let mut header = Header::new().title("ModalApp").tall(true);
+        let mut tree = build_widget_tree_from_root(&mut header).expect("tree should build");
         let console = rich_rs::Console::new();
-        let mut options = console.options().clone();
-        options.size = (40, 3);
-        options.max_width = 40;
-        options.max_height = 3;
-        let header = Header::new().title("ModalApp").tall(true);
-        let frame = crate::render::FrameBuffer::from_renderable(&console, &options, &header, None);
+        let frame = render_tree_to_frame(&mut tree, &mut header, &console, 40, 3);
         let lines = frame.as_plain_lines();
         assert_eq!(lines.len(), 3);
         assert!(
@@ -1162,32 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn header_hover_leave_clears_icon_hover_state() {
-        let mut header = Header::new();
-        header.set_hovered(true);
-        assert!(header.on_mouse_move(0, 0));
-        assert!(header.icon_hover);
-
-        header.set_hovered(false);
-        assert!(!header.is_hovered());
-        assert!(!header.icon_hover);
-    }
-
-    #[test]
-    fn header_unmount_clears_hover_state() {
-        let mut header = Header::new();
-        header.set_hovered(true);
-        header.on_mouse_move(0, 0);
-        assert!(header.hovered);
-        assert!(header.icon_hover);
-
-        header.on_unmount();
-        assert!(!header.hovered);
-        assert!(!header.icon_hover);
-    }
-
-    #[test]
-    fn header_cross_region_press_release_is_noop() {
+    fn header_mouse_release_outside_target_is_noop() {
         let mut header = Header::new();
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
@@ -1210,12 +971,34 @@ mod tests {
                 y: 0,
                 screen_x: 12,
                 screen_y: 0,
-                target: Some(id),
+                target: None,
             }),
             &mut up_ctx,
         );
-        assert!(up_ctx.handled());
+        assert!(!up_ctx.handled());
         assert!(up_ctx.take_messages().is_empty());
+    }
+
+    #[test]
+    fn modal_header_tall_has_no_right_side_ellipsis_artifacts() {
+        use crate::runtime::{build_widget_tree_from_root, render_tree_to_frame};
+        use crate::widgets::{AppRoot, Footer, Label};
+
+        let mut root = AppRoot::new()
+            .with_child(Header::new().title("ModalApp").tall(true))
+            .with_child(Label::new("x\n".repeat(40)))
+            .with_child(Footer::new());
+        let mut tree = build_widget_tree_from_root(&mut root).expect("tree should build");
+        let console = rich_rs::Console::new();
+        let frame = render_tree_to_frame(&mut tree, &mut root, &console, 80, 12);
+        let lines = frame.as_plain_lines();
+        for row in 0..3 {
+            assert!(
+                !lines[row].contains('…'),
+                "header row {row} should not show ellipsis artifact: {:?}",
+                lines[row]
+            );
+        }
     }
 
     // -- P5-14: Screen title inheritance ------------------------------------

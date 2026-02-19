@@ -396,6 +396,14 @@ pub trait Widget: Send + Sync + Any {
     fn tooltip(&self) -> Option<String> {
         None
     }
+    /// Optional tooltip anchor point in content-local coordinates.
+    ///
+    /// Widgets may override this to keep tooltip placement stable for a logical
+    /// sub-region (for example a hovered footer key) rather than the entire
+    /// widget bounds.
+    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
+        None
+    }
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }

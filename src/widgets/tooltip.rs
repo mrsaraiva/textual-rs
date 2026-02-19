@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::render::FrameBuffer;
-use crate::style::{Constrain, parse_color_like};
+use crate::style::{Constrain, Display, Offset, OffsetValue, Position, Scalar, parse_color_like};
 
 use crate::node_id::NodeId;
 
@@ -12,6 +12,24 @@ use super::{
     Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
 };
+
+pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SystemTooltipGeometry {
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+}
+
+struct TooltipChildStub;
+
+impl Widget for TooltipChildStub {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+}
 
 /// Tooltip overlay wrapper for a child widget.
 ///
@@ -21,6 +39,8 @@ pub struct Tooltip {
     child: Box<dyn Widget>,
     text: String,
     visible: bool,
+    system_mode: bool,
+    system_owner: Option<NodeId>,
     max_width: usize,
     y_offset: usize,
     anchor: Option<(usize, usize)>,
@@ -34,12 +54,23 @@ impl Tooltip {
             child: Box::new(child),
             text: text.into(),
             visible: false,
+            system_mode: false,
+            system_owner: None,
             max_width: 40,
             y_offset: 1,
             anchor: None,
             classes: vec!["tooltip".to_string(), "-textual-system".to_string()],
             styles: WidgetStyles::default(),
         }
+    }
+
+    pub fn system() -> Self {
+        let mut tooltip = Self::new(TooltipChildStub, "");
+        tooltip.system_mode = true;
+        // System-mode tooltips follow Python placement semantics where CSS
+        // margin controls vertical separation from the anchor.
+        tooltip.y_offset = 0;
+        tooltip
     }
 
     pub fn text(&self) -> &str {
@@ -84,6 +115,171 @@ impl Tooltip {
 
     pub fn anchor_target_id(&self) -> NodeId {
         self.node_id()
+    }
+
+    fn i16_cells(value: usize) -> i16 {
+        value.min(i16::MAX as usize) as i16
+    }
+
+    fn system_geometry(
+        &self,
+        viewport_x: usize,
+        viewport_y: usize,
+        viewport_width: usize,
+        viewport_height: usize,
+    ) -> Option<SystemTooltipGeometry> {
+        if !self.system_mode {
+            return None;
+        }
+        let width_limit = viewport_width.max(1);
+        let height_limit = viewport_height.max(1);
+        let tooltip = self.tooltip_frame(width_limit, height_limit)?;
+        let component_style = crate::css::resolve_component_style(self, &[]);
+        let base = component_style.constrain.unwrap_or(Constrain::Inside);
+        let constrain_x = component_style.constrain_x.unwrap_or(base);
+        let constrain_y = component_style.constrain_y.unwrap_or(base);
+        let anchor = self.anchor.unwrap_or((viewport_x, viewport_y));
+        let local_anchor = (
+            anchor
+                .0
+                .saturating_sub(viewport_x)
+                .min(width_limit.saturating_sub(1)),
+            anchor
+                .1
+                .saturating_sub(viewport_y)
+                .min(height_limit.saturating_sub(1)),
+        );
+        let (x0, mut y0) = self.overlay_origin(
+            width_limit,
+            height_limit,
+            tooltip.width,
+            tooltip.height,
+            constrain_x,
+            constrain_y,
+            Some(local_anchor),
+        );
+        // Absolute layout applies margin-top as a positive displacement.
+        // When the tooltip inflects above its anchor, compensate for that
+        // displacement so the bubble sits above the anchor row instead of
+        // overlapping it.
+        if y0 < local_anchor.1 {
+            let mut margin_top = usize::from(component_style.effective_margin().top);
+            if margin_top == 0 {
+                // Runtime geometry updates can happen outside a full CSS selector
+                // context; preserve canonical Tooltip behavior (DEFAULT_CSS
+                // `margin: 1 0`) in that path.
+                margin_top = 1;
+            }
+            y0 = y0.saturating_sub(margin_top);
+        }
+        Some(SystemTooltipGeometry {
+            x: viewport_x.saturating_add(x0).min(u16::MAX as usize) as u16,
+            y: viewport_y.saturating_add(y0).min(u16::MAX as usize) as u16,
+            width: tooltip.width.min(u16::MAX as usize) as u16,
+            height: tooltip.height.min(u16::MAX as usize) as u16,
+        })
+    }
+
+    fn apply_system_geometry(&mut self, geometry: SystemTooltipGeometry) -> bool {
+        let Some(styles) = self.styles_mut() else {
+            return false;
+        };
+        let mut changed = false;
+        let style = &mut styles.style;
+
+        if style.display != Some(Display::Block) {
+            style.display = Some(Display::Block);
+            changed = true;
+        }
+        if style.position != Some(Position::Absolute) {
+            style.position = Some(Position::Absolute);
+            changed = true;
+        }
+
+        let width = Some(Scalar::Cells(geometry.width.max(1)));
+        if style.width != width {
+            style.width = width;
+            changed = true;
+        }
+
+        let height = Some(Scalar::Cells(geometry.height.max(1)));
+        if style.height != height {
+            style.height = height;
+            changed = true;
+        }
+
+        let offset = Some(Offset {
+            x: OffsetValue::Cells(Self::i16_cells(geometry.x as usize)),
+            y: OffsetValue::Cells(Self::i16_cells(geometry.y as usize)),
+        });
+        if style.offset != offset {
+            style.offset = offset;
+            changed = true;
+        }
+
+        changed
+    }
+
+    pub(crate) fn apply_system_state(
+        &mut self,
+        owner: NodeId,
+        text: String,
+        anchor_x: usize,
+        anchor_y: usize,
+        viewport_x: usize,
+        viewport_y: usize,
+        viewport_width: usize,
+        viewport_height: usize,
+    ) -> bool {
+        if !self.system_mode {
+            return false;
+        }
+
+        let mut changed = false;
+        let same_owner_text = self.visible && self.system_owner == Some(owner) && self.text == text;
+
+        if self.system_owner != Some(owner) {
+            self.system_owner = Some(owner);
+            changed = true;
+        }
+        if self.text != text {
+            self.text = text;
+            changed = true;
+        }
+        if !same_owner_text && self.anchor != Some((anchor_x, anchor_y)) {
+            self.anchor = Some((anchor_x, anchor_y));
+            changed = true;
+        }
+        if !self.visible {
+            self.visible = true;
+            changed = true;
+        }
+
+        if let Some(geometry) =
+            self.system_geometry(viewport_x, viewport_y, viewport_width, viewport_height)
+        {
+            changed |= self.apply_system_geometry(geometry);
+        }
+
+        changed
+    }
+
+    pub(crate) fn hide_system(&mut self) -> bool {
+        if !self.system_mode {
+            return false;
+        }
+        let mut changed = false;
+        if self.visible {
+            self.visible = false;
+            changed = true;
+        }
+        if self.system_owner.take().is_some() {
+            changed = true;
+        }
+        if self.anchor.take().is_some() {
+            changed = true;
+        }
+        changed
     }
 
     fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
@@ -275,8 +471,9 @@ impl Tooltip {
         overlay_height: usize,
         constrain_x: Constrain,
         constrain_y: Constrain,
+        anchor: Option<(usize, usize)>,
     ) -> (usize, usize) {
-        let (anchor_x, anchor_y) = self.anchor.unwrap_or((base_width.saturating_sub(1) / 2, 0));
+        let (anchor_x, anchor_y) = anchor.unwrap_or((base_width.saturating_sub(1) / 2, 0));
         let anchor_x = anchor_x.min(base_width.saturating_sub(1));
         let anchor_y = anchor_y.min(base_height.saturating_sub(1));
 
@@ -327,6 +524,35 @@ impl Tooltip {
 
 impl Widget for Tooltip {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.system_mode {
+            if !self.visible {
+                return Segments::new();
+            }
+            let content_width = options.size.0.max(1);
+            let content_height = options.size.1.max(1);
+            let text = self.text.trim();
+            if text.is_empty() {
+                return Segments::new();
+            }
+            let (_, text_style) = self.tooltip_styles();
+            let mut lines = Self::wrap_text(text, content_width);
+            if lines.len() > content_height {
+                lines.truncate(content_height);
+            }
+            let line_count = lines.len();
+            let mut out = Segments::new();
+            for (idx, line) in lines.into_iter().enumerate() {
+                out.push(Segment::styled(
+                    rich_rs::set_cell_size(&line, content_width),
+                    text_style,
+                ));
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+
         let base_renderable = WidgetRenderable::new(self.child.as_ref());
         let mut merged = FrameBuffer::from_renderable(console, options, &base_renderable, None);
 
@@ -348,6 +574,7 @@ impl Widget for Tooltip {
                     tooltip.height,
                     cx,
                     cy,
+                    self.anchor,
                 );
                 Overlay::compose_overlay_at(&mut merged, &tooltip, x0, y0);
             }

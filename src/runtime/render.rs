@@ -8,7 +8,6 @@ use crate::node_id::NodeId;
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::style::{
     BorderEdge, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
-    parse_color_like,
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
@@ -160,7 +159,6 @@ impl App {
         let base_style = self.theme.base.to_rich();
         let mut next = FrameBuffer::from_lines(&lines, width, height, base_style);
         self.compose_notifications(&mut next);
-        self.compose_hover_tooltip(&mut next);
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -389,7 +387,6 @@ impl App {
         }
 
         self.compose_notifications(&mut next);
-        self.compose_hover_tooltip(&mut next);
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -498,59 +495,6 @@ impl App {
                 break;
             }
         }
-    }
-
-    pub(super) fn compose_hover_tooltip(&mut self, frame: &mut FrameBuffer) {
-        let Some(tip) = self.hover_tooltip.as_ref() else {
-            return;
-        };
-        if tip.text.trim().is_empty() {
-            return;
-        }
-
-        let pad_x = 2usize;
-        let tooltip_height = 3usize;
-        let max_width = frame.width.saturating_sub(2).max(1).min(60);
-        let text_limit = max_width.saturating_sub(pad_x.saturating_mul(2)).max(1);
-        let raw_text = tip.text.trim();
-        let raw_width = rich_rs::cell_len(raw_text).max(1);
-        let text_width = raw_width.min(text_limit);
-        let text = rich_rs::set_cell_size(raw_text, text_width);
-        let tooltip_width = text_width
-            .saturating_add(pad_x.saturating_mul(2))
-            .min(max_width)
-            .max(1);
-
-        let mut tip_buf = FrameBuffer::new(tooltip_width, tooltip_height, None);
-        let bg = parse_color_like("$panel")
-            .unwrap_or(crate::style::Color::rgb(18, 31, 44))
-            .to_simple_opaque();
-        let fg = parse_color_like("$foreground")
-            .unwrap_or(crate::style::Color::rgb(215, 215, 215))
-            .to_simple_opaque();
-        let bubble_style = rich_rs::Style::new().with_bgcolor(bg).with_color(fg);
-        for y in 0..tooltip_height {
-            let fill = vec![Segment::styled(" ".repeat(tooltip_width), bubble_style)];
-            tip_buf.write_line_at(0, y, &fill, true);
-        }
-        let text_line = vec![
-            Segment::styled(" ".repeat(pad_x), bubble_style),
-            Segment::styled(text, bubble_style),
-        ];
-        // Keep pre-filled bubble background for trailing cells.
-        tip_buf.write_line_at(0, 1, &text_line, false);
-
-        let preferred_x = (tip.anchor_x as usize).saturating_add(1);
-        let x0 = preferred_x.min(frame.width.saturating_sub(tooltip_width));
-        let anchor_y = tip.anchor_y as usize;
-        let y0 = if anchor_y >= tooltip_height {
-            anchor_y - tooltip_height
-        } else {
-            anchor_y
-                .saturating_add(1)
-                .min(frame.height.saturating_sub(tooltip_height))
-        };
-        Overlay::compose_overlay_at(frame, &tip_buf, x0, y0);
     }
 
     /// Distribute layout information to the root widget from the hit-test map.
@@ -807,12 +751,30 @@ fn render_tree_node(
         // would already crop to `w`, making the overflow step a no-op.
         let overflow_mode = text_overflow_mode(&resolved);
         let crop_width = if overflow_mode.is_some() {
-            // Use the natural segment width so lines aren't pre-cropped.
-            let natural: usize = segments
-                .iter()
-                .filter(|s| s.control.is_none())
-                .map(|s| s.cell_len())
-                .sum();
+            // Use natural per-line width so overflow truncation runs on the
+            // original lines (including explicit `\n` segment breaks).
+            let mut natural = 0usize;
+            let mut line_width = 0usize;
+            for segment in &segments {
+                if segment.control.is_some() {
+                    natural = natural.max(line_width);
+                    line_width = 0;
+                    continue;
+                }
+                let text = segment.text.as_ref();
+                if text.is_empty() {
+                    continue;
+                }
+                let mut parts = text.split('\n').peekable();
+                while let Some(part) = parts.next() {
+                    line_width = line_width.saturating_add(rich_rs::cell_len(part));
+                    if parts.peek().is_some() {
+                        natural = natural.max(line_width);
+                        line_width = 0;
+                    }
+                }
+            }
+            natural = natural.max(line_width);
             natural.max(w)
         } else {
             w
@@ -1518,11 +1480,15 @@ pub fn apply_text_overflow_to_line(
             let truncated = crop_line_horizontal(line, 0, max_width.saturating_sub(1));
             let mut result = truncated;
             // Append ellipsis with the style of the last segment.
-            let last_style = result.last().and_then(|s| s.style);
-            result.push(Segment::styled(
-                "…".to_string(),
-                last_style.unwrap_or_default(),
-            ));
+            let (last_style, last_meta) = result
+                .iter()
+                .rev()
+                .find(|segment| segment.control.is_none())
+                .map(|segment| (segment.style, segment.meta.clone()))
+                .unwrap_or((None, None));
+            let mut ellipsis = Segment::styled("…".to_string(), last_style.unwrap_or_default());
+            ellipsis.meta = last_meta;
+            result.push(ellipsis);
             result
         }
         TextOverflow::Fold => {

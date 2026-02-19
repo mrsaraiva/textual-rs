@@ -50,8 +50,8 @@ pub fn default_widget_stylesheet() -> StyleSheet {
 mod tests {
     use super::*;
     use crate::style::{
-        Constrain, Display, Dock, HorizontalAlign, Layout, Overflow, Pointer, Scalar, Spacing,
-        TextAlign, VerticalAlign,
+        Constrain, Display, Dock, HorizontalAlign, Layout, Offset, OffsetValue, Overflow, Pointer,
+        Scalar, Spacing, TextAlign, VerticalAlign,
     };
 
     /// Helper: find the first rule whose primary selector matches the given type name
@@ -504,5 +504,18 @@ mod tests {
         let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
         let style = find_type_style(&sheet, "Tooltip");
         assert_eq!(style.height, Some(Scalar::Auto));
+    }
+
+    #[test]
+    fn tooltip_has_offset_x_negative_fifty_percent() {
+        let sheet = StyleSheet::parse(tooltip::DEFAULT_CSS);
+        let style = find_type_style(&sheet, "Tooltip");
+        assert_eq!(
+            style.offset,
+            Some(Offset {
+                x: OffsetValue::Percent(-50.0),
+                y: OffsetValue::Cells(0),
+            })
+        );
     }
 }

@@ -217,6 +217,7 @@ impl ScreenStack {
         if !compose_decls.is_empty() {
             crate::runtime::App::mount_declarations(&mut widget_tree, root_id, compose_decls);
         }
+        crate::runtime::App::mount_system_tooltip(&mut widget_tree, root_id);
         // Drain initial lifecycle events (mount events from tree construction).
         let _ = widget_tree.drain_lifecycle();
 
@@ -679,7 +680,7 @@ mod tests {
         let entry = stack.top().unwrap();
         // The widget tree should have a root node (from compose).
         assert!(entry.widget_tree.root().is_some());
-        assert_eq!(entry.widget_tree.len(), 1);
+        assert_eq!(entry.widget_tree.len(), 2);
     }
 
     // -- CSS stylesheet is parsed from css() --------------------------------

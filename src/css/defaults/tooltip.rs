@@ -12,5 +12,6 @@ Tooltip {
     constrain: inside inflect;
     max-width: 40;
     display: none;
+    offset-x: -50%;
 }
 "#;

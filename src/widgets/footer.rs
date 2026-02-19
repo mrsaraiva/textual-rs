@@ -691,6 +691,31 @@ impl Footer {
             None => None,
         }
     }
+
+    fn hovered_region(&self) -> Option<Range<usize>> {
+        match self.hovered_item {
+            Some(HoveredFooterItem::Binding(flat_index)) => self
+                .left_binding_regions()
+                .into_iter()
+                .find_map(|(range, idx)| (idx == flat_index).then_some(range)),
+            Some(HoveredFooterItem::CommandPalette) => {
+                self.command_palette_region(self.layout_width.max(1))
+            }
+            None => None,
+        }
+    }
+
+    fn hovered_anchor_local(&self) -> Option<(u16, u16)> {
+        let range = self.hovered_region()?;
+        if range.start >= range.end {
+            return None;
+        }
+        let max_x = self.layout_width.max(1).saturating_sub(1);
+        let start = range.start.min(max_x);
+        let end = range.end.saturating_sub(1).min(max_x);
+        let center = start.saturating_add(end.saturating_sub(start) / 2);
+        Some((center.min(u16::MAX as usize) as u16, 0))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -849,6 +874,10 @@ impl Widget for Footer {
         self.hovered_binding()
             .and_then(|binding| binding.tooltip.clone())
             .filter(|text| !text.trim().is_empty())
+    }
+
+    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
+        self.hovered_anchor_local()
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -1417,5 +1446,59 @@ mod tests {
             sep_bg, key_bg,
             "separator should share hovered command-palette background"
         );
+    }
+
+    #[test]
+    fn tooltip_anchor_uses_hovered_left_binding_region_center() {
+        let mut footer = Footer::new();
+        let mut setup_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("q", "Quit").with_tooltip("Quit the app"),
+                BindingHint::new("h", "Help"),
+            ]),
+            &mut setup_ctx,
+        );
+        footer.on_layout(80, 1);
+        let first_region = footer
+            .left_binding_regions()
+            .into_iter()
+            .find(|(_, idx)| *idx == 0)
+            .expect("first binding region should exist")
+            .0;
+        let hover_x = ((first_region.start + first_region.end) / 2) as u16;
+        assert!(footer.on_mouse_move(hover_x, 0));
+        let anchor = footer
+            .tooltip_anchor()
+            .expect("hovered binding should expose tooltip anchor");
+        let expected_x = (first_region.start + first_region.end.saturating_sub(1)) / 2;
+        assert_eq!(anchor, (expected_x as u16, 0));
+    }
+
+    #[test]
+    fn tooltip_anchor_uses_hovered_command_palette_region_center() {
+        let mut footer = Footer::new();
+        let mut setup_ctx = EventCtx::default();
+        footer.on_event(
+            &Event::BindingsChanged(vec![
+                BindingHint::new("j", "Jessica"),
+                BindingHint::new("ctrl+p", "palette")
+                    .with_key_display("^p")
+                    .with_group("command_palette")
+                    .with_tooltip("Open command palette"),
+            ]),
+            &mut setup_ctx,
+        );
+        footer.on_layout(80, 1);
+        let range = footer
+            .command_palette_region(80)
+            .expect("command palette region should exist");
+        let hover_x = ((range.start + range.end) / 2) as u16;
+        assert!(footer.on_mouse_move(hover_x, 0));
+        let anchor = footer
+            .tooltip_anchor()
+            .expect("hovered command palette should expose tooltip anchor");
+        let expected_x = (range.start + range.end.saturating_sub(1)) / 2;
+        assert_eq!(anchor, (expected_x as u16, 0));
     }
 }

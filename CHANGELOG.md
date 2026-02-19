@@ -8,6 +8,13 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **fix(tooltip parity): unify header/footer hover tooltips on shared system `Tooltip` with canonical placement behavior**
+  - Replaced runtime-only hover-bubble composition with a shared tree-mounted system `Tooltip` widget (`#textual-tooltip`) so header/footer/tooltips follow the same CSS defaults and composition path.
+  - Added widget-level tooltip anchors (`Widget::tooltip_anchor`) and wired `HeaderIcon` / `Footer` anchors to stabilize placement to Python-equivalent hit regions.
+  - Tooltip viewport constraints now resolve from owner content viewports (excluding scrollbar lanes), fixing footer `^p palette` tooltip horizontal clamping in `modal01`.
+  - Corrected inflected (above-anchor) tooltip vertical placement so footer tooltips sit above the footer row instead of overlapping clickable bindings.
+  - Opening CommandPalette now dismisses visible hover tooltip immediately and starts a short cooldown to prevent tooltip flash while pointer moves toward the palette.
+
 - **fix(header parity): align header composition/interactions with Python widget structure**
   - `Header` now composes canonical child widgets (`HeaderIcon`, `HeaderTitle`, `HeaderClock` / `HeaderClockSpace`) instead of relying on monolithic component-class rendering in tree mode.
   - Restored canonical selector behavior by removing temporary component fallback rules/tests and relying on Python-aligned defaults (`HeaderIcon:hover`, `App:blur HeaderTitle`).

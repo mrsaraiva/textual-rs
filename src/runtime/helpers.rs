@@ -9,6 +9,7 @@ use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, RICH_LOG_VSCROLLBAR_ID,
     SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
+    SYSTEM_TOOLTIP_STYLE_ID,
 };
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
@@ -209,6 +210,9 @@ pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId
             continue;
         };
         if !node.display || node.visibility != crate::style::Visibility::Visible {
+            continue;
+        }
+        if node.widget.style_id() == Some(SYSTEM_TOOLTIP_STYLE_ID) {
             continue;
         }
         let mut render_shift_x: i32 = 0;

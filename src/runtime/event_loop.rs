@@ -2684,6 +2684,8 @@ impl App {
                                     }
                                 }
                                 if self.update_hover_tooltip(mouse.column, mouse.row) {
+                                    pending_invalidation
+                                        .request_flags(crate::event::InvalidationFlags::layout());
                                     pending_invalidation.request_full_content();
                                 }
                                 let is_drag = matches!(mouse.kind, MouseEventKind::Drag(_));
@@ -3181,7 +3183,10 @@ impl App {
                     }
                     CrosstermEvent::FocusLost => {
                         self.apply_app_blur_focus_state();
-                        self.clear_hover_tooltip();
+                        if self.clear_hover_tooltip() {
+                            pending_invalidation
+                                .request_flags(crate::event::InvalidationFlags::layout());
+                        }
                         debug_input("[event] FocusLost");
                         let mut outcome = self.dispatch_event_auto(root, Event::AppFocus(false));
                         self.absorb_outcome(
@@ -4083,12 +4088,20 @@ impl App {
     /// Dispatch an event through the arena tree.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         self.ensure_runtime_tree(root);
+        let dismissed_tooltip = matches!(&event, Event::Action(Action::CommandPalette))
+            && self.start_command_palette_tooltip_cooldown();
         let palette_target = self.open_command_palette_target();
         if matches!(&event, Event::Action(Action::CommandPalette))
             && let Ok(target) = self.query_one("CommandPalette")
         {
             let tree = self.active_widget_tree_mut().expect("tree should exist");
-            let direct = dispatch_event_to_target_tree(tree, target, &event);
+            let mut direct = dispatch_event_to_target_tree(tree, target, &event);
+            if dismissed_tooltip {
+                direct.repaint_requested = true;
+                direct
+                    .invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
             if direct.handled {
                 return direct;
             }
@@ -4107,7 +4120,14 @@ impl App {
             )
         {
             let tree = self.active_widget_tree_mut().expect("tree should exist");
-            return dispatch_event_to_target_tree(tree, target, &event);
+            let mut direct = dispatch_event_to_target_tree(tree, target, &event);
+            if dismissed_tooltip {
+                direct.repaint_requested = true;
+                direct
+                    .invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
+            return direct;
         }
 
         // The root widget (e.g. TextualAppAdapter) is not mounted in the arena,
@@ -4206,6 +4226,12 @@ impl App {
                 .worker_requests
                 .extend(app_action_ctx.take_worker_requests());
         }
+        if dismissed_tooltip {
+            outcome.repaint_requested = true;
+            outcome
+                .invalidation
+                .merge(crate::event::InvalidationFlags::layout());
+        }
         outcome
     }
 
@@ -4217,11 +4243,19 @@ impl App {
         event: &Event,
     ) -> DispatchOutcome {
         self.ensure_runtime_tree(root);
+        let dismissed_tooltip = matches!(event, Event::Action(Action::CommandPalette))
+            && self.start_command_palette_tooltip_cooldown();
         if matches!(event, Event::Action(Action::CommandPalette))
             && let Ok(target) = self.query_one("CommandPalette")
         {
             let tree = self.active_widget_tree_mut().expect("tree should exist");
-            let direct = dispatch_event_to_target_tree(tree, target, event);
+            let mut direct = dispatch_event_to_target_tree(tree, target, event);
+            if dismissed_tooltip {
+                direct.repaint_requested = true;
+                direct
+                    .invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
             if direct.handled {
                 return direct;
             }
@@ -4241,9 +4275,23 @@ impl App {
                     | Event::Tick(_)
             )
         {
-            return dispatch_event_to_target_tree(tree, palette_target, event);
+            let mut direct = dispatch_event_to_target_tree(tree, palette_target, event);
+            if dismissed_tooltip {
+                direct.repaint_requested = true;
+                direct
+                    .invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
+            return direct;
         }
-        dispatch_event_to_target_tree(tree, _target, event)
+        let mut outcome = dispatch_event_to_target_tree(tree, _target, event);
+        if dismissed_tooltip {
+            outcome.repaint_requested = true;
+            outcome
+                .invalidation
+                .merge(crate::event::InvalidationFlags::layout());
+        }
+        outcome
     }
 
     /// Dispatch a scroll action via the arena tree.
@@ -4904,6 +4952,80 @@ mod tests {
         assert!(
             lines.contains("Search for commands"),
             "opened palette UI should render in tree mode"
+        );
+    }
+
+    #[test]
+    fn command_palette_action_dismisses_visible_system_tooltip_immediately() {
+        struct TooltipHost;
+
+        impl Widget for TooltipHost {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn tooltip(&self) -> Option<String> {
+                Some("Open command palette".to_string())
+            }
+        }
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let tooltip_owner = tree.mount(root_id, Box::new(TooltipHost));
+        tree.mount(
+            root_id,
+            Box::new(crate::widgets::CommandPalette::new(
+                crate::widgets::Label::new("body"),
+            )),
+        );
+        App::mount_system_tooltip(&mut tree, root_id);
+        if let Some(node) = tree.get_mut(tooltip_owner) {
+            node.layout_rect = crate::widget_tree::Rect {
+                x0: 0,
+                y0: 0,
+                x1: 8,
+                y1: 1,
+            };
+            node.content_rect = node.layout_rect;
+        }
+
+        let mut app = test_app_with_tree(tree);
+        app.options.size = (80, 24);
+        app.options.max_width = 80;
+        app.options.max_height = 24;
+        app.hovered = Some(tooltip_owner);
+        assert!(app.update_hover_tooltip(1, 0));
+
+        let tooltip_id = app
+            .get_widget_by_id(crate::widgets::SYSTEM_TOOLTIP_STYLE_ID)
+            .expect("system tooltip should exist");
+        let visible_before = app
+            .active_widget_tree()
+            .and_then(|tree| tree.get(tooltip_id))
+            .map(|node| node.runtime_display)
+            .unwrap_or(false);
+        assert!(visible_before, "precondition: tooltip should be visible");
+
+        let mut runtime_root = AppRoot::new();
+        let outcome =
+            app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::CommandPalette));
+        assert!(
+            outcome.repaint_requested,
+            "opening command palette should request repaint when dismissing tooltip"
+        );
+
+        let visible_after = app
+            .active_widget_tree()
+            .and_then(|tree| tree.get(tooltip_id))
+            .map(|node| node.runtime_display)
+            .unwrap_or(true);
+        assert!(
+            !visible_after,
+            "command palette open should dismiss tooltip immediately"
+        );
+        assert!(
+            !app.update_hover_tooltip(1, 0),
+            "command palette open should start a cooldown that suppresses immediate tooltip re-show"
         );
     }
 
