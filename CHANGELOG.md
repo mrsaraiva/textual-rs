@@ -35,6 +35,10 @@ until the API stabilizes.
   - Removed the obsolete hit-test-driven tree layout propagation path to keep a single canonical layout-info source.
   - Added regression coverage ensuring post-render layout propagation does not shrink viewport state from narrow hit-test strips.
 
+- **fix(modal03 parity): honor callback-based quit flow when dismissing quit dialog**
+  - `docs/widgets/examples/modal03` now follows Python modal03 result semantics (`dismiss(true/false)`) and stops the app through event-loop stop request (`ctx.request_stop()`), so pressing `Quit` exits immediately instead of only dismissing the modal.
+  - Kept cancel behavior unchanged (`dismiss(false)`), returning focus to the app without exiting.
+
 - **fix(tooltip parity): unify header/footer hover tooltips on shared system `Tooltip` with canonical placement behavior**
   - Replaced runtime-only hover-bubble composition with a shared tree-mounted system `Tooltip` widget (`#textual-tooltip`) so header/footer/tooltips follow the same CSS defaults and composition path.
   - Added widget-level tooltip anchors (`Widget::tooltip_anchor`) and wired `HeaderIcon` / `Footer` anchors to stabilize placement to Python-equivalent hit regions.
