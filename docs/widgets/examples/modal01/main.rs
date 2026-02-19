@@ -19,17 +19,8 @@ impl Widget for QuitDialogRoot {
             .with_child(Button::primary("Cancel").with_action("app.pop_screen"))]
     }
 
-    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let mut out = Segments::new();
-        for row in 0..height {
-            out.push(rich_rs::Segment::new(" ".repeat(width)));
-            if row + 1 < height {
-                out.push(rich_rs::Segment::line());
-            }
-        }
-        out
+    fn render(&self, _console: &rich_rs::Console, _options: &rich_rs::ConsoleOptions) -> Segments {
+        Segments::new()
     }
 }
 

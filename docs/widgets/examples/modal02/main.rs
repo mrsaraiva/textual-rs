@@ -12,42 +12,15 @@ impl Widget for QuitDialogRoot {
     }
 
     fn compose(&self) -> ComposeResult {
-        compose![Node::new(
-            Grid::new(2, 2)
-                .with_cell(
-                    0,
-                    0,
-                    Node::new(Label::new("Are you sure you want to quit?")).id("question"),
-                )
-                .with_cell(1, 0, Node::new(Button::error("Quit")).id("quit"))
-                .with_cell(1, 1, Node::new(Button::primary("Cancel")).id("cancel")),
-        )
-        .id("dialog")]
+        compose![Grid::new(2, 2)
+            .id("dialog")
+            .with_child(Label::new("Are you sure you want to quit?").with_id("question"))
+            .with_child(Button::error("Quit").with_action("app.quit"))
+            .with_child(Button::primary("Cancel").with_action("app.pop_screen"))]
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
-            if description.contains("variant='error'") {
-                ctx.request_stop();
-            } else {
-                ctx.post_message(Message::AppPopScreen(AppPopScreen));
-            }
-            ctx.request_repaint();
-            ctx.set_handled();
-        }
-    }
-
-    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let mut out = Segments::new();
-        for row in 0..height {
-            out.push(rich_rs::Segment::new(" ".repeat(width)));
-            if row + 1 < height {
-                out.push(rich_rs::Segment::line());
-            }
-        }
-        out
+    fn render(&self, _console: &rich_rs::Console, _options: &rich_rs::ConsoleOptions) -> Segments {
+        Segments::new()
     }
 }
 
@@ -70,9 +43,9 @@ impl Screen for QuitScreen {
     }
 }
 
-struct Modal02App;
+struct Modal01App;
 
-impl TextualApp for Modal02App {
+impl TextualApp for Modal01App {
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![BindingDecl::new("q", "app.push_screen('quit')", "Quit")]
     }
@@ -91,5 +64,5 @@ impl TextualApp for Modal02App {
 }
 
 fn main() -> Result<()> {
-    run_sync(Modal02App)
+    run_sync(Modal01App)
 }

@@ -1,13 +1,14 @@
 use crate::css::{
-    AppRuntimePseudos, begin_style_render_pass, pop_style_context, push_style_context,
+    AppRuntimePseudos, StyleSheet, begin_style_render_pass, pop_style_context, push_style_context,
     resolve_style, selector_meta_generic, selector_meta_generic_with_classes, set_app_active,
     set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::{debug_layout, debug_render};
-use crate::node_id::NodeId;
+use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::style::{
-    BorderEdge, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
+    BorderEdge, Color, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
+    color_from_simple,
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
@@ -18,7 +19,7 @@ use crate::widgets::{
     border_spacing_from_style, crop_line_horizontal,
 };
 
-use rich_rs::{ControlType, Renderable, Segment, Segments};
+use rich_rs::{ControlType, MetaValue, Renderable, Segment, Segments, StyleMeta};
 use std::sync::OnceLock;
 
 use super::App;
@@ -109,43 +110,26 @@ impl App {
         layout_invalidation: bool,
     ) -> crate::Result<()> {
         self.refresh_size()?;
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = self.active_screen_stylesheet() {
-            sheet.extend(screen_sheet);
-        }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             inline: self.app_inline,
             ansi: self.app_ansi,
             nocolor: self.app_nocolor,
         });
-        let _guard = set_style_context(sheet);
-        begin_style_render_pass();
-
-        // Run CSS layout pass when layout is invalidated and tree is available.
-        // This computes layout_rect/content_rect for all tree nodes before
-        // rendering, so precomputed rects are available for widget sizing.
-        if layout_invalidation {
-            let (w, h) = self.options.size;
-            if let Some(tree) = self.active_widget_tree_mut() {
-                run_layout_pass(tree, (w as u16, h as u16));
-                apply_layout_info_tree_from_layout_rects(tree);
-                let render_nodes = collect_render_nodes(tree);
-                debug_render(&format!(
-                    "[layout_pass] viewport={}x{} render_nodes={}",
-                    w,
-                    h,
-                    render_nodes.len()
-                ));
-            }
-        }
 
         // Tree-driven render path: walk the arena tree depth-first,
         // rendering each widget at its layout_rect position.
         if self.active_widget_tree().is_some() {
             return self.render_tree_composed(widget, dirty_regions, layout_invalidation);
         }
+
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = self.active_screen_stylesheet() {
+            sheet.extend(screen_sheet);
+        }
+        let _guard = set_style_context(sheet);
+        begin_style_render_pass();
 
         // Legacy render path: recursive widget.render_styled() from root.
         let segments = if self.debug_layout.enabled {
@@ -234,136 +218,57 @@ impl App {
     ) -> crate::Result<()> {
         let (width, height) = self.options.size;
         let base_style = self.theme.base.to_rich();
-
-        // Take tree out of self to avoid borrow conflicts — we need &tree for
-        // reading widgets and &mut self for frame/notifications/output.
-        let (mut tree, using_screen_tree) = if let Some(entry) = self.screen_stack.top_mut() {
-            (std::mem::take(&mut entry.widget_tree), true)
-        } else {
-            (self.widget_tree.take().expect("tree should exist"), false)
-        };
-
         let mut next = FrameBuffer::new(width, height, base_style);
-        if using_screen_tree {
-            apply_root_tree_virtual_content_size_in_tree(&mut tree);
-        } else {
-            apply_root_tree_virtual_content_size(widget, &tree);
-        }
+        let layers = self.collect_visible_render_layers();
+        let mut layout_affected_style_change = false;
+        let mut has_underlay = false;
 
-        // Render the active root widget first. Its children have been extracted,
-        // so this produces only the root's CSS chrome (background, border, padding).
-        let root_node_id = tree.root().unwrap_or_default();
-        let root_segments = if using_screen_tree {
-            tree.get(root_node_id)
-                .map(|node| {
-                    node.widget.render_styled_dyn_obj(
-                        &self.console,
-                        &self.options,
-                        if self.debug_layout.enabled {
-                            Some(&self.debug_layout)
-                        } else {
-                            None
-                        },
-                        root_node_id,
-                    )
-                })
-                .unwrap_or_default()
-        } else {
-            widget.render_styled_dyn_obj(
-                &self.console,
-                &self.options,
-                if self.debug_layout.enabled {
-                    Some(&self.debug_layout)
-                } else {
-                    None
+        for layer in layers {
+            let debug_label = layer.debug_label();
+            let screen_stylesheet = match layer {
+                CompositedLayer::AppRoot => None,
+                CompositedLayer::Screen(index) => self
+                    .screen_stack
+                    .get(index)
+                    .and_then(|entry| entry.stylesheet.as_ref()),
+            };
+            let sheet = self.stylesheet_for_layer(screen_stylesheet);
+            let _style_guard = set_style_context(sheet);
+            begin_style_render_pass();
+
+            let mut tree = match layer {
+                CompositedLayer::AppRoot => match self.widget_tree.take() {
+                    Some(tree) => tree,
+                    None => continue,
                 },
-                root_node_id,
-            )
-        };
-        let root_lines = Segment::split_and_crop_lines(root_segments, width, None, true, false);
-        for (row, line) in root_lines.iter().enumerate() {
-            next.write_line_at(0, row, line, true);
-        }
-
-        // Walk tree children (skip the stub root node) and render each at
-        // its layout_rect position with CSS style stack management.
-        if let Some(root_id) = tree.root() {
-            // Push root widget's style context so children can inherit.
-            let root_widget: &dyn Widget = if using_screen_tree {
-                tree.get(root_id)
-                    .map(|node| node.widget.as_ref())
-                    .unwrap_or(widget)
-            } else {
-                widget
-            };
-            let root_meta = selector_meta_generic(root_widget);
-            let root_resolved = resolve_style(root_widget, &root_meta);
-            push_style_context(root_meta, root_resolved);
-
-            let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
-            let (root_scroll_x, root_scroll_y) = if using_screen_tree {
-                tree.get(root_id)
-                    .map(|node| node.widget.scroll_offset_f32())
-                    .unwrap_or((0.0, 0.0))
-            } else {
-                widget.scroll_offset_f32()
-            };
-            if scrollbar_drag_trace_enabled()
-                && (root_scroll_x.abs() > f32::EPSILON || root_scroll_y.abs() > f32::EPSILON)
-            {
-                let mut child_summary = Vec::new();
-                for &child_id in &child_ids {
-                    if let Some(node) = tree.get(child_id) {
-                        let docked = node_is_docked(&tree, child_id);
-                        let rect = node.layout_rect;
-                        child_summary.push(format!(
-                            "{}:{}:{}..{}x{}..{}",
-                            node.widget.style_type(),
-                            if docked { "dock" } else { "flow" },
-                            rect.x0,
-                            rect.x1,
-                            rect.y0,
-                            rect.y1
-                        ));
-                    }
+                CompositedLayer::Screen(index) => {
+                    let Some(entry) = self.screen_stack.get_mut(index) else {
+                        continue;
+                    };
+                    std::mem::take(&mut entry.widget_tree)
                 }
+            };
+
+            if layout_invalidation {
+                let (w, h) = self.options.size;
+                run_layout_pass(&mut tree, (w as u16, h as u16));
+                apply_layout_info_tree_from_layout_rects(&mut tree);
+                let render_nodes = collect_render_nodes(&tree);
                 debug_render(&format!(
-                    "[render-root-scroll] using_screen_tree={} root_scroll=({:.3}, {:.3}) children=[{}]",
-                    using_screen_tree,
-                    root_scroll_x,
-                    root_scroll_y,
-                    child_summary.join(", ")
+                    "[layout_pass] layer={} viewport={}x{} render_nodes={}",
+                    debug_label,
+                    w,
+                    h,
+                    render_nodes.len()
                 ));
             }
-            let base_ctx = TreeRenderCtx {
-                origin_x: 0,
-                origin_y: 0,
-                clip: ClipRect::for_frame(&next),
-            };
-            let scroll_clip = root_widget
-                .scroll_viewport_size()
-                .map(|(vw, vh)| ClipRect {
-                    x0: 0,
-                    y0: 0,
-                    x1: vw.min(width) as i32,
-                    y1: vh.min(height) as i32,
-                })
-                .unwrap_or_else(|| ClipRect::for_frame(&next));
-            let scroll_ctx = TreeRenderCtx {
-                origin_x: -(root_scroll_x.round() as i32),
-                origin_y: -(root_scroll_y.round() as i32),
-                clip: scroll_clip,
-            };
-            for child_id in child_ids {
-                let child_ctx = if root_child_uses_root_scroll(&tree, root_id, child_id) {
-                    scroll_ctx
-                } else {
-                    base_ctx
-                };
-                render_tree_node(
+
+            apply_root_tree_virtual_content_size_in_tree(&mut tree);
+
+            match layer {
+                CompositedLayer::AppRoot => render_app_root_tree_layer(
                     &tree,
-                    child_id,
-                    child_ctx,
+                    widget,
                     &mut next,
                     &self.console,
                     if self.debug_layout.enabled {
@@ -371,19 +276,33 @@ impl App {
                     } else {
                         None
                     },
-                );
+                ),
+                CompositedLayer::Screen(_) => render_screen_tree_layer(
+                    &tree,
+                    &mut next,
+                    &self.console,
+                    if self.debug_layout.enabled {
+                        Some(&self.debug_layout)
+                    } else {
+                        None
+                    },
+                    has_underlay,
+                ),
             }
 
-            pop_style_context();
-        }
+            layout_affected_style_change |= take_layout_affected_style_changes();
+            has_underlay = true;
 
-        let layout_affected_style_change = take_layout_affected_style_changes();
-
-        // Put tree back before the rest of the pipeline.
-        if let Some(entry) = self.screen_stack.top_mut() {
-            entry.widget_tree = tree;
-        } else {
-            self.widget_tree = Some(tree);
+            match layer {
+                CompositedLayer::AppRoot => {
+                    self.widget_tree = Some(tree);
+                }
+                CompositedLayer::Screen(index) => {
+                    if let Some(entry) = self.screen_stack.get_mut(index) {
+                        entry.widget_tree = tree;
+                    }
+                }
+            }
         }
 
         self.compose_notifications(&mut next);
@@ -446,6 +365,71 @@ impl App {
         }
         self.frame = next;
         Ok(())
+    }
+
+    fn stylesheet_for_layer(&self, screen_sheet: Option<&StyleSheet>) -> StyleSheet {
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = screen_sheet {
+            sheet.extend(screen_sheet);
+        }
+        sheet
+    }
+
+    fn screen_layer_background_is_opaque(&self, index: usize) -> bool {
+        let Some(entry) = self.screen_stack.get(index) else {
+            return false;
+        };
+        let Some(root_id) = entry.widget_tree.root() else {
+            return false;
+        };
+        let Some(root) = entry.widget_tree.get(root_id) else {
+            return false;
+        };
+
+        let sheet = self.stylesheet_for_layer(entry.stylesheet.as_ref());
+        let _guard = set_style_context(sheet);
+        begin_style_render_pass();
+        let meta =
+            selector_meta_generic_with_classes(root.widget.as_ref(), root.classes.iter().cloned());
+        let resolved = resolve_style(root.widget.as_ref(), &meta);
+        resolved.bg.is_some_and(|bg| bg.a == u8::MAX)
+    }
+
+    fn collect_visible_render_layers(&self) -> Vec<CompositedLayer> {
+        let mut front_to_back = Vec::new();
+        let screen_count = self.screen_stack.len();
+
+        if screen_count == 0 {
+            if self.widget_tree.is_some() {
+                front_to_back.push(CompositedLayer::AppRoot);
+            }
+            return front_to_back;
+        }
+
+        let top = screen_count - 1;
+        front_to_back.push(CompositedLayer::Screen(top));
+
+        if self.screen_layer_background_is_opaque(top) {
+            front_to_back.reverse();
+            return front_to_back;
+        }
+
+        let mut blocked_by_opaque_screen = false;
+        for index in (0..top).rev() {
+            front_to_back.push(CompositedLayer::Screen(index));
+            if self.screen_layer_background_is_opaque(index) {
+                blocked_by_opaque_screen = true;
+                break;
+            }
+        }
+
+        if !blocked_by_opaque_screen && self.widget_tree.is_some() {
+            front_to_back.push(CompositedLayer::AppRoot);
+        }
+
+        front_to_back.reverse();
+        front_to_back
     }
 
     pub(super) fn compose_notifications(&mut self, frame: &mut FrameBuffer) {
@@ -985,6 +969,257 @@ fn render_tree_node(
     pop_style_context();
 }
 
+fn render_app_root_tree_layer(
+    tree: &WidgetTree,
+    root_widget: &mut dyn Widget,
+    frame: &mut FrameBuffer,
+    console: &rich_rs::Console,
+    debug: Option<&crate::debug::DebugLayout>,
+) {
+    let width = frame.width;
+    let height = frame.height;
+    let root_node_id = tree.root().unwrap_or_default();
+
+    let mut opts = rich_rs::ConsoleOptions::default();
+    opts.size = (width, height);
+    opts.max_width = width;
+    opts.max_height = height;
+
+    let root_segments = root_widget.render_styled_dyn_obj(console, &opts, debug, root_node_id);
+    let root_lines = Segment::split_and_crop_lines(root_segments, width, None, true, false);
+    for (row, line) in root_lines.iter().enumerate() {
+        frame.write_line_at(0, row, line, true);
+    }
+
+    let Some(root_id) = tree.root() else {
+        return;
+    };
+
+    let root_meta = selector_meta_generic(root_widget);
+    let root_resolved = resolve_style(root_widget, &root_meta);
+    push_style_context(root_meta, root_resolved);
+
+    let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
+    let (root_scroll_x, root_scroll_y) = root_widget.scroll_offset_f32();
+    if scrollbar_drag_trace_enabled()
+        && (root_scroll_x.abs() > f32::EPSILON || root_scroll_y.abs() > f32::EPSILON)
+    {
+        let mut child_summary = Vec::new();
+        for &child_id in &child_ids {
+            if let Some(node) = tree.get(child_id) {
+                let docked = node_is_docked(tree, child_id);
+                let rect = node.layout_rect;
+                child_summary.push(format!(
+                    "{}:{}:{}..{}x{}..{}",
+                    node.widget.style_type(),
+                    if docked { "dock" } else { "flow" },
+                    rect.x0,
+                    rect.x1,
+                    rect.y0,
+                    rect.y1
+                ));
+            }
+        }
+        debug_render(&format!(
+            "[render-root-scroll] layer=app root_scroll=({:.3}, {:.3}) children=[{}]",
+            root_scroll_x,
+            root_scroll_y,
+            child_summary.join(", ")
+        ));
+    }
+
+    let base_ctx = TreeRenderCtx {
+        origin_x: 0,
+        origin_y: 0,
+        clip: ClipRect::for_frame(frame),
+    };
+    let scroll_clip = root_widget
+        .scroll_viewport_size()
+        .map(|(vw, vh)| ClipRect {
+            x0: 0,
+            y0: 0,
+            x1: vw.min(width) as i32,
+            y1: vh.min(height) as i32,
+        })
+        .unwrap_or_else(|| ClipRect::for_frame(frame));
+    let scroll_ctx = TreeRenderCtx {
+        origin_x: -(root_scroll_x.round() as i32),
+        origin_y: -(root_scroll_y.round() as i32),
+        clip: scroll_clip,
+    };
+
+    for child_id in child_ids {
+        let child_ctx = if root_child_uses_root_scroll(tree, root_id, child_id) {
+            scroll_ctx
+        } else {
+            base_ctx
+        };
+        render_tree_node(tree, child_id, child_ctx, frame, console, debug);
+    }
+
+    pop_style_context();
+}
+
+fn render_screen_tree_layer(
+    tree: &WidgetTree,
+    frame: &mut FrameBuffer,
+    console: &rich_rs::Console,
+    debug: Option<&crate::debug::DebugLayout>,
+    has_underlay: bool,
+) {
+    let Some(root_id) = tree.root() else {
+        return;
+    };
+    let Some(root_node) = tree.get(root_id) else {
+        return;
+    };
+    let root_meta = selector_meta_generic_with_classes(
+        root_node.widget.as_ref(),
+        root_node.classes.iter().cloned(),
+    );
+    let root_resolved = resolve_style(root_node.widget.as_ref(), &root_meta);
+    let root_rect = root_node.layout_rect;
+    let root_scroll = root_node.widget.scroll_offset_f32();
+    let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
+
+    if let Some(clip) = clip_rect_from_tree_rect(root_rect, frame) {
+        if let Some(bg) = root_resolved.bg {
+            if bg.a == u8::MAX {
+                fill_rect_with_background(frame, clip, bg);
+            } else if has_underlay {
+                tint_rect_with_background(frame, clip, bg);
+            } else {
+                fill_rect_with_background(frame, clip, bg.flatten_over(Color::rgb(0, 0, 0)));
+            }
+        }
+        stamp_owner_meta_in_rect(frame, clip, root_id);
+    }
+
+    push_style_context(root_meta, root_resolved);
+    if scrollbar_drag_trace_enabled()
+        && (root_scroll.0.abs() > f32::EPSILON || root_scroll.1.abs() > f32::EPSILON)
+    {
+        let mut child_summary = Vec::new();
+        for &child_id in &child_ids {
+            if let Some(node) = tree.get(child_id) {
+                let docked = node_is_docked(tree, child_id);
+                let rect = node.layout_rect;
+                child_summary.push(format!(
+                    "{}:{}:{}..{}x{}..{}",
+                    node.widget.style_type(),
+                    if docked { "dock" } else { "flow" },
+                    rect.x0,
+                    rect.x1,
+                    rect.y0,
+                    rect.y1
+                ));
+            }
+        }
+        debug_render(&format!(
+            "[render-root-scroll] layer=screen root_scroll=({:.3}, {:.3}) children=[{}]",
+            root_scroll.0,
+            root_scroll.1,
+            child_summary.join(", ")
+        ));
+    }
+
+    let width = frame.width;
+    let height = frame.height;
+    let base_ctx = TreeRenderCtx {
+        origin_x: 0,
+        origin_y: 0,
+        clip: ClipRect::for_frame(frame),
+    };
+    let scroll_clip = root_node
+        .widget
+        .scroll_viewport_size()
+        .map(|(vw, vh)| ClipRect {
+            x0: 0,
+            y0: 0,
+            x1: vw.min(width) as i32,
+            y1: vh.min(height) as i32,
+        })
+        .unwrap_or_else(|| ClipRect::for_frame(frame));
+    let scroll_ctx = TreeRenderCtx {
+        origin_x: -(root_scroll.0.round() as i32),
+        origin_y: -(root_scroll.1.round() as i32),
+        clip: scroll_clip,
+    };
+
+    for child_id in child_ids {
+        let child_ctx = if root_child_uses_root_scroll(tree, root_id, child_id) {
+            scroll_ctx
+        } else {
+            base_ctx
+        };
+        render_tree_node(tree, child_id, child_ctx, frame, console, debug);
+    }
+
+    pop_style_context();
+}
+
+fn clip_rect_from_tree_rect(
+    rect: crate::widget_tree::Rect,
+    frame: &FrameBuffer,
+) -> Option<ClipRect> {
+    let frame_clip = ClipRect::for_frame(frame);
+    let rect_clip = ClipRect {
+        x0: i32::from(rect.x0),
+        y0: i32::from(rect.y0),
+        x1: i32::from(rect.x1),
+        y1: i32::from(rect.y1),
+    };
+    frame_clip.intersect(rect_clip)
+}
+
+fn fill_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, bg: Color) {
+    let style = rich_rs::Style::new().with_bgcolor(bg.to_simple_opaque());
+    for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
+        for x in clip.x0.max(0) as usize..clip.x1.max(0) as usize {
+            frame.set_cell(x, y, crate::render::Cell::blank(Some(style)));
+        }
+    }
+}
+
+fn tint_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, tint: Color) {
+    if tint.a == 0 {
+        return;
+    }
+    for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
+        for x in clip.x0.max(0) as usize..clip.x1.max(0) as usize {
+            let mut cell = frame.get(x, y).clone();
+            let mut style = cell.style.unwrap_or_default();
+            let under_bg = style
+                .bgcolor
+                .map(color_from_simple)
+                .unwrap_or_else(|| Color::rgb(0, 0, 0));
+            style = style.with_bgcolor(tint.flatten_over(under_bg).to_simple_opaque());
+            cell.style = Some(style);
+            frame.set_cell(x, y, cell);
+        }
+    }
+}
+
+fn stamp_owner_meta_in_rect(frame: &mut FrameBuffer, clip: ClipRect, owner: NodeId) {
+    let owner_value = node_id_to_ffi(owner) as i64;
+    for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
+        for x in clip.x0.max(0) as usize..clip.x1.max(0) as usize {
+            let mut cell = frame.get(x, y).clone();
+            let mut map = cell
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.meta.as_ref())
+                .map(|meta| (**meta).clone())
+                .unwrap_or_default();
+            map.insert("textual:widget_id".to_string(), MetaValue::Int(owner_value));
+            let mut meta = cell.meta.unwrap_or_else(StyleMeta::new);
+            meta.meta = Some(std::sync::Arc::new(map));
+            cell.meta = Some(meta);
+            frame.set_cell(x, y, cell);
+        }
+    }
+}
+
 fn root_child_uses_root_scroll(tree: &WidgetTree, root_id: NodeId, child_id: NodeId) -> bool {
     let _ = root_id;
     child_uses_parent_scroll(tree, child_id)
@@ -1030,6 +1265,21 @@ struct TreeRenderCtx {
     origin_x: i32,
     origin_y: i32,
     clip: ClipRect,
+}
+
+#[derive(Clone, Copy)]
+enum CompositedLayer {
+    AppRoot,
+    Screen(usize),
+}
+
+impl CompositedLayer {
+    fn debug_label(self) -> String {
+        match self {
+            CompositedLayer::AppRoot => "app".to_string(),
+            CompositedLayer::Screen(index) => format!("screen[{index}]"),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -3124,6 +3374,117 @@ mod tests {
         assert!(
             tree.get(child_id).expect("child exists").display,
             "runtime-visible child should render when CSS display allows it"
+        );
+    }
+
+    fn render_with_optional_screen(screen: Option<Box<dyn crate::screen::Screen>>) -> String {
+        let mut app = App::new().expect("app should initialize");
+        app.options.size = (80, 24);
+        app.options.max_width = 80;
+        app.options.max_height = 24;
+
+        let mut root =
+            crate::widgets::AppRoot::new().with_child(crate::widgets::Label::new("BASE_VISIBLE"));
+        app.build_widget_tree(&mut root);
+        if let Some(screen) = screen {
+            app.push_screen(screen);
+        }
+        app.render_widget(&mut root).expect("render should succeed");
+        app.frame.as_plain_lines().join("\n")
+    }
+
+    #[test]
+    fn modal_screen_layer_preserves_underlay_text() {
+        struct EmptyOverlayWidget;
+
+        impl Widget for EmptyOverlayWidget {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct ModalOverlayScreen;
+
+        impl crate::screen::Screen for ModalOverlayScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(EmptyOverlayWidget)
+            }
+        }
+
+        let lines = render_with_optional_screen(Some(Box::new(ModalOverlayScreen)));
+        assert!(
+            lines.contains("BASE_VISIBLE"),
+            "modal screen with translucent background should preserve underlay content"
+        );
+    }
+
+    #[test]
+    fn non_modal_screen_layer_hides_underlay_text() {
+        struct EmptyOverlayWidget;
+
+        impl Widget for EmptyOverlayWidget {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct NonModalOverlayScreen;
+
+        impl crate::screen::Screen for NonModalOverlayScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(EmptyOverlayWidget)
+            }
+
+            fn is_modal(&self) -> bool {
+                false
+            }
+        }
+
+        let lines = render_with_optional_screen(Some(Box::new(NonModalOverlayScreen)));
+        assert!(
+            !lines.contains("BASE_VISIBLE"),
+            "opaque non-modal screen should hide underlay app content"
+        );
+    }
+
+    #[test]
+    fn screen_stylesheet_does_not_leak_to_underlay_layer() {
+        struct EmptyOverlayWidget;
+
+        impl Widget for EmptyOverlayWidget {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct ModalSheetIsolationScreen;
+
+        impl crate::screen::Screen for ModalSheetIsolationScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(EmptyOverlayWidget)
+            }
+
+            fn css(&self) -> Option<&str> {
+                Some("Label { display: none; }")
+            }
+        }
+
+        let lines = render_with_optional_screen(Some(Box::new(ModalSheetIsolationScreen)));
+        assert!(
+            lines.contains("BASE_VISIBLE"),
+            "screen-specific stylesheet rules should not affect app underlay layer"
         );
     }
 }

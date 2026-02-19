@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **[wip] refactor(screen compositing parity): introduce canonical `Screen`/`ModalScreen` host roots and layered screen rendering**
+  - Pushed screens now mount through a dedicated host widget that exposes canonical CSS type identity (`Screen` / `ModalScreen`) while preserving composed body widgets as descendants.
+  - Runtime tree rendering now composites visible app + screen layers back-to-front with per-layer stylesheet isolation and opaque/translucent modal background semantics aligned to Python defaults.
+  - Added regression coverage for modal/non-modal underlay behavior and style-sheet isolation across composed screen layers.
+
 - **fix(app-root scrollbar parity): reclaim viewport width when overflow disappears**
   - Tree layout-info propagation now feeds `AppRoot` with its solved viewport (`content_rect`) dimensions instead of full layout box dimensions, keeping internal viewport state aligned with runtime scrollbar geometry.
   - This lets app-global scrollbar lanes collapse cleanly on resize when content no longer overflows, so content immediately reclaims horizontal space (Python-equivalent behavior).

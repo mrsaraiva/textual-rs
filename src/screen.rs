@@ -14,6 +14,7 @@
 use crate::css::StyleSheet;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
+use rich_rs::{Console, ConsoleOptions, Segments};
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,48 @@ pub enum ScreenResult {
 
 /// Type-erased callback invoked when a screen is dismissed with a result.
 pub type ScreenResultCallback = Box<dyn FnOnce(ScreenResult) + Send>;
+
+const MODAL_SCREEN_ALIASES: &[&str] = &["Screen"];
+
+/// Root host widget for pushed screens.
+///
+/// This preserves canonical Textual CSS typing (`Screen` / `ModalScreen`)
+/// while keeping the screen body as a child subtree.
+struct ScreenHost {
+    modal: bool,
+    child: Option<Box<dyn Widget>>,
+}
+
+impl ScreenHost {
+    fn new(modal: bool, child: Box<dyn Widget>) -> Self {
+        Self {
+            modal,
+            child: Some(child),
+        }
+    }
+}
+
+impl Widget for ScreenHost {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.child.take().into_iter().collect()
+    }
+
+    fn style_type(&self) -> &'static str {
+        if self.modal { "ModalScreen" } else { "Screen" }
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        if self.modal {
+            MODAL_SCREEN_ALIASES
+        } else {
+            &[]
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ScreenEntry (internal)
@@ -204,7 +247,8 @@ impl ScreenStack {
 
         // Build the widget tree from the screen's compose output, extracting
         // composed children/declarations into the arena like the app root path.
-        let root_widget = screen.compose();
+        let modal = screen.is_modal();
+        let root_widget = Box::new(ScreenHost::new(modal, screen.compose()));
         let mut widget_tree = WidgetTree::new();
         let root_id = widget_tree.set_root(root_widget);
         let (extracted_children, compose_decls) = widget_tree
@@ -306,6 +350,16 @@ impl ScreenStack {
     #[allow(dead_code)]
     pub(crate) fn top_mut(&mut self) -> Option<&mut ScreenEntry> {
         self.screens.last_mut()
+    }
+
+    /// Immutable access to a screen entry by stack index (`0` = bottom).
+    pub(crate) fn get(&self, index: usize) -> Option<&ScreenEntry> {
+        self.screens.get(index)
+    }
+
+    /// Mutable access to a screen entry by stack index (`0` = bottom).
+    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut ScreenEntry> {
+        self.screens.get_mut(index)
     }
 
     /// Number of screens on the stack.
@@ -680,7 +734,7 @@ mod tests {
         let entry = stack.top().unwrap();
         // The widget tree should have a root node (from compose).
         assert!(entry.widget_tree.root().is_some());
-        assert_eq!(entry.widget_tree.len(), 2);
+        assert_eq!(entry.widget_tree.len(), 3);
     }
 
     // -- CSS stylesheet is parsed from css() --------------------------------
@@ -914,5 +968,61 @@ mod tests {
         // Pop titled screen — back to base with no title.
         stack.pop();
         assert!(stack.active_title().is_none());
+    }
+
+    #[test]
+    fn pushed_modal_screen_root_uses_modal_screen_type_and_preserves_body_widget() {
+        struct ScreenBody;
+
+        impl Widget for ScreenBody {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn style_type(&self) -> &'static str {
+                "QuitScreen"
+            }
+        }
+
+        struct ModalBodyScreen;
+
+        impl Screen for ModalBodyScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(ScreenBody)
+            }
+        }
+
+        let mut stack = ScreenStack::new();
+        stack.push(Box::new(ModalBodyScreen));
+
+        let entry = stack.top().expect("top screen should exist");
+        let root_id = entry
+            .widget_tree
+            .root()
+            .expect("screen tree root should exist");
+        let root = entry
+            .widget_tree
+            .get(root_id)
+            .expect("root node should exist");
+        assert_eq!(root.widget.style_type(), "ModalScreen");
+        assert!(
+            root.widget.style_type_aliases().contains(&"Screen"),
+            "ModalScreen root should also match Screen selectors"
+        );
+
+        let child_id = *entry
+            .widget_tree
+            .children(root_id)
+            .first()
+            .expect("modal root should host the composed body widget");
+        let child = entry
+            .widget_tree
+            .get(child_id)
+            .expect("body widget should exist");
+        assert_eq!(
+            child.widget.style_type(),
+            "QuitScreen",
+            "screen body widget type should remain available for screen-specific selectors"
+        );
     }
 }
