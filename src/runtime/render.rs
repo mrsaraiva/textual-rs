@@ -2407,7 +2407,13 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
-            let rect = node.layout_rect;
+            let widget_any = node.widget.as_ref() as &dyn std::any::Any;
+            let uses_viewport_layout_rect = widget_any.is::<crate::widgets::AppRoot>();
+            let rect = if uses_viewport_layout_rect {
+                node.content_rect
+            } else {
+                node.layout_rect
+            };
             let meta = crate::css::selector_meta_generic_with_classes(
                 node.widget.as_ref(),
                 node.classes.iter().cloned(),
@@ -2959,6 +2965,14 @@ mod tests {
             38,
             "app root viewport should exclude dedicated vertical scrollbar lane"
         );
+        let app_viewport = (root.widget.as_ref() as &dyn std::any::Any)
+            .downcast_ref::<AppRoot>()
+            .and_then(|app_root| app_root.scroll_viewport_size())
+            .expect("app root viewport size should be available after layout info");
+        assert_eq!(
+            app_viewport.0, 38,
+            "app root internal viewport width should match computed content viewport width"
+        );
 
         let vertical_scrollbar = tree
             .children(app_root_id)
@@ -2980,6 +2994,84 @@ mod tests {
         assert!(
             vertical_scrollbar.1.display,
             "vertical scrollbar node should be visible when content overflows"
+        );
+    }
+
+    #[test]
+    fn app_root_releases_scrollbar_lane_when_resize_removes_overflow() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{APP_ROOT_VSCROLLBAR_ID, AppRoot, Container, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Container::new()));
+        let long_lines = std::iter::repeat_n("fear is the mind-killer.", 20)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let app_root_id = tree.mount(
+            root_id,
+            Box::new(AppRoot::new().with_child(Label::new(long_lines))),
+        );
+
+        let children = {
+            let app_root = tree.get_mut(app_root_id).expect("app root should exist");
+            app_root.widget.take_composed_children()
+        };
+        for child in children {
+            tree.mount(app_root_id, child);
+        }
+
+        run_layout_pass(&mut tree, (40, 10));
+        let narrow = tree
+            .get(app_root_id)
+            .expect("app root should exist")
+            .content_rect;
+        let narrow_w = narrow.x1.saturating_sub(narrow.x0);
+
+        let narrow_vbar_visible = tree
+            .children(app_root_id)
+            .iter()
+            .filter_map(|&child_id| tree.get(child_id))
+            .find(|node| node.widget.style_id() == Some(APP_ROOT_VSCROLLBAR_ID))
+            .map(|node| node.display)
+            .unwrap_or(false);
+        assert!(
+            narrow_vbar_visible,
+            "app root should show a vertical scrollbar when content overflows in narrow viewport"
+        );
+
+        run_layout_pass(&mut tree, (120, 40));
+        let wide_node = tree.get(app_root_id).expect("app root should exist");
+        let wide_content_w = wide_node
+            .content_rect
+            .x1
+            .saturating_sub(wide_node.content_rect.x0);
+        let wide_layout_w = wide_node
+            .layout_rect
+            .x1
+            .saturating_sub(wide_node.layout_rect.x0);
+
+        assert!(
+            wide_content_w > narrow_w,
+            "wider viewport should reclaim horizontal content space from previous scrollbar lane"
+        );
+        assert_eq!(
+            wide_content_w, wide_layout_w,
+            "when overflow is gone, app root content rect should expand to full layout width"
+        );
+
+        let label_width = tree
+            .children(app_root_id)
+            .iter()
+            .filter_map(|&child_id| tree.get(child_id))
+            .find(|node| node.widget.style_type() == "Label")
+            .map(|node| node.layout_rect.x1.saturating_sub(node.layout_rect.x0))
+            .unwrap_or(0);
+        assert_eq!(
+            label_width, wide_content_w,
+            "app root content child should relayout to reclaimed width once scrollbar disappears"
         );
     }
 

@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **fix(app-root scrollbar parity): reclaim viewport width when overflow disappears**
+  - Tree layout-info propagation now feeds `AppRoot` with its solved viewport (`content_rect`) dimensions instead of full layout box dimensions, keeping internal viewport state aligned with runtime scrollbar geometry.
+  - This lets app-global scrollbar lanes collapse cleanly on resize when content no longer overflows, so content immediately reclaims horizontal space (Python-equivalent behavior).
+  - Added regression coverage for `AppRoot` viewport-size sync and resize transition from overflow to non-overflow.
+
 - **fix(command palette parity): remove tree-host paint artifact and dim underlay in tree mode**
   - Runtime command palette host now keeps its extracted spacer child hidden in tree mode, removing the one-cell header-title overwrite artifact seen when opening the palette.
   - Tree compositor now applies a dim scrim to the already-painted app underlay while command palette is open, excluding the palette panel region so the palette surface remains undimmed.
