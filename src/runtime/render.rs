@@ -12,9 +12,11 @@ use crate::style::{
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
-    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID, Overlay,
-    SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
-    ScrollBar, ScrollbarPolicy, Toast, Widget, border_spacing_from_style, crop_line_horizontal,
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, Overlay,
+    RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
+    SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
+    border_spacing_from_style, crop_line_horizontal,
 };
 
 use rich_rs::{ControlType, Renderable, Segment, Segments};
@@ -1010,6 +1012,10 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | SCROLL_VIEW_VSCROLLBAR_ID
                 | SCROLL_VIEW_HSCROLLBAR_ID
                 | SCROLL_VIEW_SCROLLBAR_CORNER_ID
+                | LOG_VSCROLLBAR_ID
+                | RICH_LOG_VSCROLLBAR_ID
+                | KEY_PANEL_VSCROLLBAR_ID
+                | DATA_TABLE_HSCROLLBAR_ID
         )
     )
 }
@@ -1866,11 +1872,14 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
             Some(APP_ROOT_VSCROLLBAR_ID | SCROLL_VIEW_VSCROLLBAR_ID) => {
                 children.vertical = Some(child_id)
             }
-            Some(APP_ROOT_HSCROLLBAR_ID | SCROLL_VIEW_HSCROLLBAR_ID) => {
+            Some(APP_ROOT_HSCROLLBAR_ID | SCROLL_VIEW_HSCROLLBAR_ID | DATA_TABLE_HSCROLLBAR_ID) => {
                 children.horizontal = Some(child_id)
             }
             Some(APP_ROOT_SCROLLBAR_CORNER_ID | SCROLL_VIEW_SCROLLBAR_CORNER_ID) => {
                 children.corner = Some(child_id)
+            }
+            Some(LOG_VSCROLLBAR_ID | RICH_LOG_VSCROLLBAR_ID | KEY_PANEL_VSCROLLBAR_ID) => {
+                children.vertical = Some(child_id)
             }
             _ => {}
         }
@@ -1897,7 +1906,7 @@ fn host_content_extent(
     node_id: NodeId,
     content_rect: crate::widget_tree::Rect,
     scrollbar_children: ScrollbarHostChildren,
-) -> (usize, usize) {
+) -> (usize, usize, bool) {
     let mut min_x: Option<u16> = None;
     let mut min_y: Option<u16> = None;
     let mut max_x = 0u16;
@@ -1927,15 +1936,20 @@ fn host_content_extent(
         max_y = max_y.max(child_rect.y1);
     }
     if !saw_visible_child {
-        let virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
-        let virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
-        return (virtual_w.max(1), virtual_h.max(1));
+        let viewport_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
+        let viewport_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+        if let Some(node) = tree.get(node_id)
+            && let Some((virtual_w, virtual_h)) = node.widget.scroll_virtual_content_size()
+        {
+            return (virtual_w.max(1), virtual_h.max(1), false);
+        }
+        return (viewport_w.max(1), viewport_h.max(1), false);
     }
     let origin_x = min_x.unwrap_or(content_rect.x0);
     let origin_y = min_y.unwrap_or(content_rect.y0);
     let virtual_w = max_x.saturating_sub(origin_x) as usize;
     let virtual_h = max_y.saturating_sub(origin_y) as usize;
-    (virtual_w.max(1), virtual_h.max(1))
+    (virtual_w.max(1), virtual_h.max(1), true)
 }
 
 fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
@@ -1967,9 +1981,9 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
         let content_h = content_rect.y1.saturating_sub(content_rect.y0).max(1) as usize;
 
+        let (virtual_w, virtual_h, mut has_content_children) =
+            host_content_extent(tree, node_id, content_rect, scrollbar_children);
         let mut geometry = {
-            let (virtual_w, virtual_h) =
-                host_content_extent(tree, node_id, content_rect, scrollbar_children);
             let policy = ScrollbarPolicy::from_style(&style, 2, 1);
             policy.resolve(
                 content_w,
@@ -2003,8 +2017,9 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             );
 
             geometry = {
-                let (virtual_w, virtual_h) =
+                let (virtual_w, virtual_h, had_children) =
                     host_content_extent(tree, node_id, content_rect, scrollbar_children);
+                has_content_children = had_children;
                 let policy = ScrollbarPolicy::from_style(&style, 2, 1);
                 policy.resolve(
                     content_w,
@@ -2027,6 +2042,9 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         };
         if let Some(node) = tree.get_mut(node_id) {
             node.content_rect = viewport_rect;
+            if !has_content_children {
+                node.layout_rect = viewport_rect;
+            }
             let any = node.widget.as_mut() as &mut dyn std::any::Any;
             if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
                 scroll.set_virtual_content_size(geometry.content_width, geometry.content_height);

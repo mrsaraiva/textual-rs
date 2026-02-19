@@ -776,9 +776,9 @@ impl Widget for ScrollBar {
                         clamp_offset(next, self.window_virtual_size, self.window_size.max(1));
                     self.position = clamped as f32;
                     ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                            axis: self.axis(),
-                            offset: clamped as f32,
-                            animate: true,
+                        axis: self.axis(),
+                        offset: clamped as f32,
+                        animate: true,
                     }));
                 }
                 ctx.set_handled();
@@ -817,9 +817,9 @@ impl Widget for ScrollBar {
                 if (next_pos - self.position).abs() > f32::EPSILON {
                     self.position = next_pos;
                     ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                            axis: self.axis(),
-                            offset: next_pos,
-                            animate: true,
+                        axis: self.axis(),
+                        offset: next_pos,
+                        animate: true,
                     }));
                 }
                 ctx.set_handled();

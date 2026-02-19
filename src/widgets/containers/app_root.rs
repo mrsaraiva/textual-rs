@@ -11,7 +11,7 @@ use crate::debug::debug_input;
 use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::message::{ScrollbarAxis, ScrollbarScrollTo, Message, MessageEvent};
+use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{

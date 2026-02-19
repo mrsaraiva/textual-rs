@@ -12,7 +12,9 @@ use super::helpers::{
     adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints, pad_lines_to_width,
 };
 
-use super::{ScrollView, Widget, WidgetStyles};
+use super::{ScrollBar, ScrollView, Widget, WidgetStyles};
+
+pub(crate) const KEY_PANEL_VSCROLLBAR_ID: &str = "__key_panel_vscrollbar";
 
 #[derive(Debug, Clone)]
 pub struct BindingsTable {
@@ -305,6 +307,7 @@ pub struct KeyPanel {
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
     drag_v: Option<usize>,
+    scrollbar_extracted: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -322,6 +325,7 @@ impl KeyPanel {
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
             drag_v: None,
+            scrollbar_extracted: false,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
         }
@@ -416,6 +420,16 @@ impl KeyPanel {
 }
 
 impl Widget for KeyPanel {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut vbar = ScrollBar::new(true, 1);
+        vbar.set_style_id(Some(KEY_PANEL_VSCROLLBAR_ID.to_string()));
+        vec![Box::new(vbar)]
+    }
+
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -427,7 +441,7 @@ impl Widget for KeyPanel {
         let mut table_lines = self.table.lines(viewport_width);
         let mut content_height = table_lines.len().max(1);
         let mut show_scrollbar = content_height > body_viewport && width > 2;
-        if show_scrollbar {
+        if show_scrollbar && !self.scrollbar_extracted {
             viewport_width = width.saturating_sub(V_SCROLLBAR_SIZE).max(1);
             table_lines = self.table.lines(viewport_width);
             content_height = table_lines.len().max(1);
@@ -513,7 +527,8 @@ impl Widget for KeyPanel {
                 let width = self.widget_width.load(Ordering::Relaxed).max(1);
                 let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
                 let content_height = self.content_height.load(Ordering::Relaxed).max(1);
-                if content_height > body_viewport
+                if !self.scrollbar_extracted
+                    && content_height > body_viewport
                     && width > 1
                     && mouse.x as usize >= width.saturating_sub(1)
                     && mouse.y > 0
@@ -597,6 +612,9 @@ impl Widget for KeyPanel {
         let Some(grab_offset) = self.drag_v else {
             return false;
         };
+        if self.scrollbar_extracted {
+            return false;
+        }
         let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
         let content_height = self.content_height.load(Ordering::Relaxed).max(1);
         if content_height <= body_viewport {
@@ -642,6 +660,42 @@ impl Widget for KeyPanel {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+        let Message::ScrollbarScrollTo(payload) = &event.message else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_height = self.content_height.load(Ordering::Relaxed).max(1);
+        let next = ScrollView::line_clamp_offset(
+            payload.offset.max(0.0).round() as usize,
+            content_height,
+            body_viewport,
+        );
+        if next != self.offset_y {
+            self.offset_y = next;
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset_y)
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset_y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let width = self.widget_width.load(Ordering::Relaxed).max(1);
+        let height = self.table.line_count().max(1);
+        Some((width, height))
+    }
 }
 
 impl Renderable for KeyPanel {
@@ -652,7 +706,7 @@ impl Renderable for KeyPanel {
 
 #[cfg(test)]
 mod tests {
-    use super::KeyPanel;
+    use super::{KEY_PANEL_VSCROLLBAR_ID, KeyPanel};
     use crate::event::{Action, BindingHint, Event, EventCtx};
     use crate::message::*;
     use crate::node_id::NodeId;
@@ -768,5 +822,42 @@ mod tests {
         );
         assert!(up_ctx.handled());
         assert!(up_ctx.repaint_requested());
+    }
+
+    #[test]
+    fn tree_mode_extracts_dedicated_scrollbar_child() {
+        let mut panel = KeyPanel::new();
+        let children = panel.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].style_id(), Some(KEY_PANEL_VSCROLLBAR_ID));
+    }
+
+    #[test]
+    fn scrollbar_message_updates_offset_in_tree_mode() {
+        let console = Console::new();
+        let options = options_for(&console, 32, 4);
+        let mut panel = KeyPanel::new().with_bindings(
+            (1..=8)
+                .map(|index| FooterBinding::new(format!("k{index}"), format!("item {index}")))
+                .collect(),
+        );
+        let _ = panel.take_composed_children();
+        let _ = panel.render(&console, &options);
+
+        let mut ctx = EventCtx::default();
+        panel.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert_eq!(panel.offset_y, 2);
     }
 }

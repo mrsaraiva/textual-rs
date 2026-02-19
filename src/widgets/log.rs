@@ -10,7 +10,9 @@ use crate::message::*;
 
 use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
 
-use super::{ScrollView, Widget, WidgetStyles};
+use super::{ScrollBar, ScrollView, Widget, WidgetStyles};
+
+pub(crate) const LOG_VSCROLLBAR_ID: &str = "__log_vscrollbar";
 
 // ── WP-25: LRU render cache ────────────────────────────────────────────────
 
@@ -117,6 +119,7 @@ pub struct Log {
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
     drag_v: Option<usize>,
+    scrollbar_extracted: bool,
     max_line_width: usize,
     styles: WidgetStyles,
     // WP-24: text selection
@@ -145,6 +148,7 @@ impl Log {
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
             drag_v: None,
+            scrollbar_extracted: false,
             max_line_width: 0,
             styles: WidgetStyles::default(),
             selection_anchor: None,
@@ -576,6 +580,16 @@ impl Log {
 }
 
 impl Widget for Log {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.set_style_id(Some(LOG_VSCROLLBAR_ID.to_string()));
+        vec![Box::new(vbar)]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -639,7 +653,7 @@ impl Widget for Log {
             rows.push(vec![Segment::new(" ".repeat(viewport_width.max(1)))]);
         }
 
-        if show_scrollbar {
+        if show_scrollbar && !self.scrollbar_extracted {
             let (track_style, thumb_style, thumb_active_style) =
                 ScrollView::line_scrollbar_styles();
             let track_len = height.max(1);
@@ -733,7 +747,8 @@ impl Widget for Log {
                 let scrollbar_size = 2usize.min(width.saturating_sub(1)).max(1);
                 let local_x = mouse.x as usize;
                 let local_y = mouse.y as usize;
-                if show_scrollbar
+                if !self.scrollbar_extracted
+                    && show_scrollbar
                     && local_x >= width.saturating_sub(scrollbar_size)
                     && local_y < height
                 {
@@ -848,6 +863,9 @@ impl Widget for Log {
         let Some(grab_offset) = self.drag_v else {
             return false;
         };
+        if self.scrollbar_extracted {
+            return false;
+        }
         let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
         let content_h = self.content_height.load(Ordering::Relaxed).max(1);
         if content_h <= viewport_h {
@@ -906,6 +924,40 @@ impl Widget for Log {
     fn get_selection(&self) -> Option<String> {
         self.selected_text()
     }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+        let Message::ScrollbarScrollTo(payload) = &event.message else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
+        let next = ScrollView::line_clamp_offset(
+            payload.offset.max(0.0).round() as usize,
+            content_h,
+            viewport_h,
+        );
+        if next != self.offset_y {
+            self.offset_y = next;
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset_y)
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset_y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        Some((self.max_line_width.max(1), self.display_line_count().max(1)))
+    }
 }
 
 impl Renderable for Log {
@@ -916,7 +968,7 @@ impl Renderable for Log {
 
 #[cfg(test)]
 mod tests {
-    use super::Log;
+    use super::{LOG_VSCROLLBAR_ID, Log};
     use crate::event::{Action, Event, EventCtx};
     use crate::message::*;
     use crate::node_id::NodeId;
@@ -1094,5 +1146,40 @@ mod tests {
         );
         assert!(!log.selecting);
         assert!(log.selection_range().is_none());
+    }
+
+    #[test]
+    fn tree_mode_extracts_dedicated_scrollbar_child() {
+        let mut log = Log::new();
+        let children = log.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].style_id(), Some(LOG_VSCROLLBAR_ID));
+    }
+
+    #[test]
+    fn scrollbar_message_updates_offset_in_tree_mode() {
+        let console = Console::new();
+        let options = options_for(&console, 16, 3);
+        let mut log = Log::new().auto_scroll(false);
+        log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+        let _ = log.take_composed_children();
+        let _ = log.render(&console, &options);
+
+        let mut ctx = EventCtx::default();
+        log.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert_eq!(log.offset_y, 2);
     }
 }

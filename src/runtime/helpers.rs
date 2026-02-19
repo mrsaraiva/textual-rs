@@ -7,6 +7,7 @@ use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, RICH_LOG_VSCROLLBAR_ID,
     SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
 };
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
@@ -355,6 +356,10 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | SCROLL_VIEW_VSCROLLBAR_ID
                 | SCROLL_VIEW_HSCROLLBAR_ID
                 | SCROLL_VIEW_SCROLLBAR_CORNER_ID
+                | LOG_VSCROLLBAR_ID
+                | RICH_LOG_VSCROLLBAR_ID
+                | KEY_PANEL_VSCROLLBAR_ID
+                | DATA_TABLE_HSCROLLBAR_ID
         )
     )
 }
@@ -553,7 +558,7 @@ mod tests {
     use super::*;
     use crate::css::{default_widget_stylesheet, set_style_context};
     use crate::event::EventCtx;
-    use crate::message::{ScrollbarAxis, ScrollbarScrollTo, Message, MessageEvent};
+    use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::Rect;
     use crate::widget_tree::WidgetTree;

@@ -471,6 +471,16 @@ pub trait Widget: Send + Sync + Any {
         None
     }
 
+    /// Return the virtual scrollable content size `(width, height)` used by
+    /// dedicated scrollbar lanes.
+    ///
+    /// Widgets that render scrollable content directly (without a scrollable
+    /// child subtree) should override this so the runtime can size scrollbar
+    /// thumbs from real content extents.
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        None
+    }
+
     /// Whether descendant rendering should be clipped to this widget's content box.
     ///
     /// Default widgets do not clip descendants.

@@ -69,6 +69,7 @@ pub use core::{
     BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetSelectionAnchor, WidgetStyles,
     classify_style_change,
 };
+pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
 pub use data_table::{CursorType, DataTable};
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};
@@ -80,11 +81,13 @@ pub(crate) use helpers::border_spacing_from_style;
 pub(crate) use helpers::crop_line_horizontal;
 pub(crate) use helpers::fixed_height_from_constraints;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
+pub(crate) use key_panel::KEY_PANEL_VSCROLLBAR_ID;
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind};
 pub use link::Link;
 pub use list_view::ListView;
 pub use loading_indicator::LoadingIndicator;
+pub(crate) use log::LOG_VSCROLLBAR_ID;
 pub use log::Log;
 pub use masked_input::MaskedInput;
 pub use option_list::{OptionItem, OptionList};
@@ -94,6 +97,7 @@ pub use preview::{preview_root, preview_root_with_bottom, preview_root_with_top_
 pub use progress_bar::ProgressBar;
 pub use radio_button::RadioButton;
 pub use radio_set::RadioSet;
+pub(crate) use rich_log::RICH_LOG_VSCROLLBAR_ID;
 pub use rich_log::RichLog;
 pub use rule::{LineStyle, Rule, RuleOrientation};
 pub use scrollbar::{

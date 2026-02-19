@@ -10,9 +10,11 @@ use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    BindingDecl, ScrollView, Widget, WidgetStyles,
+    BindingDecl, ScrollBar, ScrollView, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
 };
+
+pub(crate) const DATA_TABLE_HSCROLLBAR_ID: &str = "__data_table_hscrollbar";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorType {
@@ -70,6 +72,7 @@ pub struct DataTable {
     hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
     drag_h: Option<usize>,
+    scrollbar_extracted: bool,
     show_header: bool,
     show_row_labels: bool,
     zebra_stripes: bool,
@@ -108,6 +111,7 @@ impl DataTable {
             hovered: false,
             hover_coordinate: None,
             drag_h: None,
+            scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
             zebra_stripes: false,
@@ -945,6 +949,7 @@ impl Default for DataTable {
             hovered: false,
             hover_coordinate: None,
             drag_h: None,
+            scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
             zebra_stripes: false,
@@ -990,6 +995,16 @@ impl ReactiveWidget for DataTable {
 }
 
 impl Widget for DataTable {
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.set_style_id(Some(DATA_TABLE_HSCROLLBAR_ID.to_string()));
+        vec![Box::new(hbar)]
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -1027,6 +1042,9 @@ impl Widget for DataTable {
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         if let Some(grab_offset) = self.drag_h {
+            if self.scrollbar_extracted {
+                return false;
+            }
             let width = self.content_width as usize;
             let height = self.content_height as usize;
             if let Some(state) = self.horizontal_scrollbar_state(width, height) {
@@ -1233,7 +1251,8 @@ impl Widget for DataTable {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false))
+        if !self.scrollbar_extracted
+            && matches!(event, Event::MouseUp(_) | Event::AppFocus(false))
             && self.drag_h.take().is_some()
         {
             ctx.set_handled();
@@ -1250,7 +1269,8 @@ impl Widget for DataTable {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let width = self.content_width as usize;
                 let height = self.content_height as usize;
-                if let Some(state) = self.horizontal_scrollbar_state(width, height)
+                if !self.scrollbar_extracted
+                    && let Some(state) = self.horizontal_scrollbar_state(width, height)
                     && mouse.y as usize == state.row_y
                 {
                     let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
@@ -1757,7 +1777,8 @@ impl Widget for DataTable {
             emit_data_row(scroll_start + row_offset, &mut out);
         }
 
-        if let Some(state) = self.horizontal_scrollbar_state(width, height)
+        if !self.scrollbar_extracted
+            && let Some(state) = self.horizontal_scrollbar_state(width, height)
             && show_h_scrollbar
         {
             let (track_style, thumb_style, thumb_active_style) =
@@ -1821,6 +1842,54 @@ impl Widget for DataTable {
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
+    }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+        let Message::ScrollbarScrollTo(payload) = &event.message else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Horizontal {
+            return;
+        }
+        let width = self.content_width as usize;
+        let height = self.content_height as usize;
+        let Some(state) = self.horizontal_scrollbar_state(width, height) else {
+            return;
+        };
+        let target_pixels = payload.offset.max(0.0).round() as usize;
+        let clamped_pixels = target_pixels.min(state.max_pixel_offset);
+        let next = self.horizontal_offset_from_pixels(clamped_pixels);
+        if next != self.horizontal_offset {
+            self.horizontal_offset = next;
+            ctx.request_repaint();
+        }
+        ctx.set_handled();
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        let width = self.content_width as usize;
+        let height = self.content_height as usize;
+        if let Some(state) = self.horizontal_scrollbar_state(width, height) {
+            (state.pixel_offset, 0)
+        } else {
+            (0, 0)
+        }
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        let (x, y) = self.scroll_offset();
+        (x as f32, y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let width = self.content_width as usize;
+        let height = self.content_height as usize;
+        if let Some(state) = self.horizontal_scrollbar_state(width, height) {
+            Some((state.content_width.max(1), height.max(1)))
+        } else {
+            let content_w = self.content_width().unwrap_or(width.max(1)).max(1);
+            Some((content_w, height.max(1)))
+        }
     }
 }
 
@@ -2415,5 +2484,53 @@ mod tests {
             arguments: vec![],
         };
         assert!(table.execute_action(&action, &mut ctx));
+    }
+
+    #[test]
+    fn tree_mode_extracts_dedicated_scrollbar_child() {
+        let mut table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+        let children = table.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].style_id(), Some(DATA_TABLE_HSCROLLBAR_ID));
+    }
+
+    #[test]
+    fn scrollbar_message_updates_horizontal_offset_in_tree_mode() {
+        let mut table = DataTable::new(
+            vec![
+                "First".into(),
+                "Second".into(),
+                "Third".into(),
+                "Fourth".into(),
+            ],
+            vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
+        );
+        table.on_layout(12, 4);
+        let _ = table.take_composed_children();
+
+        let mut ctx = EventCtx::default();
+        table.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 999.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+
+        assert!(ctx.handled());
+        assert!(table.horizontal_offset > 0);
     }
 }
