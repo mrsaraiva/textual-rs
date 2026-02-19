@@ -820,6 +820,7 @@ impl Renderable for CommandList {
 pub struct CommandPalette {
     child: Box<dyn Widget>,
     child_extracted: bool,
+    tree_show_wrapped_child: bool,
     open: bool,
     show_key_panel: bool,
     help_panel_visible: bool,
@@ -874,6 +875,7 @@ impl CommandPalette {
         let mut out = Self {
             child: Box::new(child),
             child_extracted: false,
+            tree_show_wrapped_child: true,
             open: false,
             show_key_panel: false,
             help_panel_visible: false,
@@ -927,6 +929,15 @@ impl CommandPalette {
 
     pub fn is_visible_in_tree(&self) -> bool {
         self.open || self.panel_visible
+    }
+
+    /// Configure whether the extracted wrapped child subtree is rendered in tree mode.
+    ///
+    /// Runtime command-palette hosts should disable this because the app body is
+    /// rendered as a sibling subtree and should not be re-rendered inside the palette node.
+    pub fn with_tree_wrapped_child_visible(mut self, visible: bool) -> Self {
+        self.tree_show_wrapped_child = visible;
+        self
     }
 
     fn key_panel_width(&self, width: usize) -> usize {
@@ -1041,6 +1052,38 @@ impl CommandPalette {
     fn panel_target_y(&self) -> f32 {
         let (_, panel_y, _, _) = self.palette_geometry(self.layout_width, self.layout_height);
         panel_y as f32
+    }
+
+    fn rendered_panel_geometry(
+        &self,
+        width: usize,
+        height: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
+        if !self.open && !self.panel_visible {
+            return None;
+        }
+        let (panel_x, target_panel_y, panel_width, panel_height) =
+            self.palette_geometry(width, height);
+        let panel_y =
+            if self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y && target_panel_y > 0 {
+                target_panel_y
+            } else {
+                self.panel_render_y
+                    .round()
+                    .clamp(0.0, target_panel_y as f32) as usize
+            };
+        Some((panel_x, panel_y, panel_width, panel_height))
+    }
+
+    pub(crate) fn tree_panel_geometry(
+        &self,
+        width: usize,
+        height: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
+        if !self.is_tree_mode() {
+            return None;
+        }
+        self.rendered_panel_geometry(width, height)
     }
 
     fn palette_geometry(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
@@ -1274,9 +1317,7 @@ impl Widget for CommandPalette {
         if !self.is_tree_mode() || child_index != 0 {
             return None;
         }
-        // Keep the wrapped child subtree rendered in tree mode so the command
-        // palette behaves as a true overlay/modal over the existing UI.
-        Some(true)
+        Some(self.tree_show_wrapped_child)
     }
 
     fn preserve_underlay(&self) -> bool {
@@ -1342,16 +1383,9 @@ impl Widget for CommandPalette {
             )
         });
         let mut overlay = FrameBuffer::new(width, height, None);
-        let (panel_x, target_panel_y, panel_width, panel_height) =
-            self.palette_geometry(width, height);
-        let panel_y =
-            if self.open && self.panel_render_y <= Self::CLOSED_PANEL_Y && target_panel_y > 0 {
-                target_panel_y
-            } else {
-                self.panel_render_y
-                    .round()
-                    .clamp(0.0, target_panel_y as f32) as usize
-            };
+        let (panel_x, panel_y, panel_width, panel_height) = self
+            .rendered_panel_geometry(width, height)
+            .unwrap_or_else(|| self.palette_geometry(width, height));
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
@@ -3075,6 +3109,23 @@ mod tests {
         assert!(!palette.is_open());
         assert!(!palette.panel_visible);
         assert_eq!(palette.panel_render_y, CommandPalette::CLOSED_PANEL_Y);
+    }
+
+    #[test]
+    fn command_palette_tree_mode_shows_wrapped_child_by_default() {
+        let mut palette = CommandPalette::new(Label::new("body"));
+        let children = palette.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(palette.child_display_for_tree(0), Some(true));
+    }
+
+    #[test]
+    fn command_palette_tree_mode_can_hide_wrapped_child_for_runtime_host() {
+        let mut palette =
+            CommandPalette::new(Label::new("body")).with_tree_wrapped_child_visible(false);
+        let children = palette.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(palette.child_display_for_tree(0), Some(false));
     }
 
     #[test]

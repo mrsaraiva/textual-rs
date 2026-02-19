@@ -261,7 +261,8 @@ fn build_textual_app_runtime_root<T: TextualApp>(
 
 impl<T: TextualApp> TextualAppAdapter<T> {
     fn make_command_palette_host() -> CommandPalette {
-        let mut command_palette = CommandPalette::new(Spacer::new(1));
+        let mut command_palette =
+            CommandPalette::new(Spacer::new(1)).with_tree_wrapped_child_visible(false);
         if let Some(styles) = command_palette.styles_mut() {
             // Keep command palette always mounted for global app bindings, but
             // out of normal flow so it behaves as a modal overlay.
@@ -1527,7 +1528,7 @@ mod tests {
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
-        let first = adapter.take_composed_children();
+        let mut first = adapter.take_composed_children();
         assert_eq!(first.len(), 2);
         assert!(
             first
@@ -1543,6 +1544,21 @@ mod tests {
             palette.style().and_then(|style| style.position),
             Some(Position::Absolute),
             "command palette host should be out-of-flow overlay in runtime root"
+        );
+        let palette = first
+            .iter_mut()
+            .find(|child| child.style_type() == "CommandPalette")
+            .expect("command palette child should be present");
+        let palette_children = palette.take_composed_children();
+        assert_eq!(
+            palette_children.len(),
+            1,
+            "command palette host should expose one wrapped child subtree"
+        );
+        assert_eq!(
+            palette.child_display_for_tree(0),
+            Some(false),
+            "command palette host wrapped child should stay hidden in tree mode"
         );
         assert_eq!(
             adapter.child_display_for_tree(1),

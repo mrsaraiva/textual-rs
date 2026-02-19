@@ -11,7 +11,7 @@ use crate::style::{
 };
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
-    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID, CommandPalette,
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, Overlay,
     RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
     SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
@@ -666,6 +666,44 @@ pub(crate) fn control_head(segments: &Segments, limit: usize) -> String {
 // Tree-driven compositor: render each widget at its layout_rect position
 // ===========================================================================
 
+fn command_palette_panel_clip(
+    widget: &dyn Widget,
+    width: usize,
+    height: usize,
+    dest_x: i32,
+    dest_y: i32,
+) -> Option<ClipRect> {
+    let any = widget as &dyn std::any::Any;
+    let palette = any.downcast_ref::<CommandPalette>()?;
+    let (panel_x, panel_y, panel_w, panel_h) = palette.tree_panel_geometry(width, height)?;
+    Some(ClipRect {
+        x0: dest_x + panel_x as i32,
+        y0: dest_y + panel_y as i32,
+        x1: dest_x + panel_x as i32 + panel_w as i32,
+        y1: dest_y + panel_y as i32 + panel_h as i32,
+    })
+}
+
+fn apply_dim_overlay(frame: &mut FrameBuffer, clip: ClipRect, exclude: Option<ClipRect>) {
+    let frame_clip = ClipRect::for_frame(frame);
+    let Some(paint_clip) = clip.intersect(frame_clip) else {
+        return;
+    };
+    let exclude = exclude.and_then(|rect| rect.intersect(paint_clip));
+
+    for y in paint_clip.y0..paint_clip.y1 {
+        for x in paint_clip.x0..paint_clip.x1 {
+            if exclude
+                .is_some_and(|rect| x >= rect.x0 && x < rect.x1 && y >= rect.y0 && y < rect.y1)
+            {
+                continue;
+            }
+            let cell = frame.get_mut(x as usize, y as usize);
+            cell.style = Some(cell.style.unwrap_or_default().with_dim(true));
+        }
+    }
+}
+
 /// Recursively render a tree node and its children into the frame buffer.
 ///
 /// Each widget is rendered at its `layout_rect` position with CSS style
@@ -704,6 +742,11 @@ fn render_tree_node(
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
+        if let Some(panel_clip) =
+            command_palette_panel_clip(node.widget.as_ref(), w, h, dest_x, dest_y)
+        {
+            apply_dim_overlay(frame, ctx.clip, Some(panel_clip));
+        }
         let screen_underlay = if matches!(resolved.overlay, Some(OverlayMode::Screen)) {
             Some(capture_underlay_snapshot(
                 frame, dest_x, dest_y, w, h, ctx.clip,
@@ -2696,6 +2739,64 @@ mod tests {
         let nodes = collect_render_nodes(&tree);
         let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, vec![root, other, palette]);
+    }
+
+    #[test]
+    fn command_palette_tree_open_dims_underlay_but_not_panel_surface() {
+        use crate::event::{Action, Event, EventCtx};
+        use crate::style::Position;
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, CommandPalette, Label, Spacer};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(root, Box::new(Label::new("Fear is the mind-killer.")));
+
+        let mut palette =
+            CommandPalette::new(Spacer::new(1)).with_tree_wrapped_child_visible(false);
+        if let Some(styles) = palette.styles_mut() {
+            styles.style.position = Some(Position::Absolute);
+        }
+        let palette_id = tree.mount(root, Box::new(palette));
+
+        let palette_children = {
+            let node = tree.get_mut(palette_id).expect("palette node should exist");
+            node.widget.take_composed_children()
+        };
+        for child in palette_children {
+            tree.mount(palette_id, child);
+        }
+
+        {
+            let node = tree.get_mut(palette_id).expect("palette node should exist");
+            let mut ctx = EventCtx::default();
+            node.widget
+                .on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        }
+
+        let console = rich_rs::Console::new();
+        let mut root_widget = AppRoot::new();
+        let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
+
+        let underlay_cell = frame.get(0, 0);
+        assert_eq!(underlay_cell.text, "F");
+        let underlay_style = underlay_cell.style.clone().unwrap_or_default();
+        assert_eq!(
+            underlay_style.dim,
+            Some(true),
+            "underlay outside the palette panel should be dimmed when palette is open"
+        );
+
+        let panel_cell = frame.get(1, 3);
+        let panel_style = panel_cell.style.clone().unwrap_or_default();
+        assert_ne!(
+            panel_style.dim,
+            Some(true),
+            "palette panel surface should remain undimmed"
+        );
     }
 
     #[test]

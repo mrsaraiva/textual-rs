@@ -8,6 +8,11 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+- **fix(command palette parity): remove tree-host paint artifact and dim underlay in tree mode**
+  - Runtime command palette host now keeps its extracted spacer child hidden in tree mode, removing the one-cell header-title overwrite artifact seen when opening the palette.
+  - Tree compositor now applies a dim scrim to the already-painted app underlay while command palette is open, excluding the palette panel region so the palette surface remains undimmed.
+  - Added regression tests for runtime-host child visibility behavior and tree-mode dimming boundaries.
+
 - **fix(runtime hover/render parity): stop no-scrollbar content flicker on mouse hover**
   - Fixed post-render tree layout propagation to use solved tree geometry (`layout_rect`) instead of painted hit-test bounds, preventing `AppRoot`/scroll viewport collapse on sparse paint frames.
   - This resolves hover-driven text clipping/flicker in modal/log-style views when vertical scrollbar lanes are hidden.
