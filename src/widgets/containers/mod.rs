@@ -46,6 +46,9 @@ pub use right::Right;
 pub use row::{Row, RowAlign};
 pub use scroll_core::ScrollCore;
 pub use scroll_view::ScrollView;
+pub(crate) use scroll_view::{
+    SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
+};
 pub use scrollable_container::ScrollableContainer;
 pub use styled::Styled;
 pub use vertical::Vertical;

@@ -1,9 +1,11 @@
 use rich_rs::{Segment, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
-use crate::message::{AppRootScrollbarAxis, AppRootScrollbarScrollTo, Message};
+use crate::message::{Message, ScrollbarScrollTo};
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
 use crate::widgets::{Widget, WidgetStyles};
+
+pub use crate::message::ScrollbarAxis;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollTo {
@@ -177,12 +179,6 @@ impl ScrollBarRender {
             vec![row; self.thickness.max(1)]
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollbarAxis {
-    Horizontal,
-    Vertical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -650,11 +646,11 @@ impl ScrollBar {
         self.grabbed
     }
 
-    pub fn axis(&self) -> AppRootScrollbarAxis {
+    pub fn axis(&self) -> ScrollbarAxis {
         if self.vertical {
-            AppRootScrollbarAxis::Vertical
+            ScrollbarAxis::Vertical
         } else {
-            AppRootScrollbarAxis::Horizontal
+            ScrollbarAxis::Horizontal
         }
     }
 }
@@ -779,13 +775,11 @@ impl Widget for ScrollBar {
                     let clamped =
                         clamp_offset(next, self.window_virtual_size, self.window_size.max(1));
                     self.position = clamped as f32;
-                    ctx.post_message(Message::AppRootScrollbarScrollTo(
-                        AppRootScrollbarScrollTo {
+                    ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
                             axis: self.axis(),
                             offset: clamped as f32,
                             animate: true,
-                        },
-                    ));
+                    }));
                 }
                 ctx.set_handled();
             }
@@ -822,13 +816,11 @@ impl Widget for ScrollBar {
                 }
                 if (next_pos - self.position).abs() > f32::EPSILON {
                     self.position = next_pos;
-                    ctx.post_message(Message::AppRootScrollbarScrollTo(
-                        AppRootScrollbarScrollTo {
+                    ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
                             axis: self.axis(),
                             offset: next_pos,
                             animate: true,
-                        },
-                    ));
+                    }));
                 }
                 ctx.set_handled();
             }
@@ -1064,7 +1056,7 @@ mod tests {
         let mut emitted_offset = None;
         let mut emitted_animate = None;
         for msg in messages {
-            if let Message::AppRootScrollbarScrollTo(payload) = msg.message {
+            if let Message::ScrollbarScrollTo(payload) = msg.message {
                 emitted_offset = Some(payload.offset);
                 emitted_animate = Some(payload.animate);
             }

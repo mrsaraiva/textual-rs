@@ -7,6 +7,7 @@ use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
 };
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use rich_rs::ConsoleOptions;
@@ -328,7 +329,7 @@ fn descendant_uses_ancestor_scroll(
     let Some(child_id) = child_on_path else {
         return true;
     };
-    !node_is_docked(tree, child_id) && !node_is_app_root_scrollbar(tree, child_id)
+    !node_is_docked(tree, child_id) && !node_is_dedicated_scrollbar(tree, child_id)
 }
 
 fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
@@ -341,13 +342,20 @@ fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
     resolved.dock.is_some()
 }
 
-fn node_is_app_root_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
+fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };
     matches!(
         node.widget.style_id(),
-        Some(APP_ROOT_VSCROLLBAR_ID | APP_ROOT_HSCROLLBAR_ID | APP_ROOT_SCROLLBAR_CORNER_ID)
+        Some(
+            APP_ROOT_VSCROLLBAR_ID
+                | APP_ROOT_HSCROLLBAR_ID
+                | APP_ROOT_SCROLLBAR_CORNER_ID
+                | SCROLL_VIEW_VSCROLLBAR_ID
+                | SCROLL_VIEW_HSCROLLBAR_ID
+                | SCROLL_VIEW_SCROLLBAR_CORNER_ID
+        )
     )
 }
 
@@ -545,7 +553,7 @@ mod tests {
     use super::*;
     use crate::css::{default_widget_stylesheet, set_style_context};
     use crate::event::EventCtx;
-    use crate::message::{AppRootScrollbarAxis, AppRootScrollbarScrollTo, Message, MessageEvent};
+    use crate::message::{ScrollbarAxis, ScrollbarScrollTo, Message, MessageEvent};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::Rect;
     use crate::widget_tree::WidgetTree;
@@ -671,8 +679,8 @@ mod tests {
             app_root.on_message(
                 &MessageEvent {
                     sender: node_id_from_ffi(0),
-                    message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
-                        axis: AppRootScrollbarAxis::Vertical,
+                    message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                        axis: ScrollbarAxis::Vertical,
                         offset: 16.0,
                         animate: false,
                     }),

@@ -8,6 +8,7 @@ use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
+use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::style::{Overflow, ScrollbarGutter, ScrollbarVisibility, parse_color_like};
 
 use crate::action::ParsedAction;
@@ -15,12 +16,16 @@ use crate::node_id::NodeId;
 use crate::renderables::Blank;
 use crate::widgets::scrollbar;
 use crate::widgets::{
-    BindingDecl, Container, Spacer, Widget, WidgetStyles,
+    BindingDecl, Container, ScrollBar, ScrollBarCorner, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
     },
 };
+
+pub(crate) const SCROLL_VIEW_VSCROLLBAR_ID: &str = "__scrollview_vscrollbar";
+pub(crate) const SCROLL_VIEW_HSCROLLBAR_ID: &str = "__scrollview_hscrollbar";
+pub(crate) const SCROLL_VIEW_SCROLLBAR_CORNER_ID: &str = "__scrollview_scrollbar_corner";
 
 pub struct ScrollView {
     child: Box<dyn Widget>,
@@ -557,8 +562,23 @@ impl Widget for ScrollView {
             return Vec::new();
         }
         self.child_extracted = true;
+        let mut children = Vec::with_capacity(4);
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        children.push(child);
+
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.set_style_id(Some(SCROLL_VIEW_VSCROLLBAR_ID.to_string()));
+        children.push(Box::new(vbar));
+
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.set_style_id(Some(SCROLL_VIEW_HSCROLLBAR_ID.to_string()));
+        children.push(Box::new(hbar));
+
+        let mut corner = ScrollBarCorner::new();
+        corner.set_style_id(Some(SCROLL_VIEW_SCROLLBAR_CORNER_ID.to_string()));
+        children.push(Box::new(corner));
+
+        children
     }
 
     fn focusable(&self) -> bool {
@@ -591,7 +611,7 @@ impl Widget for ScrollView {
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(viewport_height, Ordering::Relaxed);
 
-        // Resolve CSS scrollbar config once for both tree and standalone render paths.
+        // Resolve CSS scrollbar config once for this render pass.
         let sb = self.resolve_scrollbar_css();
 
         if self.child_extracted {
@@ -657,74 +677,23 @@ impl Widget for ScrollView {
             let thumb_hover_style = sb.thumb_hover_style;
             let thumb_active_style = sb.thumb_active_style;
             let corner_style = sb.corner_style;
-            let v_scrollbar_size = if show_v {
-                width.saturating_sub(content_viewport_w)
-            } else {
-                0
-            };
-            if show_v {
-                let track_len = content_viewport_h.max(1);
-                let offset = self
-                    .render_offset_y
-                    .clamp(0.0, self.max_offset() as f32)
-                    .round() as usize;
-                let (thumb_start, thumb_len) =
-                    Self::line_scrollbar_thumb(track_len, content_h, content_viewport_h, offset);
-                for (row, line) in slice.iter_mut().enumerate() {
-                    let in_track = row < track_len;
-                    let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
-                        if self.drag_v.is_some() {
-                            thumb_active_style
-                        } else if self.hover_v_thumb {
-                            thumb_hover_style
-                        } else {
-                            thumb_style
-                        }
-                    } else if self.drag_v.is_some() {
-                        track_active_style
-                    } else if self.hover_v_track {
-                        track_hover_style
-                    } else {
-                        track_style
-                    };
-                    line.extend(Self::blank_run(v_scrollbar_size.max(1), style));
-                }
-            }
-            if show_h {
-                let offset_x = self
-                    .render_offset_x
-                    .clamp(0.0, self.max_offset_x() as f32)
-                    .round() as usize;
-                let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
-                    content_viewport_w,
-                    content_w,
-                    content_viewport_w,
-                    offset_x,
-                );
-                let mut row = Vec::new();
-                for col in 0..content_viewport_w {
-                    let style = if col >= thumb_start && col < thumb_start + thumb_len {
-                        if self.drag_h.is_some() {
-                            thumb_active_style
-                        } else if self.hover_h_thumb {
-                            thumb_hover_style
-                        } else {
-                            thumb_style
-                        }
-                    } else if self.drag_h.is_some() {
-                        track_active_style
-                    } else if self.hover_h_track {
-                        track_hover_style
-                    } else {
-                        track_style
-                    };
-                    row.extend(Self::blank_run(1, style));
-                }
-                if show_v {
-                    row.extend(Self::blank_run(v_scrollbar_size.max(1), corner_style));
-                }
-                slice.push(row);
-            }
+            // Tree runtime uses dedicated scrollbar child widgets.
+            // Keep these values referenced here to avoid unused warnings; the
+            // pre-extraction widget-local render path below still performs
+            // inline scrollbar painting.
+            let _ = (
+                track_style,
+                track_hover_style,
+                track_active_style,
+                thumb_style,
+                thumb_hover_style,
+                thumb_active_style,
+                corner_style,
+                show_v,
+                show_h,
+                content_h,
+                content_w,
+            );
 
             slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
             let line_count = slice.len();
@@ -1443,6 +1412,51 @@ impl Widget for ScrollView {
                 _ => {}
             }
         }
+    }
+
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+        let Message::ScrollbarScrollTo(ScrollbarScrollTo {
+            axis,
+            offset,
+            animate,
+        }) = &msg.message
+        else {
+            return;
+        };
+
+        match axis {
+            ScrollbarAxis::Vertical => {
+                let before = self.offset_y;
+                let next = Self::line_clamp_offset(
+                    offset.max(0.0).round() as usize,
+                    self.content_height.load(Ordering::Relaxed).max(1),
+                    self.viewport_height.load(Ordering::Relaxed).max(1),
+                );
+                self.offset_y = next;
+                if *animate {
+                    self.request_offset_y_animation(before, self.offset_y, ctx);
+                } else {
+                    self.render_offset_y = self.offset_y as f32;
+                    ctx.request_repaint();
+                }
+            }
+            ScrollbarAxis::Horizontal => {
+                let before = self.offset_x;
+                let next = Self::line_clamp_offset(
+                    offset.max(0.0).round() as usize,
+                    self.content_width.load(Ordering::Relaxed).max(1),
+                    self.viewport_width.load(Ordering::Relaxed).max(1),
+                );
+                self.offset_x = next;
+                if *animate {
+                    self.request_offset_x_animation(before, self.offset_x, ctx);
+                } else {
+                    self.render_offset_x = self.offset_x as f32;
+                    ctx.request_repaint();
+                }
+            }
+        }
+        ctx.set_handled();
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {

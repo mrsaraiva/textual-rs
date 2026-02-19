@@ -55,6 +55,7 @@ pub use command_palette::{
 };
 pub(crate) use containers::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
 };
 pub use containers::{
     AppRoot, Center, CenterMiddle, Constrained, Container, Frame, Grid, Horizontal,

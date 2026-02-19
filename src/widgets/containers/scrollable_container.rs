@@ -105,16 +105,31 @@ impl Widget for ScrollableContainer {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        let mut extracted = self.inner.take_composed_children();
-        if extracted.len() == 1 {
-            let mut child = extracted.pop().expect("single child");
-            let any = &mut *child as &mut dyn std::any::Any;
-            if let Some(container) = any.downcast_mut::<Container>() {
-                return container.take_composed_children();
+        let extracted = self.inner.take_composed_children();
+        let mut out = Vec::new();
+        let mut flattened_container = false;
+
+        for mut child in extracted {
+            let is_scrollbar_lane = matches!(
+                child.style_id(),
+                Some(
+                    super::SCROLL_VIEW_VSCROLLBAR_ID
+                        | super::SCROLL_VIEW_HSCROLLBAR_ID
+                        | super::SCROLL_VIEW_SCROLLBAR_CORNER_ID
+                )
+            );
+            if !flattened_container && !is_scrollbar_lane {
+                let any = &mut *child as &mut dyn std::any::Any;
+                if let Some(container) = any.downcast_mut::<Container>() {
+                    out.extend(container.take_composed_children());
+                    flattened_container = true;
+                    continue;
+                }
             }
-            return vec![child];
+            out.push(child);
         }
-        extracted
+
+        out
     }
 
     fn focusable(&self) -> bool {

@@ -11,7 +11,7 @@ use crate::debug::debug_input;
 use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::message::{AppRootScrollbarAxis, AppRootScrollbarScrollTo, Message, MessageEvent};
+use crate::message::{ScrollbarAxis, ScrollbarScrollTo, Message, MessageEvent};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{
@@ -171,24 +171,24 @@ impl AppRoot {
         );
     }
 
-    fn apply_scrollbar_offset(&mut self, axis: AppRootScrollbarAxis, offset: f32) -> bool {
+    fn apply_scrollbar_offset(&mut self, axis: ScrollbarAxis, offset: f32) -> bool {
         let (before_x, before_y) = (self.offset_x, self.offset_y);
         match axis {
-            AppRootScrollbarAxis::Horizontal => self.offset_x = offset,
-            AppRootScrollbarAxis::Vertical => self.offset_y = offset,
+            ScrollbarAxis::Horizontal => self.offset_x = offset,
+            ScrollbarAxis::Vertical => self.offset_y = offset,
         }
         self.clamp_offsets();
         self.offset_x != before_x || self.offset_y != before_y
     }
 
-    fn clamped_axis_offset(&self, axis: AppRootScrollbarAxis, offset: f32) -> f32 {
+    fn clamped_axis_offset(&self, axis: ScrollbarAxis, offset: f32) -> f32 {
         match axis {
-            AppRootScrollbarAxis::Horizontal => scrollbar_clamp_offset_f32(
+            ScrollbarAxis::Horizontal => scrollbar_clamp_offset_f32(
                 offset,
                 self.content_width.load(Ordering::Relaxed).max(1),
                 self.viewport_width.load(Ordering::Relaxed).max(1),
             ),
-            AppRootScrollbarAxis::Vertical => scrollbar_clamp_offset_f32(
+            ScrollbarAxis::Vertical => scrollbar_clamp_offset_f32(
                 offset,
                 self.content_height.load(Ordering::Relaxed).max(1),
                 self.viewport_height.load(Ordering::Relaxed).max(1),
@@ -196,16 +196,16 @@ impl AppRoot {
         }
     }
 
-    fn axis_offset(&self, axis: AppRootScrollbarAxis) -> f32 {
+    fn axis_offset(&self, axis: ScrollbarAxis) -> f32 {
         match axis {
-            AppRootScrollbarAxis::Horizontal => self.offset_x,
-            AppRootScrollbarAxis::Vertical => self.offset_y,
+            ScrollbarAxis::Horizontal => self.offset_x,
+            ScrollbarAxis::Vertical => self.offset_y,
         }
     }
 
     fn request_scroll_animation(
         &mut self,
-        axis: AppRootScrollbarAxis,
+        axis: ScrollbarAxis,
         to: f32,
         ctx: &mut EventCtx,
     ) -> bool {
@@ -215,8 +215,8 @@ impl AppRoot {
             return false;
         }
         let attr = match axis {
-            AppRootScrollbarAxis::Horizontal => APP_ROOT_OFFSET_X_ATTR,
-            AppRootScrollbarAxis::Vertical => APP_ROOT_OFFSET_Y_ATTR,
+            ScrollbarAxis::Horizontal => APP_ROOT_OFFSET_X_ATTR,
+            ScrollbarAxis::Vertical => APP_ROOT_OFFSET_Y_ATTR,
         };
         ctx.request_animation(
             AnimationRequest::new(
@@ -374,7 +374,7 @@ impl Widget for AppRoot {
         {
             if *target == self.node_id() {
                 if attribute == APP_ROOT_OFFSET_Y_ATTR {
-                    let next = self.clamped_axis_offset(AppRootScrollbarAxis::Vertical, *value);
+                    let next = self.clamped_axis_offset(ScrollbarAxis::Vertical, *value);
                     if (next - self.offset_y).abs() > f32::EPSILON {
                         self.offset_y = next;
                         ctx.request_layout_invalidation();
@@ -384,7 +384,7 @@ impl Widget for AppRoot {
                     return;
                 }
                 if attribute == APP_ROOT_OFFSET_X_ATTR {
-                    let next = self.clamped_axis_offset(AppRootScrollbarAxis::Horizontal, *value);
+                    let next = self.clamped_axis_offset(ScrollbarAxis::Horizontal, *value);
                     if (next - self.offset_x).abs() > f32::EPSILON {
                         self.offset_x = next;
                         ctx.request_layout_invalidation();
@@ -447,7 +447,7 @@ impl Widget for AppRoot {
     }
 
     fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
+        let Message::ScrollbarScrollTo(ScrollbarScrollTo {
             axis,
             offset,
             animate,
@@ -805,8 +805,8 @@ mod focus_tests {
         root.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
-                    axis: AppRootScrollbarAxis::Vertical,
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
                     offset: 24.0,
                     animate: false,
                 }),
@@ -840,8 +840,8 @@ mod focus_tests {
         root.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
-                    axis: AppRootScrollbarAxis::Vertical,
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
                     offset: 24.5,
                     animate: true,
                 }),
@@ -874,8 +874,8 @@ mod focus_tests {
         root.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
-                    axis: AppRootScrollbarAxis::Vertical,
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
                     offset: 999.0,
                     animate: false,
                 }),
@@ -902,8 +902,8 @@ mod focus_tests {
         root.on_message(
             &MessageEvent {
                 sender: NodeId::default(),
-                message: Message::AppRootScrollbarScrollTo(AppRootScrollbarScrollTo {
-                    axis: AppRootScrollbarAxis::Vertical,
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
                     offset: 24.5,
                     animate: false,
                 }),
