@@ -88,7 +88,6 @@ pub struct RichLog {
     viewport_height: AtomicUsize,
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
-    drag_v: Option<usize>,
     scrollbar_extracted: bool,
     styles: WidgetStyles,
     cache: Mutex<LineCache>,
@@ -154,7 +153,6 @@ impl RichLog {
             viewport_height: AtomicUsize::new(1),
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
-            drag_v: None,
             scrollbar_extracted: false,
             styles: WidgetStyles::default(),
             cache: Mutex::new(LineCache::new(1000)),
@@ -705,23 +703,10 @@ impl Widget for RichLog {
         let height = options.size.1.max(1);
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(height, Ordering::Relaxed);
-        const V_SCROLLBAR_SIZE: usize = 2;
 
-        let mut viewport_width = width;
-        let mut physical = self.physical_lines(console, options, viewport_width);
-        let mut content_height = physical.len().max(1);
-        let mut show_scrollbar = content_height > height;
-        let mut scrollbar_size = 0usize;
-        if show_scrollbar && width > 1 {
-            scrollbar_size = V_SCROLLBAR_SIZE.min(width.saturating_sub(1)).max(1);
-            viewport_width = width.saturating_sub(scrollbar_size);
-            physical = self.physical_lines(console, options, viewport_width);
-            content_height = physical.len().max(1);
-            show_scrollbar = content_height > height;
-            if !show_scrollbar {
-                scrollbar_size = 0;
-            }
-        }
+        let viewport_width = width;
+        let physical = self.physical_lines(console, options, viewport_width);
+        let content_height = physical.len().max(1);
 
         self.viewport_height.store(height, Ordering::Relaxed);
         self.content_height.store(content_height, Ordering::Relaxed);
@@ -737,49 +722,6 @@ impl Widget for RichLog {
         }
         while rows.len() < height {
             rows.push(vec![Segment::new(" ".repeat(viewport_width))]);
-        }
-
-        if show_scrollbar && !self.scrollbar_extracted {
-            let (track_style, thumb_style, thumb_active_style) =
-                ScrollView::line_scrollbar_styles();
-            let track_len = height.max(1);
-            let (thumb_start, thumb_len) =
-                ScrollView::line_scrollbar_thumb(track_len, content_height, height, offset);
-            let mut thumb_drawn = false;
-            for (row, line) in rows.iter_mut().enumerate() {
-                let in_track = row < track_len;
-                let active = in_track && row >= thumb_start && row < thumb_start + thumb_len;
-                let style = if active {
-                    if self.drag_v.is_some() {
-                        thumb_active_style
-                    } else {
-                        thumb_style
-                    }
-                } else {
-                    track_style
-                };
-                for _ in 0..scrollbar_size.max(1) {
-                    line.push(Segment::styled(" ".to_string(), style));
-                }
-                thumb_drawn |= active;
-            }
-            if !thumb_drawn && !rows.is_empty() {
-                let row = track_len.saturating_sub(1).min(rows.len() - 1);
-                let line = &mut rows[row];
-                for _ in 0..scrollbar_size.max(1) {
-                    if !line.is_empty() {
-                        line.pop();
-                    }
-                }
-                let active_style = if self.drag_v.is_some() {
-                    thumb_active_style
-                } else {
-                    thumb_style
-                };
-                for _ in 0..scrollbar_size.max(1) {
-                    line.push(Segment::styled(" ".to_string(), active_style));
-                }
-            }
         }
 
         let mut out = Segments::new();
@@ -805,55 +747,6 @@ impl Widget for RichLog {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.node_id() {
-                let width = self.widget_width.load(Ordering::Relaxed).max(1);
-                let height = self.widget_height.load(Ordering::Relaxed).max(1);
-                let content_height = self.content_height.load(Ordering::Relaxed).max(1);
-                let show_scrollbar = content_height > height;
-                let scrollbar_size = 2usize.min(width.saturating_sub(1)).max(1);
-                let local_x = mouse.x as usize;
-                let local_y = mouse.y as usize;
-                if !self.scrollbar_extracted
-                    && show_scrollbar
-                    && local_x >= width.saturating_sub(scrollbar_size)
-                    && local_y < height
-                {
-                    let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
-                        height,
-                        content_height,
-                        height,
-                        self.offset_y,
-                    );
-                    if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len) {
-                        self.drag_v = Some(local_y.saturating_sub(thumb_start));
-                        ctx.set_handled();
-                        return;
-                    }
-                    let before = self.offset_y;
-                    if local_y < thumb_start {
-                        self.scroll_by(-(height as i32));
-                    } else if local_y >= thumb_start.saturating_add(thumb_len) {
-                        self.scroll_by(height as i32);
-                    }
-                    if self.offset_y != before {
-                        ctx.request_repaint();
-                        self.emit_scroll_changed_message(ctx);
-                    }
-                    ctx.set_handled();
-                    return;
-                }
-            }
-        }
-
-        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
-            let was_dragging = self.drag_v.take().is_some();
-            if was_dragging {
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-        }
-
         if let Event::Action(action) = event {
             let before = self.offset_y;
             match action {
@@ -890,31 +783,7 @@ impl Widget for RichLog {
         ctx.set_handled();
     }
 
-    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
-        let Some(grab_offset) = self.drag_v else {
-            return false;
-        };
-        if self.scrollbar_extracted {
-            return false;
-        }
-        let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
-        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
-        if content_h <= viewport_h {
-            return false;
-        }
-
-        let new_offset = ScrollView::line_drag_offset(
-            y as usize,
-            grab_offset,
-            viewport_h,
-            content_h,
-            viewport_h,
-            self.offset_y,
-        );
-        if new_offset != self.offset_y {
-            self.offset_y = new_offset;
-            return true;
-        }
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
 

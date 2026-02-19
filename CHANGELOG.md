@@ -7,6 +7,12 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-19
+- **refactor(scrollbar phase2 cleanup): remove widget-local inline scrollbar branches for migrated hosts**
+  - `Log`, `RichLog`, `KeyPanel`, and `DataTable` no longer maintain inline scrollbar paint/drag paths after dedicated scrollbar-child migration.
+  - Removed legacy widget-local drag state branches from these widgets; scrollbar interaction now flows through dedicated `ScrollBar` children + `Message::ScrollbarScrollTo`.
+  - Simplified host render geometry assumptions so migrated widgets render only content, while runtime-host lanes own scrollbar space/hit behavior.
+
 ### 2026-02-18
 - **fix(app-root scrollbar drag parity): animate root scroll-to updates and keep fixed thumb gain**
   - `AppRootScrollbarScrollTo` now carries float offsets and animation intent so scrollbar drag/click route through the same animated root offset pipeline instead of immediate integer jumps.

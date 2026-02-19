@@ -306,7 +306,6 @@ pub struct KeyPanel {
     viewport_height: AtomicUsize,
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
-    drag_v: Option<usize>,
     scrollbar_extracted: bool,
     classes: Vec<String>,
     styles: WidgetStyles,
@@ -324,7 +323,6 @@ impl KeyPanel {
             viewport_height: AtomicUsize::new(1),
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
-            drag_v: None,
             scrollbar_extracted: false,
             classes: Vec::new(),
             styles: WidgetStyles::default(),
@@ -435,18 +433,10 @@ impl Widget for KeyPanel {
         let height = options.size.1.max(1);
         self.widget_width.store(width, Ordering::Relaxed);
         self.widget_height.store(height, Ordering::Relaxed);
-        const V_SCROLLBAR_SIZE: usize = 1;
         let body_viewport = height.max(1);
-        let mut viewport_width = width;
-        let mut table_lines = self.table.lines(viewport_width);
-        let mut content_height = table_lines.len().max(1);
-        let mut show_scrollbar = content_height > body_viewport && width > 2;
-        if show_scrollbar && !self.scrollbar_extracted {
-            viewport_width = width.saturating_sub(V_SCROLLBAR_SIZE).max(1);
-            table_lines = self.table.lines(viewport_width);
-            content_height = table_lines.len().max(1);
-            show_scrollbar = content_height > body_viewport;
-        }
+        let viewport_width = width;
+        let table_lines = self.table.lines(viewport_width);
+        let content_height = table_lines.len().max(1);
         self.viewport_height.store(body_viewport, Ordering::Relaxed);
         self.content_height.store(content_height, Ordering::Relaxed);
 
@@ -458,46 +448,6 @@ impl Widget for KeyPanel {
         body = pad_lines_to_width(body, viewport_width);
         while body.len() < body_viewport {
             body.push(vec![Segment::new(" ".repeat(viewport_width))]);
-        }
-
-        if show_scrollbar {
-            let (track_style, thumb_style, thumb_active_style) =
-                ScrollView::line_scrollbar_styles();
-            let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
-                body_viewport,
-                content_height,
-                body_viewport,
-                offset,
-            );
-            let mut thumb_drawn = false;
-            for (row, line) in body.iter_mut().enumerate() {
-                let active = row >= thumb_start && row < thumb_start + thumb_len;
-                line.push(Segment::styled(
-                    " ".to_string(),
-                    if active {
-                        if self.drag_v.is_some() {
-                            thumb_active_style
-                        } else {
-                            thumb_style
-                        }
-                    } else {
-                        track_style
-                    },
-                ));
-                thumb_drawn |= active;
-            }
-            if !thumb_drawn && !body.is_empty() {
-                let row = body_viewport.saturating_sub(1).min(body.len() - 1);
-                if !body[row].is_empty() {
-                    body[row].pop();
-                }
-                let active_style = if self.drag_v.is_some() {
-                    thumb_active_style
-                } else {
-                    thumb_style
-                };
-                body[row].push(Segment::styled(" ".to_string(), active_style));
-            }
         }
 
         let mut out = Segments::new();
@@ -521,53 +471,6 @@ impl Widget for KeyPanel {
                 ctx.request_repaint();
             }
             return;
-        }
-        if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.node_id() {
-                let width = self.widget_width.load(Ordering::Relaxed).max(1);
-                let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-                let content_height = self.content_height.load(Ordering::Relaxed).max(1);
-                if !self.scrollbar_extracted
-                    && content_height > body_viewport
-                    && width > 1
-                    && mouse.x as usize >= width.saturating_sub(1)
-                    && mouse.y > 0
-                {
-                    let local_y = (mouse.y as usize).saturating_sub(1);
-                    if local_y < body_viewport {
-                        let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
-                            body_viewport,
-                            content_height,
-                            body_viewport,
-                            self.offset_y,
-                        );
-                        if local_y >= thumb_start && local_y < thumb_start.saturating_add(thumb_len)
-                        {
-                            self.drag_v = Some(local_y.saturating_sub(thumb_start));
-                            ctx.set_handled();
-                            return;
-                        }
-                        let before = self.offset_y;
-                        if local_y < thumb_start {
-                            self.scroll_by(-(body_viewport as i32));
-                        } else {
-                            self.scroll_by(body_viewport as i32);
-                        }
-                        if self.offset_y != before {
-                            ctx.request_repaint();
-                            self.emit_scroll_changed_message(ctx);
-                        }
-                        ctx.set_handled();
-                        return;
-                    }
-                }
-            }
-        }
-        if matches!(event, Event::MouseUp(_) | Event::AppFocus(false)) {
-            if self.drag_v.take().is_some() {
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
         }
         if let Event::Action(action) = event {
             if !self.can_scroll() {
@@ -608,32 +511,7 @@ impl Widget for KeyPanel {
         }
     }
 
-    fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
-        let Some(grab_offset) = self.drag_v else {
-            return false;
-        };
-        if self.scrollbar_extracted {
-            return false;
-        }
-        let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-        let content_height = self.content_height.load(Ordering::Relaxed).max(1);
-        if content_height <= body_viewport {
-            return false;
-        }
-
-        let local_y = (y as usize).saturating_sub(1);
-        let new_offset = ScrollView::line_drag_offset(
-            local_y,
-            grab_offset,
-            body_viewport,
-            content_height,
-            body_viewport,
-            self.offset_y,
-        );
-        if new_offset != self.offset_y {
-            self.offset_y = new_offset;
-            return true;
-        }
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
 

@@ -3,7 +3,6 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-use crate::renderables::Bar;
 use crate::style::{Color, parse_color_like};
 
 use crate::action::ParsedAction;
@@ -71,7 +70,6 @@ pub struct DataTable {
     focused: bool,
     hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
-    drag_h: Option<usize>,
     scrollbar_extracted: bool,
     show_header: bool,
     show_row_labels: bool,
@@ -81,8 +79,6 @@ pub struct DataTable {
 
 #[derive(Debug, Clone, Copy)]
 struct HorizontalScrollbarState {
-    row_y: usize,
-    viewport_width: usize,
     content_width: usize,
     pixel_offset: usize,
     max_pixel_offset: usize,
@@ -110,7 +106,6 @@ impl DataTable {
             focused: false,
             hovered: false,
             hover_coordinate: None,
-            drag_h: None,
             scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
@@ -748,12 +743,8 @@ impl DataTable {
         offset
     }
 
-    fn horizontal_scrollbar_state(
-        &self,
-        width: usize,
-        height: usize,
-    ) -> Option<HorizontalScrollbarState> {
-        if width == 0 || height == 0 {
+    fn horizontal_scrollbar_state(&self, width: usize) -> Option<HorizontalScrollbarState> {
+        if width == 0 {
             return None;
         }
         let viewport_width = self.scrollable_viewport_width(width);
@@ -764,8 +755,6 @@ impl DataTable {
         let max_pixel_offset = content_width.saturating_sub(viewport_width);
         let pixel_offset = self.horizontal_offset_pixels().min(max_pixel_offset);
         Some(HorizontalScrollbarState {
-            row_y: height.saturating_sub(1),
-            viewport_width,
             content_width,
             pixel_offset,
             max_pixel_offset,
@@ -866,17 +855,13 @@ impl DataTable {
         );
     }
 
-    fn visible_rows_for_viewport(&self, width: usize, height: usize) -> usize {
+    fn visible_rows_for_viewport(&self, height: usize) -> usize {
         let header_rows = if self.show_header { 1 } else { 0 };
-        let mut rows = height.saturating_sub(header_rows);
-        if self.horizontal_scrollbar_state(width, height).is_some() {
-            rows = rows.saturating_sub(1);
-        }
-        rows
+        height.saturating_sub(header_rows)
     }
 
     fn visible_rows(&self) -> usize {
-        self.visible_rows_for_viewport(self.content_width as usize, self.content_height as usize)
+        self.visible_rows_for_viewport(self.content_height as usize)
     }
 
     fn effective_offset(&self, visible_rows: usize) -> usize {
@@ -948,7 +933,6 @@ impl Default for DataTable {
             focused: false,
             hovered: false,
             hover_coordinate: None,
-            drag_h: None,
             scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
@@ -1035,36 +1019,12 @@ impl Widget for DataTable {
     fn on_layout(&mut self, width: u16, height: u16) {
         self.content_width = width;
         self.content_height = height;
-        let visible_rows = self.visible_rows_for_viewport(width as usize, height as usize);
+        let visible_rows = self.visible_rows_for_viewport(height as usize);
         self.ensure_visible(visible_rows);
         self.ensure_cursor_column_visible(width as usize);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if let Some(grab_offset) = self.drag_h {
-            if self.scrollbar_extracted {
-                return false;
-            }
-            let width = self.content_width as usize;
-            let height = self.content_height as usize;
-            if let Some(state) = self.horizontal_scrollbar_state(width, height) {
-                let new_pixel_offset = ScrollView::line_drag_offset(
-                    x as usize,
-                    grab_offset,
-                    width,
-                    state.content_width,
-                    state.viewport_width,
-                    state.pixel_offset,
-                )
-                .min(state.max_pixel_offset);
-                let new_offset = self.horizontal_offset_from_pixels(new_pixel_offset);
-                if new_offset != self.horizontal_offset {
-                    self.horizontal_offset = new_offset;
-                    return true;
-                }
-            }
-            return false;
-        }
         let rendered_columns = self.rendered_column_indices();
         let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
         let visible_rows = self.visible_rows();
@@ -1103,7 +1063,7 @@ impl Widget for DataTable {
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
         let width = self.content_width as usize;
         let height = self.content_height as usize;
-        let visible_rows = self.visible_rows_for_viewport(width, height);
+        let visible_rows = self.visible_rows_for_viewport(height);
         let mut selection_changed = false;
         let mut cursor_changed = false;
 
@@ -1251,14 +1211,6 @@ impl Widget for DataTable {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if !self.scrollbar_extracted
-            && matches!(event, Event::MouseUp(_) | Event::AppFocus(false))
-            && self.drag_h.take().is_some()
-        {
-            ctx.set_handled();
-            return;
-        }
-
         let visible_rows = self.visible_rows();
         let mut selection_changed = false;
         let mut cursor_changed = false;
@@ -1267,33 +1219,6 @@ impl Widget for DataTable {
         // Handle mouse events regardless of focus state.
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                let width = self.content_width as usize;
-                let height = self.content_height as usize;
-                if !self.scrollbar_extracted
-                    && let Some(state) = self.horizontal_scrollbar_state(width, height)
-                    && mouse.y as usize == state.row_y
-                {
-                    let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
-                        width,
-                        state.content_width,
-                        state.viewport_width,
-                        state.pixel_offset,
-                    );
-                    let x = mouse.x as usize;
-                    if x >= thumb_start && x < thumb_start.saturating_add(thumb_len) {
-                        self.drag_h = Some(x.saturating_sub(thumb_start));
-                    } else if x < thumb_start {
-                        let step = self.page_horizontal_step(width) as i32;
-                        self.scroll_horizontal_by_columns(-step);
-                    } else {
-                        let step = self.page_horizontal_step(width) as i32;
-                        self.scroll_horizontal_by_columns(step);
-                    }
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                    return;
-                }
-
                 let rendered_columns = self.rendered_column_indices();
                 let clicked_col =
                     self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
@@ -1621,8 +1546,7 @@ impl Widget for DataTable {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let show_h_scrollbar = self.horizontal_scrollbar_state(width, height).is_some();
-        let visible_rows = self.visible_rows_for_viewport(width, height);
+        let visible_rows = self.visible_rows_for_viewport(height);
         let offset = self.effective_offset(visible_rows);
 
         let column_widths = self.column_widths();
@@ -1777,32 +1701,6 @@ impl Widget for DataTable {
             emit_data_row(scroll_start + row_offset, &mut out);
         }
 
-        if !self.scrollbar_extracted
-            && let Some(state) = self.horizontal_scrollbar_state(width, height)
-            && show_h_scrollbar
-        {
-            let (track_style, thumb_style, thumb_active_style) =
-                ScrollView::line_scrollbar_styles();
-            let (thumb_start, thumb_len) = ScrollView::line_scrollbar_thumb(
-                width,
-                state.content_width,
-                state.viewport_width,
-                state.pixel_offset,
-            );
-            let thumb_style = if self.drag_h.is_some() {
-                thumb_active_style
-            } else {
-                thumb_style
-            };
-            let end = thumb_start.saturating_add(thumb_len).min(width) as f32;
-            let bar = Bar::new((thumb_start as f32, end), thumb_style, track_style)
-                .chars(' ', ' ')
-                .half_chars(' ', ' ')
-                .width(width)
-                .render_for_width(width);
-            out.extend(bar);
-        }
-
         out
     }
 
@@ -1852,8 +1750,7 @@ impl Widget for DataTable {
             return;
         }
         let width = self.content_width as usize;
-        let height = self.content_height as usize;
-        let Some(state) = self.horizontal_scrollbar_state(width, height) else {
+        let Some(state) = self.horizontal_scrollbar_state(width) else {
             return;
         };
         let target_pixels = payload.offset.max(0.0).round() as usize;
@@ -1868,8 +1765,7 @@ impl Widget for DataTable {
 
     fn scroll_offset(&self) -> (usize, usize) {
         let width = self.content_width as usize;
-        let height = self.content_height as usize;
-        if let Some(state) = self.horizontal_scrollbar_state(width, height) {
+        if let Some(state) = self.horizontal_scrollbar_state(width) {
             (state.pixel_offset, 0)
         } else {
             (0, 0)
@@ -1884,7 +1780,7 @@ impl Widget for DataTable {
     fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
         let width = self.content_width as usize;
         let height = self.content_height as usize;
-        if let Some(state) = self.horizontal_scrollbar_state(width, height) {
+        if let Some(state) = self.horizontal_scrollbar_state(width) {
             Some((state.content_width.max(1), height.max(1)))
         } else {
             let content_w = self.content_width().unwrap_or(width.max(1)).max(1);
@@ -2365,7 +2261,7 @@ mod tests {
         );
 
         let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &table, None);
-        assert!(table.horizontal_scrollbar_state(12, 4).is_some());
+        assert!(table.horizontal_scrollbar_state(12).is_some());
         assert_eq!(buf.as_plain_lines().len(), 4);
     }
 
