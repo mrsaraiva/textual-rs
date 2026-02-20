@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-20 (D-040 five_by_five game demo)
+
+- **feat(examples): D-040 `five_by_five` game demo (port of `examples/five_by_five.py`)**
+  - 5×5 toggle-puzzle game: fill all 25 cells by toggling cross patterns.
+  - Custom `GameGrid` widget owns full game state (cells, cursor, moves, win flag) and renders as
+    text via `Label` delegation; avoids needing per-cell `Button` class management.
+  - `HelpRoot` widget declares `escape`/`space`/`q` → `app.pop_screen` bindings so the help
+    overlay is dismissible from any key in the set.
+  - `HelpScreen` modal (Screen trait) pushed via `app.push_screen('help')` binding on `?`.
+  - Navigation: arrow keys, WASD, and hjkl via `on_key_with_app`; space = make move.
+  - Win detection: all 25 cells filled → win message with move count + "perfect solve" variant.
+  - 5 regression tests (compose, initial state, toggle cross, win detection, edge wrapping).
+
 ### 2026-02-20 (Batch D demos D-041/D-042 — worker lifecycle parity)
 
 - **feat(examples): D-041 `weather02` demo (port of `docs/examples/guide/workers/weather02.py`)**
