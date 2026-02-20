@@ -5,10 +5,10 @@ edition = "2024"
 publish = false
 
 [dependencies]
-textual = { path = "../.." }
+textual = { path = "../../../" }
 rich-rs = "1.0.2"
 crossterm = "0.28"
 tree-sitter-java = "0.23"
 
 [patch.crates-io]
-rich-rs = { path = "../../../rich-rs" }
+rich-rs = { path = "../../../../rich-rs" }

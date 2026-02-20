@@ -1,14 +1,16 @@
 # Docs Widgets Examples
 
-This crate hosts widget-focused examples mirrored from Python Textual docs:
+This crate hosts docs-sourced examples mirrored from Python Textual docs (`../textual/docs/examples/**`).
 
-- Python source: `../textual/docs/examples/widgets`
-- Rust source: `docs/widgets/examples/<name>/main.rs`
+- Docs lane mapping: `../textual/docs/examples/**` -> `docs/examples/**`.
+- Current crate-backed location in this repo: `docs/examples/widgets/examples/<name>/main.rs`.
+- App lane mapping: `../textual/examples/**` -> `examples/**` (not in this crate).
 
 Run examples with:
 
 ```bash
-cargo run --manifest-path docs/widgets/Cargo.toml --example <name>
+cargo run --manifest-path docs/examples/widgets/Cargo.toml --example <name>
+tools/run-doc-example.sh widgets <name>
 ```
 
 Current migrated examples:
@@ -22,9 +24,6 @@ Current migrated examples:
 - `input_validation`
 - `keys`
 - `modal`
-- `modal01`
-- `modal02`
-- `modal03`
 - `rich_log`
 - `tabbed_content`
 - `tabbed_content_label_color`
