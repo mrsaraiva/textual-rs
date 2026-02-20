@@ -1,0 +1,114 @@
+[[category]]
+name = "app"
+manifest = "docs/examples/app/Cargo.toml"
+python_root = "../textual/docs/examples/app"
+
+[[category]]
+name = "events"
+manifest = "docs/examples/events/Cargo.toml"
+python_root = "../textual/docs/examples/events"
+
+[[category]]
+name = "getting_started"
+manifest = "docs/examples/getting_started/Cargo.toml"
+python_root = "../textual/docs/examples/getting_started"
+
+[[category]]
+name = "guide/actions"
+manifest = "docs/examples/guide/actions/Cargo.toml"
+python_root = "../textual/docs/examples/guide/actions"
+
+[[category]]
+name = "guide/animator"
+manifest = "docs/examples/guide/animator/Cargo.toml"
+python_root = "../textual/docs/examples/guide/animator"
+
+[[category]]
+name = "guide/command_palette"
+manifest = "docs/examples/guide/command_palette/Cargo.toml"
+python_root = "../textual/docs/examples/guide/command_palette"
+
+[[category]]
+name = "guide/compound"
+manifest = "docs/examples/guide/compound/Cargo.toml"
+python_root = "../textual/docs/examples/guide/compound"
+
+[[category]]
+name = "guide/content"
+manifest = "docs/examples/guide/content/Cargo.toml"
+python_root = "../textual/docs/examples/guide/content"
+
+[[category]]
+name = "guide/core"
+manifest = "docs/examples/guide/core/Cargo.toml"
+python_root = "../textual/docs/examples/guide"
+
+[[category]]
+name = "guide/css"
+manifest = "docs/examples/guide/css/Cargo.toml"
+python_root = "../textual/docs/examples/guide/css"
+
+[[category]]
+name = "guide/input"
+manifest = "docs/examples/guide/input/Cargo.toml"
+python_root = "../textual/docs/examples/guide/input"
+
+[[category]]
+name = "guide/layout"
+manifest = "docs/examples/guide/layout/Cargo.toml"
+python_root = "../textual/docs/examples/guide/layout"
+
+[[category]]
+name = "guide/reactivity"
+manifest = "docs/examples/guide/reactivity/Cargo.toml"
+python_root = "../textual/docs/examples/guide/reactivity"
+
+[[category]]
+name = "guide/screens"
+manifest = "docs/examples/guide/screens/Cargo.toml"
+python_root = "../textual/docs/examples/guide/screens"
+
+[[category]]
+name = "guide/styles"
+manifest = "docs/examples/guide/styles/Cargo.toml"
+python_root = "../textual/docs/examples/guide/styles"
+
+[[category]]
+name = "guide/testing"
+manifest = "docs/examples/guide/testing/Cargo.toml"
+python_root = "../textual/docs/examples/guide/testing"
+
+[[category]]
+name = "guide/widgets"
+manifest = "docs/examples/guide/widgets/Cargo.toml"
+python_root = "../textual/docs/examples/guide/widgets"
+
+[[category]]
+name = "guide/workers"
+manifest = "docs/examples/guide/workers/Cargo.toml"
+python_root = "../textual/docs/examples/guide/workers"
+
+[[category]]
+name = "how-to"
+manifest = "docs/examples/how-to/Cargo.toml"
+python_root = "../textual/docs/examples/how-to"
+
+[[category]]
+name = "styles"
+manifest = "docs/examples/styles/Cargo.toml"
+python_root = "../textual/docs/examples/styles"
+
+[[category]]
+name = "themes"
+manifest = "docs/examples/themes/Cargo.toml"
+python_root = "../textual/docs/examples/themes"
+
+[[category]]
+name = "tutorial"
+manifest = "docs/examples/tutorial/Cargo.toml"
+python_root = "../textual/docs/examples/tutorial"
+
+[[category]]
+name = "widgets"
+manifest = "docs/examples/widgets/Cargo.toml"
+python_root = "../textual/docs/examples/widgets"

@@ -8,6 +8,15 @@ until the API stabilizes.
 ## [Unreleased]
 
 ### 2026-02-19
+
+- **refactor(docs/examples): reorganize docs examples into category crates with unified launcher**
+  - Moved `docs/widgets/` to `docs/examples/widgets/` and modal demos to `docs/examples/guide/screens/`.
+  - Added category crates for all Python Textual doc categories: `app`, `events`, `getting_started`, `guide/*`, `how-to`, `styles`, `themes`, `tutorial`.
+  - Added `tools/run-doc-example.sh` unified launcher replacing `tools/run-doc-widget.sh`.
+  - Added `tools/doc_examples_index.toml` category→manifest mapping for the launcher.
+  - Added `tools/gen-doc-example-stubs.sh` and stub templates to generate placeholder examples.
+  - Generated 295 stub examples tracking Python Textual's full docs example surface.
+  - Bundled `java_highlights.scm` locally into the `text_area_custom_language` example to remove the Python Textual sibling-repo dependency.
 - **[wip] refactor(screen compositing parity): introduce canonical `Screen`/`ModalScreen` host roots and layered screen rendering**
   - Pushed screens now mount through a dedicated host widget that exposes canonical CSS type identity (`Screen` / `ModalScreen`) while preserving composed body widgets as descendants.
   - Runtime tree rendering now composites visible app + screen layers back-to-front with per-layer stylesheet isolation and opaque/translucent modal background semantics aligned to Python defaults.
