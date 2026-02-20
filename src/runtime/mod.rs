@@ -473,6 +473,21 @@ pub struct App {
     /// adapter drains pending changes and dispatches them to the app's
     /// `ReactiveWidget` impl via `reactive_widget_mut()`.
     app_reactive_ctx: crate::reactive::ReactiveCtx,
+    /// App-level title (mirrors Python `App.title`).
+    ///
+    /// Setting via `App::set_title()` enqueues a `ScreenTitleChanged` broadcast
+    /// so the `Header` widget reflects the new value on the next event pass.
+    app_title: String,
+    /// App-level sub-title (mirrors Python `App.sub_title`).
+    ///
+    /// Setting via `App::set_sub_title()` / `App::clear_sub_title()` enqueues a
+    /// `ScreenTitleChanged` broadcast, matching Python's reactive `sub_title`.
+    app_sub_title: Option<String>,
+    /// Messages enqueued by `App::set_title()` / `App::set_sub_title()` to be
+    /// dispatched on the next event loop pass.
+    ///
+    /// Drained in `dispatch_background_runtime_messages()`.
+    pending_app_messages: Vec<MessageEvent>,
     /// Arena-based widget tree built from `compose()` declarations.
     ///
     /// Populated during app startup by `build_widget_tree()`. Runtime dispatch,
@@ -581,6 +596,9 @@ impl App {
             modes: HashMap::new(),
             current_mode: None,
             app_reactive_ctx: crate::reactive::ReactiveCtx::new(NodeId::default()),
+            app_title: String::new(),
+            app_sub_title: None,
+            pending_app_messages: Vec::new(),
         };
         Ok(app)
     }
@@ -598,6 +616,78 @@ impl App {
     /// dispatches them to `reactive_widget_mut()`.
     pub fn reactive_ctx(&mut self) -> &mut crate::reactive::ReactiveCtx {
         &mut self.app_reactive_ctx
+    }
+
+    // -----------------------------------------------------------------
+    // App-level title / sub-title (mirrors Python App.title / App.sub_title)
+    // -----------------------------------------------------------------
+
+    /// Set the app-level title displayed in the `Header` widget.
+    ///
+    /// Mirrors Python `self.title = value`. Enqueues a `ScreenTitleChanged`
+    /// broadcast that reaches the `Header` on the next event loop pass.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    ///     app.set_title("Code Browser");
+    /// }
+    /// ```
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        self.app_title = title.into();
+        self.enqueue_screen_title_changed();
+    }
+
+    /// Set the app-level sub-title displayed in the `Header` widget.
+    ///
+    /// Mirrors Python `self.sub_title = value`. Enqueues a `ScreenTitleChanged`
+    /// broadcast that reaches the `Header` on the next event loop pass.
+    pub fn set_sub_title(&mut self, sub_title: impl Into<String>) {
+        self.app_sub_title = Some(sub_title.into());
+        self.enqueue_screen_title_changed();
+    }
+
+    /// Clear the app-level sub-title (revert to the Header's default).
+    ///
+    /// Mirrors Python `self.sub_title = ""`. Enqueues a `ScreenTitleChanged`
+    /// broadcast so the Header reverts to its default subtitle.
+    pub fn clear_sub_title(&mut self) {
+        self.app_sub_title = None;
+        self.enqueue_screen_title_changed();
+    }
+
+    /// Current app-level title (as last set via `set_title()`).
+    pub fn title(&self) -> &str {
+        &self.app_title
+    }
+
+    /// Current app-level sub-title (as last set via `set_sub_title()`).
+    pub fn sub_title(&self) -> Option<&str> {
+        self.app_sub_title.as_deref()
+    }
+
+    fn enqueue_screen_title_changed(&mut self) {
+        use crate::message::{Message, ScreenTitleChanged};
+        let title = if self.app_title.is_empty() {
+            None
+        } else {
+            Some(self.app_title.clone())
+        };
+        self.pending_app_messages.push(MessageEvent {
+            sender: NodeId::default(),
+            control: None,
+            message: Message::ScreenTitleChanged(ScreenTitleChanged {
+                title,
+                sub_title: self.app_sub_title.clone(),
+            }),
+        });
+    }
+
+    /// Drain messages enqueued by `set_title()` / `set_sub_title()`.
+    ///
+    /// Called at the start of each background-message pass in the event loop.
+    pub(super) fn drain_pending_app_messages(&mut self) -> Vec<MessageEvent> {
+        std::mem::take(&mut self.pending_app_messages)
     }
 
     /// Configure runtime pseudo-class state used by CSS selectors.
@@ -4178,6 +4268,68 @@ mod tests {
         let second = buttons.ids()[1];
         assert_eq!(app.with_widget_mut(first, |w| w.has_focus()), Some(true));
         assert_eq!(app.with_widget_mut(second, |w| w.has_focus()), Some(false));
+    }
+
+    // -----------------------------------------------------------------------
+    // App title / sub-title API tests (DG-02)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn set_title_stores_title_and_enqueues_message() {
+        let mut app = App::new().expect("app should initialize");
+        assert_eq!(app.title(), "");
+        app.set_title("Code Browser");
+        assert_eq!(app.title(), "Code Browser");
+        assert_eq!(app.pending_app_messages.len(), 1);
+    }
+
+    #[test]
+    fn set_sub_title_stores_sub_title_and_enqueues_message() {
+        let mut app = App::new().expect("app should initialize");
+        assert_eq!(app.sub_title(), None);
+        app.set_sub_title("/path/to/file.rs");
+        assert_eq!(app.sub_title(), Some("/path/to/file.rs"));
+        assert_eq!(app.pending_app_messages.len(), 1);
+    }
+
+    #[test]
+    fn clear_sub_title_removes_sub_title_and_enqueues_message() {
+        let mut app = App::new().expect("app should initialize");
+        app.set_sub_title("some/path");
+        app.clear_sub_title();
+        assert_eq!(app.sub_title(), None);
+        // Two messages queued (one for set, one for clear).
+        assert_eq!(app.pending_app_messages.len(), 2);
+    }
+
+    #[test]
+    fn drain_pending_app_messages_clears_queue() {
+        let mut app = App::new().expect("app should initialize");
+        app.set_title("Hello");
+        app.set_sub_title("World");
+        let drained = app.drain_pending_app_messages();
+        assert_eq!(drained.len(), 2);
+        assert!(app.pending_app_messages.is_empty());
+    }
+
+    #[test]
+    fn enqueued_message_is_screen_title_changed() {
+        use crate::message::{Message, ScreenTitleChanged};
+        let mut app = App::new().expect("app should initialize");
+        app.set_title("My App");
+        app.set_sub_title("some/path");
+        let msgs = app.drain_pending_app_messages();
+        // Second message carries both title and subtitle.
+        if let Message::ScreenTitleChanged(ScreenTitleChanged {
+            title,
+            sub_title,
+        }) = &msgs[1].message
+        {
+            assert_eq!(title.as_deref(), Some("My App"));
+            assert_eq!(sub_title.as_deref(), Some("some/path"));
+        } else {
+            panic!("expected ScreenTitleChanged message");
+        }
     }
 
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {

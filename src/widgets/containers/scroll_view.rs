@@ -122,6 +122,20 @@ impl ScrollView {
         self.render_offset_y = self.offset_y as f32;
     }
 
+    /// Scroll to the top of the content (offset 0).
+    ///
+    /// Mirrors Python `VerticalScroll.scroll_home(animate=False)`.
+    pub fn scroll_home(&mut self) {
+        self.scroll_to(0);
+    }
+
+    /// Scroll to the end of the content.
+    ///
+    /// Mirrors Python `VerticalScroll.scroll_end(animate=False)`.
+    pub fn scroll_end(&mut self) {
+        self.scroll_to(self.max_offset());
+    }
+
     pub fn scroll_to_x(&mut self, offset_x: usize) {
         self.offset_x = offset_x;
         self.clamp_offset();
@@ -1857,5 +1871,27 @@ mod tests {
             );
             previous = offset;
         }
+    }
+
+    #[test]
+    fn scroll_home_resets_offset_to_zero() {
+        use crate::widgets::Label;
+        let mut view = ScrollView::new(Label::new(""));
+        // Manually set offset_y to bypass clamping (no layout available in unit tests).
+        view.offset_y = 42;
+        view.render_offset_y = 42.0;
+        view.scroll_home();
+        assert_eq!(view.offset_y, 0);
+        assert_eq!(view.render_offset_y, 0.0);
+    }
+
+    #[test]
+    fn scroll_end_does_not_panic_without_layout() {
+        use crate::widgets::Label;
+        let mut view = ScrollView::new(Label::new(""));
+        // Without real layout content_height is 0, so max_offset() == 0 too.
+        // Just verify scroll_end() doesn't panic and leaves a clamped result.
+        view.scroll_end();
+        assert_eq!(view.offset_y, 0);
     }
 }

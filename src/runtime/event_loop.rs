@@ -1880,7 +1880,9 @@ impl App {
     }
 
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
-        let mut queue = self.one_shot_timers.drain_ready(Instant::now());
+        // Drain app-level messages first (set_title/set_sub_title broadcasts).
+        let mut queue = self.drain_pending_app_messages();
+        queue.extend(self.one_shot_timers.drain_ready(Instant::now()));
         queue.extend(self.async_tasks.drain_completed());
         self.dispatch_message_queue_with_runtime(root, queue)
     }

@@ -7,6 +7,32 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-20
+
+- **feat(app): `App::set_title()` / `App::set_sub_title()` / `App::clear_sub_title()` runtime APIs**
+  - Mirrors Python `App.title` / `App.sub_title` reactive properties.
+  - `set_title(title)` and `set_sub_title(sub_title)` update stored values and enqueue a
+    `ScreenTitleChanged` broadcast that reaches the `Header` widget on the next event loop pass.
+  - `clear_sub_title()` resets the subtitle to the Header's default.
+  - `title()` / `sub_title()` accessors for reading current values.
+  - Pending messages are drained at the start of `dispatch_background_runtime_messages()`.
+  - Added 5 regression tests.
+
+- **feat(widgets): `Static::update()` / `Static::update_rich()` / `Static::clear()` content update APIs**
+  - Mirrors Python `Static.update(content)` which accepts any Rich renderable.
+  - `update(text)` replaces content with a plain string (delegates to `Label::set_text()`).
+  - `update_rich(text: rich_rs::Text)` stores pre-rendered rich text (e.g. syntax-highlighted code
+    produced by `rich_rs::Syntax::highlight()`); `Widget::render()` renders the `Text` directly.
+  - `clear()` empties the widget.
+  - `layout_height()` for rich content returns the line count of the stored `Text`.
+  - Added 5 regression tests.
+
+- **feat(widgets): `ScrollView::scroll_home()` / `ScrollView::scroll_end()`**
+  - Mirrors Python `Widget.scroll_home(animate=False)` / `Widget.scroll_end(animate=False)`.
+  - `scroll_home()` is an alias for `scroll_to(0)`.
+  - `scroll_end()` scrolls to `max_offset()`.
+  - Added 2 regression tests.
+
 ### 2026-02-19
 
 - **feat(reactive): app-level reactive bridge for `TextualApp` struct fields**
