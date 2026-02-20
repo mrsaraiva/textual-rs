@@ -146,9 +146,7 @@ Deliverable: ~~style a UI via a stylesheet-like source and hot-reload it.~~ **Do
 
 ### Known CSS Engine Gaps
 
-| Gap | Description | Python Textual Behavior | Tracking |
-|-----|-------------|------------------------|----------|
-| `pointer` CSS → runtime wiring | `Pointer` enum + parser exist (P2-02, P2-06), but `pointer_shape_for_hover_tree` uses hardcoded type-name checks instead of reading the CSS property. | `pointer: text` on Input, `pointer: not-allowed` on disabled, etc. | P2-23 |
+No open CSS engine gaps. All previously tracked items are resolved.
 
 ### TCSS Property Parity (Complete)
 
@@ -173,12 +171,11 @@ Full property-by-property gap analysis with 8 priority tiers lives in:
 
 #### P2 Deferred Items (parsed + cascaded, rendering not yet active)
 
-Most originally-deferred items have been resolved. Two remain:
+Most originally-deferred items have been resolved. One remains:
 
 | Item | Blocked On | Priority |
 |------|-----------|----------|
 | Full transition dispatch (P2-36) | Automatic dispatch on class/pseudo/stylesheet changes works for `opacity`, `text_opacity`, `offset_x`, `offset_y`. Remaining animatable properties need wiring as they gain runtime consumption. | Low — core mechanism works, incremental extension |
-| `pointer` CSS → runtime wiring (P2-23) | `pointer_shape_for_hover_tree` reads hardcoded type-name checks instead of CSS property. | Medium — cosmetic only |
 
 #### P2 Previously Deferred, Now Resolved
 
@@ -189,6 +186,7 @@ Most originally-deferred items have been resolved. Two remain:
 | Keyline rendering (P2-34) | Vertical/horizontal layout keyline separators with type + color |
 | Scrollbar hover/active sub-part styling (P2-30) | Sub-part hit-testing (thumb vs track) with per-state CSS color consumption |
 | Absolute positioning min/max constraints (P2-24) | `layout_absolute()` now applies min/max width/height constraints |
+| `pointer` CSS → runtime wiring (P2-23) | `pointer_shape_for_hover_tree` rewritten to read computed `style.pointer`; `pointer: text` added to Input/MaskedInput defaults; disabled widgets always `NotAllowed` |
 
 ---
 
@@ -508,8 +506,7 @@ Reference plan:
 - **Phase 9.7 modularization**: runtime, containers, default CSS, and selector engine all decomposed. Landed.
 
 ### Open Items
-- **P2-23**: `pointer` CSS property parsed but not runtime-wired (hardcoded type-name checks instead of reading CSS property).
-- **Transition property coverage**: auto-dispatch works for 4 properties; remaining animatable properties need wiring as they gain runtime consumption.
+- **Transition property coverage**: auto-dispatch works for 4 properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`); remaining animatable properties (colors, spacing) need wiring as they gain runtime consumption.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.
