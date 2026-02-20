@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-19 (MarkdownViewer widget + Batch C demos D-030/D-031)
+
+- **feat(widgets): `MarkdownViewer` composite widget and `MarkdownTableOfContents` sidebar**
+  - New file `src/widgets/markdown_viewer.rs`.
+  - `MarkdownViewer::new(content)` renders Markdown with optional TOC sidebar.
+  - `show_table_of_contents(bool)` / `set_show_table_of_contents(bool)` control sidebar visibility.
+  - TOC sidebar uses `MarkdownTableOfContents` (Tree-based heading list), visible via
+    `child_display_for_tree` (same mechanism as `ContentSwitcher`).
+  - CSS class `-show-table-of-contents` toggled on the viewer to drive CSS selector layout.
+  - `Markdown::extract_headings()` added to expose heading list for TOC population.
+  - 7 regression tests in `src/widgets/markdown_viewer.rs`.
+  - Navigation history (`go/back/forward/Navigator`) is DEFERRED pending async document loading.
+
+- **feat(examples): D-030 `markdown_viewer` demo (port of `docs/examples/widgets/markdown_viewer.py`)**
+  - Rich Markdown document with headings, tables, code blocks, lists.
+  - `show_table_of_contents=true` shows sidebar; DEFERRED note for navigation history.
+  - 4 regression tests.
+
+- **feat(examples): D-031 `markdown` app demo (port of `examples/markdown.py`)**
+  - TOC toggle binding (`t`), back/forward bindings declared for footer display.
+  - `t` key mutates `MarkdownViewer::set_show_table_of_contents()` live; same DEFERRED gap.
+  - 4 regression tests.
+
 ### 2026-02-19 (Batch C demos D-032..D-034, Tree framework additions)
 
 - **feat(widgets): `Tree::add_root()` and `Tree::toggle_show_root()`**

@@ -268,6 +268,19 @@ impl Markdown {
         }
     }
 
+    /// Extract all headings from the markdown as `(level, title)` pairs.
+    ///
+    /// Used by `MarkdownTableOfContents` to build the sidebar tree.
+    pub fn extract_headings(&self) -> Vec<(usize, String)> {
+        self.markup
+            .lines()
+            .filter_map(|line| {
+                Self::heading_level_and_text(line)
+                    .map(|(level, title)| (level, title.to_string()))
+            })
+            .collect()
+    }
+
     fn consume_heading_fragment<'a>(remaining: &'a str, fragment: &str) -> Option<&'a str> {
         let remaining = remaining.trim_start();
         let fragment = fragment.trim();

@@ -37,6 +37,7 @@ mod spacer;
 mod switch;
 mod tabbed_content;
 mod tabs;
+mod markdown_viewer;
 mod text;
 mod text_area;
 mod text_edit;
@@ -113,6 +114,7 @@ pub use spacer::Spacer;
 pub use switch::Switch;
 pub use tabbed_content::{TabPane, TabbedContent};
 pub use tabs::{Tab, Tabs};
+pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer};
 pub use text::{Label, LabelVariant, Markdown};
 pub use text_area::{
     Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea, TextAreaTheme,
