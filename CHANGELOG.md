@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-20 (Batch D demos D-041/D-042 — worker lifecycle parity)
+
+- **feat(examples): D-041 `weather02` demo (port of `docs/examples/guide/workers/weather02.py`)**
+  - Demonstrates `ctx.request_exclusive_worker_task` as the Rust equivalent of Python's
+    `self.run_worker(coroutine, exclusive=True)`.
+  - `on_input_changed` spawns an exclusive background worker on every keystroke; previous
+    in-flight workers are cancelled automatically.
+  - Shared `Arc<Mutex<Option<String>>>` passes the worker result back to the app.
+  - `on_message_with_app` receives `WorkerStateChanged::Success` and updates the `Static` widget.
+  - 4 regression tests.
+  - DEFERRED: Real HTTP fetch (requires blocking HTTP client); simulated with delay + fabricated data.
+
+- **feat(examples): D-042 `weather03` demo (port of `docs/examples/guide/workers/weather03.py`)**
+  - Same app as D-041 but documents the Python `@work(exclusive=True)` decorator pattern.
+  - Exclusive key `"update_weather"` mirrors the Python method name; logic extracted into a
+    `spawn_weather_worker` helper to mirror the decorator-as-separate-method structure.
+  - 4 regression tests. Same DEFERRED HTTP gap as D-041.
+
 ### 2026-02-19 (MarkdownViewer widget + Batch C demos D-030/D-031)
 
 - **feat(widgets): `MarkdownViewer` composite widget and `MarkdownTableOfContents` sidebar**
