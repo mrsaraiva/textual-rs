@@ -25,6 +25,7 @@ Input {
 ScrollView {
     width: 100%;
     height: 1fr;
+    align: center middle;
 }
 
 Static {

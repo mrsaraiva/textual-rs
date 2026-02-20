@@ -14,6 +14,13 @@ use super::{
     helpers::{empty_classes, fixed_height_from_constraints},
 };
 
+/// Icon for an expanded folder (Python: `ICON_NODE_EXPANDED`).
+const ICON_FOLDER_OPEN: &str = "📂 ";
+/// Icon for a collapsed folder (Python: `ICON_NODE`).
+const ICON_FOLDER: &str = "📁 ";
+/// Icon for a file (Python: `ICON_FILE`).
+const ICON_FILE: &str = "📄 ";
+
 #[derive(Debug, Clone)]
 struct DirectoryNode {
     path: PathBuf,
@@ -43,7 +50,17 @@ impl DirectoryNode {
     }
 
     fn to_tree_node(&self) -> TreeNode {
-        let mut node = TreeNode::new(self.label.clone())
+        // Prepend directory/file icon to the label, matching Python's render_label().
+        let icon_label = if self.is_dir {
+            if self.expanded {
+                format!("{}{}", ICON_FOLDER_OPEN, self.label)
+            } else {
+                format!("{}{}", ICON_FOLDER, self.label)
+            }
+        } else {
+            format!("{}{}", ICON_FILE, self.label)
+        };
+        let mut node = TreeNode::new(icon_label)
             .expanded(self.expanded)
             .allow_expand(self.is_dir);
 
@@ -482,17 +499,7 @@ impl Widget for DirectoryTree {
                 if message.sender != self.node_id() {
                     return;
                 }
-                let label = self
-                    .visible_entries
-                    .get(*index)
-                    .map(|entry| entry.path.display().to_string())
-                    .unwrap_or_default();
                 self.update_node_expanded_state(*index, *expanded, ctx);
-                ctx.post_message(Message::TreeNodeToggled(TreeNodeToggled {
-                    index: *index,
-                    label,
-                    expanded: *expanded,
-                }));
                 ctx.request_repaint();
                 ctx.set_handled();
             }

@@ -257,6 +257,9 @@ pub struct Tabs {
     focused_classes: Vec<String>,
     styles: WidgetStyles,
     pending_messages: Arc<Mutex<Vec<Message>>>,
+    /// True after the first event dispatch (widget is live in the tree).
+    /// Used to gate runtime-only messages from `add_tab`.
+    live: bool,
 }
 
 impl Tabs {
@@ -290,6 +293,7 @@ impl Tabs {
             focused_classes: Vec::new(),
             styles,
             pending_messages: Arc::new(Mutex::new(Vec::new())),
+            live: false,
         }
     }
 
@@ -306,6 +310,7 @@ impl Tabs {
             .unwrap_or_else(|| self.next_tab_id());
         tab.id = Some(tab_id.clone());
         let mut state = self.state.lock().expect("tabs state lock");
+        let was_empty = state.active.is_none();
         state.tabs.push(TabEntry {
             tab_id,
             label: tab.label.clone(),
@@ -315,6 +320,26 @@ impl Tabs {
         if state.active.is_none() {
             state.active = state.tabs.first().map(|entry| entry.tab_id.clone());
         }
+        // Emit TabActivated when the first tab is added to a live (mounted)
+        // empty Tabs, matching Python's behavior where add_tab fires
+        // TabActivated via refresh_active() when going from empty to non-empty.
+        // Skip during initial construction (before any on_event call).
+        if was_empty && self.live {
+            if let Some(first) = state.tabs.first() {
+                let msg = Message::TabActivated(TabActivated {
+                    id: first.tab_id.clone(),
+                    index: 0,
+                    title: first.label.clone(),
+                });
+                drop(state);
+                self.pending_messages
+                    .lock()
+                    .expect("tabs pending lock")
+                    .push(msg);
+                return;
+            }
+        }
+        drop(state);
     }
 
     pub fn with_tab_id(mut self, id: impl Into<String>, title: impl Into<String>) -> Self {
@@ -1134,6 +1159,7 @@ impl Widget for Tabs {
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.live = true;
         {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             for msg in pending.drain(..) {
@@ -1330,6 +1356,7 @@ impl Clone for Tabs {
             focused_classes: self.focused_classes.clone(),
             styles: self.styles.clone(),
             pending_messages: self.pending_messages.clone(),
+            live: self.live,
         }
     }
 }

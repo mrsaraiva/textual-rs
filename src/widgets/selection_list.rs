@@ -88,6 +88,7 @@ pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
     focused: bool,
     hovered: bool,
     hovered_index: Option<usize>,
+    border_title_text: Option<String>,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
@@ -110,6 +111,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             focused: false,
             hovered: false,
             hovered_index: None,
+            border_title_text: None,
             classes: vec!["selection-list".to_string()],
             focused_classes: vec!["selection-list".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
@@ -138,6 +140,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         list.values = values;
         list.selected_set = selected;
         list
+    }
+
+    /// Builder: set a border title (rendered on the top border).
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title_text = Some(title.into());
+        self
     }
 
     /// Builder: set disabled state for the entire list.
@@ -311,6 +319,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
+    fn border_title(&self) -> Option<&str> {
+        self.border_title_text.as_deref()
+    }
+
     fn focusable(&self) -> bool {
         !self.disabled
     }

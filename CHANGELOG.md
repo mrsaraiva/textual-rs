@@ -7,18 +7,54 @@ until the API stabilizes.
 
 ## [Unreleased]
 
-### 2026-02-20 (D-040 five_by_five game demo)
+### 2026-02-20 (Post-sprint remediation — parity fixes across widgets and demos)
 
-- **feat(examples): D-040 `five_by_five` game demo (port of `examples/five_by_five.py`)**
-  - 5×5 toggle-puzzle game: fill all 25 cells by toggling cross patterns.
-  - Custom `GameGrid` widget owns full game state (cells, cursor, moves, win flag) and renders as
-    text via `Label` delegation; avoids needing per-cell `Button` class management.
-  - `HelpRoot` widget declares `escape`/`space`/`q` → `app.pop_screen` bindings so the help
-    overlay is dismissible from any key in the set.
-  - `HelpScreen` modal (Screen trait) pushed via `app.push_screen('help')` binding on `?`.
-  - Navigation: arrow keys, WASD, and hjkl via `on_key_with_app`; space = make move.
-  - Win detection: all 25 cells filled → win message with move count + "perfect solve" variant.
-  - 5 regression tests (compose, initial state, toggle cross, win detection, edge wrapping).
+- **fix(examples): rewrite `five_by_five` with proper widget composition**
+  - Replaced monolithic ASCII-art `GameGrid` with per-cell `GameCell` widgets in a CSS grid.
+  - `GameCell` custom widget with CSS-driven classes (`filled`, `cursor`) for visual state.
+  - `GameHeader` stats bar, `WinnerMessage` victory overlay (visibility-toggled).
+  - `Grid(5, 5)` layout matching Python's `grid-size: 5 5` TCSS.
+  - Targeted cell sync via `app.with_query_one_mut_as::<GameCell, _>("#cell-r-c", ...)`.
+  - 10 regression tests.
+
+- **fix(widgets): Tree — `auto_expand`, `scroll_to_node`, `cursor_node` property**
+  - `auto_expand: bool` auto-expands nodes on insert (matches Python `auto_expand=True`).
+  - `scroll_to_node(node_id)` scrolls to bring a node into view.
+  - `cursor_node` property returns a reference to the cursor node data.
+
+- **fix(widgets): DirectoryTree — freeze on expand/collapse**
+  - Fixed blocking/deadlock in expand/collapse path that caused demo freezes.
+
+- **fix(widgets): MarkdownViewer — hierarchical TOC + navigation history**
+  - TOC tree builds hierarchically (H1→root, H2→under last H1, etc.) instead of flat.
+  - TOC click scrolls to heading in markdown content.
+  - `Navigator` with back/forward history stack for `MarkdownViewer`.
+
+- **fix(widgets): Tabs — emit `TabActivated` when first tab added to live widget**
+  - `add_tab` on a live empty `Tabs` now emits `TabActivated` for the first tab.
+  - `live` flag distinguishes construction-time vs runtime `add_tab` calls.
+
+- **fix(widgets): ListView — add `ListItem` wrapper**
+  - New `ListItem` struct wrapping `Label` for proper `ListItem(Label("text"))` composition.
+  - Exported in prelude.
+
+- **fix(widgets): SelectionList/Pretty — `border_title` support**
+  - `SelectionList::with_border_title()` and `Pretty::with_border_title()` builder methods.
+
+- **fix(widgets): Static — default `markup: true`**
+  - `Static::new()` now defaults to `markup: true` matching Python's `Static(content)`.
+
+- **fix(runtime): CSS transition `color`/`background` aliases**
+  - `color` and `background` now accepted as aliases for `fg`/`bg` in CSS transitions.
+
+- **fix(examples): demo parity corrections**
+  - `code_browser`: added missing CSS properties.
+  - `dictionary`: added widget IDs (`#dictionary-search`, `#results-container`, `#results`).
+  - `list_view`: uses `ListItem(Label("text"))` composition matching Python.
+  - `selection_list_selected`: added `border_title` matching Python.
+  - `markdown`: wired back/forward navigation with `Navigator`.
+  - `toast`: fixed notification titles to match Python (no title on 1st/3rd).
+  - `weather02`/`weather03`: added `align: center middle` to ScrollView CSS.
 
 ### 2026-02-20 (Batch D demos D-041/D-042 — worker lifecycle parity)
 

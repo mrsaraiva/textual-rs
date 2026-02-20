@@ -1,17 +1,18 @@
 /// Port of Python Textual `examples/five_by_five.py`.
 ///
-/// A 5x5 toggle-puzzle game demonstrating:
+/// A 5×5 toggle-puzzle game demonstrating:
+/// - Proper widget composition: `GameCell` widgets in a CSS grid,
+///   `GameHeader` for stats, `WinnerMessage` for victory display.
 /// - Screen stack (`push_screen`/`pop_screen`) for a help overlay.
-/// - Custom widget (`GameGrid`) that owns game state and renders itself.
 /// - Key bindings for grid navigation (arrows, WASD, hjkl) and game actions.
 /// - Footer with binding hints.
 /// - Win detection with a move-count message.
 ///
-/// Python original uses separate `Screen` subclasses (`Game`, `Help`), reactive
-/// `GameHeader` widget, and `Button`-based `GameCell` for the grid. Rust maps:
-/// - `Help` Screen → `HelpScreen` + `HelpRoot` widget with `app.pop_screen` bindings.
-/// - `GameHeader` + `GameGrid` + `WinnerMessage` → single `GameGrid` widget (pure render).
-/// - Focus navigation → cursor tracked in `GameGrid` state.
+/// Python: `Game(Screen)` composes `GameHeader`, `GameGrid` (5×5 grid of
+/// `GameCell(Button)`), `Footer`, and `WinnerMessage(Label)` overlay.
+/// Reactive properties track moves/filled counts.
+/// Rust: `FiveByFiveApp` composes equivalent widgets with state managed
+/// by `GameState`. Widgets are queried and mutated via `with_query_one_mut_as`.
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use textual::prelude::*;
 
@@ -47,43 +48,87 @@ Good luck!
 "#;
 
 const CSS: &str = r#"
-GameGrid {
+GameHeader {
+    background: $primary-background;
+    color: $text;
+    height: 1;
+    dock: top;
     width: 100%;
-    height: 1fr;
-    align: center middle;
+}
+
+#game-grid {
+    grid-size: 5 5;
+}
+
+GameCell {
+    width: 100%;
+    height: 100%;
+    background: $surface;
+    border: round $surface-darken-1;
+    content-align: center middle;
+}
+
+GameCell:hover {
+    background: $panel-lighten-1;
+    border: round $panel;
+}
+
+GameCell.filled {
+    background: $secondary;
+    border: round $secondary-darken-1;
+}
+
+GameCell.filled:hover {
+    background: $secondary-lighten-1;
+    border: round $secondary;
+}
+
+GameCell.cursor {
+    border: round $primary;
+}
+
+WinnerMessage {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    background: $success;
+    color: $text;
+    padding: 1;
+    text-align: center;
+}
+
+HelpRoot {
+    border: round $primary-lighten-3;
 }
 "#;
 
 // ---------------------------------------------------------------------------
-// GameGrid widget — owns all game state, handles rendering and navigation.
+// GameState — pure game logic, no widget concerns.
 // ---------------------------------------------------------------------------
 
-pub struct GameGrid {
-    cells: [[bool; SIZE]; SIZE],
-    cursor: (usize, usize),
-    moves: usize,
-    won: bool,
-    styles: WidgetStyles,
+pub struct GameState {
+    pub cells: [[bool; SIZE]; SIZE],
+    pub cursor: (usize, usize),
+    pub moves: usize,
+    pub won: bool,
 }
 
-impl GameGrid {
+impl GameState {
     pub fn new() -> Self {
-        let mut grid = Self {
+        let mut state = Self {
             cells: [[false; SIZE]; SIZE],
             cursor: (SIZE / 2, SIZE / 2),
             moves: 0,
             won: false,
-            styles: WidgetStyles::default(),
         };
-        grid.new_game();
-        grid
+        state.toggle_cross(SIZE / 2, SIZE / 2);
+        state
     }
 
     fn toggle_at(&mut self, row: usize, col: usize) {
         self.cells[row][col] = !self.cells[row][col];
     }
 
-    /// Toggle the cross pattern: cell itself + four adjacent cells.
     fn toggle_cross(&mut self, row: usize, col: usize) {
         self.toggle_at(row, col);
         if row > 0 {
@@ -108,28 +153,48 @@ impl GameGrid {
         self.filled_count() == SIZE * SIZE
     }
 
-    /// Make a move at the current cursor position.
-    pub fn make_move(&mut self) {
+    /// Make a move at the cursor. Returns the list of toggled cell coordinates.
+    pub fn make_move(&mut self) -> Vec<(usize, usize)> {
         if self.won {
-            return;
+            return vec![];
         }
         let (r, c) = self.cursor;
-        self.toggle_cross(r, c);
+        let mut affected = vec![(r, c)];
+        self.toggle_at(r, c);
+        if r > 0 {
+            self.toggle_at(r - 1, c);
+            affected.push((r - 1, c));
+        }
+        if r + 1 < SIZE {
+            self.toggle_at(r + 1, c);
+            affected.push((r + 1, c));
+        }
+        if c > 0 {
+            self.toggle_at(r, c - 1);
+            affected.push((r, c - 1));
+        }
+        if c + 1 < SIZE {
+            self.toggle_at(r, c + 1);
+            affected.push((r, c + 1));
+        }
         self.moves += 1;
         if self.all_filled() {
             self.won = true;
         }
+        affected
     }
 
-    /// Navigate the cursor by (dr, dc), wrapping at grid edges.
-    pub fn navigate(&mut self, dr: i32, dc: i32) {
+    /// Navigate cursor by (dr, dc) with wrapping. Returns old cursor position.
+    pub fn navigate(&mut self, dr: i32, dc: i32) -> (usize, usize) {
+        let old = self.cursor;
         let (r, c) = self.cursor;
         let nr = ((r as i32 + dr).rem_euclid(SIZE as i32)) as usize;
         let nc = ((c as i32 + dc).rem_euclid(SIZE as i32)) as usize;
         self.cursor = (nr, nc);
+        old
     }
 
-    /// Reset and start a new game (middle cell toggled as initial state).
+    /// Reset and start a new game (middle cell cross-toggled as initial state).
     pub fn new_game(&mut self) {
         self.cells = [[false; SIZE]; SIZE];
         self.moves = 0;
@@ -137,93 +202,239 @@ impl GameGrid {
         self.cursor = (SIZE / 2, SIZE / 2);
         self.toggle_cross(SIZE / 2, SIZE / 2);
     }
-
-    pub fn moves(&self) -> usize {
-        self.moves
-    }
-
-    pub fn won(&self) -> bool {
-        self.won
-    }
-
-    fn render_to_string(&self) -> String {
-        let mut out = String::new();
-
-        // Header: title + stats
-        out.push_str(&format!(
-            "5x5 — A little annoying puzzle\n\
-             Moves: {}   Filled: {}/{}\n\n",
-            self.moves,
-            self.filled_count(),
-            SIZE * SIZE
-        ));
-
-        // Grid rows
-        for row in 0..SIZE {
-            for col in 0..SIZE {
-                let is_cursor = self.cursor == (row, col);
-                let is_filled = self.cells[row][col];
-                let cell = match (is_cursor, is_filled) {
-                    (true, true) => "[*]",
-                    (true, false) => "[>]",
-                    (false, true) => "[#]",
-                    (false, false) => "[ ]",
-                };
-                out.push_str(cell);
-                if col + 1 < SIZE {
-                    out.push(' ');
-                }
-            }
-            out.push('\n');
-        }
-
-        // Legend
-        out.push_str("\n[ ]=empty  [#]=filled  [>]=cursor  [*]=cursor+filled\n");
-
-        // Win message
-        if self.won {
-            out.push('\n');
-            if self.moves <= MIN_MOVES {
-                out.push_str(&format!(
-                    "W I N N E R !  {} move{} — perfect solve!",
-                    self.moves,
-                    plural(self.moves)
-                ));
-            } else {
-                out.push_str(&format!(
-                    "W I N N E R !  {} move{} ({} over minimum of {})",
-                    self.moves,
-                    plural(self.moves),
-                    self.moves - MIN_MOVES,
-                    MIN_MOVES
-                ));
-            }
-        }
-
-        out
-    }
 }
 
 fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
-impl Widget for GameGrid {
+// ---------------------------------------------------------------------------
+// GameCell — individual playable cell (matches Python's GameCell(Button))
+// ---------------------------------------------------------------------------
+
+pub struct GameCell {
+    #[allow(dead_code)]
+    row: usize,
+    #[allow(dead_code)]
+    col: usize,
+    filled: bool,
+    is_cursor: bool,
+    id: String,
+    classes: Vec<String>,
+    styles: WidgetStyles,
+}
+
+impl GameCell {
+    pub fn new(row: usize, col: usize, filled: bool, is_cursor: bool) -> Self {
+        let mut cell = Self {
+            row,
+            col,
+            filled,
+            is_cursor,
+            id: Self::id_for(row, col),
+            classes: Vec::new(),
+            styles: WidgetStyles::default(),
+        };
+        cell.rebuild_classes();
+        cell
+    }
+
+    pub fn id_for(row: usize, col: usize) -> String {
+        format!("cell-{}-{}", row, col)
+    }
+
+    pub fn set_filled(&mut self, filled: bool) {
+        self.filled = filled;
+        self.rebuild_classes();
+    }
+
+    pub fn set_cursor(&mut self, is_cursor: bool) {
+        self.is_cursor = is_cursor;
+        self.rebuild_classes();
+    }
+
+    fn rebuild_classes(&mut self) {
+        self.classes.clear();
+        if self.filled {
+            self.classes.push("filled".to_string());
+        }
+        if self.is_cursor {
+            self.classes.push("cursor".to_string());
+        }
+    }
+}
+
+impl Widget for GameCell {
     fn style_type(&self) -> &'static str {
-        "GameGrid"
+        "GameCell"
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        Some(&self.id)
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(&Label::new(self.render_to_string()), console, options)
+        // Visual appearance comes from CSS background and border.
+        Widget::render(&Label::new(" "), console, options)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
+}
+
+impl Renderable for GameCell {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GameHeader — title + moves + filled counts
+// (Python: reactive labels in Horizontal; Rust: single rendered line)
+// ---------------------------------------------------------------------------
+
+pub struct GameHeader {
+    moves: usize,
+    filled: usize,
+    styles: WidgetStyles,
+}
+
+impl GameHeader {
+    pub fn new(moves: usize, filled: usize) -> Self {
+        Self {
+            moves,
+            filled,
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn set_moves(&mut self, moves: usize) {
+        self.moves = moves;
+    }
+
+    pub fn set_filled(&mut self, filled: usize) {
+        self.filled = filled;
+    }
+}
+
+impl Widget for GameHeader {
+    fn style_type(&self) -> &'static str {
+        "GameHeader"
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let text = format!(
+            "5x5 — A little annoying puzzle    Moves: {}    Filled: {}/{}",
+            self.moves,
+            self.filled,
+            SIZE * SIZE,
+        );
+        Widget::render(&Label::new(text), console, options)
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // 3 header lines + SIZE rows + 2 legend + optional win (2 lines)
-        let base = 3 + SIZE + 2;
-        if self.won {
-            Some(base + 2)
+        Some(1)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
+}
+
+impl Renderable for GameHeader {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Widget::render(self, console, options)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WinnerMessage — displayed when the game is won
+// (Python: Label on a separate layer with visibility toggling)
+// ---------------------------------------------------------------------------
+
+pub struct WinnerMessage {
+    text: String,
+    visible: bool,
+    styles: WidgetStyles,
+}
+
+impl WinnerMessage {
+    pub fn new() -> Self {
+        Self {
+            text: String::new(),
+            visible: false,
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    pub fn show(&mut self, moves: usize) {
+        let over_msg = if moves > MIN_MOVES {
+            format!(
+                " It is possible to solve the puzzle in {}, you were {} move{} over.",
+                MIN_MOVES,
+                moves - MIN_MOVES,
+                plural(moves - MIN_MOVES),
+            )
         } else {
-            Some(base)
+            " Well done! That's the minimum number of moves to solve the puzzle!".to_string()
+        };
+        self.text = format!(
+            "W I N N E R !\n\nYou solved the puzzle in {} move{}.{}",
+            moves,
+            plural(moves),
+            over_msg,
+        );
+        self.visible = true;
+    }
+
+    pub fn hide(&mut self) {
+        self.visible = false;
+    }
+}
+
+impl Widget for WinnerMessage {
+    fn style_type(&self) -> &'static str {
+        "WinnerMessage"
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.visible {
+            Widget::render(&Label::new(&self.text), console, options)
+        } else {
+            Widget::render(&Label::new(""), console, options)
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if self.visible {
+            None // auto-size to content
+        } else {
+            Some(0) // collapse when hidden
         }
     }
 
@@ -240,7 +451,7 @@ impl Widget for GameGrid {
     fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
 }
 
-impl Renderable for GameGrid {
+impl Renderable for WinnerMessage {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
     }
@@ -308,7 +519,71 @@ impl Screen for HelpScreen {
 // Main app
 // ---------------------------------------------------------------------------
 
-struct FiveByFiveApp;
+struct FiveByFiveApp {
+    state: GameState,
+}
+
+impl FiveByFiveApp {
+    fn new() -> Self {
+        Self {
+            state: GameState::new(),
+        }
+    }
+
+    /// Sync all cells + header + winner after a new game.
+    fn sync_all(&self, app: &mut App) {
+        for row in 0..SIZE {
+            for col in 0..SIZE {
+                let id = format!("#cell-{}-{}", row, col);
+                let filled = self.state.cells[row][col];
+                let is_cursor = self.state.cursor == (row, col);
+                let _ = app.with_query_one_mut_as::<GameCell, _>(&id, |cell| {
+                    cell.set_filled(filled);
+                    cell.set_cursor(is_cursor);
+                });
+            }
+        }
+        let moves = self.state.moves;
+        let filled = self.state.filled_count();
+        let _ = app.with_query_one_mut_as::<GameHeader, _>("GameHeader", |h| {
+            h.set_moves(moves);
+            h.set_filled(filled);
+        });
+        let _ =
+            app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
+    }
+
+    /// Update specific cells after a move.
+    fn sync_cells(&self, app: &mut App, cells: &[(usize, usize)]) {
+        for &(row, col) in cells {
+            let id = format!("#cell-{}-{}", row, col);
+            let filled = self.state.cells[row][col];
+            let _ = app.with_query_one_mut_as::<GameCell, _>(&id, |cell| {
+                cell.set_filled(filled);
+            });
+        }
+        let moves = self.state.moves;
+        let filled = self.state.filled_count();
+        let _ = app.with_query_one_mut_as::<GameHeader, _>("GameHeader", |h| {
+            h.set_moves(moves);
+            h.set_filled(filled);
+        });
+    }
+
+    /// Update cursor display (clear old, set new).
+    fn sync_cursor(&self, app: &mut App, old: (usize, usize), new: (usize, usize)) {
+        if old != new {
+            let old_id = format!("#cell-{}-{}", old.0, old.1);
+            let _ = app.with_query_one_mut_as::<GameCell, _>(&old_id, |cell| {
+                cell.set_cursor(false);
+            });
+            let new_id = format!("#cell-{}-{}", new.0, new.1);
+            let _ = app.with_query_one_mut_as::<GameCell, _>(&new_id, |cell| {
+                cell.set_cursor(true);
+            });
+        }
+    }
+}
 
 impl TextualApp for FiveByFiveApp {
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
@@ -327,8 +602,21 @@ impl TextualApp for FiveByFiveApp {
     }
 
     fn compose(&mut self) -> AppRoot {
+        let header = GameHeader::new(self.state.moves, self.state.filled_count());
+
+        let mut grid = Grid::new(SIZE, SIZE).id("game-grid");
+        for row in 0..SIZE {
+            for col in 0..SIZE {
+                let filled = self.state.cells[row][col];
+                let is_cursor = self.state.cursor == (row, col);
+                grid = grid.with_child(GameCell::new(row, col, filled, is_cursor));
+            }
+        }
+
         AppRoot::new()
-            .with_child(GameGrid::new())
+            .with_child(header)
+            .with_child(grid)
+            .with_child(WinnerMessage::new())
             .with_child(Footer::new())
     }
 
@@ -336,29 +624,44 @@ impl TextualApp for FiveByFiveApp {
         let handled = match key.name() {
             // Navigation — arrow keys, WASD, hjkl
             "up" | "w" | "k" => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.navigate(-1, 0));
+                let old = self.state.navigate(-1, 0);
+                self.sync_cursor(app, old, self.state.cursor);
                 true
             }
             "down" | "s" | "j" => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.navigate(1, 0));
+                let old = self.state.navigate(1, 0);
+                self.sync_cursor(app, old, self.state.cursor);
                 true
             }
             "left" | "a" | "h" => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.navigate(0, -1));
+                let old = self.state.navigate(0, -1);
+                self.sync_cursor(app, old, self.state.cursor);
                 true
             }
             "right" | "d" | "l" => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.navigate(0, 1));
+                let old = self.state.navigate(0, 1);
+                self.sync_cursor(app, old, self.state.cursor);
                 true
             }
             // Make a move at the current cursor position
             " " => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.make_move());
+                let affected = self.state.make_move();
+                if !affected.is_empty() {
+                    self.sync_cells(app, &affected);
+                    if self.state.won {
+                        let moves = self.state.moves;
+                        let _ = app.with_query_one_mut_as::<WinnerMessage, _>(
+                            "WinnerMessage",
+                            |w| w.show(moves),
+                        );
+                    }
+                }
                 true
             }
-            // New game — binding "n" -> "new_game" in BindingDecl shows in footer; key handled here.
+            // New game
             "n" => {
-                let _ = app.with_query_one_mut_as::<GameGrid, _>("GameGrid", |g| g.new_game());
+                self.state.new_game();
+                self.sync_all(app);
                 true
             }
             _ => false,
@@ -371,11 +674,11 @@ impl TextualApp for FiveByFiveApp {
 }
 
 fn main() -> textual::Result<()> {
-    run_sync(FiveByFiveApp)
+    run_sync(FiveByFiveApp::new())
 }
 
 // ---------------------------------------------------------------------------
-// Regression tests (DG-02)
+// Regression tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -384,70 +687,116 @@ mod tests {
 
     #[test]
     fn five_by_five_app_composes_without_panic() {
-        let mut app = FiveByFiveApp;
+        let mut app = FiveByFiveApp::new();
         let _root = app.compose();
     }
 
     #[test]
-    fn game_grid_starts_with_some_cells_filled() {
-        // new_game() toggles the cross pattern at the middle cell.
-        let grid = GameGrid::new();
+    fn game_state_starts_with_cross_filled() {
+        let state = GameState::new();
         // Middle cross: (2,2), (1,2), (3,2), (2,1), (2,3) — 5 cells.
-        assert_eq!(grid.filled_count(), 5);
-        assert!(!grid.won());
+        assert_eq!(state.filled_count(), 5);
+        assert!(!state.won);
     }
 
     #[test]
-    fn game_grid_toggle_cross_fills_adjacent() {
-        let mut grid = GameGrid::new();
-        grid.new_game();
-        let before = grid.filled_count();
-        grid.cursor = (0, 0);
-        grid.make_move();
-        // Corner move toggles (0,0), (1,0), (0,1) — net change depends on current state.
-        let after = grid.filled_count();
+    fn game_state_toggle_cross_fills_adjacent() {
+        let mut state = GameState::new();
+        state.new_game();
+        let before = state.filled_count();
+        state.cursor = (0, 0);
+        let affected = state.make_move();
+        let after = state.filled_count();
         assert_ne!(before, after, "toggle cross should change cell count");
-        assert_eq!(grid.moves(), 1);
+        assert_eq!(state.moves, 1);
+        // Corner move affects 3 cells: (0,0), (1,0), (0,1)
+        assert_eq!(affected.len(), 3);
     }
 
     #[test]
-    fn game_grid_win_detection_when_all_filled() {
-        let mut grid = GameGrid::new();
-        // Manually fill all cells.
-        for row in 0..SIZE {
-            for col in 0..SIZE {
-                grid.cells[row][col] = true;
-            }
-        }
-        assert!(grid.all_filled());
-        // Now a move should detect the win.
-        grid.cursor = (0, 0);
-        grid.make_move();
-        // After the move some cells are toggled — may or may not be all filled,
-        // but the win condition was already checked. Test the direct path instead.
-        let mut grid2 = GameGrid::new();
-        for row in 0..SIZE {
-            for col in 0..SIZE {
-                grid2.cells[row][col] = true;
-            }
-        }
-        // Simulate the win check directly (need 1 toggle to trigger make_move win check).
-        // Toggle middle back to false so after the move, it's still all filled everywhere else.
-        grid2.cells[0][0] = false; // make one cell off
-        grid2.cursor = (0, 0);
-        // After toggle_cross at (0,0): (0,0)→on, (1,0)→off, (0,1)→off
-        // So not all filled after this move; but check that moves increments.
-        grid2.make_move();
-        assert_eq!(grid2.moves(), 1);
+    fn game_state_navigate_wraps_at_edges() {
+        let mut state = GameState::new();
+        state.cursor = (0, 0);
+        let old = state.navigate(-1, 0); // wrap top → bottom
+        assert_eq!(old, (0, 0));
+        assert_eq!(state.cursor.0, SIZE - 1, "should wrap to last row");
+        let old = state.navigate(0, -1); // wrap left → right
+        assert_eq!(old, (SIZE - 1, 0));
+        assert_eq!(state.cursor.1, SIZE - 1, "should wrap to last col");
     }
 
     #[test]
-    fn game_grid_navigate_wraps_at_edges() {
-        let mut grid = GameGrid::new();
-        grid.cursor = (0, 0);
-        grid.navigate(-1, 0); // wrap top → bottom
-        assert_eq!(grid.cursor.0, SIZE - 1, "should wrap to last row");
-        grid.navigate(0, -1); // wrap left → right
-        assert_eq!(grid.cursor.1, SIZE - 1, "should wrap to last col");
+    fn game_state_new_game_resets() {
+        let mut state = GameState::new();
+        state.cursor = (0, 0);
+        state.make_move();
+        assert!(state.moves > 0);
+
+        state.new_game();
+        assert_eq!(state.moves, 0);
+        assert!(!state.won);
+        assert_eq!(state.cursor, (SIZE / 2, SIZE / 2));
+        assert_eq!(state.filled_count(), 5);
+    }
+
+    #[test]
+    fn game_cell_classes_reflect_state() {
+        let cell = GameCell::new(0, 0, false, false);
+        assert!(cell.style_classes().is_empty());
+
+        let cell = GameCell::new(1, 1, true, false);
+        assert_eq!(cell.style_classes(), &["filled".to_string()]);
+
+        let cell = GameCell::new(2, 2, false, true);
+        assert_eq!(cell.style_classes(), &["cursor".to_string()]);
+
+        let cell = GameCell::new(3, 3, true, true);
+        assert_eq!(
+            cell.style_classes(),
+            &["filled".to_string(), "cursor".to_string()]
+        );
+    }
+
+    #[test]
+    fn game_cell_id_format() {
+        assert_eq!(GameCell::id_for(2, 3), "cell-2-3");
+        let cell = GameCell::new(2, 3, false, false);
+        assert_eq!(cell.style_id(), Some("cell-2-3"));
+    }
+
+    #[test]
+    fn winner_message_starts_hidden() {
+        let msg = WinnerMessage::new();
+        assert!(!msg.visible);
+        assert_eq!(msg.layout_height(), Some(0));
+    }
+
+    #[test]
+    fn winner_message_show_and_hide() {
+        let mut msg = WinnerMessage::new();
+        msg.show(14);
+        assert!(msg.visible);
+        assert!(msg.text.contains("W I N N E R"));
+        assert!(msg.text.contains("minimum"));
+        assert!(msg.layout_height().is_none());
+
+        msg.show(20);
+        assert!(msg.text.contains("6 moves over"));
+
+        msg.hide();
+        assert!(!msg.visible);
+        assert_eq!(msg.layout_height(), Some(0));
+    }
+
+    #[test]
+    fn game_header_updates() {
+        let mut header = GameHeader::new(0, 5);
+        assert_eq!(header.moves, 0);
+        assert_eq!(header.filled, 5);
+
+        header.set_moves(3);
+        header.set_filled(10);
+        assert_eq!(header.moves, 3);
+        assert_eq!(header.filled, 10);
     }
 }

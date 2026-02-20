@@ -88,7 +88,7 @@ pub mod prelude {
         FooterBinding, Frame, FuzzyMatcher, Grid, Header, HeaderClock, HeaderClockSpace,
         HeaderIcon, HeaderTitle, HelpPanel, Horizontal, HorizontalGroup, HorizontalScroll, Input,
         InputType, ItemGrid, KeyPanel, Label, LabelVariant, LayoutConstraints, LineStyle, Link,
-        ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents, MarkdownViewer,
+        ListItem, ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents, MarkdownViewer,
         MaskedInput, Middle, Node, OptionItem,
         OptionList, Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty,
         ProgressBar, RadioButton, RadioSet, RichLog, Right, Row, RowAlign, Rule, RuleOrientation,

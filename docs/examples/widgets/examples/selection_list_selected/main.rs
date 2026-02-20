@@ -58,8 +58,10 @@ impl TextualApp for SelectionListApp {
             Selection::selected("Chess".to_string(), "a_nice_game_of_chess".to_string()),
             Selection::new("Poker".to_string(), "poker".to_string()),
             Selection::selected("Fighter Combat".to_string(), "fighter_combat".to_string()),
-        ]);
-        let pretty = Pretty::new(&Vec::<String>::new());
+        ])
+        .with_border_title("Shall we play some games?");
+        let pretty = Pretty::new(&Vec::<String>::new())
+            .with_border_title("Selected games");
         let row = Horizontal::new()
             .with_child(games)
             .with_child(pretty);

@@ -12,6 +12,46 @@ use super::{
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
 };
 
+/// A wrapper for items in a [`ListView`], matching Python Textual's `ListItem(Label(...))`.
+///
+/// In Python Textual, `ListItem` is a container widget that wraps children (typically `Label`).
+/// In Rust, `ListItem` provides the same composition API while `ListView` handles rendering.
+///
+/// # Example
+///
+/// ```rust
+/// use textual::prelude::*;
+///
+/// let list = ListView::from_list_items(vec![
+///     ListItem::new(Label::new("One")),
+///     ListItem::new(Label::new("Two")),
+///     ListItem::new(Label::new("Three")),
+/// ]);
+/// ```
+#[derive(Debug, Clone)]
+pub struct ListItem {
+    text: String,
+}
+
+impl ListItem {
+    /// Create a new `ListItem` wrapping a `Label`.
+    pub fn new(label: crate::widgets::Label) -> Self {
+        Self {
+            text: label.text().to_string(),
+        }
+    }
+
+    /// Create a `ListItem` from a raw string.
+    pub fn from_text(text: impl Into<String>) -> Self {
+        Self { text: text.into() }
+    }
+
+    /// The text content of this item.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ListView {
     items: Vec<String>,
@@ -47,6 +87,14 @@ impl ListView {
             focused_classes: vec!["list-view".to_string(), "focused".to_string()],
             styles: WidgetStyles::default(),
         }
+    }
+
+    /// Create a `ListView` from [`ListItem`] children, matching the Python composition API.
+    ///
+    /// Python: `ListView(ListItem(Label("One")), ListItem(Label("Two")), ...)`
+    pub fn from_list_items(items: Vec<ListItem>) -> Self {
+        let strings: Vec<String> = items.into_iter().map(|item| item.text).collect();
+        Self::new(strings)
     }
 
     pub fn selected(&self) -> usize {

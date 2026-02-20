@@ -86,7 +86,7 @@ pub(crate) use key_panel::KEY_PANEL_VSCROLLBAR_ID;
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind};
 pub use link::Link;
-pub use list_view::ListView;
+pub use list_view::{ListItem, ListView};
 pub use loading_indicator::LoadingIndicator;
 pub(crate) use log::LOG_VSCROLLBAR_ID;
 pub use log::Log;
@@ -114,7 +114,7 @@ pub use spacer::Spacer;
 pub use switch::Switch;
 pub use tabbed_content::{TabPane, TabbedContent};
 pub use tabs::{Tab, Tabs};
-pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer};
+pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer, Navigator};
 pub use text::{Label, LabelVariant, Markdown};
 pub use text_area::{
     Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea, TextAreaTheme,

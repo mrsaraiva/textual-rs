@@ -1,17 +1,12 @@
 /// Port of Python Textual `examples/markdown.py`.
 ///
 /// A Markdown viewer application with Table of Contents toggle, and
-/// forward/back navigation history declarations.
+/// forward/back navigation history.
 ///
 /// Python: `MarkdownViewer.go(path)`, `back()`, `forward()`, `Navigator`,
 /// and `check_action()` to disable footer buttons at history ends.
-/// Rust: `MarkdownViewer::new(content).show_table_of_contents(true)`; bindings
-/// declared for footer display; back/forward actions are stubs.
-///
-/// DEFERRED: `MarkdownViewer::go(path)`, `back()`, `forward()`, Navigator history
-/// — requires async document loading wired into the runtime event loop.
-/// When implemented, back/forward bindings will control the Navigator and
-/// `on_message_with_app` will refresh binding hints on NavigatorUpdated.
+/// Rust: `MarkdownViewer::new(content)` with `back()`, `forward()`, `go()` methods
+/// and `navigator` field for history state.
 use textual::prelude::*;
 
 const DEMO_MARKDOWN: &str = r#"# Markdown App
@@ -76,7 +71,22 @@ impl TextualApp for MarkdownApp {
                 ctx.set_handled();
                 ctx.request_repaint();
             }
-            // DEFERRED: "b" back and "f" forward require Navigator history.
+            "b" => {
+                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
+                    "MarkdownViewer",
+                    |viewer| viewer.back(),
+                );
+                ctx.set_handled();
+                ctx.request_repaint();
+            }
+            "f" => {
+                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
+                    "MarkdownViewer",
+                    |viewer| viewer.forward(),
+                );
+                ctx.set_handled();
+                ctx.request_repaint();
+            }
             _ => {}
         }
     }

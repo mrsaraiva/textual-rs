@@ -34,27 +34,25 @@ impl MarkdownTableOfContents {
         self.headings = headings;
     }
 
-    /// Build a Tree from the current headings.
+    /// Build a Tree from the current headings, nesting by heading level.
+    ///
+    /// Python builds H1 → root children, H2 → under last H1, H3 → under last H2, etc.
     fn build_tree(&self) -> Tree {
-        // Build a flat list of `TreeNode`s, indented by heading level.
-        // Level 1 → root nodes; levels 2-6 → nested under preceding lower-level node.
-        // For simplicity, build one root "Table of Contents" with all headings as children.
-        let mut children: Vec<TreeNode> = Vec::new();
-        for (level, title) in &self.headings {
-            let indent = "  ".repeat(level.saturating_sub(1));
-            children.push(TreeNode::new(format!("{indent}{title}")));
+        if self.headings.is_empty() {
+            return Tree::new(vec![TreeNode::new("Contents")]);
         }
-        let root = if children.is_empty() {
-            TreeNode::new("Contents")
-        } else {
-            let mut r = TreeNode::new("Contents")
-                .expanded(true)
-                .allow_expand(true);
-            for child in children {
-                r = r.with_child(child);
-            }
-            r
-        };
+
+        let root = TreeNode::new("Contents")
+            .expanded(true)
+            .allow_expand(true);
+
+        // Build hierarchical structure: use a stack of (level, TreeNode) pairs.
+        // Each heading is nested under the last heading with a lower level number.
+        let nodes = build_heading_nodes(&self.headings);
+        let mut root = root;
+        for node in nodes {
+            root = root.with_child(node);
+        }
         Tree::new(vec![root])
     }
 }
@@ -100,6 +98,129 @@ impl Renderable for MarkdownTableOfContents {
 }
 
 // ---------------------------------------------------------------------------
+// Heading hierarchy builder
+// ---------------------------------------------------------------------------
+
+/// Build hierarchical `TreeNode`s from a flat list of `(level, title)` headings.
+///
+/// Mirrors Python's algorithm: for each heading at level N, walk from the root
+/// down into the last child N-1 times, then add the heading as a leaf there.
+/// H1 → root children, H2 → under last H1, H3 → under last H2, etc.
+fn build_heading_nodes(headings: &[(usize, String)]) -> Vec<TreeNode> {
+    // We build the tree by accumulating nodes into a mutable structure,
+    // then convert to TreeNode at the end.
+    struct TocNode {
+        label: String,
+        children: Vec<TocNode>,
+    }
+
+    let mut roots: Vec<TocNode> = Vec::new();
+
+    for (level, title) in headings {
+        let depth = level.saturating_sub(1); // H1=0 deep, H2=1 deep, etc.
+        let new_node = TocNode {
+            label: title.clone(),
+            children: Vec::new(),
+        };
+
+        // Walk down `depth` levels into the last child at each step.
+        let mut target = &mut roots;
+        for _ in 0..depth {
+            if target.is_empty() {
+                break;
+            }
+            let last = target.last_mut().unwrap();
+            target = &mut last.children;
+        }
+        target.push(new_node);
+    }
+
+    // Convert TocNode tree to TreeNode tree.
+    fn to_tree_node(toc: &TocNode) -> TreeNode {
+        let has_children = !toc.children.is_empty();
+        let mut node = TreeNode::new(&toc.label)
+            .expanded(true)
+            .allow_expand(has_children);
+        for child in &toc.children {
+            node = node.with_child(to_tree_node(child));
+        }
+        node
+    }
+
+    roots.iter().map(to_tree_node).collect()
+}
+
+// ---------------------------------------------------------------------------
+// MarkdownViewer
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Navigator
+// ---------------------------------------------------------------------------
+
+/// Browser-like navigation history for Markdown documents.
+///
+/// Mirrors Python's `Navigator` class. Maintains a stack of content strings
+/// with a cursor position. `go()` pushes new content, `back()` and `forward()`
+/// move the cursor, discarding forward history on new `go()` calls.
+pub struct Navigator {
+    history: Vec<String>,
+    cursor: usize,
+}
+
+impl Navigator {
+    fn new() -> Self {
+        Self {
+            history: Vec::new(),
+            cursor: 0,
+        }
+    }
+
+    /// Push new content, discarding any forward history.
+    fn go(&mut self, content: String) {
+        // Truncate forward history.
+        self.history.truncate(self.cursor + if self.history.is_empty() { 0 } else { 1 });
+        self.history.push(content);
+        self.cursor = self.history.len() - 1;
+    }
+
+    /// Move back in history. Returns the content if possible.
+    fn back(&mut self) -> Option<&str> {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+            Some(&self.history[self.cursor])
+        } else {
+            None
+        }
+    }
+
+    /// Move forward in history. Returns the content if possible.
+    fn forward(&mut self) -> Option<&str> {
+        if self.cursor + 1 < self.history.len() {
+            self.cursor += 1;
+            Some(&self.history[self.cursor])
+        } else {
+            None
+        }
+    }
+
+    /// True if at the start of history (can't go back).
+    pub fn at_start(&self) -> bool {
+        self.cursor == 0
+    }
+
+    /// True if at the end of history (can't go forward).
+    pub fn at_end(&self) -> bool {
+        self.history.is_empty() || self.cursor >= self.history.len() - 1
+    }
+
+    /// Current content, if any.
+    pub fn current(&self) -> Option<&str> {
+        self.history.get(self.cursor).map(String::as_str)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MarkdownViewer
 // ---------------------------------------------------------------------------
 
@@ -118,9 +239,8 @@ impl Renderable for MarkdownTableOfContents {
 /// to toggle `MarkdownTableOfContents` visibility.
 ///
 /// ## Navigation history
-/// Python's `go()`, `back()`, `forward()` and `Navigator` are not yet implemented.
-/// DEFERRED: navigation history (go/back/forward/Navigator) — will be added in a
-/// subsequent iteration once async document loading is wired into the runtime.
+/// Uses a [`Navigator`] with `go()`, `back()`, and `forward()` methods for
+/// browser-like content history, matching Python's `MarkdownViewer.navigator`.
 pub struct MarkdownViewer {
     content: String,
     show_table_of_contents: bool,
@@ -128,16 +248,22 @@ pub struct MarkdownViewer {
     classes: Vec<String>,
     styles: WidgetStyles,
     children_extracted: bool,
+    /// Navigation history for back/forward.
+    pub navigator: Navigator,
 }
 
 impl MarkdownViewer {
     pub fn new(content: impl Into<String>) -> Self {
+        let content = content.into();
+        let mut navigator = Navigator::new();
+        navigator.go(content.clone());
         Self {
-            content: content.into(),
+            content,
             show_table_of_contents: true,
             classes: vec!["-show-table-of-contents".to_string()],
             styles: WidgetStyles::default(),
             children_extracted: false,
+            navigator,
         }
     }
 
@@ -164,6 +290,35 @@ impl MarkdownViewer {
 
     pub fn set_content(&mut self, content: impl Into<String>) {
         self.content = content.into();
+    }
+
+    /// Navigate to new content, pushing it onto the history stack.
+    ///
+    /// Mirrors Python's `MarkdownViewer.go()`. Discards any forward history.
+    pub fn go(&mut self, content: impl Into<String>) {
+        let content = content.into();
+        self.navigator.go(content.clone());
+        self.content = content;
+    }
+
+    /// Navigate back in history. Returns `true` if navigation occurred.
+    pub fn back(&mut self) -> bool {
+        if let Some(content) = self.navigator.back() {
+            self.content = content.to_string();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Navigate forward in history. Returns `true` if navigation occurred.
+    pub fn forward(&mut self) -> bool {
+        if let Some(content) = self.navigator.forward() {
+            self.content = content.to_string();
+            true
+        } else {
+            false
+        }
     }
 
     /// Extract headings from the current content.

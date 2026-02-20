@@ -20,19 +20,19 @@ use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
 const CSS: &str = r#"
-Input {
+#dictionary-search {
     dock: top;
     margin: 1 0;
     width: 100%;
 }
 
-ScrollView {
+#results-container {
     width: 100%;
     height: 1fr;
     background: $surface;
 }
 
-Markdown {
+#results {
     width: 100%;
     height: auto;
 }
@@ -128,8 +128,16 @@ impl TextualApp for DictionaryApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Input::new().with_placeholder("Search for a word"))
-            .with_child(ScrollView::new(Markdown::new("")))
+            .with_child(
+                Node::new(Input::new().with_placeholder("Search for a word"))
+                    .id("dictionary-search"),
+            )
+            .with_child(
+                Node::new(ScrollView::new(
+                    Markdown::new("").with_id("results"),
+                ))
+                .id("results-container"),
+            )
     }
 
     fn on_input_changed(

@@ -286,6 +286,43 @@ impl Tree {
         self.ensure_visible();
     }
 
+    /// Enable or disable auto-expand. When enabled, all nodes start expanded.
+    ///
+    /// Mirrors Python's `Tree.auto_expand = True`. Expands all existing nodes
+    /// and marks them so future additions also start expanded.
+    pub fn set_auto_expand(&mut self, expand: bool) {
+        if expand {
+            for root in &mut self.roots {
+                set_all_expanded(root, true);
+            }
+        }
+        self.ensure_visible();
+    }
+
+    /// Scroll to make the node at `node_index` visible, moving it to the center
+    /// of the viewport when possible.
+    ///
+    /// Mirrors Python's `Tree.scroll_to_node()`.
+    pub fn scroll_to_node(&mut self, node_index: usize) {
+        let total = self.visible_count();
+        if total == 0 || node_index >= total {
+            return;
+        }
+        // Center the node in the viewport.
+        let half = self.viewport_height / 2;
+        self.offset = node_index.saturating_sub(half);
+        let max = ScrollView::line_max_offset(total, self.viewport_height.max(1));
+        self.offset = self.offset.min(max);
+    }
+
+    /// Get the label of the currently highlighted (cursor) node, if any.
+    ///
+    /// Mirrors Python's `Tree.cursor_node` property.
+    pub fn cursor_node(&self) -> Option<String> {
+        let nodes = self.visible_nodes();
+        nodes.get(self.selected).map(|n| n.label.clone())
+    }
+
     fn visible_nodes(&self) -> Vec<VisibleNode> {
         let depth_offset: usize = if self.show_root { 0 } else { 1 };
 
@@ -623,7 +660,10 @@ impl Tree {
         }
     }
 
-    /// Move cursor to the next sibling; stays put if none.
+    /// Move cursor to the next sibling.
+    ///
+    /// Python Textual semantics: if no next sibling exists at the current level,
+    /// climb to the parent and try *its* next sibling instead.
     fn cursor_next_sibling(&mut self, ctx: &mut EventCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected) else {
@@ -645,9 +685,38 @@ impl Tree {
                 self.select_index(i, ctx);
                 return;
             }
-            // Past this subtree — no more siblings
+            // Past this subtree — no more siblings at current level.
             if n.depth < target_depth {
-                return;
+                break;
+            }
+        }
+
+        // No next sibling found — climb to parent's next sibling (Python semantics).
+        if info.path.len() > 1 {
+            if let Some(parent_idx) =
+                nodes.iter().position(|n| n.path.as_slice() == parent_path)
+            {
+                // Find parent's next sibling.
+                let parent_depth = nodes[parent_idx].depth;
+                let parent_parent_path: Vec<usize> = if parent_path.len() > 1 {
+                    parent_path[..parent_path.len() - 1].to_vec()
+                } else {
+                    Vec::new()
+                };
+                for (i, n) in nodes.iter().enumerate().skip(parent_idx + 1) {
+                    if n.depth == parent_depth
+                        && n.path.len() == parent_path.len()
+                        && (parent_parent_path.is_empty()
+                            || n.path[..n.path.len() - 1] == parent_parent_path)
+                        && !n.disabled
+                    {
+                        self.select_index(i, ctx);
+                        return;
+                    }
+                    if n.depth < parent_depth {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -667,19 +736,38 @@ impl Tree {
         }
     }
 
-    /// Toggle expand/collapse on the selected node and all its descendants.
+    /// Toggle expand/collapse on all siblings of the selected node (Python semantics).
+    ///
+    /// Python Textual's `action_toggle_expand_all` operates on the *siblings* at the
+    /// cursor's level: if all expandable siblings are collapsed, expand them all;
+    /// otherwise collapse them all.  Each sibling's full subtree is also toggled.
     fn toggle_expand_all_selected(&mut self, ctx: &mut EventCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
         };
-        if info.disabled || !info.expandable {
+        // Need a parent to determine siblings (root-level excluded per Python).
+        if info.path.len() <= 1 {
             return;
         }
-        let new_state = !info.expanded;
-        if let Some(node) = Self::node_mut_by_path(&mut self.roots, &info.path) {
-            set_all_expanded(node, new_state);
+        let parent_path = info.path[..info.path.len() - 1].to_vec();
+        let Some(parent) = Self::node_mut_by_path(&mut self.roots, &parent_path) else {
+            return;
+        };
+
+        // Check if all expandable siblings are collapsed.
+        let all_collapsed = parent.children.iter().all(|child| {
+            let expandable = child.allow_expand || !child.children.is_empty();
+            !expandable || !child.expanded
+        });
+        let new_state = all_collapsed; // expand all if all collapsed, else collapse all
+
+        for child in &mut parent.children {
+            if child.allow_expand || !child.children.is_empty() {
+                set_all_expanded(child, new_state);
+            }
         }
+
         self.ensure_visible();
         self.emit_toggled(ctx, self.selected, info.label, new_state);
         ctx.request_repaint();
@@ -908,6 +996,7 @@ impl Widget for Tree {
             BindingDecl::new("shift+up", "cursor_previous_sibling", "Previous sibling").hidden(),
             BindingDecl::new("shift+down", "cursor_next_sibling", "Next sibling").hidden(),
             BindingDecl::new("shift+left", "cursor_parent", "Go to parent").hidden(),
+            BindingDecl::new("shift+right", "toggle_expand_all", "Toggle expand all").hidden(),
             BindingDecl::new("shift+space", "toggle_expand_all", "Toggle expand all").hidden(),
         ]
     }
@@ -1063,6 +1152,10 @@ impl Widget for Tree {
                         }
                         KeyCode::Left => {
                             self.cursor_parent(ctx);
+                            true
+                        }
+                        KeyCode::Right => {
+                            self.toggle_expand_all_selected(ctx);
                             true
                         }
                         KeyCode::Char(' ') => {

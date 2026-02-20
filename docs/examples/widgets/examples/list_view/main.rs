@@ -4,10 +4,8 @@
 /// - Three items ("One", "Two", "Three") in a centered, auto-height list.
 /// - Arrow keys navigate; Enter/click selects.
 ///
-/// Python uses `ListView(ListItem(Label("One")), ...)` — a composition of
-/// `ListItem` wrappers containing `Label` widgets.
-/// Rust `ListView::new(items: Vec<String>)` renders items directly as styled
-/// rows, removing the need for a `ListItem`/`Label` wrapper layer.
+/// Python: `ListView(ListItem(Label("One")), ListItem(Label("Two")), ...)`
+/// Rust:   `ListView::from_list_items(vec![ListItem::new(Label::new("One")), ...])`
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -31,10 +29,10 @@ impl TextualApp for ListViewApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let list = ListView::new(vec![
-            "One".to_string(),
-            "Two".to_string(),
-            "Three".to_string(),
+        let list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("One")),
+            ListItem::new(Label::new("Two")),
+            ListItem::new(Label::new("Three")),
         ]);
         AppRoot::new().with_child(list).with_child(Footer::new())
     }
@@ -60,10 +58,10 @@ mod tests {
 
     #[test]
     fn list_view_has_three_items() {
-        let list = ListView::new(vec![
-            "One".to_string(),
-            "Two".to_string(),
-            "Three".to_string(),
+        let list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("One")),
+            ListItem::new(Label::new("Two")),
+            ListItem::new(Label::new("Three")),
         ]);
         assert_eq!(list.items().len(), 3);
         assert_eq!(list.items()[0], "One");
@@ -72,13 +70,19 @@ mod tests {
 
     #[test]
     fn list_view_initial_selected_is_zero() {
-        let list = ListView::new(vec!["One".to_string(), "Two".to_string()]);
+        let list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("One")),
+            ListItem::new(Label::new("Two")),
+        ]);
         assert_eq!(list.selected(), 0);
     }
 
     #[test]
     fn list_view_selected_item_returns_first() {
-        let list = ListView::new(vec!["One".to_string(), "Two".to_string()]);
+        let list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("One")),
+            ListItem::new(Label::new("Two")),
+        ]);
         assert_eq!(list.selected_item(), Some("One"));
     }
 }

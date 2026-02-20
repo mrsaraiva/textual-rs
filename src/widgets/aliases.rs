@@ -23,7 +23,8 @@ pub struct Static {
 impl Static {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
-            label: Label::new(text),
+            // Python Textual's Static defaults to markup=True.
+            label: Label::new(text).with_markup(true),
             content: StaticContent::Plain,
         }
     }

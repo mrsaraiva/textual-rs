@@ -15,10 +15,10 @@ struct ToastApp;
 
 impl TextualApp for ToastApp {
     fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
-        // Information notification (default timeout).
+        // Information notification (default timeout, no title — matches Python).
         app.notify(
             "It's an older code, sir, but it checks out.",
-            "Information",
+            "",
             ToastSeverity::Information,
             None,
         );
@@ -31,10 +31,10 @@ impl TextualApp for ToastApp {
             None,
         );
 
-        // Error notification with a longer timeout (10 seconds).
+        // Error notification with a longer timeout (10 seconds, no title — matches Python).
         app.notify(
             "It's a trap!",
-            "Error",
+            "",
             ToastSeverity::Error,
             Some(Duration::from_secs(10)),
         );

@@ -55,6 +55,7 @@ pub struct Pretty {
     source: PrettySource,
     layout_width: usize,
     styles: WidgetStyles,
+    border_title_text: Option<String>,
 }
 
 impl Pretty {
@@ -66,6 +67,7 @@ impl Pretty {
             source: PrettySource::Static(format!("{:?}", value)),
             layout_width: 1,
             styles: WidgetStyles::default(),
+            border_title_text: None,
         }
     }
 
@@ -75,6 +77,7 @@ impl Pretty {
             source: PrettySource::Static(debug_str.into()),
             layout_width: 1,
             styles: WidgetStyles::default(),
+            border_title_text: None,
         }
     }
 
@@ -88,7 +91,14 @@ impl Pretty {
             source: PrettySource::Shared(debug_str),
             layout_width: 1,
             styles: WidgetStyles::default(),
+            border_title_text: None,
         }
+    }
+
+    /// Set a border title for this widget.
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title_text = Some(title.into());
+        self
     }
 
     /// Update the displayed value.
@@ -143,6 +153,10 @@ impl Debug for Pretty {
 }
 
 impl Widget for Pretty {
+    fn border_title(&self) -> Option<&str> {
+        self.border_title_text.as_deref()
+    }
+
     fn style_type(&self) -> &'static str {
         "Pretty"
     }

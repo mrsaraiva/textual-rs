@@ -38,11 +38,13 @@ Screen.-show-tree #tree-view {
 #code-view {
     overflow: auto scroll;
     min-width: 100%;
+    hatch: right $panel;
 }
 
 #code {
     width: auto;
     padding: 0 1;
+    background: $surface;
 }
 "#;
 

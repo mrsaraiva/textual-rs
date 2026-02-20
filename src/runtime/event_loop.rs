@@ -1267,6 +1267,20 @@ fn style_numeric_property(style: &crate::style::Style, property: &str) -> Option
     }
 }
 
+/// Map semantic CSS property names to internal property names.
+///
+/// Python Textual uses `color`/`background` for transition targets; Rust uses
+/// `fg`/`bg` internally.  This mapping lets CSS authored with Python names
+/// (`transition: color 300ms`) work correctly in the Rust runtime.
+fn semantic_transition_alias(property: &str) -> Option<&'static str> {
+    match property {
+        "color" | "foreground" => Some("fg"),
+        "background" => Some("bg"),
+        "background_tint" | "background-tint" => Some("background_tint"),
+        _ => None,
+    }
+}
+
 fn resolve_transition_for_property_aliases(
     style: &crate::style::Style,
     property: &str,
@@ -1280,7 +1294,14 @@ fn resolve_transition_for_property_aliases(
     }
     let dashed = canonical.replace('_', "-");
     if dashed != canonical {
-        return resolve_transition_for_property(style, &dashed);
+        if let Some(found) = resolve_transition_for_property(style, &dashed) {
+            return Some(found);
+        }
+    }
+    // Try semantic aliases (e.g. "color" → "fg", "background" → "bg") so that
+    // CSS authored with Python Textual property names resolves correctly.
+    if let Some(alias) = semantic_transition_alias(&canonical) {
+        return resolve_transition_for_property(style, alias);
     }
     None
 }
