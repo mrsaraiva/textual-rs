@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-20 (Toast notification styling regression fix)
+
+- **fix(runtime): restore Toast CSS styling in tree-driven render path**
+  - `compose_notifications()` was called after the per-layer style context guard dropped,
+    so all `resolve_style()` calls returned empty defaults — producing unstyled black
+    rectangles for all toast severities.
+  - Re-establish style context via `stylesheet_for_layer(None)` before rendering notifications.
+  - Removed spurious `"toast"` class from `Toast::rebuild_classes()` (Python only adds
+    the severity class, e.g. `-information`; the CSS uses `Toast` as a type selector).
+
 ### 2026-02-20 (LOW priority + DEFERRED items — framework parity)
 
 - **fix(widgets): DirectoryTree — apply filter predicate to async-loaded results**

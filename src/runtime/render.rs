@@ -305,7 +305,13 @@ impl App {
             }
         }
 
+        // Re-establish style context for notification overlays — the per-layer
+        // guard was dropped when the `for` loop ended above.
+        let notification_sheet = self.stylesheet_for_layer(None);
+        let _notif_guard = set_style_context(notification_sheet);
         self.compose_notifications(&mut next);
+        drop(_notif_guard);
+
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;

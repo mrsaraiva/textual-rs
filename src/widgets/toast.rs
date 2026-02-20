@@ -80,7 +80,7 @@ impl Toast {
     }
 
     fn rebuild_classes(mut self) -> Self {
-        self.classes = vec!["toast".to_string(), self.severity.class_name().to_string()];
+        self.classes = vec![self.severity.class_name().to_string()];
         self
     }
 
