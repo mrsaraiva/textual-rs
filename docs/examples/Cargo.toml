@@ -1,0 +1,27 @@
+[workspace]
+members = [
+  "app",
+  "events",
+  "getting_started",
+  "guide/actions",
+  "guide/animator",
+  "guide/command_palette",
+  "guide/compound",
+  "guide/content",
+  "guide/core",
+  "guide/css",
+  "guide/input",
+  "guide/layout",
+  "guide/reactivity",
+  "guide/screens",
+  "guide/styles",
+  "guide/testing",
+  "guide/widgets",
+  "guide/workers",
+  "how-to",
+  "styles",
+  "themes",
+  "tutorial",
+  "widgets",
+]
+resolver = "2"
