@@ -500,10 +500,12 @@ Reference plan:
 - **Box-model parity**: `line-pad` separated from CSS padding, default `box-sizing` changed to `border-box`, vertical margin collapsing, `:can-focus` pseudo-class + disabled dimming. Landed.
 - **Render parity** (P2 deferred closures): border captions, keylines, `overlay: screen` blending, scrollbar hover/active sub-parts, absolute min/max constraints, `expand` in flow sizing. Landed.
 - **Per-property `transition`** dispatch: runtime auto-emits AnimationRequests on style changes for animatable properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`). Landed.
+- **Full CSS transition property coverage (P2-36)**: all 12 style-value animatable properties now dispatched via `step_style()` — colors (`fg`, `bg`, `tint`, `background_tint`), dimensions (`width`, `height`, `min/max` variants), spacing (`margin`, `padding`). Landed.
+- **App-level reactive bridge**: `TextualApp` structs with `#[derive(Reactive)]` fields can now use `app.reactive_ctx()` in hook methods; `reactive_widget_mut()` enables watcher dispatch; `on_mount_with_app()` supports init-phase watcher firing after tree build. Landed.
 - **Phase 9.7 modularization**: runtime, containers, default CSS, and selector engine all decomposed. Landed.
 
 ### Open Items
-- **Transition property coverage**: auto-dispatch works for 4 properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`); remaining animatable properties (colors, spacing) need wiring as they gain runtime consumption.
+None. All previously tracked open items are resolved.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.

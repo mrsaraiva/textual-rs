@@ -11,6 +11,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::NodeId;
+use crate::reactive::{ReactiveCtx, ReactiveWidget};
 use crate::style::{Position, Scalar};
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
@@ -63,6 +64,30 @@ pub trait TextualApp: Send + 'static {
 
     /// Called after widget mount, before entering the event loop.
     fn on_mount(&mut self) {}
+
+    /// App-level mount hook with mutable runtime handle and event context.
+    ///
+    /// Called once after the widget tree is fully built and mounted. This is the
+    /// correct place to set initial reactive field values so that `init = true`
+    /// watchers fire with the widget tree available.
+    ///
+    /// Mirrors Python Textual's `on_mount` handler timing: all child widgets
+    /// already exist and can be reached via `app.query_one()` / `app.query_mut()`.
+    fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {}
+
+    /// Return a mutable `ReactiveWidget` reference if this app uses
+    /// `#[derive(Reactive)]` on its struct fields.
+    ///
+    /// Apps that derive `Reactive` should override this to return `Some(self)`:
+    /// ```ignore
+    /// fn reactive_widget_mut(&mut self) -> Option<&mut dyn textual::reactive::ReactiveWidget> {
+    ///     Some(self)
+    /// }
+    /// ```
+    /// The default returns `None`, disabling app-level reactive dispatch.
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        None
+    }
 
     /// App-level action hook. Called after widget dispatch if the event was not handled.
     fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {}
@@ -376,6 +401,41 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 
     fn command_palette_visible_in_tree(&self) -> bool {
         self.command_palette_visible
+    }
+
+    /// Drain any pending reactive changes accumulated on `app.reactive_ctx()`
+    /// and dispatch them to the app's `ReactiveWidget` impl (if any).
+    ///
+    /// Called after every `TextualApp` hook that receives `&mut App` so that
+    /// reactive setters called inside hooks trigger watchers and repaint/layout.
+    ///
+    /// Repaint/layout flags from the setter (stored on `app.reactive_ctx()`) and
+    /// from the watcher itself (on the dispatch `rctx`) are both propagated to `ctx`.
+    fn dispatch_app_reactive(&self, app: &mut App, ctx: &mut EventCtx) {
+        if !app.reactive_ctx().has_changes() {
+            return;
+        }
+        // Capture setter-level repaint/layout flags, drain changes, then reset
+        // flags so they don't accumulate across subsequent hook calls.
+        let setter_needs_repaint = app.reactive_ctx().needs_repaint();
+        let setter_needs_layout = app.reactive_ctx().needs_layout();
+        let changes = app.reactive_ctx().take_changes();
+        app.reactive_ctx().reset_flags();
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        if let Some(rw) = self
+            .app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reactive_widget_mut()
+        {
+            rw.reactive_dispatch(&changes, &mut rctx);
+        }
+        if setter_needs_repaint || rctx.needs_repaint() {
+            ctx.request_repaint();
+        }
+        if setter_needs_layout || rctx.needs_layout() {
+            ctx.request_layout_invalidation();
+        }
     }
 }
 
@@ -731,6 +791,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .on_key_with_app(app, key, ctx);
+        self.dispatch_app_reactive(app, ctx);
     }
 
     fn on_app_action(&mut self, app: &mut App, action: Action, ctx: &mut EventCtx) {
@@ -738,6 +799,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .on_action_with_app(app, action, ctx);
+        self.dispatch_app_reactive(app, ctx);
     }
 
     fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
@@ -748,6 +810,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .on_message_with_app(app, message, ctx);
+        self.dispatch_app_reactive(app, ctx);
     }
 
     fn on_app_tick(&mut self, app: &mut App, tick: u64, ctx: &mut EventCtx) {
@@ -755,6 +818,15 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .on_tick_with_app(app, tick, ctx);
+        self.dispatch_app_reactive(app, ctx);
+    }
+
+    fn on_app_mount(&mut self, app: &mut App, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_mount_with_app(app, ctx);
+        self.dispatch_app_reactive(app, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -2181,5 +2253,250 @@ mod tests {
         assert!(adapter.execute_action(&quit, &mut ctx));
         assert!(ctx.stop_requested());
         assert!(ctx.handled());
+    }
+
+    // =========================================================================
+    // App-level reactive bridge tests (Work Item 2)
+    // =========================================================================
+
+    /// A TextualApp that exposes a `count` field with a manual reactive setter
+    /// and records watcher calls in `watch_log`. Overrides `reactive_widget_mut`
+    /// to enable dispatch.
+    struct ReactiveTestApp {
+        count: i32,
+        watch_log: Vec<(i32, i32)>, // (old, new) per watcher call
+    }
+
+    impl ReactiveTestApp {
+        fn new() -> Self {
+            Self {
+                count: 0,
+                watch_log: Vec::new(),
+            }
+        }
+
+        fn set_count(&mut self, new_val: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.count;
+            self.count = new_val;
+            ctx.record_change(
+                "count",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(new_val),
+            );
+        }
+    }
+
+    impl TextualApp for ReactiveTestApp {
+        fn compose(&mut self) -> AppRoot {
+            AppRoot::new()
+        }
+
+        fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut EventCtx) {
+            self.set_count(self.count + 1, app.reactive_ctx());
+        }
+
+        fn on_action_with_app(
+            &mut self,
+            app: &mut App,
+            _action: Action,
+            _ctx: &mut EventCtx,
+        ) {
+            self.set_count(self.count + 10, app.reactive_ctx());
+        }
+
+        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+            self.set_count(self.count + 100, app.reactive_ctx());
+        }
+
+        fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+            // Simulate init: call setter so watcher fires once at mount.
+            self.set_count(self.count, app.reactive_ctx());
+        }
+
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+    }
+
+    impl ReactiveWidget for ReactiveTestApp {
+        fn reactive_dispatch(&mut self, changes: &[crate::reactive::ReactiveChange], _ctx: &mut ReactiveCtx) {
+            for change in changes {
+                if change.field_name == "count" {
+                    if let (Some(&old), Some(&new)) = (
+                        change.old_value.downcast_ref::<i32>(),
+                        change.new_value.downcast_ref::<i32>(),
+                    ) {
+                        self.watch_log.push((old, new));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_reactive_bridge_setter_triggers_watcher_via_on_key() {
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+
+        adapter.on_app_key(&mut runtime, &key, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.count, 1, "setter should increment count to 1");
+        assert_eq!(
+            guard.watch_log,
+            vec![(0, 1)],
+            "watcher should record (old=0, new=1)"
+        );
+    }
+
+    #[test]
+    fn app_reactive_bridge_setter_triggers_watcher_via_on_action() {
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        adapter.on_app_action(&mut runtime, Action::HelpQuit, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.count, 10);
+        assert_eq!(guard.watch_log, vec![(0, 10)]);
+    }
+
+    #[test]
+    fn app_reactive_bridge_setter_triggers_watcher_via_on_tick() {
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        adapter.on_app_tick(&mut runtime, 0, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.count, 100);
+        assert_eq!(guard.watch_log, vec![(0, 100)]);
+    }
+
+    #[test]
+    fn app_reactive_bridge_init_dispatch_via_on_app_mount() {
+        // Init dispatch: on_mount_with_app calls set_count(count, ctx) with old == new.
+        // Watcher should record (0, 0) signalling init.
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        adapter.on_app_mount(&mut runtime, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.count, 0, "count unchanged on init dispatch");
+        assert_eq!(
+            guard.watch_log,
+            vec![(0, 0)],
+            "watcher should record init (old==new)"
+        );
+    }
+
+    #[test]
+    fn app_reactive_bridge_repaint_requested_when_setter_flags_repaint() {
+        // ReactiveFlags::reactive() sets repaint=true.  The adapter should
+        // propagate that to EventCtx::request_repaint().
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        adapter.on_app_key(&mut runtime, &key, &mut ctx);
+
+        assert!(
+            ctx.repaint_requested(),
+            "repaint should be requested when setter uses ReactiveFlags::reactive()"
+        );
+    }
+
+    #[test]
+    fn app_reactive_bridge_no_dispatch_when_reactive_widget_mut_returns_none() {
+        // A TextualApp that does NOT override reactive_widget_mut returns None.
+        // dispatch_app_reactive must not panic and should not fire any watcher.
+        struct NoReactiveApp {
+            key_count: usize,
+        }
+
+        impl TextualApp for NoReactiveApp {
+            fn compose(&mut self) -> AppRoot {
+                AppRoot::new()
+            }
+
+            fn on_key_with_app(
+                &mut self,
+                app: &mut App,
+                _key: &KeyEventData,
+                _ctx: &mut EventCtx,
+            ) {
+                use crate::reactive::ReactiveFlags;
+                // Even if setter is called, reactive_widget_mut() == None means
+                // no watcher dispatch — changes are just discarded.
+                app.reactive_ctx().record_change(
+                    "key_count",
+                    ReactiveFlags::reactive(),
+                    Box::new(self.key_count),
+                    Box::new(self.key_count + 1),
+                );
+                self.key_count += 1;
+            }
+            // reactive_widget_mut() not overridden → returns None (default)
+        }
+
+        let app_state = Arc::new(Mutex::new(NoReactiveApp { key_count: 0 }));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+
+        adapter.on_app_key(&mut runtime, &key, &mut ctx);
+
+        assert_eq!(
+            app_state.lock().unwrap().key_count,
+            1,
+            "key count still increments even without reactive dispatch"
+        );
+        // Repaint IS requested because the setter flags repaint via ReactiveFlags::reactive().
+        // dispatch_app_reactive propagates setter flags regardless of reactive_widget_mut().
+        assert!(ctx.repaint_requested(), "setter repaint flag propagated");
+    }
+
+    #[test]
+    fn app_reactive_bridge_flags_reset_across_multiple_hook_calls() {
+        // After on_app_key (which sets repaint), a subsequent on_app_tick with
+        // no setter call should NOT re-trigger repaint.
+        let app_state = Arc::new(Mutex::new(ReactiveTestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+
+        let mut key_ctx = EventCtx::default();
+        let key =
+            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        adapter.on_app_key(&mut runtime, &key, &mut key_ctx);
+        assert!(key_ctx.repaint_requested(), "key handler should request repaint");
+
+        // Tick with on_tick_with_app always calls set_count(+100), so watcher fires
+        // and repaint is requested.
+        let mut tick_ctx = EventCtx::default();
+        adapter.on_app_tick(&mut runtime, 1, &mut tick_ctx);
+        assert!(tick_ctx.repaint_requested(), "tick handler requests repaint via setter");
+
+        // Verify flags were reset: count should be 101 (1 + 100), watch_log has 2 entries.
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.count, 101);
+        assert_eq!(guard.watch_log.len(), 2);
     }
 }

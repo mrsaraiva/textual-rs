@@ -1961,6 +1961,16 @@ impl App {
                 }
             }
         }
+        // Dispatch app-level reactive init phase.
+        //
+        // Called after the widget tree is built so that init-watcher dispatch
+        // (triggered by reactive setters inside `on_mount_with_app`) can reach
+        // existing tree nodes via `query_one` / `query_mut`.
+        {
+            let mut mount_ctx = crate::event::EventCtx::default();
+            root.on_app_mount(self, &mut mount_ctx);
+        }
+
         self.publish_devtools_snapshot(root);
         let initial_help_outcome = self.dispatch_focused_help_changed(root);
         if initial_help_outcome.stop_requested {

@@ -336,6 +336,12 @@ pub trait Widget: Send + Sync + Any {
     /// Runs once per runtime tick after `on_tick` and before `Event::Tick`
     /// dispatch, allowing app wrappers to use query/mutation APIs.
     fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut EventCtx) {}
+    /// Optional runtime-level app mount hook.
+    ///
+    /// Called once after the widget tree is fully built and mounted, passing
+    /// the active [`crate::App`] handle. Used by app wrappers to dispatch
+    /// init-phase reactive changes after the widget tree is available.
+    fn on_app_mount(&mut self, _app: &mut crate::App, _ctx: &mut EventCtx) {}
     /// Optional visibility override for tree child nodes by child index.
     ///
     /// Tree mode can query this every frame and mirror it to child node

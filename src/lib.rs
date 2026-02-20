@@ -43,6 +43,8 @@ pub use textual_app::{
     run_textual_app_or_snapshot, run_textual_app_or_snapshot_with_output,
     run_textual_app_with_output,
 };
+pub use reactive::ReactiveCtx;
+pub use reactive::ReactiveWidget;
 pub use textual_macros::Reactive;
 pub use textual_macros::on;
 pub use widgets::BindingDecl;

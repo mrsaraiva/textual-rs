@@ -204,6 +204,16 @@ impl ReactiveCtx {
         !self.changes.is_empty()
     }
 
+    /// Reset repaint/layout flags without touching the recorded changes.
+    ///
+    /// Used by the app-level reactive bridge after draining changes so that
+    /// stale flags from previous hook calls do not accumulate across tick
+    /// boundaries.
+    pub fn reset_flags(&mut self) {
+        self.repaint_requested = false;
+        self.layout_requested = false;
+    }
+
     /// Reset the repaint/layout flags (e.g. after the runtime processes them).
     pub fn clear_flags(&mut self) {
         self.repaint_requested = false;
