@@ -33,6 +33,20 @@ until the API stabilizes.
   - `scroll_end()` scrolls to `max_offset()`.
   - Added 2 regression tests.
 
+- **feat(examples): D-012 `code_browser` demo (port of Python `examples/code_browser.py`)**
+  - Broad integration demo: `DirectoryTree`, `Static::update_rich`, `ScrollView::scroll_home`,
+    `App::set_title`/`set_sub_title`, `Header`, `Footer`, key bindings.
+  - Tree visibility toggled via `app.toggle_class('Screen', '-show-tree')` binding — no custom
+    action handler needed; CSS `Screen.-show-tree #tree-view { display: block; }` does the work.
+  - Uses `rich_rs::Syntax::from_path()` + `.highlight()` for syntax-highlighted file view.
+  - Inline CSS loaded via `App::load_stylesheet()` in `configure()` hook.
+  - 4 regression tests in `examples/code_browser/main.rs`.
+
+- **feat(examples): D-013 `directory_tree_filtered` demo**
+  - Port of Python `docs/examples/widgets/directory_tree_filtered.py`.
+  - Demonstrates `DirectoryTree::filter_paths()` with a `no_dotfiles` predicate.
+  - 3 regression tests in `docs/examples/widgets/examples/directory_tree_filtered/main.rs`.
+
 ### 2026-02-19
 
 - **feat(reactive): app-level reactive bridge for `TextualApp` struct fields**
