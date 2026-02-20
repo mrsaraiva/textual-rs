@@ -69,13 +69,7 @@ fn action_bar() -> impl Widget {
 #[test]
 fn keys_preview_layout_snapshot() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let css_path = [
-        repo_root.join("docs/widgets/examples/keys/keys.tcss"),
-        repo_root.join("examples/keys.tcss"), // legacy location
-    ]
-    .into_iter()
-    .find(|path| path.exists())
-    .expect("expected keys.tcss in known locations");
+    let css_path = repo_root.join("docs/examples/widgets/examples/keys/keys.tcss");
     let css = std::fs::read_to_string(css_path).expect("read keys.tcss");
     let mut stylesheet = default_widget_stylesheet();
     stylesheet.extend(&StyleSheet::parse(&css));

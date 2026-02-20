@@ -4,7 +4,7 @@ set -euo pipefail
 BENCH_KEEP_WORKTREE=0
 BENCH_BASELINE_WT=""
 BENCH_REPO_ROOT=""
-DOC_WIDGETS_MANIFEST="docs/widgets/Cargo.toml"
+DOC_WIDGETS_MANIFEST="docs/examples/widgets/Cargo.toml"
 
 usage() {
     cat <<'EOF'

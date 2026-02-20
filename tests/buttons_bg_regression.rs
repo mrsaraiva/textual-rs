@@ -6,13 +6,7 @@ use textual::style::parse_color_like;
 #[test]
 fn buttons_demo_default_button_has_background() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let css_path = [
-        repo_root.join("docs/widgets/examples/shared/button.tcss"),
-        repo_root.join("examples/button.tcss"), // legacy location
-    ]
-    .into_iter()
-    .find(|path| path.exists())
-    .expect("expected button.tcss in known locations");
+    let css_path = repo_root.join("docs/examples/widgets/examples/shared/button.tcss");
     let css = std::fs::read_to_string(&css_path).expect("read button.tcss");
     let mut stylesheet = default_widget_stylesheet();
     stylesheet.extend(&StyleSheet::parse(&css));

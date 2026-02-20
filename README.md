@@ -19,19 +19,26 @@ Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering pr
 ## Quick start
 
 ```bash
-tools/run-doc-widget.sh buttons           # Interactive button demo
-tools/run-doc-widget.sh hello             # Composed widget/layout showcase
-tools/run-doc-widget.sh data_table        # Data table widget
-tools/run-doc-widget.sh input             # Input fields
-tools/run-doc-widget.sh text_area_example # Text editor
+tools/run-doc-example.sh widgets buttons           # Interactive button demo
+tools/run-doc-example.sh widgets hello             # Composed widget/layout showcase
+tools/run-doc-example.sh widgets data_table        # Data table widget
+tools/run-doc-example.sh widgets input             # Input fields
+tools/run-doc-example.sh widgets text_area_example # Text editor
 ```
 
 Widget-focused docs parity examples live in a dedicated crate:
 
 ```bash
-cargo run --manifest-path docs/widgets/Cargo.toml --example tabbed_content
-tools/run-doc-widget.sh tabbed_content_label_color
+cargo run --manifest-path docs/examples/widgets/Cargo.toml --example tabbed_content
+tools/run-doc-example.sh widgets tabbed_content_label_color
+tools/run-doc-example.sh guide/screens modal01
 ```
+
+## Demo Source Mapping
+
+- Python docs demos (`../textual/docs/examples/**`) map to our docs example lane (`docs/examples/**`).
+  - Current crate-backed location: `docs/examples/widgets/examples/**` and `docs/examples/guide/**`.
+- Python app demos (`../textual/examples/**`) map to app examples under `examples/**`.
 
 ## Widget catalog
 
