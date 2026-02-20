@@ -58,6 +58,23 @@ impl TreeNode {
         self.component_classes.push(class.into());
         self
     }
+
+    /// Add a child node, returning a mutable reference to the newly added child.
+    ///
+    /// This enables the Python pattern of incremental tree construction:
+    /// ```ignore
+    /// let child = parent.add_child(TreeNode::new("child"));
+    /// child.add_child(TreeNode::new("grandchild"));
+    /// ```
+    pub fn add_child(&mut self, child: TreeNode) -> &mut TreeNode {
+        self.children.push(child);
+        self.children.last_mut().expect("just pushed")
+    }
+
+    /// Add a leaf node (convenience for `add_child(TreeNode::new(label))`).
+    pub fn add_leaf(&mut self, label: impl Into<String>) -> &mut TreeNode {
+        self.add_child(TreeNode::new(label))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -137,7 +154,10 @@ impl Tree {
 
     // ── Reactive setters ─────────────────────────────────────────────────
 
-    /// Reactive setter for `selected`.
+    /// Reactive setter for `selected` (always_update: fires even when value unchanged).
+    ///
+    /// Matches Python's `cursor_line = var(-1, always_update=True)` — setting
+    /// the cursor to the same position still triggers scroll-into-view and repaint.
     pub fn set_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) {
         let total = self.visible_count();
         if total == 0 {
@@ -145,18 +165,16 @@ impl Tree {
             self.offset = 0;
             return;
         }
+        let old = self.selected;
         let new_selected = index.min(total - 1);
-        if self.selected != new_selected {
-            let old = self.selected;
-            self.selected = new_selected;
-            self.ensure_visible();
-            ctx.record_change(
-                "selected",
-                ReactiveFlags::reactive(),
-                Box::new(old),
-                Box::new(self.selected),
-            );
-        }
+        self.selected = new_selected;
+        self.ensure_visible();
+        ctx.record_change(
+            "selected",
+            ReactiveFlags::reactive_always_update(),
+            Box::new(old),
+            Box::new(self.selected),
+        );
     }
 
     /// Reactive setter for `show_root`.
@@ -241,26 +259,6 @@ impl Tree {
         self.offset = 0;
     }
 
-    /// Move the cursor/highlight to a specific visible-node index, or reset if `None`.
-    pub fn move_cursor(&mut self, node_index: Option<usize>) {
-        match node_index {
-            None => {
-                self.selected = 0;
-                self.offset = 0;
-            }
-            Some(index) => {
-                // Direct field assignment (not using reactive setter).
-                let total = self.visible_count();
-                if total == 0 {
-                    self.selected = 0;
-                    self.offset = 0;
-                } else {
-                    self.selected = index.min(total - 1);
-                    self.ensure_visible();
-                }
-            }
-        }
-    }
 
     /// Programmatically select a node: moves cursor and emits `TreeNodeSelected`.
     pub fn select_node(&mut self, node_index: usize, ctx: &mut EventCtx) {
@@ -824,6 +822,7 @@ impl Tree {
         }
     }
 
+    #[allow(dead_code)] // Used by tests; render now resolves per-component styles directly.
     fn node_classes(
         node: &VisibleNode,
         highlighted: bool,
@@ -1268,30 +1267,134 @@ impl Widget for Tree {
         let height = options.size.1.max(1);
         let nodes = self.visible_nodes();
         let mut out = Segments::new();
+
+        // Resolve component styles once per render.
         let base_style = crate::css::resolve_component_style(self, &["tree--node"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
+        let guide_style = crate::css::resolve_component_style(self, &["tree--guides"])
+            .to_rich()
+            .unwrap_or(base_style);
+        let guide_hover_style = crate::css::resolve_component_style(self, &["tree--guides-hover"])
+            .to_rich()
+            .unwrap_or(guide_style);
+        let guide_selected_style =
+            crate::css::resolve_component_style(self, &["tree--guides-selected"])
+                .to_rich()
+                .unwrap_or(guide_style);
+        let label_style = crate::css::resolve_component_style(self, &["tree--label"])
+            .to_rich()
+            .unwrap_or(base_style);
+        let cursor_style = crate::css::resolve_component_style(self, &["tree--cursor"])
+            .to_rich()
+            .unwrap_or(base_style);
+        let highlight_style = crate::css::resolve_component_style(self, &["tree--highlight"])
+            .to_rich()
+            .unwrap_or(base_style);
+        let highlight_line_style =
+            crate::css::resolve_component_style(self, &["tree--highlight-line"])
+                .to_rich()
+                .unwrap_or(base_style);
 
         for row in 0..height {
             let index = self.offset + row;
-            let mut text = String::new();
-            let mut style = base_style;
             if let Some(node) = nodes.get(index) {
                 let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
-                let classes = Self::node_classes(node, highlighted, hovered, self.focused);
-                let class_refs: Vec<&str> = classes.iter().map(String::as_str).collect();
-                style = crate::css::resolve_component_style(self, &class_refs)
-                    .to_rich()
-                    .unwrap_or(style);
-                text = format!(
-                    "{}{}",
-                    Self::row_prefix(node, highlighted, self.show_guides, self.guide_depth),
-                    node.label
-                );
+
+                // Row background style: use highlight-line for hovered rows.
+                let row_bg_style = if hovered { highlight_line_style } else { base_style };
+
+                // Pick guide style for this row.
+                let row_guide_style = if highlighted && self.focused {
+                    guide_selected_style
+                } else if hovered {
+                    guide_hover_style
+                } else {
+                    guide_style
+                };
+
+                // Build label style: base label + component classes + highlight + cursor.
+                let mut row_label_style = label_style;
+                // Apply node-specific component classes (e.g. directory-tree--file).
+                if !node.component_classes.is_empty() {
+                    let cc_refs: Vec<&str> =
+                        node.component_classes.iter().map(String::as_str).collect();
+                    if let Some(cc_style) =
+                        crate::css::resolve_component_style(self, &cc_refs).to_rich()
+                    {
+                        row_label_style = row_label_style + cc_style;
+                    }
+                }
+                if hovered {
+                    row_label_style = row_label_style + highlight_style;
+                }
+                if highlighted {
+                    row_label_style = row_label_style + cursor_style;
+                }
+
+                // Build segments for this row.
+                let mut row_segments: Vec<Segment> = Vec::new();
+
+                // 1. Cursor marker ("› " for highlighted, "  " otherwise).
+                let marker = if highlighted { "› " } else { "  " };
+                row_segments.push(Segment::styled(
+                    marker.to_string(),
+                    if highlighted { cursor_style } else { row_bg_style },
+                ));
+
+                // 2. Guide prefix segments (per-depth styled).
+                if node.depth > 0 {
+                    let gd = self.guide_depth.clamp(2, 10);
+                    // Ancestor continuation lines.
+                    for level in 1..node.depth {
+                        let guide_text = if self.show_guides && !node.is_last_at_depth[level] {
+                            let mut s = String::with_capacity(gd);
+                            s.push('│');
+                            for _ in 0..gd - 1 {
+                                s.push(' ');
+                            }
+                            s
+                        } else {
+                            " ".repeat(gd)
+                        };
+                        row_segments.push(Segment::styled(guide_text, row_guide_style));
+                    }
+                    // Branch connector for this node.
+                    let connector = if self.show_guides {
+                        let ch = if node.is_last_at_depth[node.depth] {
+                            '└'
+                        } else {
+                            '├'
+                        };
+                        let mut s = String::with_capacity(gd);
+                        s.push(ch);
+                        for _ in 0..gd.saturating_sub(2) {
+                            s.push('─');
+                        }
+                        s.push(' ');
+                        s
+                    } else {
+                        " ".repeat(gd)
+                    };
+                    row_segments.push(Segment::styled(connector, row_guide_style));
+                }
+
+                // 3. Twisty (expand/collapse indicator).
+                let twisty = format!("{} ", Self::twisty(node));
+                row_segments.push(Segment::styled(twisty, row_label_style));
+
+                // 4. Label text.
+                row_segments.push(Segment::styled(node.label.clone(), row_label_style));
+
+                // Pad/crop to width.
+                let line = adjust_line_length_no_bg(&row_segments, width);
+                out.extend(line);
+            } else {
+                // Empty row beyond visible nodes.
+                let line = adjust_line_length_no_bg(&[Segment::styled(String::new(), base_style)], width);
+                out.extend(line);
             }
-            let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
-            out.extend(line);
             if row + 1 < height {
                 out.push(Segment::line());
             }
@@ -1599,5 +1702,81 @@ mod tests {
             arguments: vec![],
         };
         assert!(tree.execute_action(&action, &mut ctx));
+    }
+
+    #[test]
+    fn add_child_returns_mutable_ref_to_added_node() {
+        let mut root = TreeNode::new("Root");
+        let child = root.add_child(TreeNode::new("Child"));
+        assert_eq!(child.label, "Child");
+        assert!(child.children.is_empty());
+        assert_eq!(root.children.len(), 1);
+    }
+
+    #[test]
+    fn add_child_supports_nested_chaining() {
+        let mut root = TreeNode::new("Root");
+        let child = root.add_child(TreeNode::new("A").allow_expand(true));
+        child.add_child(TreeNode::new("A1"));
+        child.add_child(TreeNode::new("A2"));
+
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children[0].label, "A");
+        assert_eq!(root.children[0].children.len(), 2);
+        assert_eq!(root.children[0].children[0].label, "A1");
+        assert_eq!(root.children[0].children[1].label, "A2");
+    }
+
+    #[test]
+    fn add_leaf_creates_non_expandable_child() {
+        let mut root = TreeNode::new("Root");
+        let leaf = root.add_leaf("Leaf");
+        assert_eq!(leaf.label, "Leaf");
+        assert!(!leaf.allow_expand);
+        assert!(leaf.children.is_empty());
+        assert_eq!(root.children.len(), 1);
+    }
+
+    #[test]
+    fn render_produces_multiple_segments_per_row() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let tree = Tree::new(vec![
+            TreeNode::new("Root")
+                .with_child(TreeNode::new("Child A"))
+                .with_child(TreeNode::new("Child B")),
+        ]);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (30, 3);
+        options.max_width = 30;
+        options.max_height = 3;
+
+        let rendered = Widget::render(&tree, &console, &options);
+        // Filter to non-empty, non-newline segments.
+        let content_segs: Vec<_> = rendered
+            .iter()
+            .filter(|s| !s.text.is_empty() && s.text != "\n")
+            .collect();
+        // With per-segment styling, a row with guides should produce at least 3 segments
+        // (marker + guide + twisty+label, or more). Before this change, each row was 1 segment.
+        // Row 1 (Child A at depth 1) has: marker("  ") + guide("├── ") + twisty("  ") + label.
+        assert!(
+            content_segs.len() >= 6,
+            "expected at least 6 non-empty segments for 3 rows with per-segment styling, got {}",
+            content_segs.len()
+        );
+    }
+
+    #[test]
+    fn set_selected_always_fires_even_when_unchanged() {
+        use crate::reactive::ReactiveCtx;
+        let mut tree = Tree::new(vec![TreeNode::new("A"), TreeNode::new("B")]);
+        let mut ctx = ReactiveCtx::new(NodeId::default());
+        tree.set_selected(0, &mut ctx);
+        assert!(ctx.has_changes(), "set_selected should record a change even for same value");
+        assert!(ctx.changes()[0].flags.always_update);
     }
 }

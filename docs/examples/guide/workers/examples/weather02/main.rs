@@ -10,9 +10,8 @@
 /// client (`httpx`). Rust: `ctx.request_exclusive_worker_task("weather-fetch", ...)` with
 /// a simulated delay and fabricated weather string.
 ///
-/// DEFERRED: Real HTTP fetch — requires a blocking HTTP client (e.g. `reqwest` with the
-/// `blocking` feature) integrated into the synchronous worker closure. Simulated here with
-/// a short sleep + deterministic weather string.
+/// When the `http-examples` feature is enabled, fetches real weather data from wttr.in.
+/// Without the feature, simulates the fetch with a short delay and fabricated data.
 use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
@@ -76,16 +75,7 @@ impl TextualApp for WeatherApp {
                 return Ok(());
             }
 
-            // Simulate network latency (a real port would use a blocking HTTP client).
-            std::thread::sleep(std::time::Duration::from_millis(80));
-            if token.is_cancelled() {
-                return Ok(());
-            }
-
-            // Fabricated weather data (replaces the wttr.in ANSI response).
-            let weather = format!(
-                "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
-            );
+            let weather = fetch_weather(&city, &token)?;
             *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(weather);
             Ok(())
         });
@@ -118,6 +108,30 @@ impl TextualApp for WeatherApp {
             }
         }
     }
+}
+
+/// Fetch weather for a city. With `http-examples` feature, queries wttr.in.
+/// Without it, simulates the fetch with a short delay and fabricated data.
+#[cfg(feature = "http-examples")]
+fn fetch_weather(city: &str, token: &CancellationToken) -> std::result::Result<String, String> {
+    let url = format!("https://wttr.in/{city}?format=4");
+    let resp = ureq::get(&url).call().map_err(|e| e.to_string())?;
+    let body = resp.body().read_to_string().map_err(|e| e.to_string())?;
+    if token.is_cancelled() {
+        return Ok(String::new());
+    }
+    Ok(body)
+}
+
+#[cfg(not(feature = "http-examples"))]
+fn fetch_weather(city: &str, token: &CancellationToken) -> std::result::Result<String, String> {
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    if token.is_cancelled() {
+        return Ok(String::new());
+    }
+    Ok(format!(
+        "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
+    ))
 }
 
 fn main() -> textual::Result<()> {

@@ -39,6 +39,7 @@ pub struct Button {
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
+    compact: bool,
     classes: Vec<String>,
     focused_classes: Vec<String>,
     active_classes: Vec<String>,
@@ -67,6 +68,7 @@ impl std::fmt::Debug for Button {
             .field("variant", &self.variant)
             .field("disabled", &self.disabled)
             .field("flat", &self.flat)
+            .field("compact", &self.compact)
             .field("classes", &self.classes)
             .finish()
     }
@@ -94,6 +96,7 @@ impl Button {
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
+            compact: false,
             classes: Vec::new(),
             focused_classes: Vec::new(),
             active_classes: Vec::new(),
@@ -135,6 +138,11 @@ impl Button {
 
     pub fn flat(mut self, flat: bool) -> Self {
         self.flat = flat;
+        self.rebuild_classes()
+    }
+
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self.rebuild_classes()
     }
 
@@ -253,6 +261,21 @@ impl Button {
         }
     }
 
+    /// Reactive setter for `compact`. Toggles `"-textual-compact"` CSS class.
+    /// Mirrors Python's `compact = reactive(False, toggle_class="-textual-compact")`.
+    pub fn set_compact(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+        if self.compact != value {
+            let old = self.compact;
+            self.compact = value;
+            ctx.record_change(
+                "compact",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
     // ── Watchers ─────────────────────────────────────────────────────────
 
     fn watch_variant(
@@ -269,6 +292,10 @@ impl Button {
     }
 
     fn watch_flat(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+        self.rebuild_classes_in_place();
+    }
+
+    fn watch_compact(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
         self.rebuild_classes_in_place();
     }
 
@@ -362,6 +389,9 @@ impl Button {
             }
             ButtonVariant::Default => {}
         }
+        if self.compact {
+            classes.push("-textual-compact".to_string());
+        }
         if self.disabled {
             classes.push("disabled".to_string());
         }
@@ -404,6 +434,14 @@ impl ReactiveWidget for Button {
                         change.new_value.downcast_ref::<bool>(),
                     ) {
                         self.watch_flat(old, new, ctx);
+                    }
+                }
+                "compact" => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<bool>(),
+                        change.new_value.downcast_ref::<bool>(),
+                    ) {
+                        self.watch_compact(old, new, ctx);
                     }
                 }
                 _ => {}
@@ -1005,6 +1043,37 @@ mod tests {
         let changes = ctx.take_changes();
         button.reactive_dispatch(&changes, &mut ctx);
         assert!(button.classes.contains(&"disabled".to_string()));
+    }
+
+    #[test]
+    fn compact_builder_adds_textual_compact_class() {
+        let button = Button::new("X").compact(true);
+        assert!(
+            button.classes.contains(&"-textual-compact".to_string()),
+            "compact(true) should add -textual-compact class"
+        );
+    }
+
+    #[test]
+    fn compact_false_has_no_textual_compact_class() {
+        let button = Button::new("X");
+        assert!(
+            !button.classes.contains(&"-textual-compact".to_string()),
+            "default button should not have -textual-compact class"
+        );
+    }
+
+    #[test]
+    fn reactive_set_compact_records_change_and_dispatches() {
+        let mut button = Button::new("Test");
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        button.set_compact(true, &mut ctx);
+        assert!(ctx.has_changes());
+        let changes = ctx.take_changes();
+        assert_eq!(changes[0].field_name, "compact");
+        button.reactive_dispatch(&changes, &mut ctx);
+        assert!(button.classes.contains(&"-textual-compact".to_string()));
     }
 
     #[test]

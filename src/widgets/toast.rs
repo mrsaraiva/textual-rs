@@ -1,4 +1,4 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::event::{Event, EventCtx};
 use crate::message::*;
@@ -94,70 +94,31 @@ impl Toast {
         ctx.set_handled();
     }
 
-    fn strip_bold_markup(input: &str) -> String {
-        input.replace("[b]", "").replace("[/b]", "")
+    /// Parse a line with Rich markup and return width-adjusted segments.
+    ///
+    /// Uses `rich_rs::markup::render()` for full markup support (bold, italic,
+    /// underline, colors, nesting). Falls back to plain text on parse error.
+    fn render_markup_line(line: &str, width: usize, console: &Console) -> Vec<Segment> {
+        let text = match rich_rs::markup::render(line, false) {
+            Ok(t) => t,
+            Err(_) => Text::plain(line),
+        };
+        let options = ConsoleOptions {
+            size: (width.max(1), 1),
+            max_width: width.max(1),
+            no_wrap: true,
+            ..console.options().clone()
+        };
+        let segments: Vec<Segment> = text.render(console, &options).into_iter().collect();
+        adjust_line_length_no_bg(&segments, width.max(1))
     }
 
-    fn render_line_with_bold_markup(line: &str, width: usize) -> Vec<Segment> {
-        let mut segments: Vec<Segment> = Vec::new();
-        let mut remaining = line;
-        let mut bold = false;
-
-        loop {
-            let next_open = remaining.find("[b]");
-            let next_close = remaining.find("[/b]");
-            let next = match (next_open, next_close) {
-                (Some(open), Some(close)) => {
-                    if open <= close {
-                        Some((open, true))
-                    } else {
-                        Some((close, false))
-                    }
-                }
-                (Some(open), None) => Some((open, true)),
-                (None, Some(close)) => Some((close, false)),
-                (None, None) => None,
-            };
-
-            let Some((idx, is_open)) = next else {
-                if !remaining.is_empty() {
-                    if bold {
-                        segments.push(Segment::styled(
-                            remaining.to_string(),
-                            rich_rs::Style::new().with_bold(true),
-                        ));
-                    } else {
-                        segments.push(Segment::new(remaining.to_string()));
-                    }
-                }
-                break;
-            };
-
-            if idx > 0 {
-                let text = &remaining[..idx];
-                if bold {
-                    segments.push(Segment::styled(
-                        text.to_string(),
-                        rich_rs::Style::new().with_bold(true),
-                    ));
-                } else {
-                    segments.push(Segment::new(text.to_string()));
-                }
-            }
-
-            remaining = if is_open {
-                bold = true;
-                &remaining[idx + 3..]
-            } else {
-                bold = false;
-                &remaining[idx + 4..]
-            };
+    /// Compute the visual width of a markup line (excluding tags).
+    fn markup_cell_len(line: &str) -> usize {
+        match rich_rs::markup::render(line, false) {
+            Ok(text) => text.cell_len(),
+            Err(_) => rich_rs::cell_len(line),
         }
-
-        if segments.is_empty() {
-            segments.push(Segment::new(String::new()));
-        }
-        adjust_line_length_no_bg(&segments, width.max(1))
     }
 }
 
@@ -182,8 +143,7 @@ impl Widget for Toast {
         let msg_width = self
             .message
             .lines()
-            .map(Self::strip_bold_markup)
-            .map(|line| rich_rs::cell_len(&line))
+            .map(Self::markup_cell_len)
             .max()
             .unwrap_or(0);
         let title_width = self
@@ -221,7 +181,7 @@ impl Widget for Toast {
         }
     }
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut out = Segments::new();
         let title_style = crate::css::resolve_component_style(self, &["toast--title"])
@@ -239,7 +199,7 @@ impl Widget for Toast {
             }
         }
 
-        // Render message lines.
+        // Render message lines with full Rich markup support.
         if self.message.is_empty() {
             if self.title.is_none() {
                 out.push(Segment::new(" ".repeat(width)));
@@ -248,7 +208,7 @@ impl Widget for Toast {
             let lines: Vec<&str> = self.message.lines().collect();
             let line_count = lines.len();
             for (index, line) in lines.into_iter().enumerate() {
-                out.extend(Self::render_line_with_bold_markup(line, width));
+                out.extend(Self::render_markup_line(line, width, console));
                 if index + 1 < line_count {
                     out.push(Segment::line());
                 }
@@ -310,6 +270,57 @@ impl Renderable for Toast {
 mod tests {
     use super::*;
     use crate::render::FrameBuffer;
+
+    #[test]
+    fn toast_italic_markup_renders_without_literal_brackets() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let toast = Toast::new(
+            "This is [i]italic[/i] and [b]bold[/b] text",
+            ToastSeverity::Warning,
+        );
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        let width = 50usize;
+        let height = toast.layout_height().expect("toast layout height");
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+
+        let rendered = toast.render_styled(&console, &options);
+        let lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        let lines = Segment::set_shape(&lines, width, Some(height), None, false);
+        let frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let text = frame.as_plain_lines().join("\n");
+
+        // Markup tags should be parsed, not rendered as literal text.
+        assert!(
+            !text.contains("[i]"),
+            "literal [i] tag should not appear in rendered toast: {text:?}"
+        );
+        assert!(
+            !text.contains("[/i]"),
+            "literal [/i] tag should not appear in rendered toast: {text:?}"
+        );
+        assert!(
+            text.contains("italic"),
+            "italic word should appear in rendered toast: {text:?}"
+        );
+        assert!(
+            text.contains("bold"),
+            "bold word should appear in rendered toast: {text:?}"
+        );
+    }
+
+    #[test]
+    fn toast_markup_cell_len_excludes_tags() {
+        let line = "Press [b]ctrl+q[/b] to quit";
+        let visual_len = Toast::markup_cell_len(line);
+        // "Press ctrl+q to quit" = 20 chars, not 30 with tags
+        assert_eq!(visual_len, 20);
+    }
 
     #[test]
     fn toast_title_and_message_survive_fixed_height_composition() {

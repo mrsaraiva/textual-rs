@@ -215,8 +215,9 @@ impl DirectoryTree {
                 .iter()
                 .position(|entry| entry.path == path)
             {
-                // Direct field assignment via move_cursor (non-reactive path).
-                tree.move_cursor(Some(index));
+                // Use set_selected with throwaway ctx (tree is pre-mount, changes discarded).
+                let mut rctx = crate::reactive::ReactiveCtx::new(crate::node_id::NodeId::default());
+                tree.set_selected(index, &mut rctx);
             }
         }
 
@@ -308,6 +309,10 @@ impl DirectoryTree {
                     if node.is_dir && node.expanded && !node.loaded {
                         node.children = entries
                             .iter()
+                            .filter(|e| {
+                                self.filter
+                                    .is_none_or(|pred| pred(Path::new(&e.path)))
+                            })
                             .map(directory_node_from_async_entry)
                             .collect::<Vec<_>>();
                         node.loaded = true;
@@ -829,6 +834,90 @@ mod tests {
                 }) if *target == NodeId::default()
             )
         }));
+    }
+
+    #[test]
+    fn async_load_result_applies_filter_predicate() {
+        let temp = TempTreeDir::new("directory-tree-async-filter");
+        fs::create_dir_all(temp.path.join("nested")).expect("create nested dir");
+        fs::write(temp.path.join("nested/keep.rs"), "").expect("write keep.rs");
+        fs::write(temp.path.join("nested/skip.txt"), "").expect("write skip.txt");
+
+        let mut tree = DirectoryTree::new(&temp.path);
+        tree.filter_paths(|p| {
+            p.is_dir()
+                || p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| ext == "rs")
+        });
+        tree.on_layout(40, 10);
+
+        // Simulate expanding "nested" — first collapse it (the sync build expanded it) then expand.
+        let mut ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeToggled(TreeNodeToggled {
+                    index: 1,
+                    label: "nested".to_string(),
+                    expanded: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        let _ = ctx.take_messages();
+
+        let mut ctx = EventCtx::default();
+        tree.on_message(
+            &MessageEvent {
+                sender: tree.tree_id(),
+                message: Message::TreeNodeToggled(TreeNodeToggled {
+                    index: 1,
+                    label: "nested".to_string(),
+                    expanded: true,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        let spawn_msgs = ctx.take_messages();
+        let task_id = spawn_msgs.iter().find_map(|event| {
+            if let Message::AsyncTaskSpawn(AsyncTaskSpawn { task_id, .. }) = &event.message {
+                Some(*task_id)
+            } else {
+                None
+            }
+        });
+        assert!(task_id.is_some(), "should have spawned async task");
+
+        // Simulate async result with both files arriving.
+        let nested_path = temp.path.join("nested");
+        let mut ctx = EventCtx::default();
+        tree.apply_directory_load_result(
+            task_id.unwrap(),
+            &AsyncTaskResult::DirectoryEntries {
+                path: nested_path.display().to_string(),
+                entries: vec![
+                    AsyncDirectoryEntry {
+                        path: temp.path.join("nested/keep.rs").display().to_string(),
+                        label: "keep.rs".to_string(),
+                        is_dir: false,
+                    },
+                    AsyncDirectoryEntry {
+                        path: temp.path.join("nested/skip.txt").display().to_string(),
+                        label: "skip.txt".to_string(),
+                        is_dir: false,
+                    },
+                ],
+            },
+            &mut ctx,
+        );
+
+        // The filter should have excluded skip.txt.
+        let nested_node = find_node_mut(&mut tree.root, &nested_path).expect("nested node");
+        assert_eq!(nested_node.children.len(), 1, "filter should exclude skip.txt");
+        assert_eq!(nested_node.children[0].label, "keep.rs");
     }
 
     #[test]

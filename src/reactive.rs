@@ -43,6 +43,12 @@ pub struct ReactiveFlags {
     pub layout: bool,
     /// Call watcher on mount (default for `#[reactive]`, not `#[var]`).
     pub init: bool,
+    /// Fire watchers even when old value equals new value.
+    ///
+    /// Matches Python's `reactive(always_update=True)`. Used for fields like
+    /// `Tree.cursor_line` where setting the same value should still trigger
+    /// side effects (e.g. scroll-into-view, repaint).
+    pub always_update: bool,
 }
 
 impl Default for ReactiveFlags {
@@ -51,6 +57,7 @@ impl Default for ReactiveFlags {
             repaint: true,
             layout: false,
             init: true,
+            always_update: false,
         }
     }
 }
@@ -62,6 +69,7 @@ impl ReactiveFlags {
             repaint: true,
             layout: false,
             init: true,
+            always_update: false,
         }
     }
 
@@ -71,6 +79,7 @@ impl ReactiveFlags {
             repaint: true,
             layout: true,
             init: true,
+            always_update: false,
         }
     }
 
@@ -80,6 +89,7 @@ impl ReactiveFlags {
             repaint: true,
             layout: false,
             init: false,
+            always_update: false,
         }
     }
 
@@ -89,6 +99,7 @@ impl ReactiveFlags {
             repaint: true,
             layout: true,
             init: false,
+            always_update: false,
         }
     }
 
@@ -98,6 +109,20 @@ impl ReactiveFlags {
             repaint: false,
             layout: false,
             init: false,
+            always_update: false,
+        }
+    }
+
+    /// Flags for `reactive(always_update=True)`: repaint on change, call watcher
+    /// on init, and fire watchers even when old value equals new value.
+    ///
+    /// Matches Python's `reactive(always_update=True)` pattern.
+    pub const fn reactive_always_update() -> Self {
+        Self {
+            repaint: true,
+            layout: false,
+            init: true,
+            always_update: true,
         }
     }
 }
@@ -609,5 +634,21 @@ mod tests {
         let debug_str = format!("{:?}", change);
         assert!(debug_str.contains("test"));
         assert!(debug_str.contains("type-erased"));
+    }
+
+    #[test]
+    fn reactive_flags_always_update() {
+        let flags = ReactiveFlags::reactive_always_update();
+        assert!(flags.repaint);
+        assert!(!flags.layout);
+        assert!(flags.init);
+        assert!(flags.always_update);
+    }
+
+    #[test]
+    fn reactive_flags_default_not_always_update() {
+        assert!(!ReactiveFlags::reactive().always_update);
+        assert!(!ReactiveFlags::var().always_update);
+        assert!(!ReactiveFlags::reactive_layout().always_update);
     }
 }

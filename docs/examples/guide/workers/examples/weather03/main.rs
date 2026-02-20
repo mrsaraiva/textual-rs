@@ -15,7 +15,8 @@
 /// - Run the fetch in a background thread (Python: async coroutine on the event loop).
 /// - Update the display widget on completion.
 ///
-/// DEFERRED: Real HTTP fetch — same gap as weather02; simulated here.
+/// When the `http-examples` feature is enabled, fetches real weather data from wttr.in.
+/// Without the feature, simulates the fetch with a short delay and fabricated data.
 use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
@@ -61,15 +62,7 @@ impl WeatherApp {
                 return Ok(());
             }
 
-            // Simulate the async HTTP fetch (wttr.in) with a brief sleep.
-            std::thread::sleep(std::time::Duration::from_millis(80));
-            if token.is_cancelled() {
-                return Ok(());
-            }
-
-            let weather = format!(
-                "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
-            );
+            let weather = fetch_weather(&city, &token)?;
             *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(weather);
             Ok(())
         });
@@ -124,6 +117,30 @@ impl TextualApp for WeatherApp {
             }
         }
     }
+}
+
+/// Fetch weather for a city. With `http-examples` feature, queries wttr.in.
+/// Without it, simulates the fetch with a short delay and fabricated data.
+#[cfg(feature = "http-examples")]
+fn fetch_weather(city: &str, token: &CancellationToken) -> std::result::Result<String, String> {
+    let url = format!("https://wttr.in/{city}?format=4");
+    let resp = ureq::get(&url).call().map_err(|e| e.to_string())?;
+    let body = resp.body().read_to_string().map_err(|e| e.to_string())?;
+    if token.is_cancelled() {
+        return Ok(String::new());
+    }
+    Ok(body)
+}
+
+#[cfg(not(feature = "http-examples"))]
+fn fetch_weather(city: &str, token: &CancellationToken) -> std::result::Result<String, String> {
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    if token.is_cancelled() {
+        return Ok(String::new());
+    }
+    Ok(format!(
+        "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
+    ))
 }
 
 fn main() -> textual::Result<()> {

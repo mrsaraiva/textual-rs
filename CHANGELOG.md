@@ -7,6 +7,44 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-20 (LOW priority + DEFERRED items — framework parity)
+
+- **fix(widgets): DirectoryTree — apply filter predicate to async-loaded results**
+  - `filter_paths` predicate was only applied during sync initial build; now also applied
+    when async subdirectory load results arrive in `apply_directory_load_result()`.
+
+- **feat(widgets): Button — compact mode**
+  - `compact(bool)` builder, `set_compact()` reactive setter, `-textual-compact` class toggle.
+  - CSS default already had `.-textual-compact { border: none !important; }`.
+
+- **fix(widgets): Toast — full Rich markup support**
+  - Replaced hand-rolled `[b]`-only parser with `rich_rs::markup::render()`.
+  - All markup tags (`[b]`, `[i]`, `[u]`, colors, nesting) now render correctly.
+
+- **feat(widgets): TreeNode — `add_child()` / `add_leaf()` API**
+  - `add_child(&mut self, child) -> &mut TreeNode` for incremental tree construction,
+    matching Python's `node.add(label)` pattern.
+  - `add_leaf(label)` convenience method.
+  - Updated `json_tree` demo to use `add_child()`/`add_leaf()` pattern.
+
+- **feat(widgets): Tree — per-segment guide/label/cursor styling**
+  - Render now emits separate `Segment`s for cursor marker, guides, twisty, and label,
+    each with independently resolved component styles (`tree--guides`, `tree--guides-hover`,
+    `tree--guides-selected`, `tree--label`, `tree--cursor`, `tree--highlight`,
+    `tree--highlight-line`). Previously emitted a single concatenated segment per row.
+  - Node `component_classes` (e.g. `directory-tree--file`) are now resolved and merged
+    into the label style at render time.
+
+- **feat(reactive): `always_update` flag**
+  - `ReactiveFlags::reactive_always_update()` — fires watchers even when old == new,
+    matching Python's `reactive(always_update=True)`.
+  - Tree `set_selected()` now uses `always_update`, removed `move_cursor()` workaround.
+
+- **feat(examples): weather02/weather03 — real HTTP fetch via ureq**
+  - Added `ureq` as optional dependency behind `http-examples` feature flag.
+  - With `--features http-examples`, weather demos query `wttr.in` for real data.
+  - Without the feature, simulated fetch with fabricated data (no network needed).
+
 ### 2026-02-20 (Post-sprint remediation — parity fixes across widgets and demos)
 
 - **fix(examples): rewrite `five_by_five` with proper widget composition**

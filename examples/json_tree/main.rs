@@ -32,25 +32,25 @@ Tree {
 }
 "#;
 
-/// Recursively build a `TreeNode` tree from an untyped JSON value.
-fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
+/// Recursively populate a parent `TreeNode` from an untyped JSON value.
+///
+/// Uses `add_child()` pattern matching Python's `tree.root.add(label).add(...)`.
+fn add_json_children(parent: &mut TreeNode, name: &str, value: &serde_json_lite::Value) {
     use serde_json_lite::Value;
     match value {
         Value::Object(map) => {
             let label = format!("{{}} {name}");
-            let mut node = TreeNode::new(label).expanded(true).allow_expand(true);
+            let node = parent.add_child(TreeNode::new(label).expanded(true).allow_expand(true));
             for (key, val) in map {
-                node = node.with_child(json_to_node(key, val));
+                add_json_children(node, key, val);
             }
-            node
         }
         Value::Array(arr) => {
             let label = format!("[] {name}");
-            let mut node = TreeNode::new(label).expanded(true).allow_expand(true);
+            let node = parent.add_child(TreeNode::new(label).expanded(true).allow_expand(true));
             for (idx, val) in arr.iter().enumerate() {
-                node = node.with_child(json_to_node(&idx.to_string(), val));
+                add_json_children(node, &idx.to_string(), val);
             }
-            node
         }
         Value::String(s) => {
             let label = if name.is_empty() {
@@ -58,7 +58,7 @@ fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
             } else {
                 format!("{name} = {s:?}")
             };
-            TreeNode::new(label)
+            parent.add_leaf(label);
         }
         Value::Number(n) => {
             let label = if name.is_empty() {
@@ -66,7 +66,7 @@ fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
             } else {
                 format!("{name} = {n}")
             };
-            TreeNode::new(label)
+            parent.add_leaf(label);
         }
         Value::Bool(b) => {
             let label = if name.is_empty() {
@@ -74,7 +74,7 @@ fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
             } else {
                 format!("{name} = {b}")
             };
-            TreeNode::new(label)
+            parent.add_leaf(label);
         }
         Value::Null => {
             let label = if name.is_empty() {
@@ -82,9 +82,23 @@ fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
             } else {
                 format!("{name} = null")
             };
-            TreeNode::new(label)
+            parent.add_leaf(label);
         }
     }
+}
+
+/// Build a root `TreeNode` from a JSON value using the `add_child()` pattern.
+fn json_to_node(name: &str, value: &serde_json_lite::Value) -> TreeNode {
+    let mut root = TreeNode::new(format!("{{}} {name}")).expanded(true).allow_expand(true);
+    // For top-level objects, add children directly. For other types, wrap in a root.
+    if let serde_json_lite::Value::Object(map) = value {
+        for (key, val) in map {
+            add_json_children(&mut root, key, val);
+        }
+    } else {
+        add_json_children(&mut root, name, value);
+    }
+    root
 }
 
 struct JsonTreeApp {
