@@ -3,7 +3,7 @@ use crate::debug::{debug_input, debug_render, debug_timing, timing_enabled};
 use crate::event::{
     Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx,
     FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
-    UnmountEvent,
+    StyleAnimationRequest, StyleValue, UnmountEvent,
 };
 use crate::keys::KeyEventData;
 use crate::message::{Message, MessageEvent};
@@ -1285,19 +1285,24 @@ fn resolve_transition_for_property_aliases(
     None
 }
 
+/// Returns `(numeric_requests, style_requests)` for all animatable property changes.
+///
+/// - Numeric/float properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`) produce
+///   `AnimationRequest` entries that are dispatched as `Event::AnimationValue` to widgets.
+/// - Style-value properties (color, scalar, spacing, tint) produce `StyleAnimationRequest`
+///   entries that are applied directly to widget inline styles via `step_style()`.
 fn transition_requests_for_style_change(
     target: NodeId,
     previous: &crate::style::Style,
     current: &crate::style::Style,
-) -> Vec<AnimationRequest> {
+) -> (Vec<AnimationRequest>, Vec<StyleAnimationRequest>) {
     if previous == current {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
-    // Explicitly supported animatable style properties (P2-36 initial runtime scope).
-    const ANIMATABLE_PROPERTIES: [&str; 4] = ["opacity", "text_opacity", "offset_x", "offset_y"];
-
-    ANIMATABLE_PROPERTIES
+    // Float/scalar properties dispatched as Event::AnimationValue (existing path).
+    const NUMERIC_ANIMATABLE: [&str; 4] = ["opacity", "text_opacity", "offset_x", "offset_y"];
+    let numeric: Vec<AnimationRequest> = NUMERIC_ANIMATABLE
         .iter()
         .filter_map(|property| {
             let from = style_numeric_property(previous, property)?;
@@ -1314,7 +1319,89 @@ fn transition_requests_for_style_change(
                     .with_level(crate::event::AnimationLevel::Basic),
             )
         })
-        .collect()
+        .collect();
+
+    // StyleValue properties applied directly to widget inline styles.
+    const STYLE_ANIMATABLE: [&str; 12] = [
+        "fg",
+        "bg",
+        "width",
+        "height",
+        "min_width",
+        "max_width",
+        "min_height",
+        "max_height",
+        "margin",
+        "padding",
+        "tint",
+        "background_tint",
+    ];
+    let style: Vec<StyleAnimationRequest> = STYLE_ANIMATABLE
+        .iter()
+        .filter_map(|property| {
+            let from = style_property_as_style_value(previous, property)?;
+            let to = style_property_as_style_value(current, property)?;
+            if from == to {
+                return None;
+            }
+            let (duration, delay, ease) =
+                resolve_transition_for_property_aliases(current, property)?;
+            Some(
+                StyleAnimationRequest::new(target, *property, from, to, duration)
+                    .with_delay(delay)
+                    .with_ease(ease)
+                    .with_level(crate::event::AnimationLevel::Full),
+            )
+        })
+        .collect();
+
+    (numeric, style)
+}
+
+/// Extract the `StyleValue` for a style-animatable property from a `Style`.
+/// Returns `None` if the property is not set in the style.
+fn style_property_as_style_value(
+    style: &crate::style::Style,
+    property: &str,
+) -> Option<StyleValue> {
+    match property {
+        "fg" => Some(StyleValue::Color(style.fg?)),
+        "bg" => Some(StyleValue::Color(style.bg?)),
+        "width" => Some(StyleValue::Scalar(style.width?)),
+        "height" => Some(StyleValue::Scalar(style.height?)),
+        "min_width" => Some(StyleValue::Scalar(style.min_width?)),
+        "max_width" => Some(StyleValue::Scalar(style.max_width?)),
+        "min_height" => Some(StyleValue::Scalar(style.min_height?)),
+        "max_height" => Some(StyleValue::Scalar(style.max_height?)),
+        "margin" => Some(StyleValue::Spacing(*style.margin.as_ref()?)),
+        "padding" => Some(StyleValue::Spacing(*style.padding.as_ref()?)),
+        "tint" => Some(StyleValue::Tint(*style.tint.as_ref()?)),
+        "background_tint" => Some(StyleValue::Tint(*style.background_tint.as_ref()?)),
+        _ => None,
+    }
+}
+
+/// Apply a `StyleValue` animation result to the corresponding field of a `Style`.
+fn apply_style_value_to_property(
+    style: &mut crate::style::Style,
+    property: &str,
+    value: &StyleValue,
+) {
+    match (property, value) {
+        ("fg", StyleValue::Color(c)) => style.fg = Some(*c),
+        ("bg", StyleValue::Color(c)) => style.bg = Some(*c),
+        ("width", StyleValue::Scalar(s)) => style.width = Some(*s),
+        ("height", StyleValue::Scalar(s)) => style.height = Some(*s),
+        ("min_width", StyleValue::Scalar(s)) => style.min_width = Some(*s),
+        ("max_width", StyleValue::Scalar(s)) => style.max_width = Some(*s),
+        ("min_height", StyleValue::Scalar(s)) => style.min_height = Some(*s),
+        ("max_height", StyleValue::Scalar(s)) => style.max_height = Some(*s),
+        ("margin", StyleValue::Spacing(sp)) => style.margin = Some(*sp),
+        ("padding", StyleValue::Spacing(sp)) => style.padding = Some(*sp),
+        ("tint", StyleValue::Tint(t)) => style.tint = Some(*t),
+        ("background_tint", StyleValue::Tint(t)) => style.background_tint = Some(*t),
+        _ => {}
+    }
 }
 
 fn transition_timing_to_ease(timing: crate::style::TransitionTiming) -> AnimationEase {
@@ -3752,6 +3839,16 @@ impl App {
         self.animator.enqueue_many(requests, Instant::now());
     }
 
+    pub(super) fn enqueue_style_animation_requests(
+        &mut self,
+        requests: Vec<StyleAnimationRequest>,
+    ) {
+        if requests.is_empty() {
+            return;
+        }
+        self.animator.enqueue_style_many(requests, Instant::now());
+    }
+
     fn absorb_outcome(
         &mut self,
         outcome: &mut DispatchOutcome,
@@ -3883,24 +3980,58 @@ impl App {
         let _guard = set_style_context(sheet);
 
         let current_styles = self.collect_current_resolved_styles(root);
-        let mut requests = Vec::new();
+        let mut numeric_requests = Vec::new();
+        let mut style_requests = Vec::new();
         for (node_id, current_style) in &current_styles {
             if let Some(previous_style) = self.style_snapshot_cache.get(node_id) {
-                requests.extend(transition_requests_for_style_change(
+                let (nr, sr) = transition_requests_for_style_change(
                     *node_id,
                     previous_style,
                     current_style,
-                ));
+                );
+                numeric_requests.extend(nr);
+                style_requests.extend(sr);
             }
         }
         self.style_snapshot_cache = current_styles;
-        self.enqueue_animation_requests(requests);
+        self.enqueue_animation_requests(numeric_requests);
+        self.enqueue_style_animation_requests(style_requests);
     }
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
-        let updates = self.animator.step(Instant::now(), self.animation_level);
-        if updates.is_empty() {
+        let now = Instant::now();
+        let updates = self.animator.step(now, self.animation_level);
+        let style_updates = self.animator.step_style(now, self.animation_level);
+
+        if updates.is_empty() && style_updates.is_empty() {
             return DispatchOutcome::default();
+        }
+
+        // Apply style-value animation updates directly to widget inline styles.
+        // This mirrors Python Textual's CSSAnimation.animate() which temporarily sets
+        // widget.styles.{property} = intermediate_value each tick.
+        for style_update in style_updates {
+            if let Some(tree) = self.active_widget_tree_mut() {
+                if let Some(node) = tree.get_mut(style_update.target) {
+                    if let Some(styles) = node.widget.styles_mut() {
+                        apply_style_value_to_property(
+                            &mut styles.style,
+                            &style_update.property,
+                            &style_update.value,
+                        );
+                    }
+                }
+            }
+        }
+
+        if updates.is_empty() {
+            // Only style updates — request repaint without event dispatch.
+            let mut aggregate = DispatchOutcome::default();
+            aggregate.repaint_requested = true;
+            aggregate
+                .invalidation
+                .merge(crate::event::InvalidationFlags::content());
+            return aggregate;
         }
 
         let mut aggregate = DispatchOutcome::default();
@@ -5552,7 +5683,9 @@ mod tests {
             },
         ]);
 
-        let requests = transition_requests_for_style_change(target, &old, &new);
+        let (requests, style_requests) =
+            transition_requests_for_style_change(target, &old, &new);
+        assert!(style_requests.is_empty(), "opacity is a numeric property");
         assert_eq!(
             requests.len(),
             1,
@@ -5586,12 +5719,153 @@ mod tests {
             delay: std::time::Duration::ZERO,
         }]);
 
-        let requests = transition_requests_for_style_change(target, &old, &new);
+        let (requests, style_requests) =
+            transition_requests_for_style_change(target, &old, &new);
+        assert!(style_requests.is_empty(), "offset_y is a numeric property");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].attribute, "offset_y");
         assert_eq!(requests[0].start, 0.0);
         assert_eq!(requests[0].end, 6.0);
         assert_eq!(requests[0].duration, std::time::Duration::from_millis(120));
+    }
+
+    // ── CSS transition style-value property tests ─────────────────────
+
+    #[test]
+    fn p2g36_transition_emits_style_request_for_bg_change() {
+        use crate::event::{AnimationEase, StyleValue};
+        use crate::style::{Color, PropertyTransition, TransitionTiming};
+
+        let target = node_id_from_ffi(200);
+        let mut old = Style::new();
+        old.bg = Some(Color::rgb(0, 0, 0));
+        let mut new = Style::new();
+        new.bg = Some(Color::rgb(255, 0, 0));
+        new.transitions = Some(vec![PropertyTransition {
+            property: "bg".to_string(),
+            duration: std::time::Duration::from_millis(300),
+            timing: TransitionTiming::Linear,
+            delay: std::time::Duration::ZERO,
+        }]);
+
+        let (numeric, style) = transition_requests_for_style_change(target, &old, &new);
+
+        assert!(numeric.is_empty(), "bg is a style-value property, not numeric");
+        assert_eq!(style.len(), 1, "should emit one StyleAnimationRequest for bg");
+        assert_eq!(style[0].target, target);
+        assert_eq!(style[0].property, "bg");
+        assert_eq!(style[0].from, StyleValue::Color(Color::rgb(0, 0, 0)));
+        assert_eq!(style[0].to, StyleValue::Color(Color::rgb(255, 0, 0)));
+        assert_eq!(style[0].duration, std::time::Duration::from_millis(300));
+        assert_eq!(style[0].ease, AnimationEase::Linear);
+    }
+
+    #[test]
+    fn p2g36_transition_emits_style_request_for_fg_and_margin() {
+        use crate::event::StyleValue;
+        use crate::style::{Color, PropertyTransition, Spacing, TransitionTiming};
+
+        let target = node_id_from_ffi(201);
+        let mut old = Style::new();
+        old.fg = Some(Color::rgb(10, 20, 30));
+        old.margin = Some(Spacing::all(0));
+        let mut new = Style::new();
+        new.fg = Some(Color::rgb(100, 200, 255));
+        new.margin = Some(Spacing::all(4));
+        new.transitions = Some(vec![
+            PropertyTransition {
+                property: "fg".to_string(),
+                duration: std::time::Duration::from_millis(200),
+                timing: TransitionTiming::InOutCubic,
+                delay: std::time::Duration::ZERO,
+            },
+            PropertyTransition {
+                property: "margin".to_string(),
+                duration: std::time::Duration::from_millis(150),
+                timing: TransitionTiming::Linear,
+                delay: std::time::Duration::ZERO,
+            },
+        ]);
+
+        let (numeric, style) = transition_requests_for_style_change(target, &old, &new);
+        assert!(numeric.is_empty());
+        assert_eq!(style.len(), 2);
+
+        let fg_req = style.iter().find(|r| r.property == "fg").unwrap();
+        assert_eq!(fg_req.from, StyleValue::Color(Color::rgb(10, 20, 30)));
+        assert_eq!(fg_req.to, StyleValue::Color(Color::rgb(100, 200, 255)));
+
+        let margin_req = style.iter().find(|r| r.property == "margin").unwrap();
+        assert_eq!(margin_req.from, StyleValue::Spacing(Spacing::all(0)));
+        assert_eq!(margin_req.to, StyleValue::Spacing(Spacing::all(4)));
+    }
+
+    #[test]
+    fn p2g36_transition_no_request_when_property_unchanged() {
+        use crate::style::{Color, PropertyTransition, TransitionTiming};
+
+        let target = node_id_from_ffi(202);
+        let mut old = Style::new();
+        old.bg = Some(Color::rgb(50, 50, 50));
+        let mut new = Style::new();
+        new.bg = Some(Color::rgb(50, 50, 50)); // same color
+        new.transitions = Some(vec![PropertyTransition {
+            property: "bg".to_string(),
+            duration: std::time::Duration::from_millis(300),
+            timing: TransitionTiming::Linear,
+            delay: std::time::Duration::ZERO,
+        }]);
+
+        let (numeric, style) = transition_requests_for_style_change(target, &old, &new);
+        assert!(numeric.is_empty());
+        assert!(style.is_empty(), "identical values should not produce animation requests");
+    }
+
+    #[test]
+    fn p2g36_apply_style_value_to_property_sets_correct_fields() {
+        use super::apply_style_value_to_property;
+        use crate::event::StyleValue;
+        use crate::style::{Color, Scalar, Spacing, Tint};
+
+        let mut style = Style::new();
+
+        // Color fields
+        apply_style_value_to_property(&mut style, "bg", &StyleValue::Color(Color::rgb(1, 2, 3)));
+        assert_eq!(style.bg, Some(Color::rgb(1, 2, 3)));
+
+        apply_style_value_to_property(&mut style, "fg", &StyleValue::Color(Color::rgb(4, 5, 6)));
+        assert_eq!(style.fg, Some(Color::rgb(4, 5, 6)));
+
+        // Scalar fields
+        apply_style_value_to_property(
+            &mut style,
+            "width",
+            &StyleValue::Scalar(Scalar::Cells(42)),
+        );
+        assert_eq!(style.width, Some(Scalar::Cells(42)));
+
+        apply_style_value_to_property(
+            &mut style,
+            "height",
+            &StyleValue::Scalar(Scalar::Percent(75.0)),
+        );
+        assert_eq!(style.height, Some(Scalar::Percent(75.0)));
+
+        // Spacing fields
+        let sp = Spacing { top: 2, right: 4, bottom: 2, left: 4 };
+        apply_style_value_to_property(&mut style, "margin", &StyleValue::Spacing(sp));
+        assert_eq!(style.margin, Some(sp));
+
+        apply_style_value_to_property(&mut style, "padding", &StyleValue::Spacing(sp));
+        assert_eq!(style.padding, Some(sp));
+
+        // Tint field
+        let tint = Tint::new(Color::rgb(255, 0, 0), 50);
+        apply_style_value_to_property(&mut style, "tint", &StyleValue::Tint(tint));
+        assert_eq!(style.tint, Some(tint));
+
+        apply_style_value_to_property(&mut style, "background_tint", &StyleValue::Tint(tint));
+        assert_eq!(style.background_tint, Some(tint));
     }
 
     // ── Worker request accumulator tests ─────────────────────────────

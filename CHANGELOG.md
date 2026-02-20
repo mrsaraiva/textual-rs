@@ -9,6 +9,16 @@ until the API stabilizes.
 
 ### 2026-02-19
 
+- **feat(animation): expand CSS transition dispatch to all animatable style properties (P2-36 closure)**
+  - `transition_requests_for_style_change` now emits `StyleAnimationRequest` for the 12 style-value
+    animatable properties: `fg`, `bg`, `width`, `height`, `min_width`, `max_width`, `min_height`,
+    `max_height`, `margin`, `padding`, `tint`, `background_tint`.
+  - `dispatch_animation_frame` calls `step_style()` each tick and applies `StyleAnimationUpdate`
+    results directly to widget inline styles — matching Python Textual's per-tick style mutation approach.
+  - The 4 existing float properties (`opacity`, `text_opacity`, `offset_x`, `offset_y`) continue to
+    use the event-dispatch `AnimationRequest` path unchanged.
+  - Added 4 new regression tests covering color, spacing, no-op, and apply-helper behavior.
+
 - **refactor(docs/examples): reorganize docs examples into category crates with unified launcher**
   - Moved `docs/widgets/` to `docs/examples/widgets/` and modal demos to `docs/examples/guide/screens/`.
   - Added category crates for all Python Textual doc categories: `app`, `events`, `getting_started`, `guide/*`, `how-to`, `styles`, `themes`, `tutorial`.

@@ -171,11 +171,7 @@ Full property-by-property gap analysis with 8 priority tiers lives in:
 
 #### P2 Deferred Items (parsed + cascaded, rendering not yet active)
 
-Most originally-deferred items have been resolved. One remains:
-
-| Item | Blocked On | Priority |
-|------|-----------|----------|
-| Full transition dispatch (P2-36) | Automatic dispatch on class/pseudo/stylesheet changes works for `opacity`, `text_opacity`, `offset_x`, `offset_y`. Remaining animatable properties need wiring as they gain runtime consumption. | Low — core mechanism works, incremental extension |
+All originally-deferred items have been resolved.
 
 #### P2 Previously Deferred, Now Resolved
 
@@ -187,6 +183,7 @@ Most originally-deferred items have been resolved. One remains:
 | Scrollbar hover/active sub-part styling (P2-30) | Sub-part hit-testing (thumb vs track) with per-state CSS color consumption |
 | Absolute positioning min/max constraints (P2-24) | `layout_absolute()` now applies min/max width/height constraints |
 | `pointer` CSS → runtime wiring (P2-23) | `pointer_shape_for_hover_tree` rewritten to read computed `style.pointer`; `pointer: text` added to Input/MaskedInput defaults; disabled widgets always `NotAllowed` |
+| Full transition dispatch (P2-36) | `transition_requests_for_style_change` now emits `StyleAnimationRequest` for all 12 style-value animatable properties (fg, bg, width/height, min/max dimensions, margin, padding, tint, background_tint); `dispatch_animation_frame` calls `step_style()` and applies results directly to widget inline styles each tick. |
 
 ---
 
