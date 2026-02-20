@@ -138,6 +138,15 @@ impl Button {
         self.rebuild_classes()
     }
 
+    /// Set this button's CSS id.
+    ///
+    /// The id is included in `ButtonPressed.button_id`, mirroring Python's
+    /// `Button.Pressed.button.id` semantics.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.styles.set_style_id(id.into());
+        self
+    }
+
     /// Set an action string to dispatch on press instead of `ButtonPressed`.
     ///
     /// When set, clicking or pressing Enter/Space parses the action string and
@@ -314,6 +323,7 @@ impl Button {
         } else {
             ctx.post_message(Message::ButtonPressed(ButtonPressed {
                 description: self.describe(),
+                button_id: self.style_id().map(str::to_string),
             }));
         }
     }

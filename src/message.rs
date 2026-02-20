@@ -126,6 +126,10 @@ pub struct TextEditClipboardPaste {
 #[derive(Debug, Clone)]
 pub struct ButtonPressed {
     pub description: String,
+    /// CSS id of the button that was pressed, if the button has one.
+    ///
+    /// Mirrors Python's `Button.Pressed.button.id`.
+    pub button_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1082,6 +1086,7 @@ mod tests {
             sender: node_id_from_ffi(1),
             message: Message::ButtonPressed(ButtonPressed {
                 description: "ok".into(),
+                button_id: None,
             }),
             control: None,
         }
@@ -1172,7 +1177,7 @@ mod tests {
     fn message_returns_event_message() {
         let env = MessageEnvelope::new(test_event());
         match env.message() {
-            Message::ButtonPressed(ButtonPressed { description }) => {
+            Message::ButtonPressed(ButtonPressed { description, .. }) => {
                 assert_eq!(description, "ok");
             }
             other => panic!("unexpected message variant: {:?}", other),
@@ -1289,6 +1294,7 @@ mod tests {
     fn from_field_struct_into_message() {
         let msg: Message = ButtonPressed {
             description: "test".into(),
+            button_id: None,
         }
         .into();
         assert!(matches!(msg, Message::ButtonPressed(..)));
@@ -1312,6 +1318,7 @@ mod tests {
             sender: node_id_from_ffi(1),
             message: Message::ButtonPressed(ButtonPressed {
                 description: "ctrl".into(),
+                button_id: None,
             }),
             control: Some(other),
         };
@@ -1349,9 +1356,11 @@ mod tests {
         assert!(
             !Message::ButtonPressed(ButtonPressed {
                 description: "x".into(),
+                button_id: None,
             })
             .can_replace(&Message::ButtonPressed(ButtonPressed {
                 description: "y".into(),
+                button_id: None,
             }))
         );
     }

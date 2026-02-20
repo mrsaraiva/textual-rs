@@ -151,6 +151,7 @@ mod tests {
             sender: button,
             message: Message::ButtonPressed(ButtonPressed {
                 description: "test".to_string(),
+                button_id: None,
             }),
             control: Some(button),
         }

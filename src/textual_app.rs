@@ -888,7 +888,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             _ => {}
         }
         match &message.message {
-            Message::ButtonPressed(crate::message::ButtonPressed { description }) => {
+            Message::ButtonPressed(crate::message::ButtonPressed { description, .. }) => {
                 self.app
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1540,6 +1540,7 @@ mod tests {
         let mut messages = vec![
             Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ok".to_string(),
+                button_id: None,
             }),
             Message::InputChanged(crate::message::InputChanged {
                 value: "42".to_string(),

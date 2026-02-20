@@ -70,7 +70,7 @@ impl TextualApp for ModalApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed(ButtonPressed { description }) = &message.message {
+        if let Message::ButtonPressed(ButtonPressed { description, .. }) = &message.message {
             if description.contains("variant='primary'") {
                 self.overlay_open = true;
                 self.set_overlay_visible(app, true, ctx);

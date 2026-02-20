@@ -209,6 +209,7 @@ impl Widget for Welcome {
         if let Message::ButtonPressed(..) = &message.message {
             ctx.post_message(Message::ButtonPressed(ButtonPressed {
                 description: "Welcome.close".to_string(),
+                button_id: None,
             }));
             ctx.post_message(Message::OverlayDismissRequested(OverlayDismissRequested {
                 overlay: None,
@@ -328,6 +329,7 @@ mod tests {
                 sender: welcome.close_button_id(),
                 message: Message::ButtonPressed(ButtonPressed {
                     description: "Button(classes='button', variant='success')".to_string(),
+                    button_id: None,
                 }),
                 control: None,
             },
@@ -340,7 +342,7 @@ mod tests {
             matches!(
                 event.message,
                 Message::ButtonPressed(ButtonPressed {
-                    ref description
+                    ref description, ..
                 }) if description == "Welcome.close"
             )
         }));

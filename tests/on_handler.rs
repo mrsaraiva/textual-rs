@@ -67,6 +67,7 @@ fn dispatch_matches_correct_message_type() {
     let mut app = MyApp::new();
     let msg = Message::ButtonPressed(ButtonPressed {
         description: "ok".into(),
+                button_id: None,
     });
     let mut ctx = test_ctx();
 
@@ -102,6 +103,7 @@ fn dispatch_checkbox_ignores_button() {
     let mut app = MyApp::new();
     let msg = Message::ButtonPressed(ButtonPressed {
         description: "no".into(),
+                button_id: None,
     });
     let mut ctx = test_ctx();
 
@@ -119,6 +121,7 @@ fn selector_dispatch_matches_message_type() {
     let mut app = MyApp::new();
     let msg = Message::ButtonPressed(ButtonPressed {
         description: "save".into(),
+                button_id: None,
     });
     let sender = node_id_from_ffi(42);
     let mut ctx = test_ctx();
@@ -154,6 +157,7 @@ fn multiple_dispatches_accumulate() {
     let mut app = MyApp::new();
     let msg = Message::ButtonPressed(ButtonPressed {
         description: "click".into(),
+                button_id: None,
     });
     let mut ctx = test_ctx();
 

@@ -14,8 +14,15 @@ use super::{
 
 pub struct ContentSwitcher {
     children: Vec<Box<dyn Widget>>,
+    /// CSS ids of children in insertion order.  Populated when children are
+    /// added via `with_child`, `add_child`, or `add_content`.  Retained after
+    /// `take_composed_children` drains `children` so that
+    /// `child_display_for_tree` can still map indices to ids.
+    child_ids: Vec<Option<String>>,
     current: Option<String>,
     styles: WidgetStyles,
+    /// True once `take_composed_children` has been called (arena tree mode).
+    children_extracted: bool,
 }
 
 struct IdTaggedChild {
@@ -87,8 +94,10 @@ impl ContentSwitcher {
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
+            child_ids: Vec::new(),
             current: None,
             styles: WidgetStyles::default(),
+            children_extracted: false,
         }
     }
 
@@ -98,11 +107,13 @@ impl ContentSwitcher {
     }
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+        self.child_ids.push(child.style_id().map(str::to_string));
         self.children.push(Box::new(child));
         self
     }
 
     pub fn add_child(&mut self, child: impl Widget + 'static) {
+        self.child_ids.push(child.style_id().map(str::to_string));
         self.children.push(Box::new(child));
     }
 
@@ -113,6 +124,7 @@ impl ContentSwitcher {
         id: Option<&str>,
         set_current: bool,
     ) {
+        let original_id = child.style_id().map(str::to_string);
         let child: Box<dyn Widget> = if let Some(id) = id {
             Box::new(IdTaggedChild {
                 id: id.to_string(),
@@ -121,13 +133,22 @@ impl ContentSwitcher {
         } else {
             Box::new(child)
         };
-        let fallback_id = id
-            .map(str::to_string)
-            .or_else(|| child.style_id().map(str::to_string));
+        let fallback_id = id.map(str::to_string).or(original_id);
+        self.child_ids.push(fallback_id.clone());
         self.children.push(child);
         if set_current {
             self.current = fallback_id;
         }
+    }
+
+    /// Returns the 0-based index of the child whose id matches `self.current`.
+    ///
+    /// Uses `child_ids` so it works both before and after `take_composed_children`.
+    fn current_child_index(&self) -> Option<usize> {
+        let current = self.current.as_deref()?;
+        self.child_ids
+            .iter()
+            .position(|id| id.as_deref() == Some(current))
     }
 
     pub fn current(&self) -> Option<&str> {
@@ -185,6 +206,7 @@ impl Widget for ContentSwitcher {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.children_extracted = true;
         std::mem::take(&mut self.children)
     }
 
@@ -194,6 +216,18 @@ impl Widget for ContentSwitcher {
 
     fn style_type(&self) -> &'static str {
         "ContentSwitcher"
+    }
+
+    /// Control arena-tree child visibility based on `self.current`.
+    ///
+    /// Called every frame by `sync_widget_controlled_child_display_tree`.
+    /// Returns `Some(true)` for the active child, `Some(false)` for all others.
+    /// Returns `None` before `take_composed_children` is called (flat mode).
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.children_extracted {
+            return None;
+        }
+        Some(self.current_child_index() == Some(child_index))
     }
 
     fn on_mount(&mut self) {
@@ -389,5 +423,55 @@ mod tests {
         switcher.add_content(Probe, None, false);
         assert_eq!(switcher.current(), Some("alpha"));
         assert_eq!(switcher.children().len(), 1);
+    }
+
+    #[test]
+    fn child_display_for_tree_inactive_before_extraction() {
+        let switcher = ContentSwitcher::new().initial("a");
+        // Before take_composed_children, returns None (flat render mode).
+        assert_eq!(switcher.child_display_for_tree(0), None);
+    }
+
+    #[test]
+    fn child_display_for_tree_shows_only_current_after_extraction() {
+        let mut switcher = ContentSwitcher::new()
+            .initial("b")
+            .with_child(Probe)
+            .with_child(Probe);
+        // Manually set child_ids since Probe has no style_id.
+        switcher.child_ids[0] = Some("a".to_string());
+        switcher.child_ids[1] = Some("b".to_string());
+
+        let _ = switcher.take_composed_children(); // enter arena tree mode
+        assert_eq!(switcher.child_display_for_tree(0), Some(false), "a hidden");
+        assert_eq!(switcher.child_display_for_tree(1), Some(true), "b visible");
+        assert_eq!(switcher.child_display_for_tree(2), Some(false), "oob hidden");
+    }
+
+    #[test]
+    fn child_display_for_tree_all_hidden_when_no_current() {
+        let mut switcher = ContentSwitcher::new().with_child(Probe);
+        switcher.child_ids[0] = Some("x".to_string());
+        let _ = switcher.take_composed_children();
+        // No current set → all hidden.
+        assert_eq!(switcher.child_display_for_tree(0), Some(false));
+    }
+
+    #[test]
+    fn set_current_changes_which_child_is_shown() {
+        let mut switcher = ContentSwitcher::new()
+            .initial("a")
+            .with_child(Probe)
+            .with_child(Probe);
+        switcher.child_ids[0] = Some("a".to_string());
+        switcher.child_ids[1] = Some("b".to_string());
+        let _ = switcher.take_composed_children();
+
+        assert_eq!(switcher.child_display_for_tree(0), Some(true));
+        assert_eq!(switcher.child_display_for_tree(1), Some(false));
+
+        switcher.set_current(Some("b".to_string()));
+        assert_eq!(switcher.child_display_for_tree(0), Some(false));
+        assert_eq!(switcher.child_display_for_tree(1), Some(true));
     }
 }

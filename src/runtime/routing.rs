@@ -1448,6 +1448,7 @@ mod envelope_tests {
             sender: leaf_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "test".into(),
+                button_id: None,
             }),
             control: None,
         }];
@@ -1489,6 +1490,7 @@ mod envelope_tests {
             sender: leaf_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "stop".into(),
+                button_id: None,
             }),
             control: None,
         }];
@@ -1520,6 +1522,7 @@ mod envelope_tests {
             99999,
             Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ghost".into(),
+                button_id: None,
             }),
         )];
 
@@ -1543,6 +1546,7 @@ mod envelope_tests {
             sender: root_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "dp".into(),
+                button_id: None,
             }),
             control: None,
         }];
@@ -1607,6 +1611,7 @@ mod envelope_tests {
             sender,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "first".into(),
+                button_id: None,
             }),
             control: None,
         });
@@ -1614,6 +1619,7 @@ mod envelope_tests {
             sender,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "second".into(),
+                button_id: None,
             }),
             control: None,
         });
@@ -1687,6 +1693,7 @@ mod envelope_tests {
             sender,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "click".into(),
+                button_id: None,
             }),
             control: None,
         });
@@ -1822,9 +1829,11 @@ mod envelope_tests {
         assert!(
             !Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "x".into(),
+                button_id: None,
             })
             .can_replace(&Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "y".into(),
+                button_id: None,
             }))
         );
         assert!(
@@ -1859,6 +1868,7 @@ mod envelope_tests {
             sender,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "ctrl".into(),
+                button_id: None,
             }),
             control: None,
         }];
@@ -1888,6 +1898,7 @@ mod envelope_tests {
             sender: leaf_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "bubble".into(),
+                button_id: None,
             }),
             control: None,
         };
@@ -2031,6 +2042,7 @@ mod envelope_tests {
             sender: root_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "test".into(),
+                button_id: None,
             }),
             control: None, // None — envelope should promote to Some(root_id)
         }];
@@ -2060,6 +2072,7 @@ mod envelope_tests {
             sender: root_id,
             message: Message::ButtonPressed(crate::message::ButtonPressed {
                 description: "explicit".into(),
+                button_id: None,
             }),
             control: Some(explicit_control),
         }];
