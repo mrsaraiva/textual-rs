@@ -221,6 +221,26 @@ impl Tree {
         self.pressed_activation_index = None;
     }
 
+    /// Append a root node without clearing existing ones.
+    ///
+    /// Mirrors Python's `tree.root.add(label)` when used to add JSON sub-trees.
+    /// Resets cursor/selection since the tree structure changed.
+    pub fn add_root(&mut self, node: TreeNode) {
+        self.roots.push(node);
+        self.selected = 0;
+        self.offset = 0;
+    }
+
+    /// Toggle `show_root` without reactive dispatch.
+    ///
+    /// For use from app-level hooks (`on_key_with_app`) where no `ReactiveCtx`
+    /// is available.  Repaint must be requested separately via `ctx.request_repaint()`.
+    pub fn toggle_show_root(&mut self) {
+        self.show_root = !self.show_root;
+        self.selected = 0;
+        self.offset = 0;
+    }
+
     /// Move the cursor/highlight to a specific visible-node index, or reset if `None`.
     pub fn move_cursor(&mut self, node_index: Option<usize>) {
         match node_index {

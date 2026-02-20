@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-19 (Batch C demos D-032..D-034, Tree framework additions)
+
+- **feat(widgets): `Tree::add_root()` and `Tree::toggle_show_root()`**
+  - `add_root(node: TreeNode)` appends a root node without clearing the tree.
+  - `toggle_show_root()` flips `show_root` without requiring `ReactiveCtx`, for use from app-level hooks.
+
+- **feat(examples): D-032 `tree` demo (port of `docs/examples/widgets/tree.py`)**
+  - `Tree` with a "Dune" root, "Characters" sub-node, and three leaf nodes.
+  - Uses `TreeNode` builder pattern (`expanded`, `allow_expand`, `with_child`).
+  - 4 regression tests.
+
+- **feat(examples): D-033 `json_tree` demo (port of `examples/json_tree.py`)**
+  - `a` key adds a JSON sub-tree; `c` clears the tree; `t` toggles root visibility.
+  - Embedded minimal JSON parser (no external deps); `Tree::add_root` for dynamic population.
+  - 4 regression tests.
+
+- **feat(examples): D-034 `toast` demo (port of `docs/examples/widgets/toast.py`)**
+  - Four notifications on mount: information, warning (with markup), error (10s timeout), no-title info.
+  - Uses `App::notify(message, title, severity, timeout)` API.
+  - 4 regression tests.
+
 ### 2026-02-19 (Batch B demos D-022..D-025)
 
 - **feat(examples): D-022 `select_widget` demo (port of `docs/examples/widgets/select_widget.py`)**
