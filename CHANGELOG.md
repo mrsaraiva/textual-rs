@@ -7,6 +7,36 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-19 (Batch B framework + demos)
+
+- **feat(message): `ButtonPressed.button_id: Option<String>`**
+  - Carries the CSS id of the pressed button, mirroring Python `Button.Pressed.button.id`.
+  - Populated in `Button::dispatch_press()` from `self.style_id()`.
+  - All existing callsites updated (`button_id: None` for buttons without an explicit CSS id).
+
+- **feat(widgets): `Button::id()` builder**
+  - Sets a CSS id on the button widget, enabling `ButtonPressed.button_id` to carry a meaningful value.
+  - `Button::new("label").id("my-btn")` — analogous to Python's `Button("label", id="my-btn")`.
+
+- **feat(widgets): `ContentSwitcher` arena-tree child visibility**
+  - Implements `Widget::child_display_for_tree()` so only the active child is visible after arena-tree extraction.
+  - New `child_ids: Vec<Option<String>>` field tracks children's CSS ids in insertion order (retained after `take_composed_children` drains `children`).
+  - New `children_extracted: bool` field gates arena-tree vs flat render modes.
+  - `with_child`, `add_child`, `add_content` updated to populate `child_ids`.
+  - 4 new regression tests in `src/widgets/content_switcher.rs`.
+
+- **feat(examples): D-020 `tabs` demo (port of `docs/examples/widgets/tabs.py`)**
+  - Demonstrates `Tabs::add_tab/remove_tab/clear`, `TabActivated`/`TabsCleared` messages, and key bindings.
+  - Uses type selector `"Tabs"` for queries (no Node wrapper); `Label::with_id()` for label queries.
+  - `on_key_with_app` handles add/remove/clear since named actions are not yet fully routed.
+  - 4 regression tests in `docs/examples/widgets/examples/tabs/main.rs`.
+
+- **feat(examples): D-021 `content_switcher` demo (port of `docs/examples/widgets/content_switcher.py`)**
+  - Demonstrates `ContentSwitcher` with a `DataTable` and Markdown viewer as heterogeneous children.
+  - Buttons carry CSS ids matching `ContentSwitcher` child ids; `ButtonPressed.button_id` drives switching.
+  - Mirrors Python's `self.query_one(ContentSwitcher).current = event.button.id` pattern.
+  - 4 regression tests in `docs/examples/widgets/examples/content_switcher/main.rs`.
+
 ### 2026-02-20
 
 - **feat(app): `App::set_title()` / `App::set_sub_title()` / `App::clear_sub_title()` runtime APIs**
