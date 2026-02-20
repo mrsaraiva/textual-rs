@@ -25,6 +25,13 @@ until the API stabilizes.
     `spawn_weather_worker` helper to mirror the decorator-as-separate-method structure.
   - 4 regression tests. Same DEFERRED HTTP gap as D-041.
 
+- **feat(examples): D-043 `dictionary` app demo (port of `examples/dictionary.py`)**
+  - Word search app; input triggers exclusive worker lookup with `@work(exclusive=True)` semantics.
+  - Results rendered as Markdown via `Markdown::set_markup()`; `on_message_with_app` handles
+    `WorkerStateChanged::Success` and updates the widget.
+  - Built-in word list (rust, hello, world, python, textual) simulates the real API.
+  - 4 regression tests. HTTP dictionary API DEFERRED.
+
 ### 2026-02-19 (MarkdownViewer widget + Batch C demos D-030/D-031)
 
 - **feat(widgets): `MarkdownViewer` composite widget and `MarkdownTableOfContents` sidebar**
