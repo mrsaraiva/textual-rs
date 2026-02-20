@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-19 (Batch B demos D-022..D-025)
+
+- **feat(examples): D-022 `select_widget` demo (port of `docs/examples/widgets/select_widget.py`)**
+  - `Select<String>` populated with 5 poem lines; `SelectChanged` updates app title.
+  - 4 regression tests.
+
+- **feat(examples): D-023 `option_list_options` demo (port of `docs/examples/widgets/option_list_options.py`)**
+  - `OptionList` with 12 named options, 6 separators, and 1 disabled option (Caprica).
+  - Uses `OptionItem::with_id`, `OptionItem::disabled_with_id`, `OptionItem::Separator`.
+  - 4 regression tests.
+
+- **feat(examples): D-024 `selection_list_selected` demo (port of `docs/examples/widgets/selection_list_selected.py`)**
+  - `SelectionList<String>` with 9 games (3 pre-selected); `Pretty` shows selected values.
+  - `SelectionListSelectedChanged` drives Pretty update; `Selection::selected` for pre-selection.
+  - 4 regression tests.
+
+- **feat(examples): D-025 `list_view` demo (port of `docs/examples/widgets/list_view.py`)**
+  - `ListView` with three string items in a centered auto-height list.
+  - Rust renders items natively without `ListItem`/`Label` wrappers (Python equivalent behavior).
+  - 4 regression tests.
+
 ### 2026-02-19 (Batch B framework + demos)
 
 - **feat(message): `ButtonPressed.button_id: Option<String>`**
