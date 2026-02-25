@@ -997,11 +997,11 @@ impl Tree {
 
     fn twisty(node: &VisibleNode) -> &'static str {
         if !node.expandable {
-            " "
+            ""
         } else if node.expanded {
-            "▾"
+            "▼ "
         } else {
-            "▸"
+            "▶ "
         }
     }
 
@@ -1048,14 +1048,12 @@ impl Tree {
 
     fn row_prefix(
         node: &VisibleNode,
-        highlighted: bool,
+        _highlighted: bool,
         show_guides: bool,
         guide_depth: usize,
     ) -> String {
-        let marker = if highlighted { "› " } else { "  " };
         format!(
-            "{}{}{} ",
-            marker,
+            "{}{}",
             Self::guide_prefix(node, show_guides, guide_depth),
             Self::twisty(node)
         )
@@ -1063,7 +1061,7 @@ impl Tree {
 
     fn twisty_hit_max_x(node: &VisibleNode, show_guides: bool, guide_depth: usize) -> usize {
         let guide = Self::guide_prefix(node, show_guides, guide_depth);
-        let prefix = format!("  {}{}", guide, Self::twisty(node));
+        let prefix = format!("{}{}", guide, Self::twisty(node));
         rich_rs::cell_len(&prefix).saturating_sub(1)
     }
 }
@@ -1408,45 +1406,44 @@ impl Widget for Tree {
         let mut out = Segments::new();
 
         // Resolve component styles once per render.
-        let base_style = crate::css::resolve_component_style(self, &["tree--node"])
+        let parent_meta = crate::css::selector_meta_generic(self);
+        let parent_resolved = crate::css::resolve_style(self, &parent_meta);
+        let resolve_component = |classes: &[&str]| {
+            let meta = crate::css::selector_meta_component("", classes);
+            crate::css::with_style_stack(parent_meta.clone(), parent_resolved.clone(), || {
+                crate::css::resolve_style_for_meta(&meta)
+            })
+        };
+        let base_style = parent_resolved
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let guide_style = crate::css::resolve_component_style(self, &["tree--guides"])
+        let guide_style = resolve_component(&["tree--guides"])
             .to_rich()
             .unwrap_or(base_style);
-        let guide_hover_style = crate::css::resolve_component_style(self, &["tree--guides-hover"])
+        let guide_hover_style = resolve_component(&["tree--guides-hover"])
             .to_rich()
             .unwrap_or(guide_style);
-        let guide_selected_style =
-            crate::css::resolve_component_style(self, &["tree--guides-selected"])
-                .to_rich()
-                .unwrap_or(guide_style);
-        let label_style = crate::css::resolve_component_style(self, &["tree--label"])
+        let guide_selected_style = resolve_component(&["tree--guides-selected"])
+            .to_rich()
+            .unwrap_or(guide_style);
+        let label_style = resolve_component(&["tree--label"])
             .to_rich()
             .unwrap_or(base_style);
-        let cursor_style = crate::css::resolve_component_style(self, &["tree--cursor"])
+        let cursor_style = resolve_component(&["tree--cursor"])
             .to_rich()
             .unwrap_or(base_style);
-        let highlight_style = crate::css::resolve_component_style(self, &["tree--highlight"])
+        let highlight_style = resolve_component(&["tree--highlight"])
             .to_rich()
             .unwrap_or(base_style);
-        let highlight_line_style =
-            crate::css::resolve_component_style(self, &["tree--highlight-line"])
-                .to_rich()
-                .unwrap_or(base_style);
+        let _highlight_line_style = resolve_component(&["tree--highlight-line"])
+            .to_rich()
+            .unwrap_or(base_style);
 
         for row in 0..height {
             let index = self.offset + row;
             if let Some(node) = nodes.get(index) {
                 let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
-
-                // Row background style: use highlight-line for hovered rows.
-                let row_bg_style = if hovered {
-                    highlight_line_style
-                } else {
-                    base_style
-                };
 
                 // Pick guide style for this row.
                 let row_guide_style = if highlighted && self.focused {
@@ -1463,9 +1460,7 @@ impl Widget for Tree {
                 if !node.component_classes.is_empty() {
                     let cc_refs: Vec<&str> =
                         node.component_classes.iter().map(String::as_str).collect();
-                    if let Some(cc_style) =
-                        crate::css::resolve_component_style(self, &cc_refs).to_rich()
-                    {
+                    if let Some(cc_style) = resolve_component(&cc_refs).to_rich() {
                         row_label_style = row_label_style + cc_style;
                     }
                 }
@@ -1479,18 +1474,7 @@ impl Widget for Tree {
                 // Build segments for this row.
                 let mut row_segments: Vec<Segment> = Vec::new();
 
-                // 1. Cursor marker ("› " for highlighted, "  " otherwise).
-                let marker = if highlighted { "› " } else { "  " };
-                row_segments.push(Segment::styled(
-                    marker.to_string(),
-                    if highlighted {
-                        cursor_style
-                    } else {
-                        row_bg_style
-                    },
-                ));
-
-                // 2. Guide prefix segments (per-depth styled).
+                // 1. Guide prefix segments (per-depth styled).
                 if node.depth > 0 {
                     let gd = self.guide_depth.clamp(2, 10);
                     // Ancestor continuation lines.
@@ -1527,11 +1511,13 @@ impl Widget for Tree {
                     row_segments.push(Segment::styled(connector, row_guide_style));
                 }
 
-                // 3. Twisty (expand/collapse indicator).
-                let twisty = format!("{} ", Self::twisty(node));
-                row_segments.push(Segment::styled(twisty, row_label_style));
+                // 2. Twisty (expand/collapse indicator).
+                let twisty = Self::twisty(node);
+                if !twisty.is_empty() {
+                    row_segments.push(Segment::styled(twisty.to_string(), row_label_style));
+                }
 
-                // 4. Label text (with Rich markup support).
+                // 3. Label text (with Rich markup support).
                 //
                 // Mirrors Python's TreeNode which stores `rich.text.Text` objects
                 // with per-character styling. Parse Rich markup (e.g. `[b]name[/b]`)
@@ -1817,7 +1803,7 @@ mod tests {
 
         let expected = ["e\u{0301}", "👩‍🚀", "中中"]
             .iter()
-            .map(|label| rich_rs::cell_len("  ▸ ").saturating_add(rich_rs::cell_len(label)))
+            .map(|label| rich_rs::cell_len(label))
             .max()
             .unwrap_or(1);
         assert_eq!(tree.content_width(), Some(expected.max(1)));
@@ -1925,6 +1911,25 @@ mod tests {
             "expected at least 6 non-empty segments for 3 rows with per-segment styling, got {}",
             content_segs.len()
         );
+    }
+
+    #[test]
+    fn content_width_counts_guides_and_prefixed_labels_for_hidden_root() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Contents")
+                .expanded(true)
+                .allow_expand(true)
+                .with_child(
+                    TreeNode::new("Ⅰ Markdown Viewer")
+                        .expanded(true)
+                        .allow_expand(true)
+                        .with_child(TreeNode::new("Ⅱ Litany Against Fear")),
+                ),
+        ]);
+        tree.set_show_root_plain(false);
+
+        let expected = rich_rs::cell_len("└── Ⅱ Litany Against Fear");
+        assert_eq!(tree.content_width(), Some(expected.max(1)));
     }
 
     #[test]

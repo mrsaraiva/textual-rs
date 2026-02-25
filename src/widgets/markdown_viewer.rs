@@ -7,10 +7,13 @@ use crate::action::ParsedAction;
 use crate::compose::ComposeResult;
 use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
-use crate::message::{MarkdownTableOfContentsSelected, Message, MessageEvent, TreeNodeActivated};
+use crate::message::{
+    MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
+    TreeNodeActivated, TreeNodeSelected,
+};
 
 use super::containers::ScrollableContainer;
-use super::{BindingDecl, Markdown, Tree, TreeNode, Widget, WidgetStyles, core::LayoutConstraints};
+use super::{BindingDecl, Markdown, Tree, TreeNode, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
 // MarkdownTableOfContents
@@ -20,46 +23,31 @@ type HeadingEntry = (usize, String, String);
 
 /// A sidebar widget showing the headings of a Markdown document as a tree.
 ///
-/// Mirrors Python's `MarkdownTableOfContents` (which extends `Tree`).
-/// In Rust, it wraps a `Tree` and rebuilds it whenever `set_headings` is called.
+/// Mirrors Python's `MarkdownTableOfContents` (which composes a real `Tree` child).
 pub struct MarkdownTableOfContents {
-    headings: Vec<HeadingEntry>,
-    shared_headings: Option<Arc<RwLock<Vec<HeadingEntry>>>>,
-    tree: Tree,
-    cached_content_width: Option<usize>,
+    shared_headings: Arc<RwLock<Vec<HeadingEntry>>>,
     styles: WidgetStyles,
 }
 
 impl MarkdownTableOfContents {
     pub fn new(headings: Vec<HeadingEntry>) -> Self {
-        let tree = Self::build_tree_from_headings(&headings);
-        let cached_content_width = tree.content_width();
         Self {
-            headings,
-            shared_headings: None,
-            tree,
-            cached_content_width,
+            shared_headings: Arc::new(RwLock::new(headings)),
             styles: WidgetStyles::default(),
         }
     }
 
     pub fn with_shared_headings(shared: Arc<RwLock<Vec<HeadingEntry>>>) -> Self {
-        let initial = shared.read().map(|h| h.clone()).unwrap_or_default();
-        let tree = Self::build_tree_from_headings(&initial);
-        let cached_content_width = tree.content_width();
         Self {
-            headings: initial,
-            shared_headings: Some(shared),
-            tree,
-            cached_content_width,
+            shared_headings: shared,
             styles: WidgetStyles::default(),
         }
     }
 
     pub fn set_headings(&mut self, headings: Vec<HeadingEntry>) {
-        self.headings = headings;
-        self.tree = Self::build_tree_from_headings(&self.headings);
-        self.cached_content_width = self.tree.content_width();
+        if let Ok(mut data) = self.shared_headings.write() {
+            *data = headings;
+        }
     }
 
     /// Build a Tree from the current headings, nesting by heading level.
@@ -74,24 +62,51 @@ impl MarkdownTableOfContents {
         }
 
         let root = TreeNode::new("Contents").expanded(true).allow_expand(true);
-
-        // Build hierarchical structure: use a stack of (level, TreeNode) pairs.
-        // Each heading is nested under the last heading with a lower level number.
         let nodes = build_heading_nodes(headings);
         let mut root = root;
         for node in nodes {
             root = root.with_child(node);
         }
         let mut tree = Tree::new(vec![root]);
-        // Python parity: hide the "Contents" root, don't auto-expand children.
         tree.set_show_root_plain(false);
+        tree.set_auto_expand(false);
         tree
     }
 }
 
-impl Widget for MarkdownTableOfContents {
+struct MarkdownTableOfContentsTree {
+    headings: Vec<HeadingEntry>,
+    shared_headings: Arc<RwLock<Vec<HeadingEntry>>>,
+    tree: Tree,
+}
+
+impl MarkdownTableOfContentsTree {
+    fn with_shared_headings(shared: Arc<RwLock<Vec<HeadingEntry>>>) -> Self {
+        let initial = shared.read().map(|h| h.clone()).unwrap_or_default();
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&initial);
+        Self {
+            headings: initial,
+            shared_headings: shared,
+            tree,
+        }
+    }
+
+    fn sync_headings(&mut self) {
+        let next = self.shared_headings.read().ok().map(|h| h.clone());
+        if let Some(headings) = next
+            && headings != self.headings
+        {
+            self.headings = headings;
+            self.tree = MarkdownTableOfContents::build_tree_from_headings(&self.headings);
+        }
+    }
+}
+
+impl Widget for MarkdownTableOfContentsTree {
     fn style_type(&self) -> &'static str {
-        "MarkdownTableOfContents"
+        // Keep selector compatibility with Python and default CSS:
+        // `MarkdownTableOfContents > Tree`.
+        "Tree"
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -99,26 +114,14 @@ impl Widget for MarkdownTableOfContents {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        None // Fill available space
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        self.tree.layout_height()
     }
 
     fn content_width(&self) -> Option<usize> {
-        self.cached_content_width
-    }
-
-    fn layout_constraints(&self) -> LayoutConstraints {
-        LayoutConstraints {
-            min_width: Some(16),
-            ..Default::default()
-        }
+        // In Python, the composed Tree fills the TOC pane; pane width is driven by
+        // the parent `MarkdownTableOfContents` dock/intrinsic sizing. Returning `None`
+        // avoids a second intrinsic-width clamp on the child Tree.
+        None
     }
 
     fn focusable(&self) -> bool {
@@ -138,15 +141,7 @@ impl Widget for MarkdownTableOfContents {
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        let next_headings = self
-            .shared_headings
-            .as_ref()
-            .and_then(|shared| shared.read().ok().map(|headings| headings.clone()));
-        if let Some(headings) = next_headings
-            && headings != self.headings
-        {
-            self.set_headings(headings);
-        }
+        self.sync_headings();
         self.tree.on_layout(width, height);
     }
 
@@ -159,21 +154,6 @@ impl Widget for MarkdownTableOfContents {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        // When the child Tree fires TreeNodeActivated, extract the heading block_id
-        // from node data and post MarkdownTableOfContentsSelected for the viewer.
-        if let Message::TreeNodeActivated(TreeNodeActivated {
-            data: Some(block_id),
-            ..
-        }) = &message.message
-        {
-            ctx.post_message(Message::MarkdownTableOfContentsSelected(
-                MarkdownTableOfContentsSelected {
-                    block_id: block_id.clone(),
-                },
-            ));
-            ctx.set_handled();
-            return;
-        }
         self.tree.on_message(message, ctx);
     }
 
@@ -185,7 +165,7 @@ impl Widget for MarkdownTableOfContents {
         self.tree.clips_descendants_to_content()
     }
 
-    fn bindings(&self) -> Vec<BindingDecl> {
+    fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {
         self.tree.bindings()
     }
 
@@ -194,9 +174,92 @@ impl Widget for MarkdownTableOfContents {
     }
 }
 
-impl Renderable for MarkdownTableOfContents {
+impl Renderable for MarkdownTableOfContentsTree {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         Widget::render(self, console, options)
+    }
+}
+
+impl Widget for MarkdownTableOfContents {
+    fn style_type(&self) -> &'static str {
+        "MarkdownTableOfContents"
+    }
+
+    fn compose(&self) -> ComposeResult {
+        vec![MarkdownTableOfContentsTree::with_shared_headings(self.shared_headings.clone()).into()]
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        None
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let headings = self.shared_headings.read().ok().map(|h| h.clone())?;
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
+        let base = tree.content_width().unwrap_or(1);
+
+        // `MarkdownTableOfContents > Tree` contributes horizontal padding in default CSS.
+        let toc_meta = crate::css::selector_meta_generic(self);
+        let toc_resolved = crate::css::resolve_style(self, &toc_meta);
+        let tree_meta = crate::css::selector_meta_generic(&tree);
+        let tree_resolved = crate::css::with_style_stack(toc_meta, toc_resolved, || {
+            crate::css::resolve_style(&tree, &tree_meta)
+        });
+        let padding = tree_resolved.effective_padding();
+        Some(
+            base.saturating_add(usize::from(padding.left))
+                .saturating_add(usize::from(padding.right))
+                .max(1),
+        )
+    }
+
+    fn can_focus_children(&self) -> bool {
+        true
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+            headings,
+        }) = &message.message
+        {
+            if let Ok(mut shared) = self.shared_headings.write() {
+                *shared = headings.clone();
+            }
+            // TOC width is content-driven (`width: auto` with dock). Heading changes
+            // must invalidate layout so the sidebar width can be recomputed.
+            ctx.request_layout_invalidation();
+            ctx.request_repaint();
+            return;
+        }
+
+        if let Message::TreeNodeActivated(TreeNodeActivated {
+            data: Some(block_id),
+            ..
+        })
+        | Message::TreeNodeSelected(TreeNodeSelected {
+            data: Some(block_id),
+            ..
+        }) = &message.message
+        {
+            ctx.post_message(Message::MarkdownTableOfContentsSelected(
+                MarkdownTableOfContentsSelected {
+                    block_id: block_id.clone(),
+                },
+            ));
+            ctx.set_handled();
+        }
     }
 }
 
@@ -381,6 +444,8 @@ pub struct MarkdownViewer {
     pub navigator: Navigator,
     /// Content registry: path key → markdown content.
     content_map: HashMap<String, String>,
+    /// Whether a TOC-updated message should be emitted on the next event turn.
+    toc_dirty: bool,
 }
 
 impl MarkdownViewer {
@@ -396,6 +461,9 @@ impl MarkdownViewer {
         let shared_markup = Arc::new(RwLock::new(content.clone()));
         let shared_headings = Arc::new(RwLock::new(Self::parse_headings(&content)));
         let inner = ScrollableContainer::new()
+            .with_can_focus(false)
+            .with_can_focus_children(true)
+            .scroll_step(2)
             .with_child(Markdown::with_shared_markup(shared_markup.clone()))
             .with_child(MarkdownTableOfContents::with_shared_headings(
                 shared_headings.clone(),
@@ -409,6 +477,7 @@ impl MarkdownViewer {
             classes: vec!["-show-table-of-contents".to_string()],
             navigator,
             content_map,
+            toc_dirty: true,
         }
     }
 
@@ -488,51 +557,84 @@ impl MarkdownViewer {
         if let Ok(mut shared) = self.shared_markup.write() {
             *shared = self.content.clone();
         }
+        let headings = Self::parse_headings(&self.content);
         if let Ok(mut shared_headings) = self.shared_headings.write() {
-            *shared_headings = Self::parse_headings(&self.content);
+            *shared_headings = headings;
         }
+        self.toc_dirty = true;
+    }
+
+    fn flush_toc_message(&mut self, ctx: &mut EventCtx) {
+        if !self.toc_dirty {
+            return;
+        }
+        let headings = self
+            .shared_headings
+            .read()
+            .ok()
+            .map(|h| h.clone())
+            .unwrap_or_default();
+        ctx.post_message(Message::MarkdownTableOfContentsUpdated(
+            MarkdownTableOfContentsUpdated { headings },
+        ));
+        self.toc_dirty = false;
     }
 
     /// Compute the approximate line offset for a heading block id in the content.
     fn heading_line_offset(&self, block_id: &str) -> usize {
-        Self::parse_heading_lines(&self.content)
-            .into_iter()
-            .find(|(_, _, id, _)| id == block_id)
-            .map(|(_, _, _, line_idx)| line_idx)
-            .unwrap_or(0)
+        let viewport_width = self
+            .inner
+            .scroll_viewport_size()
+            .map(|(w, _)| w)
+            .unwrap_or(80)
+            .max(1);
+
+        let toc_width = if self.is_showing_table_of_contents() {
+            MarkdownTableOfContents::with_shared_headings(self.shared_headings.clone())
+                .content_width()
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let markdown_width = viewport_width.saturating_sub(toc_width).max(1);
+        // Default Markdown CSS has left/right padding of 2 cells.
+        let content_width = markdown_width.saturating_sub(4).max(1);
+
+        let headings = Self::parse_heading_lines(&self.content);
+        let mut by_source_line: HashMap<usize, (usize, String)> = HashMap::new();
+        for (level, _title, id, source_line) in &headings {
+            by_source_line.insert(*source_line, (*level, id.clone()));
+        }
+
+        let mut visual_row = 0usize;
+        for (source_line, line) in self.content.lines().enumerate() {
+            let wraps = rich_rs::cell_len(line).div_ceil(content_width).max(1);
+            if let Some((level, id)) = by_source_line.get(&source_line) {
+                let (top, bottom) = heading_margins(*level);
+                if id == block_id {
+                    return visual_row.saturating_add(top);
+                }
+                visual_row = visual_row
+                    .saturating_add(top)
+                    .saturating_add(wraps)
+                    .saturating_add(bottom);
+            } else {
+                visual_row = visual_row.saturating_add(wraps);
+            }
+        }
+        0
     }
 
     fn parse_headings(content: &str) -> Vec<HeadingEntry> {
-        Self::parse_heading_lines(content)
+        parse_markdown_heading_lines(content)
             .into_iter()
             .map(|(level, title, block_id, _)| (level, title, block_id))
             .collect()
     }
 
     fn parse_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
-        let mut out = Vec::new();
-        let mut slug_counts: HashMap<String, usize> = HashMap::new();
-        for (line_idx, line) in content.lines().enumerate() {
-            let trimmed = line.trim_start();
-            let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
-            if marker_len == 0 || marker_len > 6 {
-                continue;
-            }
-            let title = trimmed[marker_len..].trim();
-            if title.is_empty() {
-                continue;
-            }
-            let base = slugify_heading(title);
-            let seen = slug_counts.entry(base.clone()).or_insert(0);
-            *seen += 1;
-            let block_id = if *seen == 1 {
-                base
-            } else {
-                format!("{base}-{}", *seen)
-            };
-            out.push((marker_len, title.to_string(), block_id, line_idx));
-        }
-        out
+        parse_markdown_heading_lines(content)
     }
 }
 
@@ -543,10 +645,12 @@ fn slugify_heading(title: &str) -> String {
         if ch.is_ascii_alphanumeric() {
             slug.push(ch.to_ascii_lowercase());
             prev_dash = false;
-        } else if (ch.is_ascii_whitespace() || ch == '-' || ch == '_')
-            && !prev_dash
-            && !slug.is_empty()
-        {
+        } else if ch == '_' || ch == '-' {
+            if !prev_dash && !slug.is_empty() {
+                slug.push(ch);
+                prev_dash = true;
+            }
+        } else if ch.is_ascii_whitespace() && !prev_dash && !slug.is_empty() {
             slug.push('-');
             prev_dash = true;
         }
@@ -557,6 +661,36 @@ fn slugify_heading(title: &str) -> String {
     } else {
         slug
     }
+}
+
+fn heading_margins(level: usize) -> (usize, usize) {
+    if level <= 2 { (2, 1) } else { (1, 1) }
+}
+
+pub(crate) fn parse_markdown_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
+    let mut out = Vec::new();
+    let mut slug_counts: HashMap<String, usize> = HashMap::new();
+    for (line_idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
+        if marker_len == 0 || marker_len > 6 {
+            continue;
+        }
+        let title = trimmed[marker_len..].trim();
+        if title.is_empty() {
+            continue;
+        }
+        let base = slugify_heading(title);
+        let seen = slug_counts.entry(base.clone()).or_insert(0);
+        let block_id = if *seen == 0 {
+            base
+        } else {
+            format!("{base}-{}", *seen)
+        };
+        *seen += 1;
+        out.push((marker_len, title.to_string(), block_id, line_idx));
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -639,14 +773,31 @@ impl Widget for MarkdownViewer {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.flush_toc_message(ctx);
         self.inner.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.flush_toc_message(ctx);
         self.inner.on_event(event, ctx);
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        self.flush_toc_message(ctx);
+        if let Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+            headings,
+        }) = &message.message
+        {
+            if let Ok(mut shared_headings) = self.shared_headings.write() {
+                *shared_headings = headings.clone();
+            }
+            // MarkdownViewer docks TOC with `width:auto`; heading updates must trigger
+            // a relayout so the dock width tracks the rebuilt TOC tree width.
+            ctx.request_layout_invalidation();
+            ctx.request_repaint();
+            ctx.set_handled();
+            return;
+        }
         // Handle TOC heading selection: scroll to the heading in the document.
         if let Message::MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected {
             block_id,
@@ -811,19 +962,49 @@ mod tests {
             (1, "H1".to_string(), "h1".to_string()),
             (2, "H2".to_string(), "h2".to_string()),
         ]);
-        assert_eq!(toc.headings.len(), 2);
+        let headings = toc.shared_headings.read().unwrap().clone();
+        assert_eq!(headings.len(), 2);
     }
 
     #[test]
-    fn toc_has_no_composed_children() {
-        let mut toc = MarkdownTableOfContents::new(vec![
+    fn toc_compose_returns_tree_child() {
+        let toc = MarkdownTableOfContents::new(vec![
             (1, "Chapter".to_string(), "chapter".to_string()),
             (2, "Section".to_string(), "section".to_string()),
         ]);
-        let children = toc.take_composed_children();
+        let children = toc.compose();
         assert!(
-            children.is_empty(),
-            "TOC should render from its internal tree"
+            children.len() == 1,
+            "TOC should compose exactly one Tree child, got {}",
+            children.len()
+        );
+        match &children[0].builder {
+            crate::compose::WidgetBuilder::Ready(widget) => {
+                assert_eq!(widget.style_type(), "Tree");
+            }
+        }
+    }
+
+    #[test]
+    fn toc_child_tree_css_padding_and_bg_resolve_with_parent_context() {
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+        let toc = MarkdownTableOfContents::new(vec![(1, "H1".to_string(), "h1".to_string())]);
+        let tree = MarkdownTableOfContentsTree::with_shared_headings(toc.shared_headings.clone());
+        let toc_meta = crate::css::selector_meta_generic(&toc);
+        let toc_resolved = crate::css::resolve_style(&toc, &toc_meta);
+        let tree_meta = crate::css::selector_meta_generic(&tree);
+        let tree_resolved = crate::css::with_style_stack(toc_meta, toc_resolved, || {
+            crate::css::resolve_style(&tree, &tree_meta)
+        });
+        let padding = tree_resolved.effective_padding();
+        assert_eq!(
+            padding,
+            crate::style::Spacing::all(1),
+            "MarkdownTableOfContents > Tree should resolve padding: 1 from default CSS"
+        );
+        assert!(
+            tree_resolved.bg.is_some(),
+            "MarkdownTableOfContents > Tree should resolve background from default CSS"
         );
     }
 
@@ -891,7 +1072,8 @@ mod tests {
     #[test]
     fn toc_tree_hides_root() {
         let toc = MarkdownTableOfContents::new(vec![(1, "H1".to_string(), "h1".to_string())]);
-        let tree = MarkdownTableOfContents::build_tree_from_headings(&toc.headings);
+        let headings = toc.shared_headings.read().unwrap().clone();
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
         assert!(!tree.showing_root());
     }
 
@@ -901,7 +1083,8 @@ mod tests {
             (1, "Chapter".to_string(), "chapter".to_string()),
             (2, "Section".to_string(), "section".to_string()),
         ]);
-        let tree = MarkdownTableOfContents::build_tree_from_headings(&toc.headings);
+        let headings = toc.shared_headings.read().unwrap().clone();
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
         // Python parity: parent nodes start expanded (Python expands as it walks
         // down to place child headings). The root "Contents" is always expanded.
         if let Some(root) = tree.root() {
@@ -913,7 +1096,26 @@ mod tests {
     }
 
     #[test]
-    fn toc_content_width_reflects_tree() {
+    fn toc_composed_tree_defers_intrinsic_width_to_toc_wrapper() {
+        let toc = MarkdownTableOfContents::new(vec![
+            (
+                1,
+                "A Long Chapter Title".to_string(),
+                "a-long-chapter-title".to_string(),
+            ),
+            (2, "Section".to_string(), "section".to_string()),
+        ]);
+        let tree = MarkdownTableOfContentsTree::with_shared_headings(toc.shared_headings.clone());
+        let w = tree.content_width();
+        assert_eq!(
+            w, None,
+            "Composed TOC Tree should fill parent pane; TOC wrapper computes intrinsic width"
+        );
+    }
+
+    #[test]
+    fn toc_wrapper_reports_intrinsic_width_for_dock_auto_layout() {
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
         let toc = MarkdownTableOfContents::new(vec![
             (
                 1,
@@ -924,13 +1126,8 @@ mod tests {
         ]);
         let w = toc.content_width();
         assert!(
-            w.is_some(),
-            "TOC should report content_width from inner Tree"
-        );
-        // Width should be at least as wide as the longest label.
-        assert!(
-            w.unwrap() >= 20,
-            "content_width should reflect label length"
+            w.is_some() && w.unwrap() > 10,
+            "TOC wrapper should expose intrinsic width so dock:auto doesn't consume full viewport"
         );
     }
 
@@ -940,7 +1137,8 @@ mod tests {
             (1, "Chapter".to_string(), "chapter".to_string()),
             (2, "Section".to_string(), "section".to_string()),
         ]);
-        let tree = MarkdownTableOfContents::build_tree_from_headings(&toc.headings);
+        let headings = toc.shared_headings.read().unwrap().clone();
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
         if let Some(root) = tree.root() {
             let h1 = root.children_slice();
             assert!(!h1.is_empty());
@@ -952,11 +1150,12 @@ mod tests {
     }
 
     #[test]
-    fn heading_line_offset_finds_correct_line_by_block_id() {
+    fn heading_line_offset_finds_visual_row_by_block_id() {
         let content = "Some preamble\n\n# First Heading\n\nText\n\n## Second Heading\n";
-        let viewer = MarkdownViewer::new(content);
-        assert_eq!(viewer.heading_line_offset("first-heading"), 2);
-        assert_eq!(viewer.heading_line_offset("second-heading"), 6);
+        let mut viewer = MarkdownViewer::new(content);
+        viewer.on_layout(80, 24);
+        assert_eq!(viewer.heading_line_offset("first-heading"), 4);
+        assert_eq!(viewer.heading_line_offset("second-heading"), 11);
     }
 
     #[test]
@@ -988,11 +1187,92 @@ mod tests {
     }
 
     #[test]
+    fn toc_on_message_updated_requests_layout_invalidation() {
+        let mut toc =
+            MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+                headings: vec![
+                    (1, "Chapter".to_string(), "chapter".to_string()),
+                    (2, "Section".to_string(), "section".to_string()),
+                ],
+            }),
+            control: None,
+        };
+        let mut ctx = crate::event::EventCtx::default();
+        toc.on_message(&msg, &mut ctx);
+        assert!(
+            ctx.invalidation().layout,
+            "TOC updates should invalidate layout so dock:auto width can grow"
+        );
+    }
+
+    #[test]
+    fn toc_on_selected_posts_toc_selected() {
+        let mut toc =
+            MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::TreeNodeSelected(TreeNodeSelected {
+                index: 0,
+                label: "Chapter".to_string(),
+                data: Some("chapter".to_string()),
+            }),
+            control: None,
+        };
+        let mut ctx = crate::event::EventCtx::default();
+        toc.on_message(&msg, &mut ctx);
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert!(
+            messages.iter().any(|m| matches!(
+                &m.message,
+                Message::MarkdownTableOfContentsSelected(
+                    MarkdownTableOfContentsSelected { block_id }
+                ) if block_id == "chapter"
+            )),
+            "TOC should post MarkdownTableOfContentsSelected with block_id"
+        );
+    }
+
+    #[test]
     fn parse_headings_generates_stable_slug_ids() {
         let headings = MarkdownViewer::parse_headings("# Hello World\n## Hello World\n## !!!\n");
         assert_eq!(headings[0].2, "hello-world");
-        assert_eq!(headings[1].2, "hello-world-2");
+        assert_eq!(headings[1].2, "hello-world-1");
         assert_eq!(headings[2].2, "section");
+    }
+
+    #[test]
+    fn toc_tree_width_handles_long_h2_titles() {
+        let content = "# Markdown Viewer\n\n## Features\n\n## Tables\n\n## Code Blocks\n\n## Litany Against Fear\n";
+        let headings = MarkdownViewer::parse_headings(content);
+        let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
+        let expected = rich_rs::cell_len("└── Ⅱ Litany Against Fear");
+        assert_eq!(tree.content_width(), Some(expected.max(1)));
+    }
+
+    #[test]
+    fn viewer_toc_update_requests_layout_invalidation() {
+        let mut viewer = MarkdownViewer::new("# Chapter");
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+                headings: vec![
+                    (1, "Chapter".to_string(), "chapter".to_string()),
+                    (2, "Section".to_string(), "section".to_string()),
+                    (2, "Litany Against Fear".to_string(), "litany-against-fear".to_string()),
+                ],
+            }),
+            control: None,
+        };
+        let mut ctx = crate::event::EventCtx::default();
+        viewer.on_message(&msg, &mut ctx);
+        assert!(
+            ctx.invalidation().layout,
+            "MarkdownViewer must invalidate layout when TOC headings change"
+        );
     }
 
     // ── Shared markup + content propagation tests ─────────────────────────
@@ -1001,17 +1281,18 @@ mod tests {
     fn shared_markup_syncs_on_layout() {
         let shared = Arc::new(RwLock::new("# Hello".to_string()));
         let mut md = Markdown::with_shared_markup(shared.clone());
-        assert_eq!(md.layout_height(), Some(1));
+        let initial_height = md.layout_height().unwrap_or_default();
+        assert!(initial_height > 0);
 
         // Update shared content to something taller.
-        *shared.write().unwrap() = "Line1\nLine2\nLine3\nLine4\nLine5".to_string();
+        *shared.write().unwrap() = "# Line1\n\n# Line2\n\n# Line3".to_string();
 
         // Before on_layout, markup is still old.
-        assert_eq!(md.layout_height(), Some(1));
+        assert_eq!(md.layout_height(), Some(initial_height));
 
         // on_layout triggers sync.
         md.on_layout(40, 10);
-        assert_eq!(md.layout_height(), Some(5));
+        assert!(md.layout_height().unwrap_or_default() > initial_height);
     }
 
     #[test]

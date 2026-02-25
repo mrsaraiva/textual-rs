@@ -1213,13 +1213,7 @@ fn child_uses_parent_scroll(tree: &WidgetTree, child_id: NodeId) -> bool {
 }
 
 fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
-    let Some(node) = tree.get(node_id) else {
-        return false;
-    };
-    let meta =
-        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
-    let resolved = resolve_style(node.widget.as_ref(), &meta);
-    resolved.dock.is_some()
+    super::helpers::resolve_style_in_tree(tree, node_id).is_some_and(|style| style.dock.is_some())
 }
 
 fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {

@@ -339,6 +339,14 @@ pub struct MarkdownTableOfContentsSelected {
     pub block_id: String,
 }
 
+/// Posted when markdown heading metadata changes.
+///
+/// Mirrors Python's `Markdown.TableOfContentsUpdated` message flow.
+#[derive(Debug, Clone)]
+pub struct MarkdownTableOfContentsUpdated {
+    pub headings: Vec<(usize, String, String)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DirectoryTreeFileSelected {
     pub index: usize,
@@ -783,6 +791,7 @@ pub enum Message {
     DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected),
     // MarkdownViewer
     MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected),
+    MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated),
     // Overlay
     OverlaySetVisible(OverlaySetVisible),
     OverlaySetAnchor(OverlaySetAnchor),
@@ -901,6 +910,8 @@ impl_message_from!(
     TreeNodeHighlighted,
     DirectoryTreeFileSelected,
     DirectoryTreeDirectorySelected,
+    MarkdownTableOfContentsSelected,
+    MarkdownTableOfContentsUpdated,
     OverlaySetVisible,
     OverlaySetAnchor,
     OverlayClearAnchor,

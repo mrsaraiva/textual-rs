@@ -1,4 +1,4 @@
-use crate::css::{resolve_style, selector_meta_generic_with_classes};
+use crate::css::{resolve_style, selector_meta_generic_with_classes, with_style_stack};
 use crate::driver::PointerShape;
 use crate::event::{
     Action, ActionMap, ClickEvent, Event, KeyBind, MouseEnterEvent, MouseLeaveEvent,
@@ -338,13 +338,7 @@ fn descendant_uses_ancestor_scroll(
 }
 
 fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
-    let Some(node) = tree.get(node_id) else {
-        return false;
-    };
-    let meta =
-        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
-    let resolved = resolve_style(node.widget.as_ref(), &meta);
-    resolved.dock.is_some()
+    resolve_style_in_tree(tree, node_id).is_some_and(|style| style.dock.is_some())
 }
 
 fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
@@ -366,6 +360,39 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | DATA_TABLE_HSCROLLBAR_ID
         )
     )
+}
+
+pub(crate) fn resolve_style_in_tree(
+    tree: &WidgetTree,
+    node_id: NodeId,
+) -> Option<crate::style::Style> {
+    let mut path = Vec::new();
+    let mut cursor = Some(node_id);
+    while let Some(id) = cursor {
+        path.push(id);
+        cursor = tree.parent(id);
+    }
+    if path.is_empty() {
+        return None;
+    }
+    path.reverse(); // root -> target
+    resolve_style_along_path(tree, &path, 0)
+}
+
+fn resolve_style_along_path(
+    tree: &WidgetTree,
+    path: &[NodeId],
+    index: usize,
+) -> Option<crate::style::Style> {
+    let id = *path.get(index)?;
+    let node = tree.get(id)?;
+    let meta = selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
+    let resolved = resolve_style(node.widget.as_ref(), &meta);
+    if index + 1 == path.len() {
+        Some(resolved)
+    } else {
+        with_style_stack(meta, resolved, || resolve_style_along_path(tree, path, index + 1))
+    }
 }
 
 /// Check whether any widget in the tree reports `is_active() == true`.
@@ -887,6 +914,26 @@ mod tests {
         assert!(
             !root_scroll_applies_to_subtree(&tree, footer),
             "docked root children should ignore root scroll translation"
+        );
+    }
+
+    #[test]
+    fn markdown_viewer_toc_docked_child_ignores_parent_scroll_transform() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(crate::widgets::MarkdownViewer::new(
+            "# One\n## Two",
+        )));
+        let toc = tree.mount(
+            root,
+            Box::new(crate::widgets::MarkdownTableOfContents::new(vec![
+                (1, "One".to_string(), "one".to_string()),
+                (2, "Two".to_string(), "two".to_string()),
+            ])),
+        );
+        assert!(
+            !descendant_uses_ancestor_scroll(&tree, root, toc),
+            "MarkdownViewer > MarkdownTableOfContents should resolve as docked and stay unscrolled"
         );
     }
 }

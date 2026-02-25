@@ -4,12 +4,16 @@ assertion_line: 32
 expression: buf.debug_dump()
 ---
 lines:
-0: "› ├──   Child A         "
-1: "  └── ▸ Child B         "
-2: "    Other               "
+0: "├── Child A             "
+1: "└── ▶ Child B           "
+2: "Other                   "
 3: "                        "
 4: "                        "
 meta:
+(11,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(12,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(13,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(14,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (15,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (16,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (17,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
@@ -19,6 +23,8 @@ meta:
 (21,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (22,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (23,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(13,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(14,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (15,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (16,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (17,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
@@ -28,6 +34,10 @@ meta:
 (21,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (22,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (23,1): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(5,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(6,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(7,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(8,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (9,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (10,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
 (11,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }

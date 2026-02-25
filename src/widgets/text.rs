@@ -818,36 +818,42 @@ impl Widget for Markdown {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let base = if self.layout_width > 0 {
-            self.markup
+        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(fixed);
+        }
+
+        if self.layout_width == 0 {
+            let base = self.markup.lines().count().max(1);
+            let heading_margin_rows = self
+                .markup
                 .lines()
-                .map(|line| {
-                    let display = Self::heading_level_and_text(line)
-                        .map(|(_, heading)| heading)
-                        .unwrap_or(line);
-                    rich_rs::cell_len(display)
-                        .div_ceil(self.layout_width)
-                        .max(1)
+                .filter_map(Self::heading_level_and_text)
+                .map(|(level, _)| {
+                    let class_name = format!("markdown--h{level}");
+                    let component_style =
+                        crate::css::resolve_component_style(self, &[class_name.as_str()]);
+                    let margin = component_style.effective_margin();
+                    usize::from(margin.top) + usize::from(margin.bottom)
                 })
-                .sum::<usize>()
-                .max(1)
-        } else {
-            self.markup.lines().count().max(1)
-        };
-        let heading_margin_rows = self
-            .markup
-            .lines()
-            .filter_map(Self::heading_level_and_text)
-            .map(|(level, _)| {
-                let class_name = format!("markdown--h{level}");
-                let component_style =
-                    crate::css::resolve_component_style(self, &[class_name.as_str()]);
-                let margin = component_style.effective_margin();
-                usize::from(margin.top) + usize::from(margin.bottom)
-            })
-            .sum::<usize>();
-        let intrinsic = base.saturating_add(heading_margin_rows).max(1);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
+                .sum::<usize>();
+            return Some(base.saturating_add(heading_margin_rows).max(1));
+        }
+        let width = self.layout_width.max(1);
+        if let Ok(cache) = self.render_cache.read()
+            && cache.width == width
+            && !cache.lines.is_empty()
+        {
+            return Some(cache.lines.len().max(1));
+        }
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (width, 1);
+        options.max_width = width;
+        options.max_height = 1;
+        let rendered = Widget::render(self, &console, &options);
+        let line_count = rich_rs::Segment::split_lines(rendered).len().max(1);
+        Some(line_count)
     }
 
     fn content_width(&self) -> Option<usize> {

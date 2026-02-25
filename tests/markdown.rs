@@ -189,3 +189,15 @@ fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
         "h1 wrapped lines should keep h1 text-style (bold without underline)"
     );
 }
+
+#[test]
+fn markdown_layout_height_tracks_rendered_table_height() {
+    let mut markdown = Markdown::new(
+        "| Name | Type | Default |\n| ---- | ---- | ---- |\n| show_header | bool | True |\n| fixed_rows | int | 0 |",
+    );
+    markdown.on_layout(48, 6);
+    assert!(
+        markdown.layout_height().unwrap_or_default() > 4,
+        "table rendering should consume more rows than raw markdown source rows"
+    );
+}

@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-25 (MarkdownViewer TOC architecture + sizing parity)
+
+- **fix(widgets): MarkdownTableOfContents — Python-style composed Tree behavior**
+  - TOC now handles both `TreeNodeSelected` and `TreeNodeActivated` for click/keyboard parity.
+  - TOC/headings update flow now requests layout invalidation (not repaint only), so docked
+    `width: auto` pane width recomputes when heading content changes.
+
+- **fix(widgets): TOC sidebar width ownership + child fill semantics**
+  - `MarkdownTableOfContents` (wrapper) remains the intrinsic width source for docking.
+  - The composed TOC `Tree` now fills the wrapper pane instead of applying a second intrinsic
+    width clamp, eliminating right-side unused strip and heading text clipping.
+
+- **fix(widgets): Tree/TOC parity details**
+  - Tree twisty glyphs aligned with Python (`▶` / `▼`).
+  - Added regression tests for TOC relayout, long heading width coverage, and hidden-root guide
+    width calculations.
+
 ### 2026-02-25 (action parsing, header fix, outline clip, MarkdownViewer slug IDs)
 
 - **feat(event): BindingHint action parsing — structured action_name/action_parameters**

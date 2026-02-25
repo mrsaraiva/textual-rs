@@ -92,7 +92,7 @@ fn tree_click_on_branch_toggles() {
 fn tree_content_width_accounts_for_wide_labels() {
     let tree = Tree::new(vec![TreeNode::new("👩‍🚀 Launch")]);
     let width = tree.content_width().expect("tree intrinsic width");
-    assert!(width >= rich_rs::cell_len("👩‍🚀 Launch") + 4);
+    assert!(width >= rich_rs::cell_len("👩‍🚀 Launch"));
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn tree_allows_expansion_without_preloaded_children() {
 
     let before = FrameBuffer::from_renderable(&console, &options, &tree, None);
     let before_lines = before.as_plain_lines();
-    assert!(before_lines.iter().any(|line| line.contains("▸ Lazy Root")));
+    assert!(before_lines.iter().any(|line| line.contains("▶ Lazy Root")));
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
@@ -192,7 +192,7 @@ fn tree_allows_expansion_without_preloaded_children() {
 
     let after = FrameBuffer::from_renderable(&console, &options, &tree, None);
     let after_lines = after.as_plain_lines();
-    assert!(after_lines.iter().any(|line| line.contains("▾ Lazy Root")));
+    assert!(after_lines.iter().any(|line| line.contains("▼ Lazy Root")));
 }
 
 #[test]
