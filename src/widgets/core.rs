@@ -302,6 +302,12 @@ pub trait Widget: Send + Sync + Any {
     fn on_tick(&mut self, _tick: u64) {}
     fn on_resize(&mut self, _width: u16, _height: u16) {}
     fn on_layout(&mut self, _width: u16, _height: u16) {}
+    /// Set the virtual content size for scroll host widgets.
+    ///
+    /// Called by the runtime layout pass to inform scroll containers of the total
+    /// content extent. Scroll hosts override this to update their internal state
+    /// (e.g. scrollbar thumb sizing). The default is a no-op for non-scroll widgets.
+    fn set_virtual_content_size(&mut self, _width: usize, _height: usize) {}
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}

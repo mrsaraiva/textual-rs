@@ -31,6 +31,11 @@ pub struct FooterBinding {
     /// click-to-invoke dispatch. Distinct from `key` which may be a
     /// display-formatted version (e.g. "^p").
     pub action_key: Option<String>,
+    /// Result of `check_action` for this binding:
+    /// - `Some(true)` — enabled (rendered normally)
+    /// - `Some(false)` — hidden (filtered out)
+    /// - `None` — disabled but visible (rendered dimmed)
+    pub enabled: Option<bool>,
 }
 
 impl FooterBinding {
@@ -41,6 +46,7 @@ impl FooterBinding {
             tooltip: None,
             group: None,
             action_key: None,
+            enabled: Some(true),
         }
     }
 
@@ -66,6 +72,7 @@ pub struct FooterKey {
     description: String,
     compact: bool,
     hovered: bool,
+    disabled: bool,
     parent_bg: crate::style::Color,
     classes: Vec<String>,
     styles: WidgetStyles,
@@ -78,6 +85,7 @@ impl FooterKey {
             description: description.into(),
             compact: false,
             hovered: false,
+            disabled: false,
             parent_bg: crate::style::parse_color_like("$background")
                 .unwrap_or(crate::style::Color::rgb(0, 0, 0)),
             classes: Vec::new(),
@@ -103,6 +111,12 @@ impl FooterKey {
 
     pub fn with_hovered(mut self, hovered: bool) -> Self {
         self.hovered = hovered;
+        self
+    }
+
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        set_class_flag(&mut self.classes, "-disabled", disabled);
         self
     }
 
@@ -176,7 +190,24 @@ impl FooterKey {
         }
         // Python parity: apply FooterKey rich style over the whole renderable
         // after assembling component-styled spans.
-        Styled::<()>::process_segments(out, base_rich, rich_rs::Style::new())
+        let mut segments = Styled::<()>::process_segments(out, base_rich, rich_rs::Style::new());
+
+        // Dim disabled bindings (check_action returned None).
+        if self.disabled {
+            segments = segments
+                .into_iter()
+                .map(|mut seg| {
+                    if let Some(ref mut style) = seg.style {
+                        *style = style.with_dim(true);
+                    } else {
+                        seg.style = Some(rich_rs::Style::new().with_dim(true));
+                    }
+                    seg
+                })
+                .collect();
+        }
+
+        segments
     }
 }
 
@@ -410,12 +441,14 @@ impl Footer {
             None => command_palette && self.hovered_item == Some(HoveredFooterItem::CommandPalette),
         };
         let row_bg = self.effective_row_bg();
+        let disabled = binding.enabled.is_none();
         let mut key = FooterKey::new(binding.key.clone(), binding.description.clone())
             .with_compact(self.compact)
             .with_grouped(grouped)
             .with_command_palette(command_palette)
             .with_parent_bg(row_bg)
-            .with_hovered(hovered);
+            .with_hovered(hovered)
+            .with_disabled(disabled);
         if key_only {
             key = key.key_only();
         }
@@ -520,6 +553,8 @@ impl Footer {
         hints
             .iter()
             .filter(|hint| hint.show)
+            // Filter out bindings where check_action returned Some(false) (hidden).
+            .filter(|hint| hint.enabled != Some(false))
             .map(|hint| {
                 let mut binding = FooterBinding::new(
                     hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
@@ -529,6 +564,8 @@ impl Footer {
                 binding.group = hint.group.clone();
                 // Store the raw key spec for click-to-invoke dispatch.
                 binding.action_key = Some(hint.key.clone());
+                // Propagate check_action enabled state for dimming.
+                binding.enabled = hint.enabled;
                 binding
             })
             .collect()
@@ -1500,5 +1537,48 @@ mod tests {
             .expect("hovered command palette should expose tooltip anchor");
         let expected_x = (range.start + range.end.saturating_sub(1)) / 2;
         assert_eq!(anchor, (expected_x as u16, 0));
+    }
+
+    // ── check_action / enabled state tests ──────────────────────────────
+
+    #[test]
+    fn check_action_none_dims_binding() {
+        let _guard = set_style_context(default_widget_stylesheet());
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        let mut hint = BindingHint::new("b", "Back");
+        hint.enabled = None; // disabled but visible (dimmed)
+        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+
+        // Binding should still be present (not filtered out).
+        assert_eq!(footer.bindings.len(), 1);
+        // The binding's enabled state should be None.
+        assert!(footer.bindings[0].enabled.is_none());
+    }
+
+    #[test]
+    fn check_action_false_hides_binding() {
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        let mut hint = BindingHint::new("x", "Hidden");
+        hint.enabled = Some(false); // hidden entirely
+        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+
+        // Binding should be filtered out.
+        assert!(
+            footer.bindings.is_empty(),
+            "binding with enabled=Some(false) should be hidden"
+        );
+    }
+
+    #[test]
+    fn check_action_default_shows_binding_normally() {
+        let mut footer = Footer::new();
+        let mut ctx = EventCtx::default();
+        let hint = BindingHint::new("q", "Quit"); // enabled=Some(true) by default
+        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+
+        assert_eq!(footer.bindings.len(), 1);
+        assert_eq!(footer.bindings[0].enabled, Some(true));
     }
 }

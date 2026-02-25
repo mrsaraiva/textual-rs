@@ -7,6 +7,43 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-25 (MarkdownViewer — scrollbar + content propagation + widget parity)
+
+- **feat(widgets): MarkdownViewer — shared-markup content propagation for scrollbar support**
+  - Root cause: after `take_composed_children()` extracts the `Markdown` child into the arena
+    tree, `go()`/`back()`/`forward()` could not reach it to update content. The Markdown child
+    stayed empty → `layout_height()` returned 1 → no overflow → no scrollbar.
+  - Introduced `Arc<RwLock<String>>` shared content between `MarkdownViewer` and its `Markdown`
+    child. `Markdown::with_shared_markup()` constructor reads initial content; `on_layout()`
+    syncs from shared state before height computation.
+  - `go()`, `back()`, `forward()`, and `set_content()` now push content into shared state.
+
+- **feat(widgets): MarkdownViewer — initial content in markdown demo**
+  - Changed `MarkdownViewer::new("")` to `MarkdownViewer::new(DEMO_MD)` so the first frame
+    has full content and scrollbar from the start.
+
+- **feat(widgets): scroll_viewport_size() delegation chain**
+  - `ScrollView` now overrides `scroll_viewport_size()` (reads from `viewport_width`/
+    `viewport_height` atomics), enabling proper content clipping.
+  - `ScrollableContainer` and `MarkdownViewer` delegate through to `ScrollView`.
+  - `delegate_widget_to!` macro updated to forward `scroll_viewport_size()`.
+
+- **feat(widgets): MarkdownViewer — TOC tree composition + click-to-scroll**
+  - `MarkdownTableOfContents` now wraps a persistent `Tree` (not rebuilt on each render).
+  - `take_composed_children()` extracts the tree for arena-tree mode.
+  - TOC click posts `MarkdownTableOfContentsSelected` with heading index → MarkdownViewer
+    scrolls to the heading line offset.
+  - `content_width()` cached from inner Tree for layout.
+
+- **feat(widgets): Widget::set_virtual_content_size() trait method**
+  - New trait method for widgets to set virtual content dimensions (e.g. when content changes
+    asynchronously). Default implementation is a no-op. `ScrollView`, `ScrollableContainer`
+    delegate through to their inner scroll state.
+
+- **feat(widgets): MarkdownTableOfContents — NUMERALS prefix for heading labels**
+  - Heading labels now include their 1-based index as a prefix (e.g. "I Introduction"),
+    matching Python's `MarkdownTableOfContents` heading numbering.
+
 ### 2026-02-20 (Toast notification styling regression fix)
 
 - **fix(runtime): restore Toast CSS styling in tree-driven render path**

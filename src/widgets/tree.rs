@@ -20,6 +20,8 @@ pub struct TreeNode {
     disabled: bool,
     component_classes: Vec<String>,
     children: Vec<TreeNode>,
+    /// Optional user data associated with this node (e.g. block_id for TOC headings).
+    data: Option<String>,
 }
 
 impl TreeNode {
@@ -31,6 +33,7 @@ impl TreeNode {
             disabled: false,
             component_classes: Vec::new(),
             children: Vec::new(),
+            data: None,
         }
     }
 
@@ -59,6 +62,22 @@ impl TreeNode {
         self
     }
 
+    /// Set optional user data on this node (builder pattern).
+    pub fn with_data(mut self, data: impl Into<String>) -> Self {
+        self.data = Some(data.into());
+        self
+    }
+
+    /// Read-only access to the node's data.
+    pub fn data(&self) -> Option<&str> {
+        self.data.as_deref()
+    }
+
+    /// Read-only access to this node's children.
+    pub fn children_slice(&self) -> &[TreeNode] {
+        &self.children
+    }
+
     /// Add a child node, returning a mutable reference to the newly added child.
     ///
     /// This enables the Python pattern of incremental tree construction:
@@ -74,6 +93,44 @@ impl TreeNode {
     /// Add a leaf node (convenience for `add_child(TreeNode::new(label))`).
     pub fn add_leaf(&mut self, label: impl Into<String>) -> &mut TreeNode {
         self.add_child(TreeNode::new(label))
+    }
+
+    /// Mutate the node's label after construction.
+    ///
+    /// Mirrors Python's `node.set_label(text)`.
+    pub fn set_label(&mut self, label: impl Into<String>) {
+        self.label = label.into();
+    }
+
+    /// Read-only access to the node's label.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// Expand this node (make children visible).
+    ///
+    /// Mirrors Python's `node.expand()`.
+    pub fn expand(&mut self) {
+        self.expanded = true;
+    }
+
+    /// Collapse this node (hide children).
+    ///
+    /// Mirrors Python's `node.collapse()`.
+    pub fn collapse(&mut self) {
+        self.expanded = false;
+    }
+
+    /// Whether this node is currently expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.expanded
+    }
+
+    /// Set whether this node can be expanded by the user.
+    ///
+    /// Mirrors Python's `node.allow_expand = value`.
+    pub fn set_allow_expand(&mut self, value: bool) {
+        self.allow_expand = value;
     }
 }
 
@@ -108,6 +165,8 @@ struct VisibleNode {
     disabled: bool,
     expandable: bool,
     component_classes: Vec<String>,
+    /// Optional user data associated with the underlying TreeNode.
+    data: Option<String>,
     /// For each visual depth level, whether the ancestor at that level is the last sibling.
     /// Used for rendering tree guide lines (│, ├, └).
     is_last_at_depth: Vec<bool>,
@@ -228,11 +287,44 @@ impl Tree {
         self.clamp_offsets();
     }
 
+    // ── Root access ────────────────────────────────────────────────────
+
+    /// Access the root node (first root) immutably.
+    ///
+    /// Mirrors Python's `tree.root` property. Python's Tree always has exactly
+    /// one root; Rust's multi-root Vec is an implementation detail.
+    pub fn root(&self) -> Option<&TreeNode> {
+        self.roots.first()
+    }
+
+    /// Access the root node (first root) mutably.
+    ///
+    /// Mirrors Python's `tree.root` property.
+    pub fn root_mut(&mut self) -> Option<&mut TreeNode> {
+        self.roots.first_mut()
+    }
+
     // ── API methods (QW-19) ──────────────────────────────────────────────
 
-    /// Remove all nodes from the tree.
+    /// Clear all children under the root node.
+    ///
+    /// Mirrors Python's `tree.clear()` which preserves the root node (label,
+    /// expanded state) and only removes its children.
     pub fn clear(&mut self) {
-        self.roots.clear();
+        if let Some(root) = self.roots.first_mut() {
+            root.children.clear();
+        }
+        self.selected = 0;
+        self.offset = 0;
+        self.hovered_index = None;
+        self.pressed_activation_index = None;
+    }
+
+    /// Clear the tree and reset the root node with a new label.
+    ///
+    /// Mirrors Python's `tree.reset(label, data)`.
+    pub fn reset(&mut self, label: impl Into<String>) {
+        self.roots = vec![TreeNode::new(label)];
         self.selected = 0;
         self.offset = 0;
         self.hovered_index = None;
@@ -241,7 +333,6 @@ impl Tree {
 
     /// Append a root node without clearing existing ones.
     ///
-    /// Mirrors Python's `tree.root.add(label)` when used to add JSON sub-trees.
     /// Resets cursor/selection since the tree structure changed.
     pub fn add_root(&mut self, node: TreeNode) {
         self.roots.push(node);
@@ -258,6 +349,15 @@ impl Tree {
         self.selected = 0;
         self.offset = 0;
     }
+
+    /// Non-reactive setter for `show_root`.
+    ///
+    /// For use in construction contexts where no `ReactiveCtx` is available
+    /// (e.g. building a Tree inside MarkdownTableOfContents).
+    pub fn set_show_root_plain(&mut self, value: bool) {
+        self.show_root = value;
+    }
+
 
 
     /// Programmatically select a node: moves cursor and emits `TreeNodeSelected`.
@@ -349,6 +449,7 @@ impl Tree {
                         disabled: node.disabled,
                         expandable: node.allow_expand || !node.children.is_empty(),
                         component_classes: node.component_classes.clone(),
+                        data: node.data.clone(),
                         is_last_at_depth: visual_is_last,
                     });
                 }
@@ -458,6 +559,7 @@ impl Tree {
             ctx.post_message(Message::TreeNodeSelected(TreeNodeSelected {
                 index: self.selected,
                 label: node.label.clone(),
+                data: node.data.clone(),
             }));
         }
     }
@@ -470,6 +572,7 @@ impl Tree {
             ctx.post_message(Message::TreeNodeActivated(TreeNodeActivated {
                 index,
                 label: node.label.clone(),
+                data: node.data.clone(),
             }));
         }
     }
@@ -854,6 +957,41 @@ impl Tree {
         }
         classes.extend(node.component_classes.iter().cloned());
         classes
+    }
+
+    /// Render a tree node label, parsing Rich markup if present.
+    ///
+    /// Falls back to plain styled text if the label contains no markup or
+    /// if parsing fails. Mirrors Python's `rich.text.Text` label storage
+    /// where per-character styling is preserved.
+    fn render_label_markup(
+        label: &str,
+        base_style: rich_rs::Style,
+        console: &Console,
+    ) -> Vec<Segment> {
+        match rich_rs::markup::render(label, false) {
+            Ok(text) => {
+                // Merge the base label style (cursor/highlight/component) with
+                // any inline markup styles. The base style applies to unstyled
+                // portions; markup styles layer on top.
+                let opts = ConsoleOptions {
+                    size: (label.len().max(1) + 20, 1),
+                    max_width: label.len().max(1) + 20,
+                    no_wrap: true,
+                    ..console.options().clone()
+                };
+                let rendered: Vec<Segment> = text.render(console, &opts).into_iter().collect();
+                // Apply base style to segments that have no explicit style.
+                rendered
+                    .into_iter()
+                    .map(|seg| match seg.style {
+                        Some(s) => Segment::styled(seg.text, base_style + s),
+                        None => Segment::styled(seg.text, base_style),
+                    })
+                    .collect()
+            }
+            Err(_) => vec![Segment::styled(label.to_string(), base_style)],
+        }
     }
 
     fn twisty(node: &VisibleNode) -> &'static str {
@@ -1262,7 +1400,7 @@ impl Widget for Tree {
         self.pressed_activation_index = None;
     }
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
         let nodes = self.visible_nodes();
@@ -1384,8 +1522,17 @@ impl Widget for Tree {
                 let twisty = format!("{} ", Self::twisty(node));
                 row_segments.push(Segment::styled(twisty, row_label_style));
 
-                // 4. Label text.
-                row_segments.push(Segment::styled(node.label.clone(), row_label_style));
+                // 4. Label text (with Rich markup support).
+                //
+                // Mirrors Python's TreeNode which stores `rich.text.Text` objects
+                // with per-character styling. Parse Rich markup (e.g. `[b]name[/b]`)
+                // so json_tree can render bold keys like Python does.
+                let label_segs = Self::render_label_markup(
+                    &node.label,
+                    row_label_style,
+                    console,
+                );
+                row_segments.extend(label_segs);
 
                 // Pad/crop to width.
                 let line = adjust_line_length_no_bg(&row_segments, width);
@@ -1490,6 +1637,7 @@ mod tests {
             disabled: false,
             expandable: false,
             component_classes: Vec::new(),
+            data: None,
             is_last_at_depth: vec![true],
         };
         let classes = Tree::node_classes(&node, true, true, true);
@@ -1513,6 +1661,7 @@ mod tests {
                 "directory-tree--file".to_string(),
                 "directory-tree--extension".to_string(),
             ],
+            data: None,
             is_last_at_depth: vec![true],
         };
         let classes = Tree::node_classes(&node, false, false, false);
@@ -1544,7 +1693,8 @@ mod tests {
             messages[0].message,
             Message::TreeNodeActivated(TreeNodeActivated {
                 index: 0,
-                ref label
+                ref label,
+                ..
             }) if label == "Root"
         ));
 
@@ -1630,7 +1780,8 @@ mod tests {
             messages[0].message,
             Message::TreeNodeActivated(TreeNodeActivated {
                 index: 1,
-                ref label
+                ref label,
+                ..
             }) if label == "Second"
         ));
     }
@@ -1778,5 +1929,92 @@ mod tests {
         tree.set_selected(0, &mut ctx);
         assert!(ctx.has_changes(), "set_selected should record a change even for same value");
         assert!(ctx.changes()[0].flags.always_update);
+    }
+
+    // ── Phase 1 tests: root access, clear, reset, set_label, expand ──
+
+    #[test]
+    fn tree_root_mut_returns_first_root() {
+        let mut tree = Tree::new(vec![TreeNode::new("Root")]);
+        let root = tree.root_mut().expect("should have a root");
+        assert_eq!(root.label(), "Root");
+        root.set_label("NewRoot");
+        assert_eq!(tree.root().unwrap().label(), "NewRoot");
+    }
+
+    #[test]
+    fn tree_clear_preserves_root() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Root")
+                .with_child(TreeNode::new("A"))
+                .with_child(TreeNode::new("B")),
+        ]);
+        assert_eq!(tree.root().unwrap().children.len(), 2);
+        tree.clear();
+        // Root preserved, children cleared.
+        let root = tree.root().expect("root should survive clear()");
+        assert_eq!(root.label(), "Root");
+        assert!(root.children.is_empty());
+    }
+
+    #[test]
+    fn tree_reset_replaces_root() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Old").with_child(TreeNode::new("Child")),
+        ]);
+        tree.reset("Fresh");
+        let root = tree.root().expect("reset should create a root");
+        assert_eq!(root.label(), "Fresh");
+        assert!(root.children.is_empty());
+    }
+
+    #[test]
+    fn tree_node_set_label_mutates() {
+        let mut node = TreeNode::new("original");
+        assert_eq!(node.label(), "original");
+        node.set_label("changed");
+        assert_eq!(node.label(), "changed");
+    }
+
+    #[test]
+    fn tree_node_expand_collapse() {
+        let mut node = TreeNode::new("N");
+        // Nodes with children default to expanded.
+        node = node.with_child(TreeNode::new("C"));
+        assert!(node.is_expanded());
+        node.collapse();
+        assert!(!node.is_expanded());
+        node.expand();
+        assert!(node.is_expanded());
+    }
+
+    #[test]
+    fn tree_label_rich_markup_renders_bold() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let tree = Tree::new(vec![TreeNode::new("[b]key[/b]=value")]);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (40, 1);
+        options.max_width = 40;
+        options.max_height = 1;
+
+        let rendered = Widget::render(&tree, &console, &options);
+        let text: String = rendered.iter().map(|s| s.text.clone()).collect();
+        // Markup tags should be parsed, not rendered literally.
+        assert!(
+            !text.contains("[b]"),
+            "literal [b] tag should not appear: {text:?}"
+        );
+        assert!(
+            text.contains("key"),
+            "label text 'key' should appear: {text:?}"
+        );
+        assert!(
+            text.contains("value"),
+            "label text 'value' should appear: {text:?}"
+        );
     }
 }

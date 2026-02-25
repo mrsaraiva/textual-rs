@@ -651,6 +651,7 @@ pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>,
                         .hidden(!decl.show)
                         .with_key_display(format_binding_key_display(&decl.key))
                         .with_priority(decl.priority)
+                        .with_action(&decl.action)
                         .with_namespace(
                             decl.namespace
                                 .clone()
@@ -694,6 +695,7 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
                     .hidden(!decl.show)
                     .with_key_display(format_binding_key_display(&decl.key))
                     .with_priority(decl.priority)
+                    .with_action(&decl.action)
                     .with_namespace(
                         decl.namespace
                             .clone()

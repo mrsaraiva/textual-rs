@@ -68,6 +68,13 @@ pub struct SelectionListSelectedChanged;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToastDismissed;
 
+/// Posted by MarkdownViewer after `go()`, `back()`, or `forward()` navigation.
+///
+/// Mirrors Python's `MarkdownViewer.NavigatorUpdated`. The app can handle this
+/// to refresh bindings (e.g. dim back/forward at history ends via `check_action`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NavigatorUpdated;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TabsCleared;
 
@@ -282,12 +289,16 @@ pub struct HelpPanelFocusedHelpChanged {
 pub struct TreeNodeSelected {
     pub index: usize,
     pub label: String,
+    /// Optional user data from the selected TreeNode.
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TreeNodeActivated {
     pub index: usize,
     pub label: String,
+    /// Optional user data from the activated TreeNode.
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -313,6 +324,19 @@ pub struct TreeNodeExpanded {
 pub struct TreeNodeHighlighted {
     pub index: usize,
     pub label: String,
+}
+
+// ---------------------------------------------------------------------------
+// Per-message structs — MarkdownViewer
+// ---------------------------------------------------------------------------
+
+/// Posted by `MarkdownTableOfContents` when a TOC heading is selected/activated.
+///
+/// Mirrors Python's `Markdown.TableOfContentsSelected`. The `block_id` identifies the
+/// heading block in the document (e.g. `"h2--section-title"`).
+#[derive(Debug, Clone)]
+pub struct MarkdownTableOfContentsSelected {
+    pub block_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -708,6 +732,7 @@ pub enum Message {
     CommandPaletteClosed(CommandPaletteClosed),
     SelectionListSelectedChanged(SelectionListSelectedChanged),
     ToastDismissed(ToastDismissed),
+    NavigatorUpdated(NavigatorUpdated),
     TabsCleared(TabsCleared),
     // Input / text editing
     InputChanged(InputChanged),
@@ -756,6 +781,8 @@ pub enum Message {
     TreeNodeHighlighted(TreeNodeHighlighted),
     DirectoryTreeFileSelected(DirectoryTreeFileSelected),
     DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected),
+    // MarkdownViewer
+    MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected),
     // Overlay
     OverlaySetVisible(OverlaySetVisible),
     OverlaySetAnchor(OverlaySetAnchor),

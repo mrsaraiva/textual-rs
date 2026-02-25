@@ -2043,22 +2043,7 @@ fn apply_root_tree_virtual_content_size(root: &mut dyn Widget, tree: &WidgetTree
     let Some((virtual_w, virtual_h)) = root_tree_virtual_content_size(tree) else {
         return;
     };
-    let any = root as &mut dyn std::any::Any;
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::VerticalScroll>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::HorizontalScroll>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollableContainer>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(root) = any.downcast_mut::<crate::widgets::AppRoot>() {
-        root.set_virtual_content_size(virtual_w, virtual_h);
-    }
+    root.set_virtual_content_size(virtual_w, virtual_h);
 }
 
 fn apply_root_tree_virtual_content_size_in_tree(tree: &mut WidgetTree) {
@@ -2071,22 +2056,7 @@ fn apply_root_tree_virtual_content_size_in_tree(tree: &mut WidgetTree) {
     let Some(root_node) = tree.get_mut(root_id) else {
         return;
     };
-    let any = root_node.widget.as_mut() as &mut dyn std::any::Any;
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::VerticalScroll>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::HorizontalScroll>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollableContainer>() {
-        scroll.set_virtual_content_size(virtual_w, virtual_h);
-    }
-    if let Some(root) = any.downcast_mut::<crate::widgets::AppRoot>() {
-        root.set_virtual_content_size(virtual_w, virtual_h);
-    }
+    root_node.widget.set_virtual_content_size(virtual_w, virtual_h);
 }
 
 // ===========================================================================
@@ -2287,22 +2257,7 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             if !has_content_children {
                 node.layout_rect = viewport_rect;
             }
-            let any = node.widget.as_mut() as &mut dyn std::any::Any;
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
-                scroll.set_virtual_content_size(geometry.content_width, geometry.content_height);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::VerticalScroll>() {
-                scroll.set_virtual_content_size(geometry.content_width, geometry.content_height);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::HorizontalScroll>() {
-                scroll.set_virtual_content_size(geometry.content_width, geometry.content_height);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollableContainer>() {
-                scroll.set_virtual_content_size(geometry.content_width, geometry.content_height);
-            }
-            if let Some(root) = any.downcast_mut::<crate::widgets::AppRoot>() {
-                root.set_virtual_content_size(geometry.content_width, geometry.content_height);
-            }
+            node.widget.set_virtual_content_size(geometry.content_width, geometry.content_height);
         }
 
         if let Some(v_id) = scrollbar_children.vertical {
@@ -2698,22 +2653,7 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
 
         if let Some(node) = tree.get_mut(node_id) {
             node.widget.on_layout(content_w, content_h);
-            let any = node.widget.as_mut() as &mut dyn std::any::Any;
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollView>() {
-                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::VerticalScroll>() {
-                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::HorizontalScroll>() {
-                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
-            }
-            if let Some(scroll) = any.downcast_mut::<crate::widgets::ScrollableContainer>() {
-                scroll.set_virtual_content_size(virtual_content_w, virtual_content_h);
-            }
-            if let Some(root) = any.downcast_mut::<crate::widgets::AppRoot>() {
-                root.set_virtual_content_size(virtual_content_w, virtual_content_h);
-            }
+            node.widget.set_virtual_content_size(virtual_content_w, virtual_content_h);
         }
     }
 }

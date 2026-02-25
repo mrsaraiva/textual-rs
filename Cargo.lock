@@ -961,6 +961,7 @@ dependencies = [
  "regex",
  "rich-rs",
  "richtui-crossterm",
+ "serde_json",
  "slotmap",
  "textual-macros",
  "thiserror",

@@ -66,6 +66,10 @@ macro_rules! delegate_widget_to {
                 self.$field.on_layout(width, height);
             }
 
+            fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+                self.$field.set_virtual_content_size(width, height);
+            }
+
             fn on_event_capture(
                 &mut self,
                 event: &crate::event::Event,
@@ -105,6 +109,10 @@ macro_rules! delegate_widget_to {
 
             fn clips_descendants_to_content(&self) -> bool {
                 self.$field.clips_descendants_to_content()
+            }
+
+            fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
+                self.$field.scroll_viewport_size()
             }
 
             fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {

@@ -73,6 +73,14 @@ impl ScrollableContainer {
         self.inner.set_virtual_content_size(width, height);
     }
 
+    pub fn scroll_to(&mut self, offset_y: usize) {
+        self.inner.scroll_to(offset_y);
+    }
+
+    pub fn scroll_home(&mut self) {
+        self.inner.scroll_home();
+    }
+
     pub fn with_can_focus(mut self, can_focus: bool) -> Self {
         self.can_focus = can_focus;
         self
@@ -185,6 +193,10 @@ impl Widget for ScrollableContainer {
         self.inner.on_layout(width, height);
     }
 
+    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+        ScrollableContainer::set_virtual_content_size(self, width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         self.inner.on_event_capture(event, ctx);
     }
@@ -207,6 +219,10 @@ impl Widget for ScrollableContainer {
 
     fn clips_descendants_to_content(&self) -> bool {
         self.inner.clips_descendants_to_content()
+    }
+
+    fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
+        self.inner.scroll_viewport_size()
     }
 
     fn layout_height(&self) -> Option<usize> {

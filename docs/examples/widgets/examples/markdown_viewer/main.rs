@@ -2,14 +2,11 @@
 ///
 /// Demonstrates `MarkdownViewer`:
 /// - Shows a rich Markdown document with headings, tables, code blocks, and lists.
-/// - `show_table_of_contents=true` displays the TOC sidebar.
+/// - `show_table_of_contents=true` displays the TOC sidebar (docked left).
+/// - The viewer is a scroll container with a visible scrollbar.
 ///
 /// Python: `MarkdownViewer(EXAMPLE_MARKDOWN, show_table_of_contents=True)`.
 /// Rust: `MarkdownViewer::new(EXAMPLE_MARKDOWN).show_table_of_contents(true)`.
-///
-/// Navigation history (`go()`, `back()`, `forward()`) is not yet implemented.
-/// DEFERRED: MarkdownViewer navigation history — requires async document loading
-/// wired into the runtime event loop.
 use textual::prelude::*;
 
 const EXAMPLE_MARKDOWN: &str = r#"# Markdown Viewer

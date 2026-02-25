@@ -378,6 +378,14 @@ pub struct BindingHint {
     pub group: Option<String>,
     pub priority: bool,
     pub system: bool,
+    /// Action name from the binding declaration (e.g. `"back"`, `"forward"`).
+    /// Used by `check_action` to determine enabled/disabled state.
+    pub action: Option<String>,
+    /// Result of `check_action` for this binding:
+    /// - `Some(true)` — enabled (default, rendered normally)
+    /// - `Some(false)` — hidden (not shown in footer)
+    /// - `None` — disabled but visible (rendered dimmed in footer)
+    pub enabled: Option<bool>,
 }
 
 impl BindingHint {
@@ -392,7 +400,14 @@ impl BindingHint {
             group: None,
             priority: false,
             system: false,
+            action: None,
+            enabled: Some(true),
         }
+    }
+
+    pub fn with_action(mut self, action: impl Into<String>) -> Self {
+        self.action = Some(action.into());
+        self
     }
 
     pub fn hidden(mut self, hidden: bool) -> Self {

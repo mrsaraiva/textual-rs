@@ -362,6 +362,10 @@ impl Widget for AppRoot {
         self.clamp_offsets();
     }
 
+    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+        AppRoot::set_virtual_content_size(self, width, height);
+    }
+
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {

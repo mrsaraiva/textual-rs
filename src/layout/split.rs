@@ -1,5 +1,5 @@
 use crate::node_id::NodeId;
-use crate::style::{BoxSizing, OffsetValue};
+use crate::style::{BoxSizing, OffsetValue, Scalar};
 use crate::widget_tree::WidgetTree;
 
 use super::common::{get_node_style, resolve_scalar_to_cells};
@@ -38,16 +38,68 @@ pub(crate) fn carve_edge(
     let current_h = y1.saturating_sub(*y0);
 
     // Resolve child's content size from its style.
-    let height_is_explicit = style.height.is_some();
-    let width_is_explicit = style.width.is_some();
+    //
+    // For `Scalar::Auto`, use widget intrinsic dimensions (mirroring how
+    // `extract_child_spec` handles auto for flow children). This is critical
+    // for dock-left/right children with `width: auto` — without it, Auto
+    // resolves to 0 and the widget becomes invisible.
+    let height_is_explicit = matches!(style.height, Some(ref s) if !matches!(s, Scalar::Auto));
+    let width_is_explicit = matches!(style.width, Some(ref s) if !matches!(s, Scalar::Auto));
 
     let child_h = match style.height.as_ref() {
+        None => 1, // truly unset → 1 row for dock/split children
+        Some(Scalar::Auto) => {
+            // Use widget's intrinsic height, fall back to current available.
+            tree.get(child)
+                .and_then(|node| node.widget.layout_height())
+                .and_then(|h| u16::try_from(h).ok())
+                .unwrap_or(current_h)
+        }
         Some(s) => resolve_scalar_to_cells(s, current_h, viewport.1),
-        None => 1, // auto → 1 row for dock/split children
     };
     let child_w = match style.width.as_ref() {
+        None => current_w, // truly unset → full available width
+        Some(Scalar::Auto) => {
+            // Use widget's intrinsic width (content_width), fall back to
+            // layout_constraints max_width, then to current available.
+            let intrinsic = tree
+                .get(child)
+                .and_then(|node| node.widget.content_width())
+                .and_then(|w| u16::try_from(w).ok());
+            if let Some(w) = intrinsic {
+                w
+            } else {
+                let max_w = tree
+                    .get(child)
+                    .map(|node| node.widget.layout_constraints())
+                    .and_then(|c| c.max_width)
+                    .and_then(|w| u16::try_from(w).ok());
+                max_w.unwrap_or(current_w)
+            }
+        }
         Some(s) => resolve_scalar_to_cells(s, current_w, viewport.0),
-        None => current_w, // auto → full available width for dock/split children
+    };
+
+    // Apply min/max width constraints from CSS style.
+    let child_w = {
+        let mut w = child_w;
+        if let Some(ref s) = style.min_width {
+            w = w.max(resolve_scalar_to_cells(s, current_w, viewport.0));
+        }
+        if let Some(ref s) = style.max_width {
+            w = w.min(resolve_scalar_to_cells(s, current_w, viewport.0));
+        }
+        w
+    };
+    let child_h = {
+        let mut h = child_h;
+        if let Some(ref s) = style.min_height {
+            h = h.max(resolve_scalar_to_cells(s, current_h, viewport.1));
+        }
+        if let Some(ref s) = style.max_height {
+            h = h.min(resolve_scalar_to_cells(s, current_h, viewport.1));
+        }
+        h
     };
 
     let chrome_h = border_top + border_bottom + padding.top + padding.bottom;

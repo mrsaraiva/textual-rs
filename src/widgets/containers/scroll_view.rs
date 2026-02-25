@@ -1023,6 +1023,10 @@ impl Widget for ScrollView {
         }
     }
 
+    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+        ScrollView::set_virtual_content_size(self, width, height);
+    }
+
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
         if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
@@ -1575,6 +1579,16 @@ impl Widget for ScrollView {
 
     fn clips_descendants_to_content(&self) -> bool {
         true
+    }
+
+    fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
+        let vw = self.viewport_width.load(Ordering::Relaxed);
+        let vh = self.viewport_height.load(Ordering::Relaxed);
+        if vw == 0 || vh == 0 {
+            None
+        } else {
+            Some((vw, vh))
+        }
     }
 
     fn layout_height(&self) -> Option<usize> {

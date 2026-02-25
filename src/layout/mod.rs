@@ -1191,6 +1191,125 @@ mod tests {
         assert_eq!(remaining, Region::new(20, 3, 60, 45));
     }
 
+    // =========================================================================
+    // Dock auto-width tests (carve_edge Scalar::Auto handling)
+    // =========================================================================
+
+    #[test]
+    fn dock_left_auto_width_uses_content_width() {
+        // Widget with content_width() = Some(25) docked left with width: auto
+        // should get 25 columns, not 0 or full available.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
+                let mut s = Style::new().width(Scalar::Auto);
+                s.dock = Some(crate::style::Dock::Left);
+                s
+            }, 25),
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // Docked at left: 25x50 at (0,0).
+        assert_layout_rect(&tree, docked, 0, 0, 25, 50);
+        assert_eq!(remaining, Region::new(25, 0, 55, 50));
+    }
+
+    #[test]
+    fn dock_left_auto_width_falls_back_to_available() {
+        // Widget without content_width() (returns None) docked left with
+        // width: auto should fall back to current available width.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Sidebar", {
+                let mut s = Style::new().width(Scalar::Auto);
+                s.dock = Some(crate::style::Dock::Left);
+                s
+            }),
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // No intrinsic width → falls back to full available (80).
+        assert_layout_rect(&tree, docked, 0, 0, 80, 50);
+        assert_eq!(remaining, Region::new(80, 0, 0, 50));
+    }
+
+    #[test]
+    fn dock_left_explicit_width_unchanged() {
+        // Widget with explicit width: 20 (Cells) should still get 20,
+        // regardless of content_width.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
+                let mut s = Style::new().width(Scalar::Cells(20));
+                s.dock = Some(crate::style::Dock::Left);
+                s
+            }, 50), // intrinsic_width=50, but explicit Cells(20) should win
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // Docked at left: 20x50, NOT 50.
+        assert_layout_rect(&tree, docked, 0, 0, 20, 50);
+        assert_eq!(remaining, Region::new(20, 0, 60, 50));
+    }
+
+    #[test]
+    fn dock_top_auto_height_uses_intrinsic_height() {
+        // Widget with layout_height() = Some(5) docked top with height: auto
+        // should get 5 rows.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height("Header", {
+                let mut s = Style::new().height(Scalar::Auto);
+                s.dock = Some(crate::style::Dock::Top);
+                s
+            }, 5),
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // Docked at top: 80x5 at (0,0).
+        assert_layout_rect(&tree, docked, 0, 0, 80, 5);
+        assert_eq!(remaining, Region::new(0, 5, 80, 45));
+    }
+
+    #[test]
+    fn dock_left_auto_width_with_max_width_clamp() {
+        // Widget with content_width()=60 but max_width=40 — max_width should clamp.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
+                let mut s = Style::new().width(Scalar::Auto);
+                s.dock = Some(crate::style::Dock::Left);
+                s.max_width = Some(Scalar::Cells(40));
+                s
+            }, 60),
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // content_width=60 clamped to max_width=40.
+        assert_layout_rect(&tree, docked, 0, 0, 40, 50);
+        assert_eq!(remaining, Region::new(40, 0, 40, 50));
+    }
+
     #[test]
     fn dock_plus_layout_children() {
         let mut tree = WidgetTree::new();

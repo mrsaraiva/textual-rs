@@ -238,6 +238,7 @@ fn directory_tree_handles_forwarded_selection_messages() {
             message: Message::TreeNodeSelected(TreeNodeSelected {
                 index: 1,
                 label: "alpha.txt".to_string(),
+                data: None,
             }),
             control: None,
         },
@@ -262,6 +263,7 @@ fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
             message: Message::TreeNodeSelected(TreeNodeSelected {
                 index: 1,
                 label: "nested".to_string(),
+                data: None,
             }),
             control: None,
         },

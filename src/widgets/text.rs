@@ -1,7 +1,7 @@
 use rich_rs::markdown::Markdown as RichMarkdown;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 use std::collections::VecDeque;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::render::FrameBuffer;
 use crate::style::{Color, HorizontalAlign, parse_color_like};
@@ -211,6 +211,9 @@ impl Renderable for Label {
 #[derive(Debug)]
 pub struct Markdown {
     markup: String,
+    /// Shared content reference for parent-driven content updates (e.g. from MarkdownViewer).
+    /// When set, `on_layout()` syncs `self.markup` from this shared state before computing height.
+    shared_markup: Option<Arc<RwLock<String>>>,
     id: Option<String>,
     layout_width: usize,
     selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
@@ -227,6 +230,7 @@ impl Clone for Markdown {
             .unwrap_or_default();
         Self {
             markup: self.markup.clone(),
+            shared_markup: self.shared_markup.clone(),
             id: self.id.clone(),
             layout_width: self.layout_width,
             selection: self.selection,
@@ -247,6 +251,24 @@ impl Markdown {
     pub fn new(markup: impl Into<String>) -> Self {
         Self {
             markup: markup.into(),
+            shared_markup: None,
+            id: None,
+            layout_width: 0,
+            selection: None,
+            render_cache: RwLock::new(MarkdownRenderCache::default()),
+            styles: WidgetStyles::default(),
+        }
+    }
+
+    /// Create a Markdown widget with shared content driven by a parent widget.
+    ///
+    /// The parent (e.g. `MarkdownViewer`) writes new content into the `Arc<RwLock<String>>`,
+    /// and `on_layout()` syncs `self.markup` from it before the next height computation.
+    pub fn with_shared_markup(shared: Arc<RwLock<String>>) -> Self {
+        let initial = shared.read().map(|s| s.clone()).unwrap_or_default();
+        Self {
+            markup: initial,
+            shared_markup: Some(shared),
             id: None,
             layout_width: 0,
             selection: None,
@@ -778,6 +800,16 @@ impl Widget for Markdown {
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
+        // Sync content from shared state (e.g. MarkdownViewer's go()/back()/forward()).
+        if let Some(shared) = self.shared_markup.clone() {
+            if let Ok(current) = shared.read() {
+                if *current != self.markup {
+                    let new_content = current.clone();
+                    drop(current);
+                    self.set_markup(new_content);
+                }
+            }
+        }
         // Hidden/disconnected nodes can transiently receive width=0/1 during
         // tree display toggles. Keep the last stable width (>1) so wrapped-height
         // calculations remain stable across tab switches.

@@ -267,6 +267,8 @@ MarkdownTableOfContents > Tree {
 MarkdownViewer {
     height: 1fr;
     scrollbar-gutter: stable;
+    overflow-y: auto;
+    overflow-x: hidden;
     bg: $surface;
 }
 

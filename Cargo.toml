@@ -25,6 +25,7 @@ textual-macros = { path = "textual-macros" }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }
+serde_json = "1"
 
 [patch.crates-io]
 rich-rs = { path = "../rich-rs" }

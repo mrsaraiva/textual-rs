@@ -466,6 +466,11 @@ pub struct App {
     /// Pending highlight clear: (node_id, clear_at_instant).
     /// Set by HIGHLIGHT devtools command, cleared after timeout.
     pending_highlight_clear: Option<(NodeId, std::time::Instant)>,
+    /// Callback for `check_action` — set by `TextualAppAdapter` to forward calls
+    /// to the app's `TextualApp::check_action()` method. Used by
+    /// `dispatch_binding_hints_changed` to set enabled/disabled state on each
+    /// binding hint.
+    check_action_fn: Option<Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>>,
     /// Reactive context for app-level reactive fields.
     ///
     /// `TextualApp` hooks call `app.reactive_ctx()` to record field changes via
@@ -595,6 +600,7 @@ impl App {
             screen_stack: ScreenStack::new(),
             modes: HashMap::new(),
             current_mode: None,
+            check_action_fn: None,
             app_reactive_ctx: crate::reactive::ReactiveCtx::new(NodeId::default()),
             app_title: String::new(),
             app_sub_title: None,
@@ -1883,6 +1889,40 @@ impl App {
             .into_iter()
             .filter(|hint| hint.show)
             .collect()
+    }
+
+    /// Register the `check_action` callback. Called by `TextualAppAdapter` during
+    /// initialization to forward `check_action` calls to the app's trait method.
+    pub fn set_check_action_fn(
+        &mut self,
+        f: Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>,
+    ) {
+        self.check_action_fn = Some(f);
+    }
+
+    /// Force re-evaluation of `check_action` for all current bindings.
+    ///
+    /// Clears the cached binding hints so the next `dispatch_binding_hints_changed()`
+    /// call detects a change and re-broadcasts to the Footer. Mirrors Python
+    /// Textual's `App.refresh_bindings()`.
+    pub fn refresh_bindings(&mut self) {
+        self.last_binding_hints.clear();
+        self.last_binding_hint_sources.clear();
+    }
+
+    /// Apply `check_action` results to a set of binding hints.
+    ///
+    /// For each hint with an `action` field, calls the registered `check_action_fn`
+    /// and updates the `enabled` field accordingly.
+    pub(super) fn apply_check_action(&self, hints: &mut [BindingHint]) {
+        let Some(check_fn) = &self.check_action_fn else {
+            return;
+        };
+        for hint in hints.iter_mut() {
+            if let Some(action) = &hint.action {
+                hint.enabled = check_fn(action, &[]);
+            }
+        }
     }
 
     pub fn set_quit_keys(&mut self, quit_keys: Vec<KeyBind>) {

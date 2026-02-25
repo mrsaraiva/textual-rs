@@ -190,6 +190,19 @@ pub trait TextualApp: Send + 'static {
         Vec::new()
     }
 
+    /// Check if an action can be performed. Controls footer binding appearance.
+    ///
+    /// Return:
+    /// - `Some(true)` — action is enabled (default, rendered normally)
+    /// - `Some(false)` — action is hidden from footer
+    /// - `None` — action is disabled but shown dimmed in footer
+    ///
+    /// Mirrors Python Textual's `App.check_action()`. Called during binding hint
+    /// collection to set enabled/disabled state on each binding.
+    fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
+        Some(true)
+    }
+
     /// Optional app output returned after the runtime exits.
     fn take_exit_output(&mut self) -> Option<String> {
         None
@@ -822,6 +835,16 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_app_mount(&mut self, app: &mut App, ctx: &mut EventCtx) {
+        // Register check_action callback so the runtime can evaluate
+        // binding enabled/disabled state during hint collection.
+        let app_ref = Arc::clone(&self.app);
+        app.set_check_action_fn(Arc::new(move |action, params| {
+            app_ref
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .check_action(action, params)
+        }));
+
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())

@@ -49,6 +49,10 @@ impl VerticalScroll {
     pub fn set_virtual_content_size(&self, width: usize, height: usize) {
         self.inner.set_virtual_content_size(width, height);
     }
+
+    pub fn scroll_home(&mut self) {
+        self.inner.scroll_home();
+    }
 }
 
 impl Default for VerticalScroll {

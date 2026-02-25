@@ -4,41 +4,31 @@
 /// forward/back navigation history.
 ///
 /// Python: `MarkdownViewer.go(path)`, `back()`, `forward()`, `Navigator`,
-/// and `check_action()` to disable footer buttons at history ends.
-/// Rust: `MarkdownViewer::new(content)` with `back()`, `forward()`, `go()` methods
-/// and `navigator` field for history state.
+/// and `check_action()` to dim footer bindings at history ends.
+///
+/// Rust: `MarkdownViewer::register_content()` + `go()` for navigation,
+/// `check_action()` for dimming, `NavigatorUpdated` for refresh_bindings.
+use textual::message::{Message, NavigatorUpdated};
 use textual::prelude::*;
 
-const DEMO_MARKDOWN: &str = r#"# Markdown App
-
-A simple Markdown viewer.
-
-## Section One
-
-- Item 1
-- Item 2
-- Item 3
-
-## Section Two
-
-> Blockquote text here.
-
-## Code
-
-```rust
-fn main() {
-    println!("Hello, world!");
-}
-```
-"#;
+const DEMO_MD: &str = include_str!("demo.md");
+const EXAMPLE_MD: &str = include_str!("example.md");
 
 struct MarkdownApp {
-    show_toc: bool,
+    /// Cached navigator state for check_action (avoids querying widget).
+    navigator_at_start: bool,
+    navigator_at_end: bool,
+    /// Optional file path from CLI args.
+    initial_path: Option<String>,
 }
 
 impl MarkdownApp {
     fn new() -> Self {
-        Self { show_toc: true }
+        Self {
+            navigator_at_start: true,
+            navigator_at_end: true,
+            initial_path: None,
+        }
     }
 }
 
@@ -52,21 +42,46 @@ impl TextualApp for MarkdownApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let viewer = MarkdownViewer::new(DEMO_MARKDOWN).show_table_of_contents(self.show_toc);
+        let mut viewer = MarkdownViewer::new(DEMO_MD);
+        viewer.register_content("demo.md", DEMO_MD);
+        viewer.register_content("example.md", EXAMPLE_MD);
         AppRoot::new()
-            .with_child(viewer)
             .with_child(Footer::new())
+            .with_child(viewer)
+    }
+
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Load initial content: CLI arg path or demo.md.
+        if let Some(ref path) = self.initial_path {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
+                    "MarkdownViewer",
+                    |viewer| {
+                        viewer.register_content(path.clone(), content);
+                        viewer.go(path.clone());
+                    },
+                );
+            }
+        } else {
+            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
+                "MarkdownViewer",
+                |viewer| {
+                    viewer.go("demo.md");
+                },
+            );
+        }
     }
 
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         match key.name() {
             "t" => {
-                // Toggle the table of contents sidebar.
-                self.show_toc = !self.show_toc;
-                let show = self.show_toc;
+                // Python: self.markdown_viewer.show_table_of_contents = not ...
                 let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
                     "MarkdownViewer",
-                    |viewer| viewer.set_show_table_of_contents(show),
+                    |viewer| {
+                        let show = !viewer.is_showing_table_of_contents();
+                        viewer.set_show_table_of_contents(show);
+                    },
                 );
                 ctx.set_handled();
                 ctx.request_repaint();
@@ -74,30 +89,78 @@ impl TextualApp for MarkdownApp {
             "b" => {
                 let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
                     "MarkdownViewer",
-                    |viewer| viewer.back(),
+                    |viewer| {
+                        viewer.back();
+                    },
                 );
+                self.update_navigator_state(app);
+                app.refresh_bindings();
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "f" => {
                 let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
                     "MarkdownViewer",
-                    |viewer| viewer.forward(),
+                    |viewer| {
+                        viewer.forward();
+                    },
                 );
+                self.update_navigator_state(app);
+                app.refresh_bindings();
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             _ => {}
         }
     }
+
+    fn on_message_with_app(
+        &mut self,
+        app: &mut App,
+        message: &MessageEvent,
+        ctx: &mut EventCtx,
+    ) {
+        if let Message::NavigatorUpdated(NavigatorUpdated) = &message.message {
+            self.update_navigator_state(app);
+            app.refresh_bindings();
+            ctx.request_repaint();
+        }
+    }
+
+    fn check_action(&self, action: &str, _parameters: &[String]) -> Option<bool> {
+        match action {
+            "forward" if self.navigator_at_end => None,
+            "back" if self.navigator_at_start => None,
+            _ => Some(true),
+        }
+    }
+}
+
+impl MarkdownApp {
+    fn update_navigator_state(&mut self, app: &mut App) {
+        let mut at_start = true;
+        let mut at_end = true;
+        let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+            at_start = viewer.navigator.at_start();
+            at_end = viewer.navigator.at_end();
+        });
+        self.navigator_at_start = at_start;
+        self.navigator_at_end = at_end;
+    }
 }
 
 fn main() -> textual::Result<()> {
-    run_sync(MarkdownApp::new())
+    let mut app = MarkdownApp::new();
+    if let Some(path) = std::env::args().nth(1) {
+        if std::path::Path::new(&path).exists() {
+            app.initial_path = Some(path);
+        }
+    }
+    run_sync(app)
 }
 
 // ---------------------------------------------------------------------------
-// Regression tests (DG-02)
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -121,16 +184,40 @@ mod tests {
     }
 
     #[test]
-    fn show_toc_starts_true() {
-        let app = MarkdownApp::new();
-        assert!(app.show_toc);
+    fn markdown_check_action_disables_back_at_start() {
+        let app = MarkdownApp {
+            navigator_at_start: true,
+            navigator_at_end: false,
+            initial_path: None,
+        };
+        assert_eq!(app.check_action("back", &[]), None); // dimmed
+        assert_eq!(app.check_action("forward", &[]), Some(true)); // enabled
     }
 
     #[test]
-    fn demo_markdown_has_headings() {
-        let viewer = MarkdownViewer::new(DEMO_MARKDOWN);
-        let headings = viewer.extract_headings();
-        assert!(!headings.is_empty());
-        assert_eq!(headings[0], (1, "Markdown App".to_string()));
+    fn markdown_check_action_disables_forward_at_end() {
+        let app = MarkdownApp {
+            navigator_at_start: false,
+            navigator_at_end: true,
+            initial_path: None,
+        };
+        assert_eq!(app.check_action("forward", &[]), None); // dimmed
+        assert_eq!(app.check_action("back", &[]), Some(true)); // enabled
+    }
+
+    #[test]
+    fn markdown_loads_demo_md_content() {
+        let mut viewer = MarkdownViewer::new("");
+        viewer.register_content("demo.md", DEMO_MD);
+        assert!(viewer.go("demo.md"));
+        assert!(!viewer.extract_headings().is_empty());
+    }
+
+    #[test]
+    fn markdown_loads_example_md_content() {
+        let mut viewer = MarkdownViewer::new("");
+        viewer.register_content("example.md", EXAMPLE_MD);
+        assert!(viewer.go("example.md"));
+        assert!(!viewer.extract_headings().is_empty());
     }
 }

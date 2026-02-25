@@ -752,6 +752,7 @@ mod tests {
                 message: Message::TreeNodeSelected(TreeNodeSelected {
                     index: 1,
                     label: "alpha.txt".to_string(),
+                    data: None,
                 }),
                 control: None,
             },
@@ -784,6 +785,7 @@ mod tests {
                 message: Message::TreeNodeSelected(TreeNodeSelected {
                     index: 1,
                     label: "nested".to_string(),
+                    data: None,
                 }),
                 control: None,
             },

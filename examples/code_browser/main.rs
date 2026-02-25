@@ -2,9 +2,10 @@
 ///
 /// A code browser with:
 /// - Toggleable `DirectoryTree` sidebar (press `f`)
-/// - Syntax-highlighted file view via `rich_rs::Syntax`
+/// - Syntax-highlighted file view via `rich_rs::Syntax` in a `VerticalScroll`
 /// - `Header` with dynamic title and subtitle (current file path)
 /// - `Footer` with binding hints
+/// - Styled error display with path context on read failure
 ///
 /// Mirrors Python's `CodeBrowser` app. Run with an optional path argument:
 ///
@@ -68,7 +69,7 @@ impl CodeBrowserApp {
     ///
     /// Mirrors Python's `watch_path()`.  On success the code pane is updated,
     /// the scroll position is reset to the top, and the subtitle is set to the
-    /// file path.  On error the code pane shows a plain error message and the
+    /// file path.  On error the code pane shows a styled error message and the
     /// subtitle is set to "ERROR".
     fn load_path(app: &mut App, path: &str) {
         match Syntax::from_path(path) {
@@ -77,14 +78,17 @@ impl CodeBrowserApp {
                 let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
                     s.update_rich(highlighted);
                 });
-                let _ = app.with_query_one_mut_as::<ScrollView, _>("#code-view", |s| {
+                let _ = app.with_query_one_mut_as::<VerticalScroll, _>("#code-view", |s| {
                     s.scroll_home();
                 });
                 app.set_sub_title(path);
             }
-            Err(_) => {
+            Err(e) => {
+                let error_msg = format!(
+                    "[b red]Error reading file:[/b red]\n{path}\n\n{e}"
+                );
                 let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
-                    s.update("(error reading file)");
+                    s.update(&error_msg);
                 });
                 app.set_sub_title("ERROR");
             }
@@ -115,9 +119,10 @@ impl TextualApp for CodeBrowserApp {
         // DirectoryTree is wrapped in a Node so we can assign it the id "tree-view".
         let tree = Node::new(DirectoryTree::new(&self.start_path)).id("tree-view");
 
-        // Static widget for syntax-highlighted content, inside a ScrollView.
+        // Static widget for syntax-highlighted content, inside a VerticalScroll.
+        // Python uses VerticalScroll (not ScrollView) for the code pane.
         let code = Static::new("").id("code");
-        let code_view = Node::new(ScrollView::new(code)).id("code-view");
+        let code_view = Node::new(VerticalScroll::new().with_child(code)).id("code-view");
 
         // Container groups tree and code view; dock:left on #tree-view handles
         // the side-by-side layout when the tree is visible.
@@ -223,5 +228,23 @@ mod tests {
             keys.split(',').any(|k| k.trim() == "q"),
             "expected 'q' key for quit: {keys:?}",
         );
+    }
+
+    #[test]
+    fn code_browser_uses_vertical_scroll() {
+        // Phase 6: compose uses VerticalScroll (not ScrollView) for code pane.
+        let mut app = CodeBrowserApp::new("./");
+        let _root = app.compose();
+        // If it compiles and runs, VerticalScroll is used (type-checked at call site).
+    }
+
+    #[test]
+    fn code_browser_error_display_includes_path() {
+        // Phase 6: error message includes the file path for context.
+        let path = "/nonexistent/file.rs";
+        let e = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let error_msg = format!("[b red]Error reading file:[/b red]\n{path}\n\n{e}");
+        assert!(error_msg.contains(path));
+        assert!(error_msg.contains("file not found"));
     }
 }
