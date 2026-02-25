@@ -68,10 +68,10 @@ pub struct SelectionListSelectedChanged;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToastDismissed;
 
-/// Posted by MarkdownViewer after `go()`, `back()`, or `forward()` navigation.
+/// Posted when markdown navigation state changes.
 ///
-/// Mirrors Python's `MarkdownViewer.NavigatorUpdated`. The app can handle this
-/// to refresh bindings (e.g. dim back/forward at history ends via `check_action`).
+/// Apps/widgets can emit this to refresh bindings (e.g. dim back/forward at
+/// history ends via `check_action`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NavigatorUpdated;
 

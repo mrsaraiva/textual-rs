@@ -1727,7 +1727,8 @@ mod tests {
         let mut sv = ScrollView::new(Label::new("content"));
         // Extract child to enter tree mode.
         let children = sv.take_composed_children();
-        assert_eq!(children.len(), 1);
+        // Tree mode exposes content + dedicated scrollbar children.
+        assert_eq!(children.len(), 4);
         assert!(sv.child_extracted);
 
         // Simulate content larger than viewport so scrollbar appears.

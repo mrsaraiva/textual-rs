@@ -3,6 +3,7 @@ use textual::css::set_style_context;
 use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::node_id::NodeId;
 use textual::prelude::*;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::render::FrameBuffer;
 use textual::style::Color;
 
@@ -17,10 +18,10 @@ fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::Conso
 #[test]
 fn header_renders_title_and_subtitle() {
     let console = Console::new();
-    let options = options_for(&console, 40, 1);
-    let header = Header::new().title("Keys").subtitle("Diagnostics");
+    let mut header = Header::new().title("Keys").subtitle("Diagnostics");
+    let mut tree = build_widget_tree_from_root(&mut header).expect("tree should build");
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &header, None);
+    let buf = render_tree_to_frame(&mut tree, &mut header, &console, 40, 1);
     let line = &buf.as_plain_lines()[0];
     assert!(line.contains("Keys"));
     assert!(line.contains("Diagnostics"));
@@ -479,13 +480,13 @@ fn header_icon_click_does_not_toggle_tall() {
 #[test]
 fn header_can_render_clock() {
     let console = Console::new();
-    let options = options_for(&console, 80, 1);
-    let header = Header::new()
+    let mut header = Header::new()
         .title("Textual Keys")
         .show_clock(true)
         .time_format("%H:%M:%S");
+    let mut tree = build_widget_tree_from_root(&mut header).expect("tree should build");
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &header, None);
+    let buf = render_tree_to_frame(&mut tree, &mut header, &console, 80, 1);
     let line = &buf.as_plain_lines()[0];
     assert!(line.contains(":"));
 }

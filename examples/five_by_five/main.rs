@@ -205,11 +205,7 @@ impl GameState {
 }
 
 fn plural(n: usize) -> &'static str {
-    if n == 1 {
-        ""
-    } else {
-        "s"
-    }
+    if n == 1 { "" } else { "s" }
 }
 
 // ---------------------------------------------------------------------------
@@ -477,11 +473,7 @@ impl Widget for HelpRoot {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(
-            &ScrollView::new(Markdown::new(HELP_TEXT)),
-            console,
-            options,
-        )
+        Widget::render(&ScrollView::new(Markdown::new(HELP_TEXT)), console, options)
     }
 
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
@@ -549,8 +541,7 @@ impl FiveByFiveApp {
             h.set_moves(moves);
             h.set_filled(filled);
         });
-        let _ =
-            app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
+        let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
     }
 
     /// Update specific cells after a move.
@@ -650,10 +641,10 @@ impl TextualApp for FiveByFiveApp {
                     self.sync_cells(app, &affected);
                     if self.state.won {
                         let moves = self.state.moves;
-                        let _ = app.with_query_one_mut_as::<WinnerMessage, _>(
-                            "WinnerMessage",
-                            |w| w.show(moves),
-                        );
+                        let _ = app
+                            .with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| {
+                                w.show(moves)
+                            });
                     }
                 }
                 true

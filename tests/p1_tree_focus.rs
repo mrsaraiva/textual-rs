@@ -859,8 +859,36 @@ fn p1g13_buttons_advanced_like_chain_focus_transfer_is_single_owner() {
         leaves.len()
     );
 
-    let left_a = leaves[0];
-    let right_a = leaves[2];
+    let mut left_a = None;
+    let mut right_a = None;
+    for leaf in leaves {
+        let before_len = sink.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let outcome =
+            dispatch_event_to_target_tree(&mut tree, leaf, &Event::Focus(FocusEvent { node: leaf }));
+        let focused = focused_node_id_tree(&tree);
+        let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let new_events = &events[before_len..];
+        if outcome.handled && focused == Some(leaf) {
+            if new_events.iter().any(|event| event == "left_a:true") {
+                left_a = Some(leaf);
+            }
+            if new_events.iter().any(|event| event == "right_a:true") {
+                right_a = Some(leaf);
+            }
+        }
+        if let Some(current) = focused {
+            dispatch_event_to_target_tree(
+                &mut tree,
+                current,
+                &Event::Blur(BlurEvent { node: current }),
+            );
+        }
+        if left_a.is_some() && right_a.is_some() {
+            break;
+        }
+    }
+    let left_a = left_a.expect("left_a probe node should be discoverable in tree leaves");
+    let right_a = right_a.expect("right_a probe node should be discoverable in tree leaves");
 
     dispatch_event_to_target_tree(
         &mut tree,

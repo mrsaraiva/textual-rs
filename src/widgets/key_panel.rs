@@ -671,35 +671,26 @@ mod tests {
             .map(|index| FooterBinding::new(format!("k{index:02}"), format!("item {index:02}")))
             .collect::<Vec<_>>();
         let mut panel = KeyPanel::new().with_bindings(bindings);
+        let _ = panel.take_composed_children();
         let _ = panel.render(&console, &options);
+        assert_eq!(panel.offset_y, 0);
 
-        let id = NodeId::default();
-        let mut down_ctx = EventCtx::default();
-        panel.on_event(
-            &Event::MouseDown(crate::event::MouseDownEvent {
-                target: id,
-                screen_x: 31,
-                screen_y: 1,
-                x: 31,
-                y: 1,
-            }),
-            &mut down_ctx,
+        let mut ctx = EventCtx::default();
+        panel.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
         );
-        assert!(down_ctx.handled());
-
-        let mut up_ctx = EventCtx::default();
-        panel.on_event(
-            &Event::MouseUp(crate::event::MouseUpEvent {
-                target: Some(id),
-                screen_x: 31,
-                screen_y: 1,
-                x: 31,
-                y: 1,
-            }),
-            &mut up_ctx,
-        );
-        assert!(up_ctx.handled());
-        assert!(up_ctx.repaint_requested());
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        assert!(panel.offset_y > 0);
     }
 
     #[test]

@@ -1,5 +1,4 @@
 use rich_rs::Console;
-use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -97,20 +96,24 @@ fn key_panel_supports_scrollbar_drag() {
     let before_lines = before.as_plain_lines();
     assert!(before_lines.iter().all(|line| !line.contains("item 16")));
 
+    let _ = panel.take_composed_children();
+    let _ = panel.render(&console, &options);
+
     let mut ctx = EventCtx::default();
-    panel.on_event(
-        &Event::MouseDown(MouseDownEvent {
-            target: NodeId::default(),
-            screen_x: 31,
-            screen_y: 1,
-            x: 31,
-            y: 1,
-        }),
+    panel.on_message(
+        &MessageEvent {
+            sender: NodeId::default(),
+            message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 10.0,
+                animate: false,
+            }),
+            control: None,
+        },
         &mut ctx,
     );
     assert!(ctx.handled());
-
-    assert!(panel.on_mouse_move(31, 5));
+    assert!(ctx.repaint_requested());
 
     let after = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let after_lines = after.as_plain_lines();

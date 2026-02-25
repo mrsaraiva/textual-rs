@@ -358,8 +358,6 @@ impl Tree {
         self.show_root = value;
     }
 
-
-
     /// Programmatically select a node: moves cursor and emits `TreeNodeSelected`.
     pub fn select_node(&mut self, node_index: usize, ctx: &mut EventCtx) {
         let nodes = self.visible_nodes();
@@ -794,9 +792,7 @@ impl Tree {
 
         // No next sibling found — climb to parent's next sibling (Python semantics).
         if info.path.len() > 1 {
-            if let Some(parent_idx) =
-                nodes.iter().position(|n| n.path.as_slice() == parent_path)
-            {
+            if let Some(parent_idx) = nodes.iter().position(|n| n.path.as_slice() == parent_path) {
                 // Find parent's next sibling.
                 let parent_depth = nodes[parent_idx].depth;
                 let parent_parent_path: Vec<usize> = if parent_path.len() > 1 {
@@ -969,6 +965,11 @@ impl Tree {
         base_style: rich_rs::Style,
         console: &Console,
     ) -> Vec<Segment> {
+        // Avoid parsing arbitrary bracketed labels as markup.
+        // Parse only when the label has an explicit closing tag pattern.
+        if !(label.contains('[') && label.contains("[/")) {
+            return vec![Segment::styled(label.to_string(), base_style)];
+        }
         match rich_rs::markup::render(label, false) {
             Ok(text) => {
                 // Merge the base label style (cursor/highlight/component) with
@@ -1441,7 +1442,11 @@ impl Widget for Tree {
                 let hovered = self.hovered_index == Some(index);
 
                 // Row background style: use highlight-line for hovered rows.
-                let row_bg_style = if hovered { highlight_line_style } else { base_style };
+                let row_bg_style = if hovered {
+                    highlight_line_style
+                } else {
+                    base_style
+                };
 
                 // Pick guide style for this row.
                 let row_guide_style = if highlighted && self.focused {
@@ -1478,7 +1483,11 @@ impl Widget for Tree {
                 let marker = if highlighted { "› " } else { "  " };
                 row_segments.push(Segment::styled(
                     marker.to_string(),
-                    if highlighted { cursor_style } else { row_bg_style },
+                    if highlighted {
+                        cursor_style
+                    } else {
+                        row_bg_style
+                    },
                 ));
 
                 // 2. Guide prefix segments (per-depth styled).
@@ -1527,11 +1536,7 @@ impl Widget for Tree {
                 // Mirrors Python's TreeNode which stores `rich.text.Text` objects
                 // with per-character styling. Parse Rich markup (e.g. `[b]name[/b]`)
                 // so json_tree can render bold keys like Python does.
-                let label_segs = Self::render_label_markup(
-                    &node.label,
-                    row_label_style,
-                    console,
-                );
+                let label_segs = Self::render_label_markup(&node.label, row_label_style, console);
                 row_segments.extend(label_segs);
 
                 // Pad/crop to width.
@@ -1539,7 +1544,8 @@ impl Widget for Tree {
                 out.extend(line);
             } else {
                 // Empty row beyond visible nodes.
-                let line = adjust_line_length_no_bg(&[Segment::styled(String::new(), base_style)], width);
+                let line =
+                    adjust_line_length_no_bg(&[Segment::styled(String::new(), base_style)], width);
                 out.extend(line);
             }
             if row + 1 < height {
@@ -1927,7 +1933,10 @@ mod tests {
         let mut tree = Tree::new(vec![TreeNode::new("A"), TreeNode::new("B")]);
         let mut ctx = ReactiveCtx::new(NodeId::default());
         tree.set_selected(0, &mut ctx);
-        assert!(ctx.has_changes(), "set_selected should record a change even for same value");
+        assert!(
+            ctx.has_changes(),
+            "set_selected should record a change even for same value"
+        );
         assert!(ctx.changes()[0].flags.always_update);
     }
 
@@ -2015,6 +2024,27 @@ mod tests {
         assert!(
             text.contains("value"),
             "label text 'value' should appear: {text:?}"
+        );
+    }
+
+    #[test]
+    fn tree_label_plain_brackets_render_literally() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let tree = Tree::new(vec![TreeNode::new("[not-markup] value")]);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (40, 1);
+        options.max_width = 40;
+        options.max_height = 1;
+
+        let rendered = Widget::render(&tree, &console, &options);
+        let text: String = rendered.iter().map(|s| s.text.clone()).collect();
+        assert!(
+            text.contains("[not-markup]"),
+            "plain bracketed labels should render literally: {text:?}"
         );
     }
 }

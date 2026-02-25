@@ -445,7 +445,11 @@ mod tests {
         let _ = switcher.take_composed_children(); // enter arena tree mode
         assert_eq!(switcher.child_display_for_tree(0), Some(false), "a hidden");
         assert_eq!(switcher.child_display_for_tree(1), Some(true), "b visible");
-        assert_eq!(switcher.child_display_for_tree(2), Some(false), "oob hidden");
+        assert_eq!(
+            switcher.child_display_for_tree(2),
+            Some(false),
+            "oob hidden"
+        );
     }
 
     #[test]

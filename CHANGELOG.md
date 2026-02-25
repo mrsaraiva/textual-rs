@@ -7,6 +7,45 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-25 (action parsing, header fix, outline clip, MarkdownViewer slug IDs)
+
+- **feat(event): BindingHint action parsing — structured action_name/action_parameters**
+  - `with_action()` now parses action strings (e.g. `"app.push_screen('settings')"`) into
+    `action_name = "push_screen"` and `action_parameters = ["settings"]`.
+  - `apply_check_action()` passes the parsed name and parameters to `check_fn`, enabling
+    widgets to enable/disable bindings based on action arguments.
+
+- **fix(widgets): Header — icon lane click no longer toggles tall mode (Python parity)**
+  - Track `press_in_toggle_zone` (x > 1) on mousedown; only toggle tall if both press
+    and release occurred in the toggle zone, matching Python behavior.
+
+- **fix(runtime): paint_outline clip rect expansion**
+  - Expand clip rect by 1 cell on each side so right/bottom outline edges are not
+    clipped when descendants are clipped to their content box.
+
+- **feat(widgets): MarkdownViewer — slug-based heading block_id + shared headings**
+  - Headings now carry stable slug IDs (e.g. `"hello-world"`) instead of numeric indices.
+  - `slugify_heading()` generates GitHub-style slug IDs with deduplication.
+  - `parse_headings()` returns `(level, title, block_id, line_idx)` tuples.
+  - `heading_line_offset()` takes block_id string for TOC click-to-scroll.
+  - Shared headings via `Arc<RwLock<Vec<HeadingEntry>>>` between MarkdownViewer and TOC.
+  - `MarkdownTableOfContents::with_shared_headings()` constructor; TOC renders from
+    internal tree (no longer exports composed children).
+
+- **fix(widgets): Tree — skip markup parsing for non-markup labels**
+  - Labels without `[/` are rendered as plain text, avoiding spurious markup
+    interpretation of bracket characters in TOC headings.
+
+- **feat(examples): Markdown demo — message-driven navigation state updates**
+  - `go()`/`back()`/`forward()` now post `NavigatorUpdated` via `ctx.post_message()`
+    instead of calling `update_navigator_state()` directly.
+
+- **fix(tests): update scrollbar and tree tests for arena-tree scrollbar children**
+  - DataTable, KeyPanel, Log tests use `ScrollbarScrollTo` messages instead of mouse events.
+  - ScrollView/VerticalScroll/HorizontalScroll child counts updated for dedicated
+    scrollbar children. Header tests use `render_tree_to_frame()`.
+  - Tree focus test discovers nodes dynamically instead of hardcoded indices.
+
 ### 2026-02-25 (MarkdownViewer — scrollbar + content propagation + widget parity)
 
 - **feat(widgets): MarkdownViewer — shared-markup content propagation for scrollbar support**

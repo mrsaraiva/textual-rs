@@ -4018,11 +4018,8 @@ impl App {
         let mut style_requests = Vec::new();
         for (node_id, current_style) in &current_styles {
             if let Some(previous_style) = self.style_snapshot_cache.get(node_id) {
-                let (nr, sr) = transition_requests_for_style_change(
-                    *node_id,
-                    previous_style,
-                    current_style,
-                );
+                let (nr, sr) =
+                    transition_requests_for_style_change(*node_id, previous_style, current_style);
                 numeric_requests.extend(nr);
                 style_requests.extend(sr);
             }
@@ -5717,8 +5714,7 @@ mod tests {
             },
         ]);
 
-        let (requests, style_requests) =
-            transition_requests_for_style_change(target, &old, &new);
+        let (requests, style_requests) = transition_requests_for_style_change(target, &old, &new);
         assert!(style_requests.is_empty(), "opacity is a numeric property");
         assert_eq!(
             requests.len(),
@@ -5753,8 +5749,7 @@ mod tests {
             delay: std::time::Duration::ZERO,
         }]);
 
-        let (requests, style_requests) =
-            transition_requests_for_style_change(target, &old, &new);
+        let (requests, style_requests) = transition_requests_for_style_change(target, &old, &new);
         assert!(style_requests.is_empty(), "offset_y is a numeric property");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].attribute, "offset_y");
@@ -5784,8 +5779,15 @@ mod tests {
 
         let (numeric, style) = transition_requests_for_style_change(target, &old, &new);
 
-        assert!(numeric.is_empty(), "bg is a style-value property, not numeric");
-        assert_eq!(style.len(), 1, "should emit one StyleAnimationRequest for bg");
+        assert!(
+            numeric.is_empty(),
+            "bg is a style-value property, not numeric"
+        );
+        assert_eq!(
+            style.len(),
+            1,
+            "should emit one StyleAnimationRequest for bg"
+        );
         assert_eq!(style[0].target, target);
         assert_eq!(style[0].property, "bg");
         assert_eq!(style[0].from, StyleValue::Color(Color::rgb(0, 0, 0)));
@@ -5852,7 +5854,10 @@ mod tests {
 
         let (numeric, style) = transition_requests_for_style_change(target, &old, &new);
         assert!(numeric.is_empty());
-        assert!(style.is_empty(), "identical values should not produce animation requests");
+        assert!(
+            style.is_empty(),
+            "identical values should not produce animation requests"
+        );
     }
 
     #[test]
@@ -5871,11 +5876,7 @@ mod tests {
         assert_eq!(style.fg, Some(Color::rgb(4, 5, 6)));
 
         // Scalar fields
-        apply_style_value_to_property(
-            &mut style,
-            "width",
-            &StyleValue::Scalar(Scalar::Cells(42)),
-        );
+        apply_style_value_to_property(&mut style, "width", &StyleValue::Scalar(Scalar::Cells(42)));
         assert_eq!(style.width, Some(Scalar::Cells(42)));
 
         apply_style_value_to_property(
@@ -5886,7 +5887,12 @@ mod tests {
         assert_eq!(style.height, Some(Scalar::Percent(75.0)));
 
         // Spacing fields
-        let sp = Spacing { top: 2, right: 4, bottom: 2, left: 4 };
+        let sp = Spacing {
+            top: 2,
+            right: 4,
+            bottom: 2,
+            left: 4,
+        };
         apply_style_value_to_property(&mut style, "margin", &StyleValue::Spacing(sp));
         assert_eq!(style.margin, Some(sp));
 

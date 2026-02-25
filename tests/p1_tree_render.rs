@@ -450,8 +450,8 @@ fn p1g15b_vertical_scroll_alias_preserves_structure() {
     let root_id = tree.root().unwrap();
     assert_eq!(
         tree.children(root_id).len(),
-        2,
-        "VerticalScroll should have 2 children in tree"
+        5,
+        "VerticalScroll should expose body + tree-mode scrollbar children in tree"
     );
 }
 
@@ -471,8 +471,8 @@ fn p1g15b_horizontal_scroll_alias_preserves_structure() {
     let root_id = tree.root().unwrap();
     assert_eq!(
         tree.children(root_id).len(),
-        2,
-        "HorizontalScroll should have 2 children in tree"
+        5,
+        "HorizontalScroll should expose body + tree-mode scrollbar children in tree"
     );
 }
 
@@ -492,8 +492,8 @@ fn p1g15b_scrollable_container_alias_preserves_structure() {
     let root_id = tree.root().unwrap();
     assert_eq!(
         tree.children(root_id).len(),
-        2,
-        "ScrollableContainer should have 2 children in tree"
+        5,
+        "ScrollableContainer should expose body + tree-mode scrollbar children in tree"
     );
 }
 

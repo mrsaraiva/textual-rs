@@ -1339,6 +1339,15 @@ fn paint_outline(
     let Some(paint_clip) = clip.intersect(frame_clip) else {
         return;
     };
+    // Outline paints just outside the layout rect. Expand the clip by one cell
+    // so right/bottom edges are not dropped when descendants are clipped to
+    // their content box.
+    let paint_clip = ClipRect {
+        x0: paint_clip.x0.saturating_sub(1),
+        y0: paint_clip.y0.saturating_sub(1),
+        x1: paint_clip.x1.saturating_add(1),
+        y1: paint_clip.y1.saturating_add(1),
+    };
 
     let fallback_bg =
         crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
@@ -2056,7 +2065,9 @@ fn apply_root_tree_virtual_content_size_in_tree(tree: &mut WidgetTree) {
     let Some(root_node) = tree.get_mut(root_id) else {
         return;
     };
-    root_node.widget.set_virtual_content_size(virtual_w, virtual_h);
+    root_node
+        .widget
+        .set_virtual_content_size(virtual_w, virtual_h);
 }
 
 // ===========================================================================
@@ -2257,7 +2268,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             if !has_content_children {
                 node.layout_rect = viewport_rect;
             }
-            node.widget.set_virtual_content_size(geometry.content_width, geometry.content_height);
+            node.widget
+                .set_virtual_content_size(geometry.content_width, geometry.content_height);
         }
 
         if let Some(v_id) = scrollbar_children.vertical {
@@ -2653,7 +2665,8 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
 
         if let Some(node) = tree.get_mut(node_id) {
             node.widget.on_layout(content_w, content_h);
-            node.widget.set_virtual_content_size(virtual_content_w, virtual_content_h);
+            node.widget
+                .set_virtual_content_size(virtual_content_w, virtual_content_h);
         }
     }
 }

@@ -93,7 +93,12 @@ fn make_word_markdown(word: &str) -> String {
              *(Real port would query https://api.dictionaryapi.dev/api/v2/entries/en/{word})*"
         ),
         Some((w, part_of_speech, definitions)) => {
-            let mut lines = vec![format!("# {w}"), String::new(), format!("_{part_of_speech}_"), String::new()];
+            let mut lines = vec![
+                format!("# {w}"),
+                String::new(),
+                format!("_{part_of_speech}_"),
+                String::new(),
+            ];
             for def in *definitions {
                 lines.push(format!(" - {def}"));
             }
@@ -133,10 +138,8 @@ impl TextualApp for DictionaryApp {
                     .id("dictionary-search"),
             )
             .with_child(
-                Node::new(ScrollView::new(
-                    Markdown::new("").with_id("results"),
-                ))
-                .id("results-container"),
+                Node::new(ScrollView::new(Markdown::new("").with_id("results")))
+                    .id("results-container"),
             )
     }
 
@@ -153,9 +156,7 @@ impl TextualApp for DictionaryApp {
             // Clear results immediately when the input is empty.
             *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(String::new());
             // Post a synthetic "clear" — reuse the worker result path.
-            ctx.request_exclusive_worker_task("lookup_word", Some("clear"), move |_token| {
-                Ok(())
-            });
+            ctx.request_exclusive_worker_task("lookup_word", Some("clear"), move |_token| Ok(()));
         } else {
             // @work(exclusive=True) semantics: cancel any previous in-flight lookup.
             ctx.request_exclusive_worker_task("lookup_word", Some("lookup"), move |token| {
@@ -174,17 +175,11 @@ impl TextualApp for DictionaryApp {
         ctx.request_repaint();
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::WorkerStateChanged(w) = &message.message {
             if matches!(w.state, WorkerState::Success) {
                 let markdown = {
-                    let mut guard =
-                        self.lookup_result.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut guard = self.lookup_result.lock().unwrap_or_else(|e| e.into_inner());
                     guard.take()
                 };
                 // Update the Markdown widget with the lookup result.
@@ -227,7 +222,10 @@ mod tests {
         let md = make_word_markdown("rust");
         assert!(md.contains("# rust"), "expected heading");
         assert!(md.contains("noun"), "expected part of speech");
-        assert!(md.contains("oxidation") || md.contains("programming"), "expected definition");
+        assert!(
+            md.contains("oxidation") || md.contains("programming"),
+            "expected definition"
+        );
     }
 
     #[test]

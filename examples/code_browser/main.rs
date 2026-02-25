@@ -84,9 +84,7 @@ impl CodeBrowserApp {
                 app.set_sub_title(path);
             }
             Err(e) => {
-                let error_msg = format!(
-                    "[b red]Error reading file:[/b red]\n{path}\n\n{e}"
-                );
+                let error_msg = format!("[b red]Error reading file:[/b red]\n{path}\n\n{e}");
                 let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
                     s.update(&error_msg);
                 });
@@ -143,12 +141,7 @@ impl TextualApp for CodeBrowserApp {
         let _ = app.query_mut("Screen").map(|q| q.add_class("-show-tree"));
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        _ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         // Handle DirectoryTree.FileSelected — mirrors `on_directory_tree_file_selected`.
         if let Message::DirectoryTreeFileSelected(ev) = &message.message {
             Self::load_path(app, &ev.path);

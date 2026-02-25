@@ -34,6 +34,8 @@ pub use error::{Error, Result};
 pub use event::BindingHint;
 pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+pub use reactive::ReactiveCtx;
+pub use reactive::ReactiveWidget;
 pub use runtime::{App, DomQuery, DomQueryMut};
 pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
@@ -43,8 +45,6 @@ pub use textual_app::{
     run_textual_app_or_snapshot, run_textual_app_or_snapshot_with_output,
     run_textual_app_with_output,
 };
-pub use reactive::ReactiveCtx;
-pub use reactive::ReactiveWidget;
 pub use textual_macros::Reactive;
 pub use textual_macros::on;
 pub use widgets::BindingDecl;
@@ -88,18 +88,18 @@ pub mod prelude {
         FooterBinding, Frame, FuzzyMatcher, Grid, Header, HeaderClock, HeaderClockSpace,
         HeaderIcon, HeaderTitle, HelpPanel, Horizontal, HorizontalGroup, HorizontalScroll, Input,
         InputType, ItemGrid, KeyPanel, Label, LabelVariant, LayoutConstraints, LineStyle, Link,
-        ListItem, ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents, MarkdownViewer,
-        MaskedInput, Middle, Node, OptionItem,
-        OptionList, Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty,
-        ProgressBar, RadioButton, RadioSet, RichLog, Right, Row, RowAlign, Rule, RuleOrientation,
-        ScrollBar, ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo, ScrollView,
-        ScrollableContainer, Select, Selection, SelectionList, SelectionListString, Spacer,
-        Sparkline, Static, StyleChangeKind, Styled, SuggestFromList, Suggester, SummaryFunction,
-        Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
-        TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tooltip, Tree, TreeNode, Vertical,
-        VerticalGroup, VerticalScroll, Welcome, Widget, WidgetRenderable, WidgetStyles,
-        classify_style_change, preview_root, preview_root_with_bottom,
-        preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
+        ListItem, ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents,
+        MarkdownViewer, MaskedInput, Middle, Node, OptionItem, OptionList, Overlay, PaletteCommand,
+        Panel, Placeholder, PlaceholderVariant, Pretty, ProgressBar, RadioButton, RadioSet,
+        RichLog, Right, Row, RowAlign, Rule, RuleOrientation, ScrollBar, ScrollBarCorner,
+        ScrollBarRender, ScrollDirectionMessage, ScrollTo, ScrollView, ScrollableContainer, Select,
+        Selection, SelectionList, SelectionListString, Spacer, Sparkline, Static, StyleChangeKind,
+        Styled, SuggestFromList, Suggester, SummaryFunction, Switch, SystemModalScreen, TabPane,
+        TabbedContent, Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Toast,
+        ToastSeverity, Tooltip, Tree, TreeNode, Vertical, VerticalGroup, VerticalScroll, Welcome,
+        Widget, WidgetRenderable, WidgetStyles, classify_style_change, preview_root,
+        preview_root_with_bottom, preview_root_with_top_bottom, summary_max, summary_mean,
+        summary_min,
     };
     pub use crate::worker::{
         CancellationToken, WorkerId, WorkerRegistry, WorkerRequest, WorkerState,

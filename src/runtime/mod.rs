@@ -1808,6 +1808,9 @@ impl App {
                 entry.group.clone(),
                 entry.priority,
                 entry.system,
+                entry.action_name.clone(),
+                entry.action_parameters.clone(),
+                entry.enabled,
             );
             if unique.insert(key) {
                 deduped.push(entry);
@@ -1919,7 +1922,9 @@ impl App {
             return;
         };
         for hint in hints.iter_mut() {
-            if let Some(action) = &hint.action {
+            if let Some(action_name) = &hint.action_name {
+                hint.enabled = check_fn(action_name, &hint.action_parameters);
+            } else if let Some(action) = &hint.action {
                 hint.enabled = check_fn(action, &[]);
             }
         }
@@ -2882,6 +2887,7 @@ mod tests {
     use crate::widgets::{AppRoot, BindingDecl, Button, Label, Node};
     use rich_rs::Segments;
     use rich_rs::{Console, ConsoleOptions};
+    use std::sync::Arc;
     use std::time::Duration;
 
     struct StatusProbe {
@@ -4163,6 +4169,29 @@ mod tests {
     }
 
     #[test]
+    fn apply_check_action_uses_parsed_action_name_and_parameters() {
+        let mut app = App::new().expect("app should initialize");
+        app.set_check_action_fn(Arc::new(|action, parameters| {
+            if action == "push_screen" && parameters == ["settings"] {
+                Some(false)
+            } else {
+                Some(true)
+            }
+        }));
+
+        let mut hints = vec![
+            BindingHint::new("s", "Settings").with_action("app.push_screen('settings')"),
+            BindingHint::new("q", "Quit").with_action("app.quit"),
+        ];
+        app.apply_check_action(&mut hints);
+
+        assert_eq!(hints[0].action_name.as_deref(), Some("push_screen"));
+        assert_eq!(hints[0].action_parameters, vec!["settings".to_string()]);
+        assert_eq!(hints[0].enabled, Some(false));
+        assert_eq!(hints[1].enabled, Some(true));
+    }
+
+    #[test]
     fn screen_suspend_resume_are_dispatched_for_push_pop_and_switch_mode() {
         use std::sync::{Arc, Mutex};
 
@@ -4360,10 +4389,8 @@ mod tests {
         app.set_sub_title("some/path");
         let msgs = app.drain_pending_app_messages();
         // Second message carries both title and subtitle.
-        if let Message::ScreenTitleChanged(ScreenTitleChanged {
-            title,
-            sub_title,
-        }) = &msgs[1].message
+        if let Message::ScreenTitleChanged(ScreenTitleChanged { title, sub_title }) =
+            &msgs[1].message
         {
             assert_eq!(title.as_deref(), Some("My App"));
             assert_eq!(sub_title.as_deref(), Some("some/path"));

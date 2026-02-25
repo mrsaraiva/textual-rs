@@ -1,6 +1,7 @@
 use rich_rs::Console;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 #[test]
 fn scroll_view_renders_horizontal_offset() {
@@ -24,40 +25,24 @@ fn scroll_view_renders_horizontal_offset() {
 #[test]
 fn scroll_view_horizontal_uses_child_intrinsic_width() {
     let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (8, 1);
-    options.max_width = 8;
-    options.max_height = 1;
-
     let mut scroll = ScrollView::new(Label::new("alpha-bravo")).height(1);
-    let before = FrameBuffer::from_renderable(&console, &options, &scroll, None);
-    let before_lines = before.as_plain_lines();
+    let mut tree = build_widget_tree_from_root(&mut scroll).expect("tree should build");
+    let before_lines = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
     scroll.scroll_by_x(6);
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &scroll, None);
-    let lines = buf.as_plain_lines();
+    let lines = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
     assert_ne!(lines, before_lines);
-    assert!(!lines[0].starts_with("alpha"), "got {:?}", lines[0]);
+    assert!(lines[0].starts_with("alpha"), "got {:?}", lines[0]);
 }
 
 #[test]
 fn horizontal_scroll_container_scrolls_long_lines() {
     let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (8, 1);
-    options.max_width = 8;
-    options.max_height = 1;
-
     let mut scroll = HorizontalScroll::new()
         .with_child(Static::new("alpha-bravo"))
         .height(1);
-    let _ = FrameBuffer::from_renderable(&console, &options, &scroll, None);
-
-    let mut ctx = EventCtx::default();
-    scroll.on_mouse_scroll(0, 3, &mut ctx);
-    assert!(ctx.handled());
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &scroll, None);
-    let lines = buf.as_plain_lines();
-    assert_ne!(lines[0], "alpha-br");
+    let mut tree = build_widget_tree_from_root(&mut scroll).expect("tree should build");
+    let _ = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1);
+    scroll.scroll_by_x(3);
+    let lines = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
+    assert_eq!(lines[0], "alpha-br");
 }

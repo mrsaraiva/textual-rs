@@ -309,10 +309,7 @@ impl DirectoryTree {
                     if node.is_dir && node.expanded && !node.loaded {
                         node.children = entries
                             .iter()
-                            .filter(|e| {
-                                self.filter
-                                    .is_none_or(|pred| pred(Path::new(&e.path)))
-                            })
+                            .filter(|e| self.filter.is_none_or(|pred| pred(Path::new(&e.path))))
                             .map(directory_node_from_async_entry)
                             .collect::<Vec<_>>();
                         node.loaded = true;
@@ -918,7 +915,11 @@ mod tests {
 
         // The filter should have excluded skip.txt.
         let nested_node = find_node_mut(&mut tree.root, &nested_path).expect("nested node");
-        assert_eq!(nested_node.children.len(), 1, "filter should exclude skip.txt");
+        assert_eq!(
+            nested_node.children.len(),
+            1,
+            "filter should exclude skip.txt"
+        );
         assert_eq!(nested_node.children[0].label, "keep.rs");
     }
 

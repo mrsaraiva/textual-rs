@@ -374,6 +374,7 @@ pub struct Header {
     tall: bool,
     icon: String,
     pressed: bool,
+    press_in_toggle_zone: bool,
     show_clock: bool,
     time_format: String,
     children_extracted: bool,
@@ -391,6 +392,7 @@ impl Header {
             tall: false,
             icon: "⭘".to_string(),
             pressed: false,
+            press_in_toggle_zone: false,
             show_clock: false,
             time_format: "%X".to_string(),
             children_extracted: false,
@@ -570,8 +572,10 @@ impl Widget for Header {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(_mouse) => {
+            Event::MouseDown(mouse) => {
                 self.pressed = true;
+                // Match Python behavior: header icon lane is not a tall-toggle target.
+                self.press_in_toggle_zone = mouse.x > 1;
                 ctx.set_handled();
             }
             Event::MouseUp(mouse) => {
@@ -582,14 +586,18 @@ impl Widget for Header {
                 if mouse.target.is_none() {
                     return;
                 }
-                self.tall = !self.tall;
-                ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
-                ctx.request_layout_invalidation();
-                ctx.request_repaint();
+                let release_in_toggle_zone = mouse.x > 1;
+                if self.press_in_toggle_zone && release_in_toggle_zone {
+                    self.tall = !self.tall;
+                    ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
+                    ctx.request_layout_invalidation();
+                    ctx.request_repaint();
+                }
                 ctx.set_handled();
             }
             Event::AppFocus(false) => {
                 self.pressed = false;
+                self.press_in_toggle_zone = false;
             }
             _ => {}
         }
@@ -597,6 +605,7 @@ impl Widget for Header {
 
     fn on_unmount(&mut self) {
         self.pressed = false;
+        self.press_in_toggle_zone = false;
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {

@@ -381,6 +381,16 @@ pub struct BindingHint {
     /// Action name from the binding declaration (e.g. `"back"`, `"forward"`).
     /// Used by `check_action` to determine enabled/disabled state.
     pub action: Option<String>,
+    /// Parsed action name passed to `check_action`.
+    ///
+    /// For `BindingDecl::action = "app.push_screen('settings')"`, this stores
+    /// `"push_screen"`.
+    pub action_name: Option<String>,
+    /// Parsed positional parameters passed to `check_action`.
+    ///
+    /// For `BindingDecl::action = "app.push_screen('settings')"`, this stores
+    /// `["settings"]`.
+    pub action_parameters: Vec<String>,
     /// Result of `check_action` for this binding:
     /// - `Some(true)` — enabled (default, rendered normally)
     /// - `Some(false)` — hidden (not shown in footer)
@@ -401,12 +411,22 @@ impl BindingHint {
             priority: false,
             system: false,
             action: None,
+            action_name: None,
+            action_parameters: Vec::new(),
             enabled: Some(true),
         }
     }
 
     pub fn with_action(mut self, action: impl Into<String>) -> Self {
-        self.action = Some(action.into());
+        let action = action.into();
+        self.action = Some(action.clone());
+        if let Some(parsed) = crate::action::parse_action(&action) {
+            self.action_name = Some(parsed.name);
+            self.action_parameters = parsed.arguments;
+        } else {
+            self.action_name = Some(action);
+            self.action_parameters.clear();
+        }
         self
     }
 

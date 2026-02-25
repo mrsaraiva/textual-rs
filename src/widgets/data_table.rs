@@ -2277,17 +2277,20 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.on_layout(12, 4);
+        let _ = table.take_composed_children();
         assert_eq!(table.horizontal_offset, 0);
 
         let mut ctx = EventCtx::default();
-        table.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 11,
-                screen_y: 3,
-                x: 11,
-                y: 3,
-            }),
+        table.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 999.0,
+                    animate: false,
+                }),
+                control: None,
+            },
             &mut ctx,
         );
 
@@ -2330,21 +2333,40 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.on_layout(12, 4);
+        let _ = table.take_composed_children();
 
         let mut ctx = EventCtx::default();
-        table.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 0,
-                screen_y: 3,
-                x: 0,
-                y: 3,
-            }),
+        table.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 3.0,
+                    animate: false,
+                }),
+                control: None,
+            },
             &mut ctx,
         );
         assert!(ctx.handled());
+        let after_first = table.horizontal_offset;
 
-        assert!(table.on_mouse_move(10, 3));
+        let mut ctx2 = EventCtx::default();
+        table.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 10.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx2,
+        );
+        assert!(ctx2.handled());
+        assert!(ctx2.repaint_requested());
+        assert!(table.horizontal_offset >= after_first);
         assert!(table.horizontal_offset > 0);
     }
 

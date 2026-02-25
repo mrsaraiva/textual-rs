@@ -297,8 +297,7 @@ impl Markdown {
         self.markup
             .lines()
             .filter_map(|line| {
-                Self::heading_level_and_text(line)
-                    .map(|(level, title)| (level, title.to_string()))
+                Self::heading_level_and_text(line).map(|(level, title)| (level, title.to_string()))
             })
             .collect()
     }

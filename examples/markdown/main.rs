@@ -45,30 +45,25 @@ impl TextualApp for MarkdownApp {
         let mut viewer = MarkdownViewer::new(DEMO_MD);
         viewer.register_content("demo.md", DEMO_MD);
         viewer.register_content("example.md", EXAMPLE_MD);
-        AppRoot::new()
-            .with_child(Footer::new())
-            .with_child(viewer)
+        AppRoot::new().with_child(Footer::new()).with_child(viewer)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
         // Load initial content: CLI arg path or demo.md.
         if let Some(ref path) = self.initial_path {
             if let Ok(content) = std::fs::read_to_string(path) {
-                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                    "MarkdownViewer",
-                    |viewer| {
+                let _ =
+                    app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
                         viewer.register_content(path.clone(), content);
                         viewer.go(path.clone());
-                    },
-                );
+                    });
+                ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
             }
         } else {
-            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                "MarkdownViewer",
-                |viewer| {
-                    viewer.go("demo.md");
-                },
-            );
+            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                viewer.go("demo.md");
+            });
+            ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
         }
     }
 
@@ -76,37 +71,35 @@ impl TextualApp for MarkdownApp {
         match key.name() {
             "t" => {
                 // Python: self.markdown_viewer.show_table_of_contents = not ...
-                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                    "MarkdownViewer",
-                    |viewer| {
+                let _ =
+                    app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
                         let show = !viewer.is_showing_table_of_contents();
                         viewer.set_show_table_of_contents(show);
-                    },
-                );
+                    });
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "b" => {
-                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                    "MarkdownViewer",
-                    |viewer| {
-                        viewer.back();
-                    },
-                );
-                self.update_navigator_state(app);
-                app.refresh_bindings();
+                let navigated = app
+                    .with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                        viewer.back()
+                    })
+                    .unwrap_or(false);
+                if navigated {
+                    ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+                }
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "f" => {
-                let _ = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                    "MarkdownViewer",
-                    |viewer| {
-                        viewer.forward();
-                    },
-                );
-                self.update_navigator_state(app);
-                app.refresh_bindings();
+                let navigated = app
+                    .with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                        viewer.forward()
+                    })
+                    .unwrap_or(false);
+                if navigated {
+                    ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+                }
                 ctx.set_handled();
                 ctx.request_repaint();
             }
@@ -114,12 +107,7 @@ impl TextualApp for MarkdownApp {
         }
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Message::NavigatorUpdated(NavigatorUpdated) = &message.message {
             self.update_navigator_state(app);
             app.refresh_bindings();

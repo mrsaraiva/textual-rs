@@ -1203,11 +1203,15 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
-                let mut s = Style::new().width(Scalar::Auto);
-                s.dock = Some(crate::style::Dock::Left);
-                s
-            }, 25),
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width(
+                "Sidebar",
+                {
+                    let mut s = Style::new().width(Scalar::Auto);
+                    s.dock = Some(crate::style::Dock::Left);
+                    s
+                },
+                25,
+            ),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1249,11 +1253,15 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
-                let mut s = Style::new().width(Scalar::Cells(20));
-                s.dock = Some(crate::style::Dock::Left);
-                s
-            }, 50), // intrinsic_width=50, but explicit Cells(20) should win
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width(
+                "Sidebar",
+                {
+                    let mut s = Style::new().width(Scalar::Cells(20));
+                    s.dock = Some(crate::style::Dock::Left);
+                    s
+                },
+                50,
+            ), // intrinsic_width=50, but explicit Cells(20) should win
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1272,11 +1280,15 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style_and_intrinsic_height("Header", {
-                let mut s = Style::new().height(Scalar::Auto);
-                s.dock = Some(crate::style::Dock::Top);
-                s
-            }, 5),
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "Header",
+                {
+                    let mut s = Style::new().height(Scalar::Auto);
+                    s.dock = Some(crate::style::Dock::Top);
+                    s
+                },
+                5,
+            ),
         );
 
         let available = Region::new(0, 0, 80, 50);
@@ -1294,12 +1306,16 @@ mod tests {
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let docked = tree.mount(
             root,
-            LayoutTestWidget::boxed_with_style_and_intrinsic_width("Sidebar", {
-                let mut s = Style::new().width(Scalar::Auto);
-                s.dock = Some(crate::style::Dock::Left);
-                s.max_width = Some(Scalar::Cells(40));
-                s
-            }, 60),
+            LayoutTestWidget::boxed_with_style_and_intrinsic_width(
+                "Sidebar",
+                {
+                    let mut s = Style::new().width(Scalar::Auto);
+                    s.dock = Some(crate::style::Dock::Left);
+                    s.max_width = Some(Scalar::Cells(40));
+                    s
+                },
+                60,
+            ),
         );
 
         let available = Region::new(0, 0, 80, 50);

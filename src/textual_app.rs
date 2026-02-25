@@ -2321,12 +2321,7 @@ mod tests {
             self.set_count(self.count + 1, app.reactive_ctx());
         }
 
-        fn on_action_with_app(
-            &mut self,
-            app: &mut App,
-            _action: Action,
-            _ctx: &mut EventCtx,
-        ) {
+        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut EventCtx) {
             self.set_count(self.count + 10, app.reactive_ctx());
         }
 
@@ -2345,7 +2340,11 @@ mod tests {
     }
 
     impl ReactiveWidget for ReactiveTestApp {
-        fn reactive_dispatch(&mut self, changes: &[crate::reactive::ReactiveChange], _ctx: &mut ReactiveCtx) {
+        fn reactive_dispatch(
+            &mut self,
+            changes: &[crate::reactive::ReactiveChange],
+            _ctx: &mut ReactiveCtx,
+        ) {
             for change in changes {
                 if change.field_name == "count" {
                     if let (Some(&old), Some(&new)) = (
@@ -2459,12 +2458,7 @@ mod tests {
                 AppRoot::new()
             }
 
-            fn on_key_with_app(
-                &mut self,
-                app: &mut App,
-                _key: &KeyEventData,
-                _ctx: &mut EventCtx,
-            ) {
+            fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut EventCtx) {
                 use crate::reactive::ReactiveFlags;
                 // Even if setter is called, reactive_widget_mut() == None means
                 // no watcher dispatch — changes are just discarded.
@@ -2510,13 +2504,19 @@ mod tests {
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         adapter.on_app_key(&mut runtime, &key, &mut key_ctx);
-        assert!(key_ctx.repaint_requested(), "key handler should request repaint");
+        assert!(
+            key_ctx.repaint_requested(),
+            "key handler should request repaint"
+        );
 
         // Tick with on_tick_with_app always calls set_count(+100), so watcher fires
         // and repaint is requested.
         let mut tick_ctx = EventCtx::default();
         adapter.on_app_tick(&mut runtime, 1, &mut tick_ctx);
-        assert!(tick_ctx.repaint_requested(), "tick handler requests repaint via setter");
+        assert!(
+            tick_ctx.repaint_requested(),
+            "tick handler requests repaint via setter"
+        );
 
         // Verify flags were reset: count should be 101 (1 + 100), watch_log has 2 entries.
         let guard = app_state.lock().unwrap();

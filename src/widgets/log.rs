@@ -881,35 +881,26 @@ mod tests {
         let options = options_for(&console, 16, 3);
         let mut log = Log::new().auto_scroll(false);
         log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+        let _ = log.take_composed_children();
         let _ = log.render(&console, &options);
+        assert_eq!(log.offset_y, 0);
 
-        let id = NodeId::default();
-        let mut down_ctx = EventCtx::default();
-        log.on_event(
-            &Event::MouseDown(crate::event::MouseDownEvent {
-                target: id,
-                screen_x: 15,
-                screen_y: 0,
-                x: 15,
-                y: 0,
-            }),
-            &mut down_ctx,
+        let mut ctx = EventCtx::default();
+        log.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                }),
+                control: None,
+            },
+            &mut ctx,
         );
-        assert!(down_ctx.handled());
-
-        let mut up_ctx = EventCtx::default();
-        log.on_event(
-            &Event::MouseUp(crate::event::MouseUpEvent {
-                target: Some(id),
-                screen_x: 15,
-                screen_y: 0,
-                x: 15,
-                y: 0,
-            }),
-            &mut up_ctx,
-        );
-        assert!(up_ctx.handled());
-        assert!(up_ctx.repaint_requested());
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        assert!(log.offset_y > 0);
     }
 
     #[test]
