@@ -427,14 +427,20 @@ fn x() {}
             .expect("table block should exist");
 
         let (headers, header_markups, rows, row_markups) = table;
-        assert_eq!(headers, &vec!["Name".to_string(), "Description".to_string()]);
+        assert_eq!(
+            headers,
+            &vec!["Name".to_string(), "Description".to_string()]
+        );
         assert_eq!(
             header_markups,
             &vec!["Name".to_string(), "Description".to_string()]
         );
         assert_eq!(
             rows.first().expect("first row"),
-            &vec!["show_header".to_string(), "Show the table header".to_string()]
+            &vec![
+                "show_header".to_string(),
+                "Show the table header".to_string()
+            ]
         );
         assert_eq!(
             row_markups.first().expect("first row markups"),

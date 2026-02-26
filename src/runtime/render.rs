@@ -20,6 +20,7 @@ use crate::widgets::{
 };
 
 use rich_rs::{ControlType, MetaValue, Renderable, Segment, Segments, StyleMeta};
+use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use super::App;
@@ -1633,6 +1634,27 @@ fn paint_keylines(
         return;
     }
 
+    if layout == Layout::Grid {
+        let (h_char, v_char) = match keyline.keyline_type {
+            KeylineType::None => return,
+            KeylineType::Thin => ('─', '│'),
+            KeylineType::Heavy => ('━', '┃'),
+            KeylineType::Double => ('═', '║'),
+        };
+        paint_grid_keylines(
+            tree,
+            &child_ids,
+            parent_rect,
+            ctx,
+            frame,
+            line_style,
+            keyline.keyline_type,
+            h_char,
+            v_char,
+        );
+        return;
+    }
+
     for pair in child_ids.windows(2) {
         let Some(a) = tree.get(pair[0]) else {
             continue;
@@ -1676,6 +1698,157 @@ fn paint_keylines(
                     cell.continuation = false;
                 }
             }
+        }
+    }
+}
+
+fn keyline_junction_char(
+    keyline_type: KeylineType,
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    h_char: char,
+    v_char: char,
+) -> char {
+    match keyline_type {
+        KeylineType::None => ' ',
+        KeylineType::Thin => match (up, down, left, right) {
+            (true, true, true, true) => '┼',
+            (true, true, true, false) => '┤',
+            (true, true, false, true) => '├',
+            (true, false, true, true) => '┴',
+            (false, true, true, true) => '┬',
+            (false, true, false, true) => '┌',
+            (false, true, true, false) => '┐',
+            (true, false, false, true) => '└',
+            (true, false, true, false) => '┘',
+            (_, _, true, true) => h_char,
+            (true, true, _, _) => v_char,
+            _ => {
+                if left || right {
+                    h_char
+                } else {
+                    v_char
+                }
+            }
+        },
+        KeylineType::Heavy => match (up, down, left, right) {
+            (true, true, true, true) => '╋',
+            (true, true, true, false) => '┫',
+            (true, true, false, true) => '┣',
+            (true, false, true, true) => '┻',
+            (false, true, true, true) => '┳',
+            (false, true, false, true) => '┏',
+            (false, true, true, false) => '┓',
+            (true, false, false, true) => '┗',
+            (true, false, true, false) => '┛',
+            (_, _, true, true) => h_char,
+            (true, true, _, _) => v_char,
+            _ => {
+                if left || right {
+                    h_char
+                } else {
+                    v_char
+                }
+            }
+        },
+        KeylineType::Double => match (up, down, left, right) {
+            (true, true, true, true) => '╬',
+            (true, true, true, false) => '╣',
+            (true, true, false, true) => '╠',
+            (true, false, true, true) => '╩',
+            (false, true, true, true) => '╦',
+            (false, true, false, true) => '╔',
+            (false, true, true, false) => '╗',
+            (true, false, false, true) => '╚',
+            (true, false, true, false) => '╝',
+            (_, _, true, true) => h_char,
+            (true, true, _, _) => v_char,
+            _ => {
+                if left || right {
+                    h_char
+                } else {
+                    v_char
+                }
+            }
+        },
+    }
+}
+
+fn paint_grid_keylines(
+    tree: &WidgetTree,
+    child_ids: &[NodeId],
+    parent_rect: crate::widget_tree::Rect,
+    ctx: TreeRenderCtx,
+    frame: &mut FrameBuffer,
+    line_style: rich_rs::Style,
+    keyline_type: KeylineType,
+    h_char: char,
+    v_char: char,
+) {
+    let frame_w = frame.width as i32;
+    let frame_h = frame.height as i32;
+    let x_start = i32::from(parent_rect.x0) + ctx.origin_x;
+    let y_start = i32::from(parent_rect.y0) + ctx.origin_y;
+    let x_end = i32::from(parent_rect.x1)
+        .saturating_add(ctx.origin_x)
+        .saturating_sub(1);
+    let y_end = i32::from(parent_rect.y1)
+        .saturating_add(ctx.origin_y)
+        .saturating_sub(1);
+    if x_start > x_end || y_start > y_end {
+        return;
+    }
+
+    let mut verticals: BTreeSet<i32> = BTreeSet::new();
+    let mut horizontals: BTreeSet<i32> = BTreeSet::new();
+    verticals.insert(x_start);
+    verticals.insert(x_end);
+    horizontals.insert(y_start);
+    horizontals.insert(y_end);
+
+    for child_id in child_ids {
+        let Some(child) = tree.get(*child_id) else {
+            continue;
+        };
+        let rect = child.layout_rect;
+        let x = i32::from(rect.x1) + ctx.origin_x;
+        let y = i32::from(rect.y1) + ctx.origin_y;
+        verticals.insert(x.clamp(x_start, x_end));
+        horizontals.insert(y.clamp(y_start, y_end));
+    }
+
+    let x0 = x_start.max(ctx.clip.x0).max(0);
+    let x1 = x_end.min(ctx.clip.x1 - 1).min(frame_w - 1);
+    let y0 = y_start.max(ctx.clip.y0).max(0);
+    let y1 = y_end.min(ctx.clip.y1 - 1).min(frame_h - 1);
+    if x0 > x1 || y0 > y1 {
+        return;
+    }
+
+    for y in y0..=y1 {
+        let on_h = horizontals.contains(&y);
+        for x in x0..=x1 {
+            let on_v = verticals.contains(&x);
+            if !on_h && !on_v {
+                continue;
+            }
+            let ch = if on_h && on_v {
+                let up = verticals.contains(&x) && y > y_start;
+                let down = verticals.contains(&x) && y < y_end;
+                let left = horizontals.contains(&y) && x > x_start;
+                let right = horizontals.contains(&y) && x < x_end;
+                keyline_junction_char(keyline_type, up, down, left, right, h_char, v_char)
+            } else if on_h {
+                h_char
+            } else {
+                v_char
+            };
+            let cell = frame.get_mut(x as usize, y as usize);
+            cell.text = ch.to_string();
+            cell.style = Some(line_style);
+            cell.continuation = false;
         }
     }
 }

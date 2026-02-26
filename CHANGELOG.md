@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (Markdown table keyline parity + markdown block visual fixes)
+
+- **fix(layout): reserve keyline ring for grid layouts (Python parity)**
+  - `layout_grid` now reserves a 1-cell inner ring when `keyline` is enabled,
+    matching Python Textual grid behavior and preventing keyline borders from
+    overlapping grid cell content.
+
+- **fix(render): draw full grid keylines (inner + outer borders)**
+  - Added grid-specific keyline rendering with proper junction/corner glyphs so
+    `MarkdownTableContent` gets full bordered table chrome from `keyline`.
+
+- **fix(widgets/css): align markdown heading/list/table visuals**
+  - Non-H1 markdown headings now use intrinsic content width (`width:auto`) so
+    underline styling tracks heading text instead of full row width.
+  - Unordered markdown lists now render stable Python-like bullet glyphs.
+  - Markdown table cells now render one-line rows with nowrap/ellipsis styling,
+    hover styling, and tooltip text; table height/width estimation accounts for
+    the keyline ring to avoid clipped header/last rows.
+
 ### 2026-02-26 (MarkdownViewer sizing stability + table track rebalancing)
 
 - **fix(layout): seed width-dependent intrinsic height in vertical layout**

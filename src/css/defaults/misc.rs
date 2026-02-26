@@ -45,6 +45,7 @@ Markdown {
 
     & .markdown--h2 {
         margin: 2 0 1 0;
+        width: auto;
         fg: $markdown-h2-color;
         bg: $markdown-h2-background;
         text-style: $markdown-h2-text-style;
@@ -52,6 +53,7 @@ Markdown {
 
     & .markdown--h3 {
         margin: 1 0;
+        width: auto;
         fg: $markdown-h3-color;
         bg: $markdown-h3-background;
         text-style: $markdown-h3-text-style;
@@ -59,6 +61,7 @@ Markdown {
 
     & .markdown--h4 {
         margin: 1 0;
+        width: auto;
         fg: $markdown-h4-color;
         bg: $markdown-h4-background;
         text-style: $markdown-h4-text-style;
@@ -66,6 +69,7 @@ Markdown {
 
     & .markdown--h5 {
         margin: 1 0;
+        width: auto;
         fg: $markdown-h5-color;
         bg: $markdown-h5-background;
         text-style: $markdown-h5-text-style;
@@ -73,6 +77,7 @@ Markdown {
 
     & .markdown--h6 {
         margin: 1 0;
+        width: auto;
         fg: $markdown-h6-color;
         bg: $markdown-h6-background;
         text-style: $markdown-h6-text-style;
@@ -87,16 +92,19 @@ MarkdownBlock {
 MarkdownHeader {
     fg: $text;
     margin: 2 0 1 0;
+    width: auto;
 }
 
 MarkdownH1 {
     content-align: center middle;
+    width: 1fr;
     fg: $markdown-h1-color;
     bg: $markdown-h1-background;
     text-style: $markdown-h1-text-style;
 }
 
 MarkdownH2 {
+    width: auto;
     fg: $markdown-h2-color;
     bg: $markdown-h2-background;
     text-style: $markdown-h2-text-style;
@@ -111,6 +119,7 @@ MarkdownH3 {
 }
 
 MarkdownH4 {
+    width: auto;
     fg: $markdown-h4-color;
     bg: $markdown-h4-background;
     text-style: $markdown-h4-text-style;
@@ -118,6 +127,7 @@ MarkdownH4 {
 }
 
 MarkdownH5 {
+    width: auto;
     fg: $markdown-h5-color;
     bg: $markdown-h5-background;
     text-style: $markdown-h5-text-style;
@@ -125,6 +135,7 @@ MarkdownH5 {
 }
 
 MarkdownH6 {
+    width: auto;
     fg: $markdown-h6-color;
     bg: $markdown-h6-background;
     text-style: $markdown-h6-text-style;
@@ -247,6 +258,7 @@ MarkdownTableContent > .header {
     margin: 0 0;
     padding: 0 1;
     fg: $primary;
+    text-wrap: nowrap;
     text-overflow: ellipsis;
     content-align: left bottom;
 }
@@ -259,7 +271,16 @@ MarkdownTableContent > .cell {
     margin: 0 0;
     height: auto;
     padding: 0 1;
+    text-wrap: nowrap;
     text-overflow: ellipsis;
+}
+
+MarkdownTableContent > .header:hover {
+    background-tint: $foreground 5%;
+}
+
+MarkdownTableContent > .cell:hover {
+    bg: $block-hover-background;
 }
 
 MarkdownTable {

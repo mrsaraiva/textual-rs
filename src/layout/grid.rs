@@ -1,5 +1,5 @@
 use crate::node_id::NodeId;
-use crate::style::{BoxSizing, Scalar, Style};
+use crate::style::{BoxSizing, KeylineType, Scalar, Style};
 use crate::widget_tree::WidgetTree;
 
 use super::common::{get_node_style, resolve_scalar_to_cells};
@@ -144,6 +144,23 @@ pub fn layout_grid(
     }
 
     // --- Grid configuration from parent style ---
+    // Python parity: when keyline is enabled on a grid container, reserve a
+    // 1-cell ring around all children so keyline borders don't overwrite cell
+    // content. See textual/layouts/grid.py (`size -= (2, 2)`, `offset=(1,1)`).
+    let keyline_enabled = parent_style
+        .keyline
+        .is_some_and(|k| k.keyline_type != KeylineType::None);
+    let grid_available = if keyline_enabled && available.width > 2 && available.height > 2 {
+        Region::new(
+            available.x.saturating_add(1),
+            available.y.saturating_add(1),
+            available.width.saturating_sub(2),
+            available.height.saturating_sub(2),
+        )
+    } else {
+        available
+    };
+
     let num_cols = parent_style.grid_size_columns.unwrap_or(1).max(1) as usize;
     let gutter_h = parent_style.grid_gutter_horizontal.unwrap_or(0);
     let gutter_v = parent_style.grid_gutter_vertical.unwrap_or(0);
@@ -175,11 +192,11 @@ pub fn layout_grid(
     } else {
         0
     };
-    let col_budget = available.width.saturating_sub(total_gutter_v);
+    let col_budget = grid_available.width.saturating_sub(total_gutter_v);
     let col_edges = build_grid_track_edges(
         parent_style.grid_columns.as_deref(),
         num_cols,
-        available.width,
+        grid_available.width,
         viewport.0,
     );
     let col_widths = layout_resolve_1d(col_budget, &col_edges);
@@ -190,11 +207,11 @@ pub fn layout_grid(
     } else {
         0
     };
-    let row_budget = available.height.saturating_sub(total_gutter_h);
+    let row_budget = grid_available.height.saturating_sub(total_gutter_h);
     let row_edges = build_grid_track_edges(
         parent_style.grid_rows.as_deref(),
         num_rows,
-        available.height,
+        grid_available.height,
         viewport.1,
     );
     let row_heights = layout_resolve_1d(row_budget, &row_edges);
@@ -280,11 +297,11 @@ pub fn layout_grid(
         let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
         // Layout rect: cell + available offset, margin inset.
-        let layout_x = available
+        let layout_x = grid_available
             .x
             .saturating_add(cell_x)
             .saturating_add(margin.left);
-        let layout_y = available
+        let layout_y = grid_available
             .y
             .saturating_add(cell_y)
             .saturating_add(margin.top);

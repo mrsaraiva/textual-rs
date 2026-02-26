@@ -1,4 +1,6 @@
-use pulldown_cmark::{Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd};
+use pulldown_cmark::{
+    Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
+};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use std::sync::{Arc, RwLock};
 
@@ -273,10 +275,6 @@ fn rendered_markdown_height(markup: &str, width: usize) -> usize {
     count_rendered_lines(rendered)
 }
 
-fn rendered_inline_height(markup: &str, width: usize) -> usize {
-    InlineTextDoc::parse(markup).rendered_height(width)
-}
-
 fn rendered_plain_height(text: &str, width: usize) -> usize {
     let console = Console::new();
     let mut options = console.options().clone();
@@ -332,14 +330,7 @@ impl InlineTextDoc {
                     );
                 }
                 MdEvent::Code(text) => {
-                    push_inline_run(
-                        &mut runs,
-                        text.to_string(),
-                        emphasis,
-                        strong,
-                        strike,
-                        true,
-                    );
+                    push_inline_run(&mut runs, text.to_string(), emphasis, strong, strike, true);
                 }
                 MdEvent::SoftBreak => {
                     push_inline_run(&mut runs, " ".to_string(), emphasis, strong, strike, false);
@@ -379,7 +370,9 @@ impl InlineTextDoc {
             let mut style = rich_rs::Style::new();
             let mut has_style = false;
             for class in &run.classes {
-                if let Some(component) = crate::css::resolve_component_style(widget, &[class]).to_rich() {
+                if let Some(component) =
+                    crate::css::resolve_component_style(widget, &[class]).to_rich()
+                {
                     style = style.combine(&component);
                     has_style = true;
                 }
@@ -491,6 +484,14 @@ impl Widget for MarkdownHeadingBlock {
         }
     }
 
+    fn content_width(&self) -> Option<usize> {
+        if self.level == 1 {
+            None
+        } else {
+            Some(rich_rs::cell_len(&self.text).max(1))
+        }
+    }
+
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_plain_height(
             &self.text,
@@ -548,8 +549,9 @@ impl Widget for MarkdownParagraphBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(
+            self.inline_doc.rendered_height(self.layout_width.max(1)),
+        ))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -727,8 +729,9 @@ impl Widget for MarkdownInlineItem {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(
+            self.inline_doc.rendered_height(self.layout_width.max(1)),
+        ))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -826,13 +829,13 @@ impl MarkdownListBlock {
                 })
                 .collect()
         } else {
-            const BULLETS: [&str; 5] = ["• ", "▪ ", "‣ ", "⭑ ", "◦ "];
+            const BULLET: &str = "• ";
             items
                 .into_iter()
                 .enumerate()
                 .map(|(index, item)| {
                     Box::new(MarkdownListItemBlock::new(
-                        BULLETS[index % BULLETS.len()].to_string(),
+                        BULLET.to_string(),
                         item,
                         item_markups.get(index).cloned().unwrap_or_else(String::new),
                     )) as Box<dyn Widget>
@@ -932,11 +935,18 @@ impl MarkdownTableCell {
 
 impl Widget for MarkdownTableCell {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inline_doc.render_for_widget(self, console, options)
+        let mut one_line = options.clone();
+        one_line.max_height = 1;
+        one_line.size.1 = 1;
+        self.inline_doc.render_for_widget(self, console, &one_line)
     }
 
     fn style_type(&self) -> &'static str {
         "MarkdownTableCell"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
     }
 
     fn style_classes(&self) -> &[String] {
@@ -951,8 +961,16 @@ impl Widget for MarkdownTableCell {
 
     fn layout_height(&self) -> Option<usize> {
         let _ = &self.text;
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+    }
+
+    fn tooltip(&self) -> Option<String> {
+        let value = self.text.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -1009,9 +1027,7 @@ fn compute_markdown_table_column_widths(
 ) -> Vec<usize> {
     let columns = column_count.max(1);
     let horizontal_gutter = columns.saturating_sub(1); // `grid-gutter: 1 1`
-    let budget = table_width
-        .saturating_sub(horizontal_gutter)
-        .max(columns);
+    let budget = table_width.saturating_sub(horizontal_gutter).max(columns);
 
     let mut desired = vec![3usize; columns];
     let mut minimum = vec![3usize; columns];
@@ -1100,45 +1116,9 @@ fn estimate_markdown_table_row_heights(
     column_widths: &[usize],
     row_count_hint: usize,
 ) -> Vec<usize> {
-    let columns = column_widths.len().max(1);
-    let mut row_heights: Vec<usize> = Vec::new();
-
-    let header_height = (0..columns)
-        .map(|column| {
-            let markup = header_markups
-                .get(column)
-                .map(|s| s.as_str())
-                .unwrap_or_default();
-            let content_width = column_widths
-                .get(column)
-                .copied()
-                .unwrap_or(1)
-                .saturating_sub(2)
-                .max(1);
-            rendered_inline_height(markup, content_width)
-        })
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    row_heights.push(header_height);
-
-    for row in row_markups {
-        let row_height = (0..columns)
-            .map(|column| {
-                let markup = row.get(column).map(|s| s.as_str()).unwrap_or_default();
-                let content_width = column_widths
-                    .get(column)
-                    .copied()
-                    .unwrap_or(1)
-                    .saturating_sub(2)
-                    .max(1);
-                rendered_inline_height(markup, content_width)
-            })
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        row_heights.push(row_height);
-    }
+    let _ = (header_markups, row_markups, column_widths);
+    let mut row_heights: Vec<usize> = vec![1];
+    row_heights.extend(vec![1; row_markups.len()]);
 
     if row_heights.len() < row_count_hint {
         row_heights.resize(row_count_hint, 1);
@@ -1156,6 +1136,8 @@ fn estimate_markdown_table_height(
     column_count: usize,
     row_count_hint: usize,
 ) -> usize {
+    // Python grid keyline reserves a 1-cell ring around content.
+    let table_width = table_width.saturating_sub(2).max(1);
     let column_widths = compute_markdown_table_column_widths(
         header_markups,
         row_markups,
@@ -1173,6 +1155,7 @@ fn estimate_markdown_table_height(
         .into_iter()
         .sum::<usize>()
         .saturating_add(vertical_gutter)
+        .saturating_add(2)
         .max(1)
 }
 
@@ -1284,10 +1267,11 @@ impl Widget for MarkdownTableContentBlock {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
+        let content_width = self.layout_width.saturating_sub(2).max(1);
         let column_widths = compute_markdown_table_column_widths(
             &self.header_markups,
             &self.row_markups,
-            self.layout_width.max(1),
+            content_width,
             self.column_count,
         );
         let mut row_heights = estimate_markdown_table_row_heights(
@@ -1713,8 +1697,8 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         let measured = markdown.layout_height().expect("markdown height");
         let source_lines = markdown.markup.lines().count().max(1);
         assert!(
-            measured > source_lines,
-            "intrinsic markdown height must follow composed block geometry (including table/list/code), not raw source lines"
+            measured < source_lines,
+            "intrinsic markdown height should reflect composed markdown blocks (collapsed table/list/code structure), not raw source line count"
         );
     }
 
