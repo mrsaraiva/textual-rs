@@ -82,6 +82,14 @@ macro_rules! delegate_widget_to {
                 self.$field.on_event(event, ctx);
             }
 
+            fn on_message(
+                &mut self,
+                message: &crate::message::MessageEvent,
+                ctx: &mut crate::event::EventCtx,
+            ) {
+                self.$field.on_message(message, ctx);
+            }
+
             fn on_mouse_scroll(
                 &mut self,
                 delta_x: i32,
@@ -107,12 +115,20 @@ macro_rules! delegate_widget_to {
                 self.$field.scroll_offset()
             }
 
+            fn scroll_offset_f32(&self) -> (f32, f32) {
+                self.$field.scroll_offset_f32()
+            }
+
             fn clips_descendants_to_content(&self) -> bool {
                 self.$field.clips_descendants_to_content()
             }
 
             fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
                 self.$field.scroll_viewport_size()
+            }
+
+            fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+                self.$field.scroll_virtual_content_size()
             }
 
             fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {

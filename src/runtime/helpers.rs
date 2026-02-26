@@ -386,12 +386,15 @@ fn resolve_style_along_path(
 ) -> Option<crate::style::Style> {
     let id = *path.get(index)?;
     let node = tree.get(id)?;
-    let meta = selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
+    let meta =
+        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
     let resolved = resolve_style(node.widget.as_ref(), &meta);
     if index + 1 == path.len() {
         Some(resolved)
     } else {
-        with_style_stack(meta, resolved, || resolve_style_along_path(tree, path, index + 1))
+        with_style_stack(meta, resolved, || {
+            resolve_style_along_path(tree, path, index + 1)
+        })
     }
 }
 
@@ -719,6 +722,7 @@ mod tests {
                         axis: ScrollbarAxis::Vertical,
                         offset: 16.0,
                         animate: false,
+                        scroll_duration: None,
                     }),
                     control: None,
                 },

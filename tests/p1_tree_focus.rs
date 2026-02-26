@@ -863,8 +863,11 @@ fn p1g13_buttons_advanced_like_chain_focus_transfer_is_single_owner() {
     let mut right_a = None;
     for leaf in leaves {
         let before_len = sink.lock().unwrap_or_else(|e| e.into_inner()).len();
-        let outcome =
-            dispatch_event_to_target_tree(&mut tree, leaf, &Event::Focus(FocusEvent { node: leaf }));
+        let outcome = dispatch_event_to_target_tree(
+            &mut tree,
+            leaf,
+            &Event::Focus(FocusEvent { node: leaf }),
+        );
         let focused = focused_node_id_tree(&tree);
         let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let new_events = &events[before_len..];

@@ -327,12 +327,32 @@ impl ScrollView {
     // transition_timing_to_animation_ease removed — delegated to
     // crate::runtime::event_loop::resolve_transition_for_property.
 
-    fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+    fn request_offset_y_animation_with_duration(
+        &mut self,
+        from: usize,
+        to: usize,
+        duration_override: Option<Duration>,
+        ctx: &mut EventCtx,
+    ) {
         if from == to {
-            self.render_offset_y = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) =
+        if let Some(duration) = duration_override
+            && !duration.is_zero()
+        {
+            self.render_offset_y = from as f32;
+            ctx.request_animation(
+                AnimationRequest::new(
+                    self.node_id(),
+                    Self::OFFSET_Y_ATTR,
+                    from as f32,
+                    to as f32,
+                    duration,
+                )
+                .with_ease(AnimationEase::OutCubic)
+                .with_level(AnimationLevel::Basic),
+            );
+        } else if let Some((duration, delay, ease)) =
             self.animation_params_for_property(Self::OFFSET_Y_ATTR)
         {
             self.render_offset_y = from as f32;
@@ -354,12 +374,36 @@ impl ScrollView {
         ctx.request_repaint();
     }
 
-    fn request_offset_x_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+    fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+        self.request_offset_y_animation_with_duration(from, to, None, ctx);
+    }
+
+    fn request_offset_x_animation_with_duration(
+        &mut self,
+        from: usize,
+        to: usize,
+        duration_override: Option<Duration>,
+        ctx: &mut EventCtx,
+    ) {
         if from == to {
-            self.render_offset_x = to as f32;
             return;
         }
-        if let Some((duration, delay, ease)) =
+        if let Some(duration) = duration_override
+            && !duration.is_zero()
+        {
+            self.render_offset_x = from as f32;
+            ctx.request_animation(
+                AnimationRequest::new(
+                    self.node_id(),
+                    Self::OFFSET_X_ATTR,
+                    from as f32,
+                    to as f32,
+                    duration,
+                )
+                .with_ease(AnimationEase::OutCubic)
+                .with_level(AnimationLevel::Basic),
+            );
+        } else if let Some((duration, delay, ease)) =
             self.animation_params_for_property(Self::OFFSET_X_ATTR)
         {
             self.render_offset_x = from as f32;
@@ -379,6 +423,10 @@ impl ScrollView {
             self.render_offset_x = to as f32;
         }
         ctx.request_repaint();
+    }
+
+    fn request_offset_x_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+        self.request_offset_x_animation_with_duration(from, to, None, ctx);
     }
 
     fn child_coords(&self, x: u16, y: u16) -> (u16, u16) {
@@ -1437,6 +1485,7 @@ impl Widget for ScrollView {
             axis,
             offset,
             animate,
+            scroll_duration,
         }) = &msg.message
         else {
             return;
@@ -1452,7 +1501,12 @@ impl Widget for ScrollView {
                 );
                 self.offset_y = next;
                 if *animate {
-                    self.request_offset_y_animation(before, self.offset_y, ctx);
+                    self.request_offset_y_animation_with_duration(
+                        before,
+                        self.offset_y,
+                        *scroll_duration,
+                        ctx,
+                    );
                 } else {
                     self.render_offset_y = self.offset_y as f32;
                     ctx.request_repaint();
@@ -1467,7 +1521,12 @@ impl Widget for ScrollView {
                 );
                 self.offset_x = next;
                 if *animate {
-                    self.request_offset_x_animation(before, self.offset_x, ctx);
+                    self.request_offset_x_animation_with_duration(
+                        before,
+                        self.offset_x,
+                        *scroll_duration,
+                        ctx,
+                    );
                 } else {
                     self.render_offset_x = self.offset_x as f32;
                     ctx.request_repaint();
@@ -1514,8 +1573,9 @@ impl Widget for ScrollView {
         ));
 
         if self.offset_x != before_x || self.offset_y != before_y {
-            self.request_offset_x_animation(before_x, self.offset_x, ctx);
-            self.request_offset_y_animation(before_y, self.offset_y, ctx);
+            // Python parity: wheel scrolling is immediate (non-animated).
+            self.render_offset_x = self.offset_x as f32;
+            self.render_offset_y = self.offset_y as f32;
             ctx.request_repaint();
             ctx.set_handled();
         }
@@ -1577,6 +1637,23 @@ impl Widget for ScrollView {
         (self.offset_x, self.offset_y)
     }
 
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        let max_x = self
+            .content_width
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.viewport_width.load(Ordering::Relaxed).max(1))
+            as f32;
+        let max_y = self
+            .content_height
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.viewport_height.load(Ordering::Relaxed).max(1))
+            as f32;
+        (
+            self.render_offset_x.clamp(0.0, max_x),
+            self.render_offset_y.clamp(0.0, max_y),
+        )
+    }
+
     fn clips_descendants_to_content(&self) -> bool {
         true
     }
@@ -1588,6 +1665,16 @@ impl Widget for ScrollView {
             None
         } else {
             Some((vw, vh))
+        }
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let cw = self.content_width.load(Ordering::Relaxed);
+        let ch = self.content_height.load(Ordering::Relaxed);
+        if cw == 0 || ch == 0 {
+            None
+        } else {
+            Some((cw, ch))
         }
     }
 
@@ -1688,6 +1775,53 @@ mod tests {
             !ctx.handled(),
             "AnimationValueEvent targeting a foreign NodeId must not be handled"
         );
+    }
+
+    #[test]
+    fn animation_tick_in_tree_mode_requests_repaint_not_layout() {
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id);
+
+        let mut sv = ScrollView::new(Label::new("content"));
+        let _ = sv.take_composed_children();
+        assert!(sv.child_extracted);
+        let mut ctx = EventCtx::default();
+
+        let event = Event::AnimationValue(AnimationValueEvent {
+            target: id,
+            attribute: ScrollView::OFFSET_Y_ATTR.to_string(),
+            value: 3.5,
+            done: false,
+        });
+        sv.on_event(&event, &mut ctx);
+
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        assert!(
+            !ctx.invalidation().layout,
+            "animation ticks should avoid forcing full layout"
+        );
+    }
+
+    #[test]
+    fn wheel_scroll_is_immediate_and_does_not_enqueue_animation() {
+        let mut sv = ScrollView::new(Label::new("content"));
+        sv.content_height.store(200, Ordering::Relaxed);
+        sv.viewport_height.store(20, Ordering::Relaxed);
+        let before = sv.offset_y;
+        let mut ctx = EventCtx::default();
+
+        sv.on_mouse_scroll(0, 1, &mut ctx);
+
+        assert!(ctx.handled());
+        assert!(ctx.repaint_requested());
+        assert!(
+            !ctx.invalidation().layout,
+            "wheel scrolling should not trigger layout invalidation"
+        );
+        assert!(ctx.take_animation_requests().is_empty());
+        assert!(sv.offset_y > before);
+        assert_eq!(sv.render_offset_y, sv.offset_y as f32);
     }
 
     #[test]
@@ -1908,5 +2042,33 @@ mod tests {
         // Just verify scroll_end() doesn't panic and leaves a clamped result.
         view.scroll_end();
         assert_eq!(view.offset_y, 0);
+    }
+
+    #[test]
+    fn scroll_offset_f32_uses_render_offsets_for_animation() {
+        use crate::widgets::Label;
+        let mut view = ScrollView::new(Label::new(""));
+        view.content_width.store(200, Ordering::Relaxed);
+        view.viewport_width.store(40, Ordering::Relaxed);
+        view.content_height.store(300, Ordering::Relaxed);
+        view.viewport_height.store(30, Ordering::Relaxed);
+        view.offset_x = 80;
+        view.offset_y = 120;
+        view.render_offset_x = 23.5;
+        view.render_offset_y = 77.25;
+
+        let (x, y) = view.scroll_offset_f32();
+        assert_eq!(x, 23.5);
+        assert_eq!(y, 77.25);
+    }
+
+    #[test]
+    fn scroll_virtual_content_size_reports_runtime_metrics() {
+        use crate::widgets::Label;
+        let view = ScrollView::new(Label::new(""));
+        assert_eq!(view.scroll_virtual_content_size(), None);
+        view.content_width.store(120, Ordering::Relaxed);
+        view.content_height.store(80, Ordering::Relaxed);
+        assert_eq!(view.scroll_virtual_content_size(), Some((120, 80)));
     }
 }

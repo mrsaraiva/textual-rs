@@ -27,7 +27,8 @@ fn scroll_view_horizontal_uses_child_intrinsic_width() {
     let console = Console::new();
     let mut scroll = ScrollView::new(Label::new("alpha-bravo")).height(1);
     let mut tree = build_widget_tree_from_root(&mut scroll).expect("tree should build");
-    let before_lines = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
+    let before_lines =
+        render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
     scroll.scroll_by_x(6);
     let lines = render_tree_to_frame(&mut tree, &mut scroll, &console, 8, 1).as_plain_lines();
     assert_ne!(lines, before_lines);

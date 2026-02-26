@@ -537,6 +537,10 @@ pub struct ScrollbarScrollTo {
     pub axis: ScrollbarAxis,
     pub offset: f32,
     pub animate: bool,
+    /// Optional explicit animation duration override.
+    ///
+    /// When `None`, scroll hosts use their CSS transition configuration.
+    pub scroll_duration: Option<Duration>,
 }
 
 // ---------------------------------------------------------------------------

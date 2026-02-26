@@ -107,6 +107,7 @@ fn key_panel_supports_scrollbar_drag() {
                 axis: ScrollbarAxis::Vertical,
                 offset: 10.0,
                 animate: false,
+                scroll_duration: None,
             }),
             control: None,
         },

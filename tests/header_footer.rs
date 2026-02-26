@@ -3,8 +3,8 @@ use textual::css::set_style_context;
 use textual::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
 use textual::node_id::NodeId;
 use textual::prelude::*;
-use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::style::Color;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {

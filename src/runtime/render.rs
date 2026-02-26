@@ -264,6 +264,7 @@ impl App {
             }
 
             apply_root_tree_virtual_content_size_in_tree(&mut tree);
+            sync_host_scrollbar_positions(&mut tree);
 
             match layer {
                 CompositedLayer::AppRoot => render_app_root_tree_layer(
@@ -870,6 +871,7 @@ fn render_tree_node(
         .or_else(|| inline_style.and_then(|s| s.layout));
     push_style_context(meta, resolved);
 
+    let unclipped_child_ctx = ctx;
     let mut child_ctx = ctx;
     if node.widget.clips_descendants_to_content() {
         let clip_rect = node_content_or_layout_rect(node);
@@ -909,8 +911,13 @@ fn render_tree_node(
             false
         };
     for child_id in child_ids {
-        let use_scroll_ctx = has_scroll_viewport && child_uses_parent_scroll(tree, child_id);
-        let mut next_ctx = if use_scroll_ctx {
+        let is_dedicated_scrollbar = node_is_dedicated_scrollbar(tree, child_id);
+        let use_scroll_ctx = has_scroll_viewport
+            && child_uses_parent_scroll(tree, child_id)
+            && !is_dedicated_scrollbar;
+        let mut next_ctx = if is_dedicated_scrollbar {
+            unclipped_child_ctx
+        } else if use_scroll_ctx {
             scrolled_child_ctx
         } else {
             base_child_ctx
@@ -2346,6 +2353,82 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
                 crate::widget_tree::Rect::ZERO
             };
             set_layout_rect(tree, c_id, rect);
+        }
+    }
+}
+
+/// Update existing host scrollbar widgets from current host scroll offsets.
+///
+/// Unlike `apply_host_scrollbar_layout`, this does not run layout or recompute
+/// geometry from child bounds. It's intended for animation frames where only the
+/// scroll position changed and we need smooth thumb movement without a full relayout.
+fn sync_host_scrollbar_positions(tree: &mut WidgetTree) {
+    let Some(root) = tree.root() else {
+        return;
+    };
+    let node_ids = tree.walk_depth_first(root);
+    for node_id in node_ids {
+        let scrollbar_children = host_scrollbar_children(tree, node_id);
+        if scrollbar_children.vertical.is_none() && scrollbar_children.horizontal.is_none() {
+            continue;
+        }
+
+        let (offset_x, offset_y, viewport_w, viewport_h, virtual_w, virtual_h) = {
+            let Some(node) = tree.get(node_id) else {
+                continue;
+            };
+            let Some((virtual_w, virtual_h)) = node.widget.scroll_virtual_content_size() else {
+                // Host doesn't expose virtual content metrics; keep the last
+                // layout-applied scrollbar sizing.
+                continue;
+            };
+            let (offset_x, offset_y) = node.widget.scroll_offset_f32();
+            let viewport_w = node
+                .content_rect
+                .x1
+                .saturating_sub(node.content_rect.x0)
+                .max(1) as usize;
+            let viewport_h = node
+                .content_rect
+                .y1
+                .saturating_sub(node.content_rect.y0)
+                .max(1) as usize;
+            (
+                offset_x,
+                offset_y,
+                viewport_w,
+                viewport_h,
+                virtual_w.max(1),
+                virtual_h.max(1),
+            )
+        };
+
+        if let Some(v_id) = scrollbar_children.vertical
+            && let Some(node) = tree.get_mut(v_id)
+        {
+            let any = node.widget.as_mut() as &mut dyn std::any::Any;
+            if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                scrollbar.set_window_virtual_size(virtual_h);
+                scrollbar.set_window_size(viewport_h);
+                if !scrollbar.grabbed() {
+                    let max_offset = virtual_h.saturating_sub(viewport_h.max(1)) as f32;
+                    scrollbar.set_position(offset_y.clamp(0.0, max_offset));
+                }
+            }
+        }
+
+        if let Some(h_id) = scrollbar_children.horizontal
+            && let Some(node) = tree.get_mut(h_id)
+        {
+            let any = node.widget.as_mut() as &mut dyn std::any::Any;
+            if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                scrollbar.set_window_virtual_size(virtual_w);
+                scrollbar.set_window_size(viewport_w);
+                if !scrollbar.grabbed() {
+                    let max_offset = virtual_w.saturating_sub(viewport_w.max(1)) as f32;
+                    scrollbar.set_position(offset_x.clamp(0.0, max_offset));
+                }
+            }
         }
     }
 }

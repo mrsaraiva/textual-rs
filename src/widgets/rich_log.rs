@@ -988,6 +988,7 @@ mod tests {
                     axis: ScrollbarAxis::Vertical,
                     offset: 1.0,
                     animate: false,
+                    scroll_duration: None,
                 }),
                 control: None,
             },

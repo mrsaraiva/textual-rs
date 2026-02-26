@@ -779,6 +779,7 @@ impl Widget for ScrollBar {
                         axis: self.axis(),
                         offset: clamped as f32,
                         animate: true,
+                        scroll_duration: None,
                     }));
                 }
                 ctx.set_handled();
@@ -820,6 +821,7 @@ impl Widget for ScrollBar {
                         axis: self.axis(),
                         offset: next_pos,
                         animate: true,
+                        scroll_duration: None,
                     }));
                 }
                 ctx.set_handled();

@@ -455,6 +455,7 @@ impl Widget for AppRoot {
             axis,
             offset,
             animate,
+            ..
         }) = &msg.message
         else {
             return;
@@ -817,6 +818,7 @@ mod focus_tests {
                     axis: ScrollbarAxis::Vertical,
                     offset: 24.0,
                     animate: false,
+                    scroll_duration: None,
                 }),
                 control: Some(NodeId::default()),
             },
@@ -852,6 +854,7 @@ mod focus_tests {
                     axis: ScrollbarAxis::Vertical,
                     offset: 24.5,
                     animate: true,
+                    scroll_duration: None,
                 }),
                 control: Some(NodeId::default()),
             },
@@ -886,6 +889,7 @@ mod focus_tests {
                     axis: ScrollbarAxis::Vertical,
                     offset: 999.0,
                     animate: false,
+                    scroll_duration: None,
                 }),
                 control: Some(NodeId::default()),
             },
@@ -914,6 +918,7 @@ mod focus_tests {
                     axis: ScrollbarAxis::Vertical,
                     offset: 24.5,
                     animate: false,
+                    scroll_duration: None,
                 }),
                 control: Some(NodeId::default()),
             },

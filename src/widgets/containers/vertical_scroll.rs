@@ -41,9 +41,17 @@ impl VerticalScroll {
         self.inner.scroll_by(delta);
     }
 
+    pub fn scroll_to(&mut self, offset_y: usize) {
+        self.inner.scroll_to(offset_y);
+    }
+
     pub fn scroll_step(mut self, step: usize) -> Self {
         self.inner = self.inner.scroll_step(step);
         self
+    }
+
+    pub fn set_scroll_step(&mut self, step: usize) {
+        self.inner.set_scroll_step(step);
     }
 
     pub fn set_virtual_content_size(&self, width: usize, height: usize) {
@@ -62,3 +70,37 @@ impl Default for VerticalScroll {
 }
 
 delegate_widget_to!(VerticalScroll, inner);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventCtx;
+    use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
+    use crate::node_id::NodeId;
+    use crate::prelude::Label;
+
+    #[test]
+    fn forwards_scrollbar_messages_to_inner_scrollable_container() {
+        let mut vs = VerticalScroll::new().with_child(Label::new("line\n".repeat(40)));
+        let _ = vs.take_composed_children();
+        vs.set_virtual_content_size(40, 100);
+
+        let mut ctx = EventCtx::default();
+        vs.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 7.0,
+                    animate: false,
+                    scroll_duration: None,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+
+        assert_eq!(vs.scroll_offset().1, 7);
+        assert!(ctx.handled());
+    }
+}

@@ -2,6 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::compose::ComposeResult;
 use crate::event::{Event, EventCtx};
+use crate::message::MessageEvent;
 use crate::widgets::{BindingDecl, Container, Widget, WidgetStyles};
 
 use super::ScrollView;
@@ -205,6 +206,10 @@ impl Widget for ScrollableContainer {
         self.inner.on_event(event, ctx);
     }
 
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+        self.inner.on_message(msg, ctx);
+    }
+
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
         self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
     }
@@ -217,12 +222,20 @@ impl Widget for ScrollableContainer {
         self.inner.scroll_offset()
     }
 
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        self.inner.scroll_offset_f32()
+    }
+
     fn clips_descendants_to_content(&self) -> bool {
         self.inner.clips_descendants_to_content()
     }
 
     fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
         self.inner.scroll_viewport_size()
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        self.inner.scroll_virtual_content_size()
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -278,6 +291,7 @@ impl Widget for ScrollableContainer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::prelude::Label;
 
     #[test]
@@ -294,5 +308,30 @@ mod tests {
         let _ = sc.take_composed_children();
         assert_eq!(sc.scroll_offset(), (0, 0));
         assert!(sc.clips_descendants_to_content());
+    }
+
+    #[test]
+    fn scrollable_container_forwards_scrollbar_messages_to_inner_scrollview() {
+        let mut sc = ScrollableContainer::new().with_child(Label::new("line\n".repeat(20)));
+        sc.set_virtual_content_size(20, 100);
+        let mut ctx = EventCtx::default();
+        sc.on_message(
+            &MessageEvent {
+                sender: crate::node_id::NodeId::default(),
+                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 6.0,
+                    animate: false,
+                    scroll_duration: None,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        assert_eq!(sc.scroll_offset().1, 6);
+        assert!(
+            ctx.handled(),
+            "message should be handled by inner ScrollView"
+        );
     }
 }

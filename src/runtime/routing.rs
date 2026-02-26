@@ -726,6 +726,7 @@ mod message_tests {
     use crate::event::{MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
+    use crate::runtime::render::{apply_layout_info_tree_from_layout_rects, run_layout_pass};
     use crate::widget_tree::WidgetTree;
     use crate::widgets::{AppRoot, Button, Label, ScrollView};
     use crossterm::event::{KeyCode, KeyModifiers};
@@ -992,6 +993,63 @@ mod message_tests {
         // Button doesn't handle scroll, so it bubbles to ScrollReceiver.
         let outcome = dispatch_mouse_scroll_to_target_tree(&mut tree, button_id, 0, 1);
         assert!(outcome.handled);
+    }
+
+    #[test]
+    fn dedicated_scrollbar_click_updates_scrollview_offset() {
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(AppRoot::new()));
+        let scroll_id = tree.mount(
+            root_id,
+            Box::new(ScrollView::new(Label::new("line\n".repeat(120)))),
+        );
+
+        // Enter tree mode and mount ScrollView dedicated scrollbar children.
+        let extracted = {
+            let node = tree.get_mut(scroll_id).expect("scrollview node");
+            node.widget.take_composed_children()
+        };
+        for child in extracted {
+            tree.mount(scroll_id, child);
+        }
+
+        run_layout_pass(&mut tree, (40, 10));
+        apply_layout_info_tree_from_layout_rects(&mut tree);
+
+        let vbar_id = tree
+            .children(scroll_id)
+            .iter()
+            .copied()
+            .find(|child_id| {
+                tree.get(*child_id).and_then(|node| node.widget.style_id())
+                    == Some("__scrollview_vscrollbar")
+            })
+            .expect("vertical scrollbar child must exist");
+
+        // Click below the thumb to trigger page-down behavior.
+        let down = dispatch_event_to_target_tree(
+            &mut tree,
+            vbar_id,
+            &Event::MouseDown(MouseDownEvent {
+                target: vbar_id,
+                screen_x: 39,
+                screen_y: 8,
+                x: 0,
+                y: 8,
+            }),
+        );
+        let _ = dispatch_message_queue_tree(&mut tree, down.messages);
+
+        let offset_y = tree
+            .get(scroll_id)
+            .expect("scrollview node")
+            .widget
+            .scroll_offset()
+            .1;
+        assert!(
+            offset_y > 0,
+            "clicking the dedicated vertical scrollbar should advance offset, got {offset_y}"
+        );
     }
 
     struct ScrollSink {

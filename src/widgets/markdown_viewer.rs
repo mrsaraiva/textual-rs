@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
@@ -9,10 +10,10 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::message::{
     MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
-    TreeNodeActivated, TreeNodeSelected,
+    ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated, TreeNodeSelected,
 };
 
-use super::containers::ScrollableContainer;
+use super::containers::VerticalScroll;
 use super::{BindingDecl, Markdown, Tree, TreeNode, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
@@ -429,8 +430,8 @@ impl Navigator {
 /// Uses a [`Navigator`] with `go()`, `back()`, and `forward()` methods for
 /// browser-like content history, matching Python's `MarkdownViewer.navigator`.
 pub struct MarkdownViewer {
-    /// Scroll container that owns the Markdown + TOC children and scrollbar widgets.
-    inner: ScrollableContainer,
+    /// Python-parity scroll host (`VerticalScroll`) that owns Markdown + TOC children.
+    inner: VerticalScroll,
     /// Shared content state between this viewer and its Markdown child.
     /// When `go()`/`back()`/`forward()` update content, the Markdown child picks it
     /// up during `on_layout()` via this shared reference.
@@ -460,9 +461,7 @@ impl MarkdownViewer {
 
         let shared_markup = Arc::new(RwLock::new(content.clone()));
         let shared_headings = Arc::new(RwLock::new(Self::parse_headings(&content)));
-        let inner = ScrollableContainer::new()
-            .with_can_focus(false)
-            .with_can_focus_children(true)
+        let inner = VerticalScroll::new()
             .scroll_step(2)
             .with_child(Markdown::with_shared_markup(shared_markup.clone()))
             .with_child(MarkdownTableOfContents::with_shared_headings(
@@ -716,15 +715,15 @@ impl Widget for MarkdownViewer {
     }
 
     fn focusable(&self) -> bool {
-        self.inner.focusable()
+        false
     }
 
     fn can_focus(&self) -> bool {
-        self.inner.can_focus()
+        false
     }
 
     fn can_focus_children(&self) -> bool {
-        self.inner.can_focus_children()
+        true
     }
 
     fn set_focus(&mut self, focused: bool) {
@@ -736,7 +735,7 @@ impl Widget for MarkdownViewer {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inner.render(console, options)
+        Widget::render(&self.inner, console, options)
     }
 
     fn render_with_debug(
@@ -804,8 +803,15 @@ impl Widget for MarkdownViewer {
         }) = &message.message
         {
             let target_line = self.heading_line_offset(block_id);
-            self.inner.scroll_to(target_line);
-            ctx.request_repaint();
+            // Python `scroll_to_widget(..., top=True)` defaults to a fixed 0.2s
+            // duration when no explicit speed/duration is provided.
+            let scroll_duration = Some(Duration::from_millis(200));
+            ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: target_line as f32,
+                animate: true,
+                scroll_duration,
+            }));
             ctx.set_handled();
             return;
         }
@@ -824,12 +830,20 @@ impl Widget for MarkdownViewer {
         self.inner.scroll_offset()
     }
 
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        self.inner.scroll_offset_f32()
+    }
+
     fn clips_descendants_to_content(&self) -> bool {
         self.inner.clips_descendants_to_content()
     }
 
     fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
         self.inner.scroll_viewport_size()
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        self.inner.scroll_virtual_content_size()
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -1262,7 +1276,11 @@ mod tests {
                 headings: vec![
                     (1, "Chapter".to_string(), "chapter".to_string()),
                     (2, "Section".to_string(), "section".to_string()),
-                    (2, "Litany Against Fear".to_string(), "litany-against-fear".to_string()),
+                    (
+                        2,
+                        "Litany Against Fear".to_string(),
+                        "litany-against-fear".to_string(),
+                    ),
                 ],
             }),
             control: None,
@@ -1272,6 +1290,37 @@ mod tests {
         assert!(
             ctx.invalidation().layout,
             "MarkdownViewer must invalidate layout when TOC headings change"
+        );
+    }
+
+    #[test]
+    fn viewer_toc_selected_posts_scrollbar_scroll_to() {
+        let mut viewer = MarkdownViewer::new("# First\n\n## Second");
+        // Ensure heading offsets are initialized from current content/layout assumptions.
+        viewer.on_layout(80, 24);
+
+        let msg = MessageEvent {
+            sender: crate::node_id::NodeId::default(),
+            message: Message::MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected {
+                block_id: "second".to_string(),
+            }),
+            control: None,
+        };
+        let mut ctx = crate::event::EventCtx::default();
+        viewer.on_message(&msg, &mut ctx);
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert!(
+            messages.iter().any(|m| matches!(
+                &m.message,
+                Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: _,
+                    animate: true,
+                    ..
+                })
+            )),
+            "TOC selection should route through ScrollbarScrollTo for synchronized content+thumb scroll"
         );
     }
 

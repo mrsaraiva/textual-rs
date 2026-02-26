@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (MarkdownViewer scroll parity + scrollbar sync fixes)
+
+- **fix(runtime): smooth scrollbar thumb sync without per-frame relayout**
+  - Added lightweight host-scrollbar position sync during render so animated scroll offsets update
+    dedicated scrollbar thumbs without forcing `run_layout_pass()` each animation tick.
+  - Prevents heavy layout invalidation during TOC scroll animations, improving smoothness.
+
+- **fix(widgets): ScrollView wheel parity with Python**
+  - Mouse wheel scrolling is now immediate (non-animated), matching Python Textual behavior.
+
+- **fix(widgets/runtime): restore scrollbar movement on wheel/TOC scroll**
+  - Added `scroll_virtual_content_size()` support in `ScrollView` and delegated it through
+    wrapper widgets (`thin` macro, `ScrollableContainer`, `MarkdownViewer`).
+  - Fixed regression where scrollbar thumb could stop tracking non-drag scroll updates due to
+    missing virtual-size delegation in the wrapper chain.
+
 ### 2026-02-25 (MarkdownViewer TOC architecture + sizing parity)
 
 - **fix(widgets): MarkdownTableOfContents — Python-style composed Tree behavior**
