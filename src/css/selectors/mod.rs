@@ -20,11 +20,10 @@ pub(crate) use parser::parse_selector_list;
 
 // Crate-internal re-exports
 pub(crate) use resolver::{
-    apply_display_visibility_to_tree, begin_style_render_pass, current_parent_style,
-    pop_style_context, push_style_context, resolve_component_style,
-    resolve_component_style_for_type, resolve_style, resolve_style_for_meta,
-    selector_meta_component, selector_meta_generic, selector_meta_generic_with_classes,
-    take_layout_affected_style_changes, with_style_stack,
+    apply_display_visibility_to_tree, begin_style_render_pass, current_composited_background,
+    current_parent_style, pop_style_context, push_style_context, resolve_component_style,
+    resolve_style, resolve_style_for_meta, selector_meta_component, selector_meta_generic,
+    selector_meta_generic_with_classes, take_layout_affected_style_changes, with_style_stack,
 };
 pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
 
@@ -421,6 +420,7 @@ mod tests {
 
         let _pseudo_guard =
             super::context::set_app_runtime_pseudos(super::context::AppRuntimePseudos {
+                dark: false,
                 inline: true,
                 ansi: false,
                 nocolor: false,
@@ -428,6 +428,39 @@ mod tests {
         begin_style_render_pass();
         let style_with_inline = resolve_style(&widget, &selector_meta_generic(&widget));
         assert_eq!(style_with_inline.bold, Some(true));
+    }
+
+    #[test]
+    fn segment_background_uses_ancestor_surface_when_parent_has_no_bg() {
+        reset_computed_style_cache_for_tests();
+        let root = ProbeWidget::new();
+        let parent = ProbeWidget::new();
+        let root_meta = selector_meta_generic(&root);
+        let parent_meta = selector_meta_generic(&parent);
+        let root_surface = Style::default().bg(Color::rgb(0x22, 0x33, 0x44));
+        let parent_transparent = Style::default();
+
+        let styled = with_style_stack(root_meta, root_surface, || {
+            with_style_stack(parent_meta, parent_transparent, || {
+                apply_style_to_segments(
+                    node_id_from_ffi(1),
+                    Segments::from(vec![Segment::new("x")]),
+                    Style::default().fg(Color::rgb(255, 255, 255)),
+                    None,
+                )
+            })
+        });
+
+        let cell_style = styled
+            .into_iter()
+            .find(|segment| segment.control.is_none())
+            .and_then(|segment| segment.style)
+            .expect("styled segment");
+        assert_eq!(
+            cell_style.bgcolor,
+            Some(Color::rgb(0x22, 0x33, 0x44).to_simple_opaque()),
+            "transparent descendants should compose over ancestor surface instead of terminal default",
+        );
     }
 
     #[test]

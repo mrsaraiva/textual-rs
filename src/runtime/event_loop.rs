@@ -196,6 +196,7 @@ fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut 
     pass.animation_requests
         .append(&mut outcome.animation_requests);
     pass.worker_requests.append(&mut outcome.worker_requests);
+    pass.recompose_nodes.append(&mut outcome.recompose_nodes);
     pass.generated.append(&mut outcome.messages);
 }
 
@@ -225,6 +226,8 @@ fn dispatch_simulated_key_like_input(
         .extend(app_key_ctx.take_animation_requests());
     pass.worker_requests
         .extend(app_key_ctx.take_worker_requests());
+    pass.recompose_nodes
+        .extend(app_key_ctx.take_recompose_nodes());
     pass.generated.extend(app_key_ctx.take_messages());
     if pass.stop_requested || app_key_ctx.handled() {
         return;
@@ -277,6 +280,7 @@ fn dispatch_simulated_key_like_input(
                     pass.animation_requests
                         .extend(ctx.take_animation_requests());
                     pass.worker_requests.extend(ctx.take_worker_requests());
+                    pass.recompose_nodes.extend(ctx.take_recompose_nodes());
                     pass.generated.extend(ctx.take_messages());
                     return;
                 }
@@ -293,6 +297,7 @@ fn dispatch_simulated_key_like_input(
             pass.animation_requests
                 .extend(root_ctx.take_animation_requests());
             pass.worker_requests.extend(root_ctx.take_worker_requests());
+            pass.recompose_nodes.extend(root_ctx.take_recompose_nodes());
             pass.generated.extend(root_ctx.take_messages());
             return;
         }
@@ -511,6 +516,7 @@ struct RuntimeMessagePass {
     invalidation: crate::event::InvalidationFlags,
     animation_requests: Vec<AnimationRequest>,
     worker_requests: Vec<WorkerRequest>,
+    recompose_nodes: Vec<NodeId>,
     stop_requested: bool,
 }
 
@@ -576,6 +582,21 @@ fn sync_widget_controlled_child_display_tree(
         }
     }
     changed
+}
+
+fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: NodeId) {
+    let Some(node) = tree.get_mut(node_id) else {
+        return;
+    };
+    let extracted = node.widget.take_composed_children();
+    let declarations = node.widget.compose();
+    tree.remove_children(node_id);
+    for child in extracted {
+        App::mount_extracted_recursive(tree, node_id, child);
+    }
+    if !declarations.is_empty() {
+        App::mount_declarations(tree, node_id, declarations);
+    }
 }
 
 fn split_runtime_control_messages(
@@ -916,6 +937,7 @@ fn split_runtime_control_messages(
                             messages: ctx.take_messages(),
                             animation_requests: ctx.take_animation_requests(),
                             worker_requests: ctx.take_worker_requests(),
+                            recompose_nodes: ctx.take_recompose_nodes(),
                             default_prevented: false,
                         };
                         merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
@@ -939,6 +961,7 @@ fn split_runtime_control_messages(
                         messages: ctx.take_messages(),
                         animation_requests: ctx.take_animation_requests(),
                         worker_requests: ctx.take_worker_requests(),
+                        recompose_nodes: ctx.take_recompose_nodes(),
                         default_prevented: false,
                     };
                     merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
@@ -1867,6 +1890,9 @@ impl App {
             aggregate
                 .worker_requests
                 .extend(pass.worker_requests.into_iter());
+            aggregate
+                .recompose_nodes
+                .extend(pass.recompose_nodes.into_iter());
             let mut next_queue =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
             next_queue.extend(pass.generated);
@@ -1886,6 +1912,9 @@ impl App {
             aggregate
                 .worker_requests
                 .append(&mut outcome.worker_requests);
+            aggregate
+                .recompose_nodes
+                .append(&mut outcome.recompose_nodes);
             let emitted = std::mem::take(&mut outcome.messages);
             if !emitted.is_empty() {
                 aggregate.messages.extend(emitted.iter().cloned());
@@ -2146,6 +2175,7 @@ impl App {
                 }
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+                    dark: self.dark_mode,
                     inline: self.app_inline,
                     ansi: self.app_ansi,
                     nocolor: self.app_nocolor,
@@ -2397,6 +2427,7 @@ impl App {
                                             messages: ctx.take_messages(),
                                             animation_requests: ctx.take_animation_requests(),
                                             worker_requests: ctx.take_worker_requests(),
+                                            recompose_nodes: ctx.take_recompose_nodes(),
                                             default_prevented: false,
                                         };
                                         self.absorb_outcome(
@@ -2459,6 +2490,7 @@ impl App {
                                     messages: root_ctx.take_messages(),
                                     animation_requests: root_ctx.take_animation_requests(),
                                     worker_requests: root_ctx.take_worker_requests(),
+                                    recompose_nodes: root_ctx.take_recompose_nodes(),
                                     default_prevented: false,
                                 };
                                 self.absorb_outcome(
@@ -3628,6 +3660,7 @@ impl App {
                 pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                 pending_invalidation.request_full_content();
             }
+            self.absorb_pending_recompositions(&mut pending_invalidation);
             self.absorb_pending_query_refreshes(&mut pending_invalidation);
 
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
@@ -3653,6 +3686,7 @@ impl App {
                 }
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+                    dark: self.dark_mode,
                     inline: self.app_inline,
                     ansi: self.app_ansi,
                     nocolor: self.app_nocolor,
@@ -3673,6 +3707,7 @@ impl App {
                     messages: app_tick_ctx.take_messages(),
                     animation_requests: app_tick_ctx.take_animation_requests(),
                     worker_requests: app_tick_ctx.take_worker_requests(),
+                    recompose_nodes: app_tick_ctx.take_recompose_nodes(),
                     default_prevented: false,
                 };
                 self.absorb_outcome(
@@ -3732,6 +3767,7 @@ impl App {
                     pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
                     pending_invalidation.request_full_content();
                 }
+                self.absorb_pending_recompositions(&mut pending_invalidation);
                 self.absorb_pending_query_refreshes(&mut pending_invalidation);
                 if pending_invalidation.is_dirty()
                     || self.resized_since_last_render
@@ -3839,6 +3875,11 @@ impl App {
                 requests.extend(msg_outcome.worker_requests);
                 requests
             },
+            recompose_nodes: {
+                let mut nodes = outcome.recompose_nodes;
+                nodes.extend(msg_outcome.recompose_nodes);
+                nodes
+            },
             default_prevented: outcome.default_prevented || msg_outcome.default_prevented,
         }
     }
@@ -3898,6 +3939,10 @@ impl App {
         }
         let requests = std::mem::take(&mut outcome.animation_requests);
         self.enqueue_animation_requests(requests);
+        let recompose_nodes = std::mem::take(&mut outcome.recompose_nodes);
+        if !recompose_nodes.is_empty() {
+            self.request_widget_recompose_nodes(&recompose_nodes);
+        }
         accumulate_worker_requests(outcome);
     }
 
@@ -3916,6 +3961,7 @@ impl App {
                 &reload.changed_rules,
                 self.app_active,
                 AppRuntimePseudos {
+                    dark: self.dark_mode,
                     inline: self.app_inline,
                     ansi: self.app_ansi,
                     nocolor: self.app_nocolor,
@@ -3927,6 +3973,7 @@ impl App {
                 &reload.changed_rules,
                 self.app_active,
                 AppRuntimePseudos {
+                    dark: self.dark_mode,
                     inline: self.app_inline,
                     ansi: self.app_ansi,
                     nocolor: self.app_nocolor,
@@ -3971,6 +4018,22 @@ impl App {
         }
     }
 
+    fn absorb_pending_recompositions(&mut self, pending: &mut PendingInvalidation) {
+        let queued = self.take_pending_recompose_nodes();
+        if queued.is_empty() {
+            return;
+        }
+        if let Some(tree) = self.active_widget_tree_mut() {
+            for node_id in queued {
+                if tree.contains(node_id) {
+                    recompose_node_subtree(tree, node_id);
+                }
+            }
+            pending.request_flags(crate::event::InvalidationFlags::layout());
+            pending.request_full_content();
+        }
+    }
+
     fn collect_current_resolved_styles(
         &self,
         root: &dyn Widget,
@@ -4007,6 +4070,7 @@ impl App {
         }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            dark: self.dark_mode,
             inline: self.app_inline,
             ansi: self.app_ansi,
             nocolor: self.app_nocolor,
@@ -4306,6 +4370,7 @@ impl App {
                     messages: root_capture_ctx.take_messages(),
                     animation_requests: root_capture_ctx.take_animation_requests(),
                     worker_requests: root_capture_ctx.take_worker_requests(),
+                    recompose_nodes: root_capture_ctx.take_recompose_nodes(),
                     default_prevented: false,
                 };
             }
@@ -4342,6 +4407,12 @@ impl App {
                 root_worker_requests.extend(outcome.worker_requests);
                 outcome.worker_requests = root_worker_requests;
             }
+
+            let mut root_recompose_nodes = root_capture_ctx.take_recompose_nodes();
+            if !root_recompose_nodes.is_empty() {
+                root_recompose_nodes.extend(outcome.recompose_nodes);
+                outcome.recompose_nodes = root_recompose_nodes;
+            }
         }
 
         // Root bridge for app-level behavior not mounted in the arena tree.
@@ -4369,6 +4440,9 @@ impl App {
             outcome
                 .worker_requests
                 .extend(root_event_ctx.take_worker_requests());
+            outcome
+                .recompose_nodes
+                .extend(root_event_ctx.take_recompose_nodes());
         }
 
         if !outcome.handled
@@ -4387,6 +4461,9 @@ impl App {
             outcome
                 .worker_requests
                 .extend(app_action_ctx.take_worker_requests());
+            outcome
+                .recompose_nodes
+                .extend(app_action_ctx.take_recompose_nodes());
         }
         if dismissed_tooltip {
             outcome.repaint_requested = true;
@@ -4601,6 +4678,7 @@ impl App {
         }
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            dark: self.dark_mode,
             inline: self.app_inline,
             ansi: self.app_ansi,
             nocolor: self.app_nocolor,

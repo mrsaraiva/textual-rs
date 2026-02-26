@@ -195,6 +195,8 @@ pub struct DispatchOutcome {
     pub animation_requests: Vec<AnimationRequest>,
     /// Worker spawn requests emitted by widgets during this dispatch cycle.
     pub worker_requests: Vec<WorkerRequest>,
+    /// Nodes whose children should be recomposed after dispatch.
+    pub recompose_nodes: Vec<NodeId>,
     /// True when at least one handler called `prevent_default()` on the envelope
     /// during message dispatch, signalling the default action should be skipped.
     ///

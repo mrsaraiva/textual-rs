@@ -8,7 +8,7 @@ keywords = ["terminal", "tui", "textual", "ui", "widgets"]
 categories = ["command-line-interface"]
 
 [dependencies]
-rich-rs = "1.0.2"
+rich-rs = "1.1.0"
 crossterm = "0.28"
 richtui-crossterm = { path = "../richtui/crates/richtui-crossterm" }
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }
@@ -27,9 +27,6 @@ pulldown-cmark = "0.13"
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }
 serde_json = "1"
-
-[patch.crates-io]
-rich-rs = { path = "../rich-rs" }
 
 [features]
 default = []

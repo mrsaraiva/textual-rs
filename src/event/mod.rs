@@ -524,6 +524,7 @@ pub struct EventCtx {
     animation_requests: Vec<AnimationRequest>,
     style_animation_requests: Vec<StyleAnimationRequest>,
     worker_requests: Vec<WorkerRequest>,
+    recompose_nodes: Vec<NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -611,6 +612,19 @@ impl EventCtx {
     pub fn request_layout_invalidation(&mut self) {
         self.repaint_requested = true;
         self.invalidation.merge(InvalidationFlags::layout());
+    }
+
+    /// Request subtree recomposition for the current widget node.
+    pub fn request_recompose(&mut self) {
+        self.request_recompose_node(self.node_id);
+    }
+
+    /// Request subtree recomposition for a specific node.
+    pub fn request_recompose_node(&mut self, node_id: NodeId) {
+        if !self.recompose_nodes.contains(&node_id) {
+            self.recompose_nodes.push(node_id);
+        }
+        self.request_layout_invalidation();
     }
 
     /// Request the runtime event loop to stop after current dispatch finishes.
@@ -846,6 +860,10 @@ impl EventCtx {
         std::mem::take(&mut self.worker_requests)
     }
 
+    pub(crate) fn take_recompose_nodes(&mut self) -> Vec<NodeId> {
+        std::mem::take(&mut self.recompose_nodes)
+    }
+
     pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
         if other.handled {
             self.handled = true;
@@ -863,6 +881,11 @@ impl EventCtx {
         self.style_animation_requests
             .append(&mut other.style_animation_requests);
         self.worker_requests.append(&mut other.worker_requests);
+        for node_id in other.recompose_nodes.drain(..) {
+            if !self.recompose_nodes.contains(&node_id) {
+                self.recompose_nodes.push(node_id);
+            }
+        }
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {

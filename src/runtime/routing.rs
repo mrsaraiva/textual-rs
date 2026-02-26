@@ -26,6 +26,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
     };
     debug_message(&format!(
@@ -72,6 +73,7 @@ pub(crate) fn dispatch_mouse_scroll(
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
     }
 }
@@ -170,6 +172,7 @@ pub fn dispatch_event_tree(
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
     };
     debug_message(&format!(
@@ -226,6 +229,7 @@ pub fn dispatch_event_to_target_tree(
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
     }
 }
@@ -258,6 +262,7 @@ pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> Di
         messages: aggregate.take_messages(),
         animation_requests: aggregate.take_animation_requests(),
         worker_requests: aggregate.take_worker_requests(),
+        recompose_nodes: aggregate.take_recompose_nodes(),
         default_prevented: false,
     }
 }
@@ -335,6 +340,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
+        recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
     }
 }
@@ -409,6 +415,7 @@ pub(crate) fn dispatch_message_queue_tree(
     let mut emitted: Vec<MessageEvent> = Vec::new();
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
     let mut worker_requests: Vec<crate::worker::WorkerRequest> = Vec::new();
+    let mut recompose_nodes: Vec<NodeId> = Vec::new();
 
     let mut queue: VecDeque<MessageEnvelope> =
         initial.into_iter().map(MessageEnvelope::new).collect();
@@ -435,6 +442,7 @@ pub(crate) fn dispatch_message_queue_tree(
         let next = ctx.take_messages();
         let mut next_anims = ctx.take_animation_requests();
         let mut next_workers = ctx.take_worker_requests();
+        let mut next_recompose = ctx.take_recompose_nodes();
         if !next.is_empty() {
             let next_envelopes: VecDeque<MessageEnvelope> = next
                 .iter()
@@ -452,6 +460,9 @@ pub(crate) fn dispatch_message_queue_tree(
         if !next_workers.is_empty() {
             worker_requests.append(&mut next_workers);
         }
+        if !next_recompose.is_empty() {
+            recompose_nodes.append(&mut next_recompose);
+        }
     }
 
     DispatchOutcome {
@@ -462,6 +473,7 @@ pub(crate) fn dispatch_message_queue_tree(
         messages: emitted,
         animation_requests,
         worker_requests,
+        recompose_nodes,
         default_prevented,
     }
 }

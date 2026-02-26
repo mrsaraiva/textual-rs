@@ -838,9 +838,8 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         let mut fill = rich_rs::Style::new();
         let fallback_bg = crate::style::parse_color_like("$background")
             .unwrap_or(crate::style::Color::rgb(0, 0, 0));
-        let parent_bg = parent_style
-            .clone()
-            .and_then(|s| s.bg)
+        let parent_bg = crate::css::current_composited_background()
+            .or_else(|| parent_style.clone().and_then(|s| s.bg))
             .unwrap_or(fallback_bg);
         let inner_bg = resolved
             .bg

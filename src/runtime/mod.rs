@@ -457,6 +457,8 @@ pub struct App {
     style_snapshot_cache: HashMap<NodeId, crate::style::Style>,
     /// Pending refresh targets requested via `DomQueryMut::refresh()`.
     pending_query_refresh_nodes: Vec<NodeId>,
+    /// Pending subtree recomposition targets requested by widgets via `EventCtx`.
+    pending_recompose_nodes: Vec<NodeId>,
     /// App-scoped typed values used by `data_bind`.
     data_values: HashMap<String, Arc<dyn Any + Send + Sync>>,
     /// Declarative data-binding registrations.
@@ -592,6 +594,7 @@ impl App {
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
             pending_query_refresh_nodes: Vec::new(),
+            pending_recompose_nodes: Vec::new(),
             data_values: HashMap::new(),
             data_bindings: Vec::new(),
             suspend_process_impl: suspend_process_default,
@@ -1556,6 +1559,33 @@ impl App {
 
     pub(super) fn take_pending_query_refresh_nodes(&mut self) -> Vec<NodeId> {
         std::mem::take(&mut self.pending_query_refresh_nodes)
+    }
+
+    pub(super) fn request_widget_recompose_nodes(&mut self, nodes: &[NodeId]) {
+        let queued: Vec<NodeId> = {
+            let Some(tree) = self.active_widget_tree() else {
+                self.clear_on_next_render = true;
+                return;
+            };
+            nodes
+                .iter()
+                .copied()
+                .filter(|node_id| tree.contains(*node_id))
+                .collect()
+        };
+        if queued.is_empty() {
+            self.clear_on_next_render = true;
+            return;
+        }
+        for node_id in queued {
+            if !self.pending_recompose_nodes.contains(&node_id) {
+                self.pending_recompose_nodes.push(node_id);
+            }
+        }
+    }
+
+    pub(super) fn take_pending_recompose_nodes(&mut self) -> Vec<NodeId> {
+        std::mem::take(&mut self.pending_recompose_nodes)
     }
 
     #[cfg(test)]

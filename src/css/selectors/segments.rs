@@ -15,7 +15,9 @@ pub(crate) fn apply_style_to_segments(
     }
     let rich_attrs = style.to_rich_without_colors();
     let fallback_bg = crate::style::parse_color_like("$background");
-    let parent_bg = parent_style.and_then(|s| s.bg).or(fallback_bg);
+    let parent_bg = crate::css::current_composited_background()
+        .or_else(|| parent_style.and_then(|s| s.bg))
+        .or(fallback_bg);
     segments
         .into_iter()
         .map(|mut seg| {
@@ -186,8 +188,8 @@ pub(crate) fn apply_widget_opacity_to_segments(
     }
     let opacity = (opacity_percent as f32 / 100.0).clamp(0.0, 1.0);
     let fallback_bg = crate::style::parse_color_like("$background");
-    let parent_bg = parent_style
-        .and_then(|style| style.bg)
+    let parent_bg = crate::css::current_composited_background()
+        .or_else(|| parent_style.and_then(|style| style.bg))
         .or(fallback_bg)
         .unwrap_or(crate::style::Color::rgb(0, 0, 0));
 

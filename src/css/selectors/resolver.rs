@@ -97,6 +97,7 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
             focused: widget_focused_state(widget),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            dark: pseudos.dark,
             inline: pseudos.inline,
             ansi: pseudos.ansi,
             nocolor: pseudos.nocolor,
@@ -148,6 +149,7 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             focused: widget_focused_state(widget),
             hovered: widget.is_hovered(),
             active: widget.is_active(),
+            dark: pseudos.dark,
             inline: pseudos.inline,
             ansi: pseudos.ansi,
             nocolor: pseudos.nocolor,
@@ -159,6 +161,35 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
 
 pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().cloned())
+}
+
+/// Returns the effective painted background color from the current ancestor stack.
+///
+/// CSS `bg` is not inherited semantically, but render-time composition needs the
+/// nearest painted ancestor surface so transparent descendants don't fall back to
+/// terminal-default background.
+pub(crate) fn current_composited_background() -> Option<crate::style::Color> {
+    let fallback =
+        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    STYLE_STACK.with(|stack| {
+        let stack = stack.borrow();
+        if stack.is_empty() {
+            return None;
+        }
+        let mut saw_background = false;
+        let mut composited = fallback;
+        for style in stack.iter() {
+            if let Some(bg) = style.bg {
+                composited = bg.flatten_over(composited);
+                saw_background = true;
+            }
+        }
+        if saw_background {
+            Some(composited)
+        } else {
+            None
+        }
+    })
 }
 
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
@@ -217,27 +248,6 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
 pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
     let parent_meta = selector_meta_generic(widget);
     let meta = selector_meta_component_for(widget, classes);
-    SELECTOR_STACK.with(|stack| {
-        stack.borrow_mut().push(parent_meta);
-        let out = resolve_style_for_meta(&meta);
-        stack.borrow_mut().pop();
-        out
-    })
-}
-
-pub(crate) fn resolve_component_style_for_type<T: Widget + ?Sized>(
-    widget: &T,
-    component_type: &str,
-    type_aliases: &[&str],
-    classes: &[&str],
-) -> Style {
-    let parent_meta = selector_meta_generic(widget);
-    let mut meta = selector_meta_component_for(widget, classes);
-    meta.type_name = component_type.to_string();
-    meta.type_aliases = type_aliases
-        .iter()
-        .map(|alias| (*alias).to_string())
-        .collect();
     SELECTOR_STACK.with(|stack| {
         stack.borrow_mut().push(parent_meta);
         let out = resolve_style_for_meta(&meta);

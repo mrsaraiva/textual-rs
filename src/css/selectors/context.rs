@@ -28,6 +28,7 @@ pub struct AppRuntimePseudosGuard(AppRuntimePseudos);
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AppRuntimePseudos {
+    pub dark: bool,
     pub inline: bool,
     pub ansi: bool,
     pub nocolor: bool,
