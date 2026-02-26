@@ -3,6 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::event::{Event, EventCtx};
+use crate::widgets::delegate::delegate_widget_method;
 
 use super::{
     Widget, WidgetStyles,
@@ -31,10 +32,6 @@ struct IdTaggedChild {
 }
 
 impl Widget for IdTaggedChild {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.child.render(console, options)
-    }
-
     fn style_type(&self) -> &'static str {
         self.child.style_type()
     }
@@ -43,45 +40,82 @@ impl Widget for IdTaggedChild {
         Some(self.id.as_str())
     }
 
-    fn focusable(&self) -> bool {
-        self.child.focusable()
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.child.has_focus()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        self.child.content_width()
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.child.layout_height()
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.child.is_hovered()
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.child.set_hovered(hovered);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event_capture(event, ctx);
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.child.on_event(event, ctx);
-    }
-
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        self.child.on_message(message, ctx);
-    }
+    // delegate-audit: 72 methods as of 2026-02-26
+    delegate_widget_method!(
+        child,
+        [
+            render,
+            render_with_debug,
+            render_line,
+            render_lines,
+            compose,
+            take_composed_children,
+            focusable,
+            can_focus,
+            can_focus_children,
+            set_focus,
+            has_focus,
+            on_mount,
+            on_unmount,
+            on_tick,
+            on_resize,
+            on_layout,
+            set_virtual_content_size,
+            on_event_capture,
+            on_event,
+            on_message,
+            on_mouse_scroll,
+            on_mouse_move,
+            on_app_key,
+            on_app_action,
+            on_app_message,
+            on_app_tick,
+            on_app_mount,
+            scroll_offset,
+            scroll_offset_f32,
+            scroll_viewport_size,
+            scroll_virtual_content_size,
+            clips_descendants_to_content,
+            child_display_for_tree,
+            tree_child_content_inset,
+            layout_height,
+            content_width,
+            layout_constraints,
+            preserve_underlay,
+            bindings,
+            binding_hints,
+            execute_action,
+            action_namespace,
+            action_registry,
+            styles,
+            styles_mut,
+            style_type_aliases,
+            style_classes,
+            set_style_id,
+            border_title,
+            border_subtitle,
+            is_disabled,
+            set_disabled_state,
+            is_loading,
+            set_loading_state,
+            is_hovered,
+            set_hovered,
+            is_active,
+            mouse_interactive,
+            tooltip,
+            tooltip_anchor,
+            help_markup,
+            allow_select,
+            selection_at,
+            selection_word_range_at,
+            selection_all_range,
+            update_selection,
+            clear_selection,
+            get_selection,
+            selection_updated,
+            reactive_widget,
+        ]
+    );
 }
 
 impl Default for ContentSwitcher {

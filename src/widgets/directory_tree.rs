@@ -2,10 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
-
 use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::*;
+use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
 use crate::node_id::NodeId;
 
@@ -412,10 +411,6 @@ impl Widget for DirectoryTree {
         self.tree.on_layout(self.last_width, self.last_height);
     }
 
-    fn on_mount(&mut self) {
-        self.tree.on_mount();
-    }
-
     fn on_unmount(&mut self) {
         self.focused = false;
         self.hovered = false;
@@ -426,18 +421,10 @@ impl Widget for DirectoryTree {
         self.tree.on_unmount();
     }
 
-    fn on_tick(&mut self, tick: u64) {
-        self.tree.on_tick(tick);
-    }
-
     fn on_resize(&mut self, width: u16, height: u16) {
         self.last_width = width.max(1);
         self.last_height = height.max(1);
         self.tree.on_resize(self.last_width, self.last_height);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.tree.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -509,18 +496,6 @@ impl Widget for DirectoryTree {
         }
     }
 
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.tree.on_mouse_move(x, y)
-    }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.tree.on_mouse_scroll(delta_x, delta_y, ctx);
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(&self.tree, console, options)
-    }
-
     fn layout_height(&self) -> Option<usize> {
         fixed_height_from_constraints(self.layout_constraints()).or(self.tree.layout_height())
     }
@@ -558,13 +533,72 @@ impl Widget for DirectoryTree {
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
         Some(&mut self.styles)
     }
+
+    // delegate-audit: 72 methods as of 2026-02-26
+    delegate_widget_method!(
+        tree,
+        [
+            render,
+            render_with_debug,
+            render_line,
+            render_lines,
+            compose,
+            take_composed_children,
+            can_focus,
+            can_focus_children,
+            on_mount,
+            on_tick,
+            set_virtual_content_size,
+            on_event_capture,
+            on_mouse_scroll,
+            on_mouse_move,
+            on_app_key,
+            on_app_action,
+            on_app_message,
+            on_app_tick,
+            on_app_mount,
+            scroll_offset,
+            scroll_offset_f32,
+            scroll_viewport_size,
+            scroll_virtual_content_size,
+            clips_descendants_to_content,
+            child_display_for_tree,
+            tree_child_content_inset,
+            layout_constraints,
+            preserve_underlay,
+            bindings,
+            binding_hints,
+            execute_action,
+            action_namespace,
+            action_registry,
+            style_type_aliases,
+            style_id,
+            set_style_id,
+            border_title,
+            border_subtitle,
+            is_disabled,
+            set_disabled_state,
+            is_loading,
+            set_loading_state,
+            is_active,
+            mouse_interactive,
+            tooltip,
+            tooltip_anchor,
+            help_markup,
+            allow_select,
+            selection_at,
+            selection_word_range_at,
+            selection_all_range,
+            update_selection,
+            clear_selection,
+            get_selection,
+            selection_updated,
+            reactive_widget,
+        ]
+    );
 }
 
-impl Renderable for DirectoryTree {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
+delegate_renderable!(DirectoryTree);
 
 fn read_children(
     path: &Path,

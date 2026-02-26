@@ -3,6 +3,7 @@ use crate::compose::{ChildDecl, ComposeResult};
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::{Message, TabActivated, TabsCleared};
 use crate::reactive::ReactiveCtx;
+use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 use crate::widgets::{Container, Widget, WidgetStyles, helpers::empty_classes};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::sync::Mutex;
@@ -29,93 +30,33 @@ impl Widget for ContentTabs {
         Widget::render(&self.inner, console, options)
     }
 
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: &crate::debug::DebugLayout,
-    ) -> Segments {
-        self.inner.render_with_debug(console, options, debug)
-    }
-
-    fn compose(&self) -> ComposeResult {
-        self.inner.compose()
-    }
-
-    fn on_mount(&mut self) {
-        self.inner.on_mount();
-    }
-
-    fn on_unmount(&mut self) {
-        self.inner.on_unmount();
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.inner.on_tick(tick);
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.inner.on_resize(width, height);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.inner.on_layout(width, height);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event_capture(event, ctx);
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event(event, ctx);
-    }
-
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        self.inner.on_message(message, ctx);
-    }
-
-    fn focusable(&self) -> bool {
-        self.inner.focusable()
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.inner.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.inner.has_focus()
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.inner.is_hovered()
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.inner.set_hovered(hovered);
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        self.inner.style_classes()
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        self.inner.styles()
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        self.inner.styles_mut()
-    }
+    delegate_widget_method!(
+        inner,
+        [
+            render_with_debug,
+            compose,
+            focusable,
+            set_focus,
+            has_focus,
+            on_mount,
+            on_unmount,
+            on_tick,
+            on_resize,
+            on_layout,
+            on_event_capture,
+            on_event,
+            on_message,
+            layout_height,
+            styles,
+            styles_mut,
+            style_classes,
+            is_hovered,
+            set_hovered,
+        ]
+    );
 }
 
-impl Renderable for ContentTabs {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
+delegate_renderable!(ContentTabs);
 
 #[derive(Debug, Clone)]
 pub struct TabPaneMeta {
