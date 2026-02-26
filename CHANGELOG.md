@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (Markdown render fidelity: preserve inline markdown content)
+
+- **refactor(widgets): preserve raw markdown slices in block parser**
+  - `MarkdownBlock` now carries raw source slices for headings, paragraphs, lists,
+    tables, and code fences.
+  - Parser now tracks pulldown-cmark byte ranges to preserve source markdown used
+    by rendering, while still exposing normalized heading/list/table metadata.
+
+- **fix(widgets): restore inline markdown styling for paragraphs/lists/fences**
+  - `Markdown` now renders paragraph/list/code-fence blocks through
+    `rich_rs::markdown::Markdown` using block-specific CSS base styles.
+  - This restores inline markdown rendering (for example emphasis/inline code)
+    that was lost in plain-text block rendering.
+
 ### 2026-02-26 (Markdown block-model foundation)
 
 - **feat(widgets): add internal Markdown block parser/model in textual-rs**

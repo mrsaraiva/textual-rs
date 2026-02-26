@@ -3,7 +3,9 @@ use std::sync::{Arc, RwLock};
 
 use crate::render::FrameBuffer;
 use crate::style::{Color, HorizontalAlign, parse_color_like};
-use crate::widgets::markdown_model::{MarkdownBlock, parse_markdown_blocks, parse_markdown_headings};
+use crate::widgets::markdown_model::{
+    MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
+};
 
 use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
 
@@ -309,7 +311,12 @@ impl Markdown {
         Some((marker_len, title))
     }
 
-    fn rich_style_for_type(&self, type_name: &str, aliases: &[&str], classes: &[&str]) -> rich_rs::Style {
+    fn rich_style_for_type(
+        &self,
+        type_name: &str,
+        aliases: &[&str],
+        classes: &[&str],
+    ) -> rich_rs::Style {
         crate::css::resolve_component_style_for_type(self, type_name, aliases, classes)
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new)
@@ -344,6 +351,31 @@ impl Markdown {
         text_options.max_height = 1;
         let segments = Text::styled(text.to_string(), style).render(console, &text_options);
         let lines = Segment::split_lines(segments);
+        if lines.is_empty() {
+            vec![Vec::new()]
+        } else {
+            lines
+        }
+    }
+
+    fn render_markdown_lines(
+        markup: &str,
+        style: rich_rs::Style,
+        console: &Console,
+        width: usize,
+    ) -> Vec<Vec<Segment>> {
+        let mut md_options = console.options().clone();
+        md_options.size = (width.max(1), 1);
+        md_options.max_width = width.max(1);
+        md_options.max_height = 1;
+        let markdown = rich_rs::markdown::Markdown::new(markup.to_string()).with_style(style);
+        let mut lines = Segment::split_lines(markdown.render(console, &md_options));
+        while lines
+            .last()
+            .is_some_and(|line| Segment::get_line_length(line) == 0)
+        {
+            lines.pop();
+        }
         if lines.is_empty() {
             vec![Vec::new()]
         } else {
@@ -652,7 +684,7 @@ impl Widget for Markdown {
 
         for block in parse_markdown_blocks(&self.markup) {
             match block {
-                MarkdownBlock::Heading { level, text } => {
+                MarkdownBlock::Heading { level, text, .. } => {
                     let type_name = format!("MarkdownH{level}");
                     let class_name = format!("markdown--h{level}");
                     let style = self.rich_style_for_type(
@@ -688,8 +720,9 @@ impl Widget for Markdown {
                             });
                         let mut bounds = pre_align_content_bounds;
                         if let Some(horizontal) = horizontal_align {
-                            let left_pad =
-                                Self::apply_horizontal_alignment(&mut line, width, horizontal, style);
+                            let left_pad = Self::apply_horizontal_alignment(
+                                &mut line, width, horizontal, style,
+                            );
                             bounds = (
                                 left_pad + pre_align_content_bounds.0,
                                 left_pad + pre_align_content_bounds.1,
@@ -704,17 +737,17 @@ impl Widget for Markdown {
                         aligned_bounds.push(Some((0, 0)));
                     }
                 }
-                MarkdownBlock::Paragraph { text } => {
+                MarkdownBlock::Paragraph { raw, .. } => {
                     let style =
                         self.rich_style_for_type("MarkdownParagraph", &["MarkdownBlock"], &[]);
-                    for line in Self::render_text_lines(&text, style, console, width) {
+                    for line in Self::render_markdown_lines(&raw, style, console, width) {
                         lines.push(line);
                         aligned_bounds.push(None);
                     }
                     lines.push(Vec::new());
                     aligned_bounds.push(Some((0, 0)));
                 }
-                MarkdownBlock::List { ordered, items } => {
+                MarkdownBlock::List { ordered, raw, .. } => {
                     let list_type = if ordered {
                         "MarkdownOrderedList"
                     } else {
@@ -726,41 +759,21 @@ impl Widget for Markdown {
                         &["MarkdownList", "MarkdownBlock"],
                         &[],
                     );
-                    let item_style =
-                        self.rich_style_for_type("MarkdownListItem", &["MarkdownBlock"], &[]);
-                    let bullet_style =
-                        self.rich_style_for_type("MarkdownBullet", &["MarkdownBlock"], &[]);
-                    for (idx, item) in items.into_iter().enumerate() {
-                        let bullet = if ordered {
-                            format!("{}.", idx + 1)
-                        } else {
-                            "•".to_string()
-                        };
-                        let bullet_width = rich_rs::cell_len(&bullet).max(1) + 1;
-                        let item_lines = Self::render_text_lines(
-                            &item,
-                            item_style,
-                            console,
-                            width.saturating_sub(bullet_width).max(1),
-                        );
-                        for (line_idx, item_line) in item_lines.into_iter().enumerate() {
-                            let mut line = Vec::new();
-                            if line_idx == 0 {
-                                line.push(Segment::styled(format!("{bullet} "), bullet_style));
-                            } else {
-                                line.push(Segment::styled(" ".repeat(bullet_width), item_style));
-                            }
-                            line.extend(item_line);
-                            lines.push(line);
-                            aligned_bounds.push(None);
-                        }
+                    let list_rich_style = self.rich_style_for_type(
+                        list_type,
+                        &["MarkdownList", "MarkdownBlock"],
+                        &[],
+                    );
+                    for line in Self::render_markdown_lines(&raw, list_rich_style, console, width) {
+                        lines.push(line);
+                        aligned_bounds.push(None);
                     }
                     for _ in 0..usize::from(list_style.effective_margin().bottom) {
                         lines.push(Vec::new());
                         aligned_bounds.push(Some((0, 0)));
                     }
                 }
-                MarkdownBlock::Table { headers, rows } => {
+                MarkdownBlock::Table { headers, rows, .. } => {
                     let header_style = self.rich_style_for_child_of_type(
                         "MarkdownTableContent",
                         &["MarkdownBlock"],
@@ -800,9 +813,9 @@ impl Widget for Markdown {
                     lines.push(Vec::new());
                     aligned_bounds.push(Some((0, 0)));
                 }
-                MarkdownBlock::CodeFence { language: _, code } => {
+                MarkdownBlock::CodeFence { raw, .. } => {
                     let style = self.rich_style_for_type("MarkdownFence", &["MarkdownBlock"], &[]);
-                    for line in Self::render_text_lines(&code, style, console, width) {
+                    for line in Self::render_markdown_lines(&raw, style, console, width) {
                         lines.push(line);
                         aligned_bounds.push(None);
                     }
@@ -1186,12 +1199,12 @@ Head of House Atreides.
 
     #[test]
     fn markdown_bullet_render_has_explicit_style() {
-        let mut root = crate::widgets::Container::new().with_child(Markdown::new("- first\n- second"));
-        let mut tree = crate::runtime::build_widget_tree_from_root(&mut root)
-            .expect("tree should exist");
+        let mut root =
+            crate::widgets::Container::new().with_child(Markdown::new("- first\n- second"));
+        let mut tree =
+            crate::runtime::build_widget_tree_from_root(&mut root).expect("tree should exist");
         let console = Console::new();
-        let frame =
-            crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 40, 8);
+        let frame = crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 40, 8);
         let lines = frame.as_plain_lines();
         let (row, col) = lines
             .iter()
@@ -1213,11 +1226,10 @@ Head of House Atreides.
         let mut root = crate::widgets::Container::new().with_child(Markdown::new(
             "| Name | Type |\n| --- | --- |\n| show_header | bool |\n| fixed_rows | int |\n",
         ));
-        let mut tree = crate::runtime::build_widget_tree_from_root(&mut root)
-            .expect("tree should exist");
+        let mut tree =
+            crate::runtime::build_widget_tree_from_root(&mut root).expect("tree should exist");
         let console = Console::new();
-        let frame =
-            crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 80, 16);
+        let frame = crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 80, 16);
         let lines = frame.as_plain_lines();
         let (header_row, header_col) = lines
             .iter()

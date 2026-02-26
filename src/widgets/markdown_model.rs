@@ -2,11 +2,30 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MarkdownBlock {
-    Heading { level: usize, text: String },
-    Paragraph { text: String },
-    List { ordered: bool, items: Vec<String> },
-    Table { headers: Vec<String>, rows: Vec<Vec<String>> },
-    CodeFence { language: String, code: String },
+    Heading {
+        level: usize,
+        text: String,
+        raw: String,
+    },
+    Paragraph {
+        text: String,
+        raw: String,
+    },
+    List {
+        ordered: bool,
+        items: Vec<String>,
+        raw: String,
+    },
+    Table {
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+        raw: String,
+    },
+    CodeFence {
+        language: String,
+        code: String,
+        raw: String,
+    },
     HorizontalRule,
 }
 
@@ -16,30 +35,46 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-    let mut parser = Parser::new_ext(markup, options).into_offset_iter().peekable();
+    let mut parser = Parser::new_ext(markup, options)
+        .into_offset_iter()
+        .peekable();
     let mut blocks = Vec::new();
 
-    while let Some((event, _)) = parser.next() {
+    while let Some((event, range)) = parser.next() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
-                let text = collect_plain_text_until(&mut parser, TagEnd::Heading(level));
+                let (text, end_offset) =
+                    collect_plain_text_until_with_end(&mut parser, TagEnd::Heading(level));
                 blocks.push(MarkdownBlock::Heading {
                     level: heading_level(level),
                     text: collapse_ws(&text),
+                    raw: markup
+                        .get(range.start..end_offset)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
                 });
             }
             Event::Start(Tag::Paragraph) => {
-                let text = collect_plain_text_until(&mut parser, TagEnd::Paragraph);
+                let (text, end_offset) =
+                    collect_plain_text_until_with_end(&mut parser, TagEnd::Paragraph);
                 if !text.trim().is_empty() {
                     blocks.push(MarkdownBlock::Paragraph {
                         text: collapse_ws(&text),
+                        raw: markup
+                            .get(range.start..end_offset)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string(),
                     });
                 }
             }
             Event::Start(Tag::List(first_number)) => {
                 let ordered = first_number.is_some();
                 let mut items = Vec::new();
-                while let Some((next, _)) = parser.next() {
+                let mut end_offset = range.end;
+                while let Some((next, next_range)) = parser.next() {
+                    end_offset = next_range.end;
                     match next {
                         Event::Start(Tag::Item) => {
                             let item = collect_plain_text_until(&mut parser, TagEnd::Item);
@@ -53,7 +88,15 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                     }
                 }
                 if !items.is_empty() {
-                    blocks.push(MarkdownBlock::List { ordered, items });
+                    blocks.push(MarkdownBlock::List {
+                        ordered,
+                        items,
+                        raw: markup
+                            .get(range.start..end_offset)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string(),
+                    });
                 }
             }
             Event::Rule => blocks.push(MarkdownBlock::HorizontalRule),
@@ -63,7 +106,9 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                     pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
                 };
                 let mut code = String::new();
-                while let Some((next, _)) = parser.next() {
+                let mut end_offset = range.end;
+                while let Some((next, next_range)) = parser.next() {
+                    end_offset = next_range.end;
                     match next {
                         Event::Text(text) => code.push_str(&text),
                         Event::Code(text) => code.push_str(&text),
@@ -72,13 +117,23 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                         _ => {}
                     }
                 }
-                blocks.push(MarkdownBlock::CodeFence { language, code });
+                blocks.push(MarkdownBlock::CodeFence {
+                    language,
+                    code,
+                    raw: markup
+                        .get(range.start..end_offset)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                });
             }
             Event::Start(Tag::Table(_)) => {
                 let mut headers = Vec::new();
                 let mut rows = Vec::new();
                 let mut current_row: Vec<String> = Vec::new();
-                while let Some((next, _)) = parser.next() {
+                let mut end_offset = range.end;
+                while let Some((next, next_range)) = parser.next() {
+                    end_offset = next_range.end;
                     match next {
                         Event::Start(Tag::TableHead) => current_row.clear(),
                         Event::End(TagEnd::TableHead) => {
@@ -104,7 +159,15 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                     }
                 }
                 if !headers.is_empty() || !rows.is_empty() {
-                    blocks.push(MarkdownBlock::Table { headers, rows });
+                    blocks.push(MarkdownBlock::Table {
+                        headers,
+                        rows,
+                        raw: markup
+                            .get(range.start..end_offset)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string(),
+                    });
                 }
             }
             _ => {}
@@ -127,7 +190,9 @@ pub(crate) fn parse_markdown_headings_with_lines(markup: &str) -> Vec<(usize, St
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-    let mut parser = Parser::new_ext(markup, options).into_offset_iter().peekable();
+    let mut parser = Parser::new_ext(markup, options)
+        .into_offset_iter()
+        .peekable();
     let mut headings = Vec::new();
 
     while let Some((event, range)) = parser.next() {
@@ -166,6 +231,24 @@ fn collect_plain_text_until(
         }
     }
     out
+}
+
+fn collect_plain_text_until_with_end(
+    parser: &mut std::iter::Peekable<pulldown_cmark::OffsetIter<'_>>,
+    end: TagEnd,
+) -> (String, usize) {
+    let mut out = String::new();
+    let mut end_offset = 0usize;
+    while let Some((event, range)) = parser.next() {
+        end_offset = range.end;
+        match event {
+            Event::End(tag_end) if tag_end == end => break,
+            Event::Text(text) | Event::Code(text) => out.push_str(&text),
+            Event::SoftBreak | Event::HardBreak => out.push(' '),
+            _ => {}
+        }
+    }
+    (out, end_offset)
 }
 
 fn heading_level(level: HeadingLevel) -> usize {
@@ -208,17 +291,19 @@ fn x() {}
         );
         assert!(matches!(
             blocks.first(),
-            Some(MarkdownBlock::Heading { level: 1, text }) if text == "Title"
+            Some(MarkdownBlock::Heading { level: 1, text, .. }) if text == "Title"
+        ));
+        assert!(blocks.iter().any(
+            |b| matches!(b, MarkdownBlock::List { ordered: false, items, .. } if items.len() == 2)
         ));
         assert!(blocks
             .iter()
-            .any(|b| matches!(b, MarkdownBlock::List { ordered: false, items } if items.len() == 2)));
-        assert!(blocks
-            .iter()
-            .any(|b| matches!(b, MarkdownBlock::Table { headers, rows } if headers.len() == 2 && rows.len() == 1)));
-        assert!(blocks
-            .iter()
-            .any(|b| matches!(b, MarkdownBlock::CodeFence { language, .. } if language == "rust")));
+            .any(|b| matches!(b, MarkdownBlock::Table { headers, rows, .. } if headers.len() == 2 && rows.len() == 1)));
+        assert!(
+            blocks.iter().any(
+                |b| matches!(b, MarkdownBlock::CodeFence { language, .. } if language == "rust")
+            )
+        );
     }
 
     #[test]
