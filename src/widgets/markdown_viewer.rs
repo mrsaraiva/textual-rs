@@ -2,11 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
 
-use crate::action::ParsedAction;
 use crate::compose::ComposeResult;
-use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::message::{
     MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
@@ -14,7 +12,8 @@ use crate::message::{
 };
 
 use super::containers::VerticalScroll;
-use super::{BindingDecl, Markdown, Tree, TreeNode, Widget, WidgetStyles};
+use super::delegate::{delegate_renderable, delegate_widget_method};
+use super::{Markdown, Tree, TreeNode, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
 // MarkdownTableOfContents
@@ -110,14 +109,6 @@ impl Widget for MarkdownTableOfContentsTree {
         "Tree"
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(&self.tree, console, options)
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.tree.layout_height()
-    }
-
     fn content_width(&self) -> Option<usize> {
         // In Python, the composed Tree fills the TOC pane; pane width is driven by
         // the parent `MarkdownTableOfContents` dock/intrinsic sizing. Returning `None`
@@ -125,61 +116,89 @@ impl Widget for MarkdownTableOfContentsTree {
         None
     }
 
-    fn focusable(&self) -> bool {
-        self.tree.focusable()
-    }
-
-    fn can_focus(&self) -> bool {
-        self.tree.can_focus()
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.tree.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.tree.has_focus()
-    }
-
     fn on_layout(&mut self, width: u16, height: u16) {
         self.sync_headings();
         self.tree.on_layout(width, height);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.tree.on_event_capture(event, ctx);
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.tree.on_event(event, ctx);
-    }
-
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        self.tree.on_message(message, ctx);
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        self.tree.scroll_offset()
-    }
-
-    fn clips_descendants_to_content(&self) -> bool {
-        self.tree.clips_descendants_to_content()
-    }
-
-    fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {
-        self.tree.bindings()
-    }
-
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
-        self.tree.execute_action(action, ctx)
-    }
+    // delegate-audit: 72 methods as of 2026-02-26
+    delegate_widget_method!(
+        tree,
+        [
+            render,
+            render_with_debug,
+            render_line,
+            render_lines,
+            compose,
+            take_composed_children,
+            focusable,
+            can_focus,
+            can_focus_children,
+            set_focus,
+            has_focus,
+            on_mount,
+            on_unmount,
+            on_tick,
+            on_resize,
+            set_virtual_content_size,
+            on_event_capture,
+            on_event,
+            on_message,
+            on_mouse_scroll,
+            on_mouse_move,
+            on_app_key,
+            on_app_action,
+            on_app_message,
+            on_app_tick,
+            on_app_mount,
+            scroll_offset,
+            scroll_offset_f32,
+            scroll_viewport_size,
+            scroll_virtual_content_size,
+            clips_descendants_to_content,
+            child_display_for_tree,
+            tree_child_content_inset,
+            layout_height,
+            layout_constraints,
+            preserve_underlay,
+            bindings,
+            binding_hints,
+            execute_action,
+            action_namespace,
+            action_registry,
+            styles,
+            styles_mut,
+            style_type_aliases,
+            style_id,
+            style_classes,
+            set_style_id,
+            border_title,
+            border_subtitle,
+            is_disabled,
+            set_disabled_state,
+            is_loading,
+            set_loading_state,
+            is_hovered,
+            set_hovered,
+            is_active,
+            mouse_interactive,
+            tooltip,
+            tooltip_anchor,
+            help_markup,
+            allow_select,
+            selection_at,
+            selection_word_range_at,
+            selection_all_range,
+            update_selection,
+            clear_selection,
+            get_selection,
+            selection_updated,
+            reactive_widget,
+        ]
+    );
 }
 
-impl Renderable for MarkdownTableOfContentsTree {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
+delegate_renderable!(MarkdownTableOfContentsTree);
 
 impl Widget for MarkdownTableOfContents {
     fn style_type(&self) -> &'static str {
@@ -706,14 +725,6 @@ impl Widget for MarkdownViewer {
         &self.classes
     }
 
-    fn compose(&self) -> ComposeResult {
-        self.inner.compose()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
-    }
-
     fn focusable(&self) -> bool {
         false
     }
@@ -724,51 +735,6 @@ impl Widget for MarkdownViewer {
 
     fn can_focus_children(&self) -> bool {
         true
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.inner.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.inner.has_focus()
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(&self.inner, console, options)
-    }
-
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: &DebugLayout,
-    ) -> Segments {
-        self.inner.render_with_debug(console, options, debug)
-    }
-
-    fn on_mount(&mut self) {
-        self.inner.on_mount();
-    }
-
-    fn on_unmount(&mut self) {
-        self.inner.on_unmount();
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.inner.on_tick(tick);
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.inner.on_resize(width, height);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.inner.on_layout(width, height);
-    }
-
-    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
-        self.inner.set_virtual_content_size(width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -818,64 +784,79 @@ impl Widget for MarkdownViewer {
         self.inner.on_message(message, ctx);
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.inner.on_mouse_move(x, y)
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        self.inner.scroll_offset()
-    }
-
-    fn scroll_offset_f32(&self) -> (f32, f32) {
-        self.inner.scroll_offset_f32()
-    }
-
-    fn clips_descendants_to_content(&self) -> bool {
-        self.inner.clips_descendants_to_content()
-    }
-
-    fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
-        self.inner.scroll_viewport_size()
-    }
-
-    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        self.inner.scroll_virtual_content_size()
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        self.inner.content_width()
-    }
-
-    fn bindings(&self) -> Vec<BindingDecl> {
-        self.inner.bindings()
-    }
-
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
-        self.inner.execute_action(action, ctx)
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        self.inner.styles()
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        self.inner.styles_mut()
-    }
+    // delegate-audit: 72 methods as of 2026-02-26
+    delegate_widget_method!(
+        inner,
+        [
+            render,
+            render_with_debug,
+            render_line,
+            render_lines,
+            compose,
+            take_composed_children,
+            set_focus,
+            has_focus,
+            on_mount,
+            on_unmount,
+            on_tick,
+            on_resize,
+            on_layout,
+            set_virtual_content_size,
+            on_mouse_scroll,
+            on_mouse_move,
+            on_app_key,
+            on_app_action,
+            on_app_message,
+            on_app_tick,
+            on_app_mount,
+            scroll_offset,
+            scroll_offset_f32,
+            scroll_viewport_size,
+            scroll_virtual_content_size,
+            clips_descendants_to_content,
+            child_display_for_tree,
+            tree_child_content_inset,
+            layout_height,
+            content_width,
+            layout_constraints,
+            preserve_underlay,
+            bindings,
+            binding_hints,
+            execute_action,
+            action_namespace,
+            action_registry,
+            styles,
+            styles_mut,
+            style_type_aliases,
+            style_id,
+            set_style_id,
+            border_title,
+            border_subtitle,
+            is_disabled,
+            set_disabled_state,
+            is_loading,
+            set_loading_state,
+            is_hovered,
+            set_hovered,
+            is_active,
+            mouse_interactive,
+            tooltip,
+            tooltip_anchor,
+            help_markup,
+            allow_select,
+            selection_at,
+            selection_word_range_at,
+            selection_all_range,
+            update_selection,
+            clear_selection,
+            get_selection,
+            selection_updated,
+            reactive_widget,
+        ]
+    );
 }
 
-impl Renderable for MarkdownViewer {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
+delegate_renderable!(MarkdownViewer);
 
 // ---------------------------------------------------------------------------
 // Tests

@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (Widget delegation primitive + audit guards)
+
+- **feat(widgets): framework-wide delegation primitive for wrapper widgets**
+  - Added `src/widgets/delegate.rs` with `delegate_widget_method!`, `delegate_widget_to!`,
+    and `delegate_renderable!` to standardize the Rust equivalent of Python inheritance wrappers
+    (`inner` + delegated methods + explicit overrides).
+  - Exported delegation macros as public framework API and re-exported from `widgets`/prelude
+    for custom compound widgets in apps.
+
+- **refactor(widgets): adopt delegation primitive in scroll wrappers**
+  - `ScrollableContainer` and `MarkdownViewer`/TOC wrapper now use explicit overrides plus
+    `delegate_widget_method!` for remaining forwarding, reducing boilerplate and drift risk.
+  - `containers/thin.rs` is now a temporary compatibility shim that re-exports from
+    `widgets::delegate`.
+
+- **test(widgets): guard against silent delegation drift**
+  - Added canonical delegation-list markers and a test that counts methods in
+    `delegate_widget_to!`'s full forwarding list to detect trait-surface changes.
+  - Added `delegate-audit` markers on partial delegation sites to make required audits
+    grep-friendly when the canonical list changes.
+
 ### 2026-02-26 (MarkdownViewer scroll parity + scrollbar sync fixes)
 
 - **fix(runtime): smooth scrollbar thumb sync without per-frame relayout**
