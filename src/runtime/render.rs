@@ -112,6 +112,7 @@ impl App {
         self.refresh_size()?;
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            dark: self.dark_mode,
             inline: self.app_inline,
             ansi: self.app_ansi,
             nocolor: self.app_nocolor,
@@ -2670,78 +2671,26 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
     };
     let node_ids = tree.walk_depth_first(root);
     for node_id in node_ids {
-        let (
-            full_w,
-            full_h,
-            line_pad,
-            top,
-            bottom,
-            left,
-            right,
-            virtual_content_w,
-            virtual_content_h,
-        ) = {
+        let (content_w, content_h, virtual_content_w, virtual_content_h) = {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
-            let widget_any = node.widget.as_ref() as &dyn std::any::Any;
-            let uses_viewport_layout_rect = widget_any.is::<crate::widgets::AppRoot>();
-            let rect = if uses_viewport_layout_rect {
-                node.content_rect
-            } else {
-                node.layout_rect
-            };
-            let meta = crate::css::selector_meta_generic_with_classes(
-                node.widget.as_ref(),
-                node.classes.iter().cloned(),
-            );
-            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
-            let line_pad = resolved.line_pad.unwrap_or(0) as usize;
-            let (top, bottom, left, right) = border_spacing_from_style(&resolved);
-            let full_w = rect.x1.saturating_sub(rect.x0) as usize;
-            let full_h = rect.y1.saturating_sub(rect.y0) as usize;
             let content_rect = node.content_rect;
-            let mut virtual_w = 0usize;
-            let mut virtual_h = 0usize;
-            let mut saw_visible_child = false;
-
-            // For tree-mode scroll containers, derive virtual content extent
-            // from laid-out child bounds so scrollbars/offset limits are correct.
-            for &child_id in tree.children(node_id) {
-                let Some(child) = tree.get(child_id) else {
-                    continue;
-                };
-                if node_is_dedicated_scrollbar(tree, child_id) {
-                    continue;
-                }
-                if !child.display {
-                    continue;
-                }
-                saw_visible_child = true;
-                let child_rect = child.layout_rect;
-                let child_extent_x = child_rect.x1.saturating_sub(content_rect.x0) as usize;
-                let child_extent_y = child_rect.y1.saturating_sub(content_rect.y0) as usize;
-                virtual_w = virtual_w.max(child_extent_x);
-                virtual_h = virtual_h.max(child_extent_y);
-            }
-            if !saw_visible_child {
-                virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
-                virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
-            }
+            let scrollbar_children = host_scrollbar_children(tree, node_id);
+            let (virtual_w, virtual_h, _) =
+                host_content_extent(tree, node_id, content_rect, scrollbar_children);
 
             (
-                full_w, full_h, line_pad, top, bottom, left, right, virtual_w, virtual_h,
+                content_rect.x1.saturating_sub(content_rect.x0) as usize,
+                content_rect.y1.saturating_sub(content_rect.y0) as usize,
+                virtual_w,
+                virtual_h,
             )
         };
 
-        let content_w = full_w
-            .saturating_sub(left + right)
-            .saturating_sub(line_pad.saturating_mul(2))
-            .max(1) as u16;
-        let content_h = full_h.saturating_sub(top + bottom).max(1) as u16;
-
         if let Some(node) = tree.get_mut(node_id) {
-            node.widget.on_layout(content_w, content_h);
+            node.widget
+                .on_layout(content_w.max(1) as u16, content_h.max(1) as u16);
             node.widget
                 .set_virtual_content_size(virtual_content_w, virtual_content_h);
         }

@@ -1,13 +1,15 @@
-use rich_rs::{Column, Console, ConsoleOptions, Renderable, Row, Segment, Segments, Table, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use std::sync::{Arc, RwLock};
 
-use crate::render::FrameBuffer;
-use crate::style::{Color, HorizontalAlign, parse_color_like};
+use crate::event::{Event, EventCtx};
 use crate::widgets::markdown_model::{
     MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
 };
 
-use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
+use super::{
+    Vertical, Widget, WidgetStyles,
+    helpers::{border_spacing_from_style, fixed_height_from_constraints},
+};
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,7 +211,6 @@ impl Renderable for Label {
     }
 }
 
-#[derive(Debug)]
 pub struct Markdown {
     markup: String,
     /// Shared content reference for parent-driven content updates (e.g. from MarkdownViewer).
@@ -217,48 +218,1027 @@ pub struct Markdown {
     shared_markup: Option<Arc<RwLock<String>>>,
     id: Option<String>,
     layout_width: usize,
-    selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
-    render_cache: RwLock<MarkdownRenderCache>,
+    intrinsic_height: usize,
+    composed_children: Vec<Box<dyn Widget>>,
+    pending_recompose: bool,
     styles: WidgetStyles,
+}
+
+impl std::fmt::Debug for Markdown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Markdown")
+            .field("markup_len", &self.markup.len())
+            .field("id", &self.id)
+            .field("pending_recompose", &self.pending_recompose)
+            .finish()
+    }
 }
 
 impl Clone for Markdown {
     fn clone(&self) -> Self {
-        let cached = self
-            .render_cache
-            .read()
-            .map(|cache| cache.clone())
-            .unwrap_or_default();
-        Self {
+        let mut cloned = Self {
             markup: self.markup.clone(),
             shared_markup: self.shared_markup.clone(),
             id: self.id.clone(),
             layout_width: self.layout_width,
-            selection: self.selection,
-            render_cache: RwLock::new(cached),
+            intrinsic_height: self.intrinsic_height,
+            composed_children: build_markdown_children(&self.markup),
+            pending_recompose: self.pending_recompose,
             styles: self.styles.clone(),
+        };
+        cloned.recompute_intrinsic_height();
+        cloned
+    }
+}
+
+fn count_rendered_lines(segments: Segments) -> usize {
+    let mut lines = Segment::split_lines(segments);
+    while lines
+        .last()
+        .is_some_and(|line| Segment::get_line_length(line) == 0)
+    {
+        lines.pop();
+    }
+    lines.len().max(1)
+}
+
+fn rendered_markdown_height(markup: &str, width: usize) -> usize {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (width.max(1), 1);
+    options.max_width = width.max(1);
+    options.max_height = 1;
+    let rendered = rich_rs::markdown::Markdown::new(markup.to_string()).render(&console, &options);
+    count_rendered_lines(rendered)
+}
+
+fn rendered_plain_height(text: &str, width: usize) -> usize {
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (width.max(1), 1);
+    options.max_width = width.max(1);
+    options.max_height = 1;
+    let rendered = Text::plain(text.to_string()).render(&console, &options);
+    count_rendered_lines(rendered)
+}
+
+#[derive(Debug)]
+struct MarkdownHeadingBlock {
+    level: usize,
+    text: String,
+    layout_width: usize,
+    classes: Vec<String>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownHeadingBlock {
+    fn new(level: usize, text: String) -> Self {
+        Self {
+            level,
+            text,
+            layout_width: 0,
+            classes: vec![format!("markdown--h{}", level.clamp(1, 6))],
+            styles: WidgetStyles::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct MarkdownRenderCache {
-    width: usize,
-    lines: Vec<String>,
-    content_bounds: Vec<(usize, usize)>,
+impl Widget for MarkdownHeadingBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Text::plain(self.text.clone()).render(_console, _options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        match self.level {
+            1 => "MarkdownH1",
+            2 => "MarkdownH2",
+            3 => "MarkdownH3",
+            4 => "MarkdownH4",
+            5 => "MarkdownH5",
+            _ => "MarkdownH6",
+        }
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownHeader", "MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_plain_height(
+            &self.text,
+            self.layout_width.max(1),
+        )))
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownParagraphBlock {
+    raw: String,
+    layout_width: usize,
+    styles: WidgetStyles,
+}
+
+impl MarkdownParagraphBlock {
+    fn new(raw: String) -> Self {
+        Self {
+            raw,
+            layout_width: 0,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownParagraphBlock {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownParagraph"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+            &self.raw,
+            self.layout_width.max(1),
+        )))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownFenceBlock {
+    raw: String,
+    layout_width: usize,
+    styles: WidgetStyles,
+}
+
+impl MarkdownFenceBlock {
+    fn new(raw: String) -> Self {
+        Self {
+            raw,
+            layout_width: 0,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownFenceBlock {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownFence"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+            &self.raw,
+            self.layout_width.max(1),
+        )))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownHorizontalRuleBlock {
+    styles: WidgetStyles,
+}
+
+impl MarkdownHorizontalRuleBlock {
+    fn new() -> Self {
+        Self {
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownHorizontalRuleBlock {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        Segments::from(vec![Segment::new("─".repeat(width))])
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownHorizontalRule"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownBullet {
+    symbol: String,
+    styles: WidgetStyles,
+}
+
+impl MarkdownBullet {
+    fn new(symbol: String) -> Self {
+        Self {
+            symbol,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownBullet {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::from(vec![Segment::new(self.symbol.clone())])
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownBullet"
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        Some(rich_rs::cell_len(&self.symbol).max(1))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownInlineItem {
+    raw: String,
+    layout_width: usize,
+    styles: WidgetStyles,
+}
+
+impl MarkdownInlineItem {
+    fn new(raw: String) -> Self {
+        Self {
+            raw,
+            layout_width: 0,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownInlineItem {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownParagraph"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+            &self.raw,
+            self.layout_width.max(1),
+        )))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+struct MarkdownListItemBlock {
+    symbol: String,
+    item_text: String,
+    item_markup: String,
+    layout_width: usize,
+    children: Vec<Box<dyn Widget>>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownListItemBlock {
+    fn new(symbol: String, item_text: String, item_markup: String) -> Self {
+        let content = Vertical::new().with_child(MarkdownInlineItem::new(item_markup.clone()));
+        let children: Vec<Box<dyn Widget>> = vec![
+            Box::new(MarkdownBullet::new(symbol.clone())),
+            Box::new(content),
+        ];
+        Self {
+            symbol,
+            item_text,
+            item_markup,
+            layout_width: 0,
+            children,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownListItemBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownListItem"
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let bullet_width = rich_rs::cell_len(&self.symbol).max(1);
+        let content_width = self.layout_width.saturating_sub(bullet_width).max(1);
+        let _ = &self.item_text;
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+            &self.item_markup,
+            content_width,
+        )))
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+struct MarkdownListBlock {
+    ordered: bool,
+    items: Vec<String>,
+    item_markups: Vec<String>,
+    layout_width: usize,
+    children: Vec<Box<dyn Widget>>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownListBlock {
+    fn new(ordered: bool, items: Vec<String>, item_markups: Vec<String>) -> Self {
+        let items_copy = items.clone();
+        let item_markups_copy = item_markups.clone();
+        let children: Vec<Box<dyn Widget>> = if ordered {
+            let width = items.len().to_string().len().saturating_add(2).max(2);
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    Box::new(MarkdownListItemBlock::new(
+                        format!("{:>width$}", format!("{}. ", index + 1), width = width),
+                        item,
+                        item_markups.get(index).cloned().unwrap_or_else(String::new),
+                    )) as Box<dyn Widget>
+                })
+                .collect()
+        } else {
+            const BULLETS: [&str; 5] = ["• ", "▪ ", "‣ ", "⭑ ", "◦ "];
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    Box::new(MarkdownListItemBlock::new(
+                        BULLETS[index % BULLETS.len()].to_string(),
+                        item,
+                        item_markups.get(index).cloned().unwrap_or_else(String::new),
+                    )) as Box<dyn Widget>
+                })
+                .collect()
+        };
+        Self {
+            ordered,
+            items: items_copy,
+            item_markups: item_markups_copy,
+            layout_width: 0,
+            children,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownListBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        if self.ordered {
+            "MarkdownOrderedList"
+        } else {
+            "MarkdownBulletList"
+        }
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownList", "MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(h);
+        }
+        let width = self.layout_width.max(1);
+        let bullet_width = if self.ordered {
+            self.items.len().to_string().len().saturating_add(2).max(2)
+        } else {
+            2
+        };
+        let text_width = width.saturating_sub(bullet_width).max(1);
+        let content_height = self
+            .item_markups
+            .iter()
+            .map(|item| rendered_markdown_height(item, text_width))
+            .sum::<usize>()
+            .max(1);
+        Some(content_height)
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+#[derive(Debug)]
+struct MarkdownTableCell {
+    text: String,
+    raw: String,
+    layout_width: usize,
+    classes: Vec<String>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownTableCell {
+    fn new(text: String, raw: String, classes: Vec<String>) -> Self {
+        Self {
+            text,
+            raw,
+            layout_width: 0,
+            classes,
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownTableCell {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownTableCell"
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        let _ = &self.text;
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+            &self.raw,
+            self.layout_width.max(1),
+        )))
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+fn estimate_markdown_table_height(
+    header_markups: &[String],
+    row_markups: &[Vec<String>],
+    table_width: usize,
+    column_count: usize,
+    row_count_hint: usize,
+) -> usize {
+    let mut row_heights =
+        estimate_markdown_table_row_heights(header_markups, row_markups, table_width, column_count);
+    if row_heights.len() < row_count_hint {
+        row_heights.resize(row_count_hint, 1);
+    }
+    if row_heights.is_empty() {
+        row_heights.push(1);
+    }
+    let row_count = row_heights.len().max(1);
+    let vertical_gutter = row_count.saturating_sub(1); // default `grid-gutter: 1 1`
+    let estimated_content = row_heights.into_iter().sum::<usize>();
+    estimated_content
+        .saturating_add(vertical_gutter)
+        .max(row_count_hint.saturating_mul(2).saturating_sub(1).max(1))
+}
+
+fn estimate_markdown_table_row_heights(
+    header_markups: &[String],
+    row_markups: &[Vec<String>],
+    table_width: usize,
+    column_count: usize,
+) -> Vec<usize> {
+    let columns = column_count.max(1);
+    let horizontal_gutter = columns.saturating_sub(1); // default `grid-gutter: 1 1`
+    let column_width = table_width
+        .saturating_sub(horizontal_gutter)
+        .max(1)
+        .div_ceil(columns)
+        .max(1);
+    // Default CSS gives table cells `padding: 0 1`, so text wraps in inner width.
+    let cell_content_width = column_width.saturating_sub(2).max(1);
+
+    let mut row_heights: Vec<usize> = Vec::new();
+    let header_height = header_markups
+        .iter()
+        .map(|cell| rendered_markdown_height(cell, cell_content_width))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    row_heights.push(header_height);
+    for row in row_markups {
+        let row_height = row
+            .iter()
+            .map(|cell| rendered_markdown_height(cell, cell_content_width))
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        row_heights.push(row_height);
+    }
+    if row_heights.is_empty() {
+        row_heights.push(1);
+    }
+    row_heights
+}
+
+struct MarkdownTableContentBlock {
+    column_count: usize,
+    header_markups: Vec<String>,
+    row_count: usize,
+    row_markups: Vec<Vec<String>>,
+    layout_width: usize,
+    children: Vec<Box<dyn Widget>>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownTableContentBlock {
+    fn new(
+        headers: Vec<String>,
+        header_markups: Vec<String>,
+        rows: Vec<Vec<String>>,
+        row_markups: Vec<Vec<String>>,
+    ) -> Self {
+        let column_count = headers.len().max(1) as u16;
+        let mut effective_header_markups = Vec::with_capacity(headers.len());
+        for (index, header) in headers.iter().enumerate() {
+            effective_header_markups.push(
+                header_markups
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| header.clone()),
+            );
+        }
+        let mut effective_row_markups: Vec<Vec<String>> = Vec::with_capacity(rows.len());
+        for (row_index, row) in rows.iter().enumerate() {
+            let mut effective_row = Vec::with_capacity(row.len());
+            for (cell_index, cell) in row.iter().enumerate() {
+                effective_row.push(
+                    row_markups
+                        .get(row_index)
+                        .and_then(|cells| cells.get(cell_index))
+                        .cloned()
+                        .unwrap_or_else(|| cell.clone()),
+                );
+            }
+            effective_row_markups.push(effective_row);
+        }
+        let row_count = rows.len().saturating_add(1).max(1);
+        let mut children: Vec<Box<dyn Widget>> = Vec::new();
+        for (index, header) in headers.into_iter().enumerate() {
+            children.push(Box::new(MarkdownTableCell::new(
+                header,
+                effective_header_markups
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(String::new),
+                vec!["header".to_string(), "markdown-table--header".to_string()],
+            )));
+        }
+        for (row_index, row) in rows.into_iter().enumerate() {
+            for (cell_index, cell) in row.into_iter().enumerate() {
+                children.push(Box::new(MarkdownTableCell::new(
+                    cell,
+                    effective_row_markups
+                        .get(row_index)
+                        .and_then(|cells| cells.get(cell_index))
+                        .cloned()
+                        .unwrap_or_else(String::new),
+                    vec!["cell".to_string()],
+                )));
+            }
+        }
+        Self {
+            column_count: column_count as usize,
+            header_markups: effective_header_markups,
+            row_count,
+            row_markups: effective_row_markups,
+            layout_width: 0,
+            children,
+            styles: WidgetStyles {
+                style: crate::style::Style {
+                    grid_size_columns: Some(column_count),
+                    grid_size_rows: Some(row_count as u16),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Widget for MarkdownTableContentBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownTableContent"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+        let mut row_heights = estimate_markdown_table_row_heights(
+            &self.header_markups,
+            &self.row_markups,
+            self.layout_width.max(1),
+            self.column_count,
+        );
+        if row_heights.len() < self.row_count {
+            row_heights.resize(self.row_count, 1);
+        }
+        self.styles.style.grid_rows = Some(
+            row_heights
+                .into_iter()
+                .map(|height| crate::style::Scalar::Cells(height.min(u16::MAX as usize) as u16))
+                .collect(),
+        );
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(h);
+        }
+        Some(estimate_markdown_table_height(
+            &self.header_markups,
+            &self.row_markups,
+            self.layout_width.max(1),
+            self.column_count,
+            self.row_count,
+        ))
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+struct MarkdownTableBlock {
+    column_count: usize,
+    header_markups: Vec<String>,
+    row_count: usize,
+    row_markups: Vec<Vec<String>>,
+    layout_width: usize,
+    children: Vec<Box<dyn Widget>>,
+    styles: WidgetStyles,
+}
+
+impl MarkdownTableBlock {
+    fn new(
+        headers: Vec<String>,
+        header_markups: Vec<String>,
+        rows: Vec<Vec<String>>,
+        row_markups: Vec<Vec<String>>,
+    ) -> Self {
+        let mut effective_header_markups = Vec::with_capacity(headers.len());
+        for (index, header) in headers.iter().enumerate() {
+            effective_header_markups.push(
+                header_markups
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| header.clone()),
+            );
+        }
+        let mut effective_row_markups: Vec<Vec<String>> = Vec::with_capacity(rows.len());
+        for (row_index, row) in rows.iter().enumerate() {
+            let mut effective_row = Vec::with_capacity(row.len());
+            for (cell_index, cell) in row.iter().enumerate() {
+                effective_row.push(
+                    row_markups
+                        .get(row_index)
+                        .and_then(|cells| cells.get(cell_index))
+                        .cloned()
+                        .unwrap_or_else(|| cell.clone()),
+                );
+            }
+            effective_row_markups.push(effective_row);
+        }
+        let column_count = headers.len().max(1);
+        let row_count = rows.len().saturating_add(1).max(1);
+        Self {
+            column_count,
+            header_markups: effective_header_markups.clone(),
+            row_count,
+            row_markups: effective_row_markups.clone(),
+            layout_width: 0,
+            children: vec![Box::new(MarkdownTableContentBlock::new(
+                headers,
+                effective_header_markups,
+                rows,
+                effective_row_markups,
+            ))],
+            styles: WidgetStyles::default(),
+        }
+    }
+}
+
+impl Widget for MarkdownTableBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownTable"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
+            return Some(h);
+        }
+        Some(estimate_markdown_table_height(
+            &self.header_markups,
+            &self.row_markups,
+            self.layout_width.max(1),
+            self.column_count,
+            self.row_count,
+        ))
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.children)
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.styles)
+    }
+}
+
+fn build_markdown_children(markup: &str) -> Vec<Box<dyn Widget>> {
+    let mut children: Vec<Box<dyn Widget>> = Vec::new();
+    for block in parse_markdown_blocks(markup) {
+        match block {
+            MarkdownBlock::Heading { level, text, .. } => {
+                children.push(Box::new(MarkdownHeadingBlock::new(level, text)));
+            }
+            MarkdownBlock::Paragraph { raw, .. } => {
+                children.push(Box::new(MarkdownParagraphBlock::new(raw)));
+            }
+            MarkdownBlock::List {
+                ordered,
+                items,
+                item_markups,
+                ..
+            } => {
+                children.push(Box::new(MarkdownListBlock::new(
+                    ordered,
+                    items,
+                    item_markups,
+                )));
+            }
+            MarkdownBlock::Table {
+                headers,
+                header_markups,
+                rows,
+                row_markups,
+                ..
+            } => {
+                children.push(Box::new(MarkdownTableBlock::new(
+                    headers,
+                    header_markups,
+                    rows,
+                    row_markups,
+                )));
+            }
+            MarkdownBlock::CodeFence { raw, .. } => {
+                children.push(Box::new(MarkdownFenceBlock::new(raw)));
+            }
+            MarkdownBlock::HorizontalRule => {
+                children.push(Box::new(MarkdownHorizontalRuleBlock::new()));
+            }
+        }
+    }
+    children
 }
 
 impl Markdown {
+    fn measure_intrinsic_height(&self, width: usize) -> usize {
+        let width = width.max(1);
+        let mut children = build_markdown_children(&self.markup);
+        if children.is_empty() {
+            return 1;
+        }
+
+        let parent_meta = crate::css::selector_meta_generic(self);
+        let parent_style = crate::css::resolve_style(self, &parent_meta);
+        crate::css::push_style_context(parent_meta, parent_style);
+
+        let layout_width = width.min(u16::MAX as usize) as u16;
+        let mut total = 0usize;
+        let mut prev_bottom = 0usize;
+        for (idx, child) in children.iter_mut().enumerate() {
+            let child_meta = crate::css::selector_meta_generic(child.as_ref());
+            let child_style = crate::css::resolve_style(child.as_ref(), &child_meta);
+            let margin = child_style.effective_margin();
+            let margin_top = margin.top as usize;
+            let margin_bottom = margin.bottom as usize;
+            let padding = child_style.effective_padding();
+            let (_border_top, _border_bottom, border_left, border_right) =
+                border_spacing_from_style(&child_style);
+            let horizontal_inset = margin.left as usize
+                + margin.right as usize
+                + padding.left as usize
+                + padding.right as usize
+                + border_left
+                + border_right;
+            let child_content_width = (layout_width as usize)
+                .saturating_sub(horizontal_inset)
+                .max(1)
+                .min(u16::MAX as usize) as u16;
+            child.on_layout(child_content_width, 1);
+            let child_height = child.layout_height().unwrap_or(1).max(1);
+
+            if idx == 0 {
+                total = total.saturating_add(margin_top);
+            } else {
+                total = total.saturating_add(prev_bottom.max(margin_top));
+            }
+            total = total.saturating_add(child_height);
+            prev_bottom = margin_bottom;
+        }
+        total = total.saturating_add(prev_bottom);
+
+        crate::css::pop_style_context();
+        total.max(1)
+    }
+
+    fn recompute_intrinsic_height(&mut self) {
+        self.intrinsic_height = self.measure_intrinsic_height(self.layout_width.max(1));
+    }
+
     pub fn new(markup: impl Into<String>) -> Self {
-        Self {
-            markup: markup.into(),
+        let markup = markup.into();
+        let composed_children = build_markdown_children(&markup);
+        let mut markdown = Self {
+            markup,
             shared_markup: None,
             id: None,
-            layout_width: 0,
-            selection: None,
-            render_cache: RwLock::new(MarkdownRenderCache::default()),
+            layout_width: 1,
+            intrinsic_height: 1,
+            composed_children,
+            pending_recompose: false,
             styles: WidgetStyles::default(),
-        }
+        };
+        markdown.recompute_intrinsic_height();
+        markdown
     }
 
     /// Create a Markdown widget with shared content driven by a parent widget.
@@ -267,15 +1247,19 @@ impl Markdown {
     /// and `on_layout()` syncs `self.markup` from it before the next height computation.
     pub fn with_shared_markup(shared: Arc<RwLock<String>>) -> Self {
         let initial = shared.read().map(|s| s.clone()).unwrap_or_default();
-        Self {
+        let composed_children = build_markdown_children(&initial);
+        let mut markdown = Self {
             markup: initial,
             shared_markup: Some(shared),
             id: None,
-            layout_width: 0,
-            selection: None,
-            render_cache: RwLock::new(MarkdownRenderCache::default()),
+            layout_width: 1,
+            intrinsic_height: 1,
+            composed_children,
+            pending_recompose: false,
             styles: WidgetStyles::default(),
-        }
+        };
+        markdown.recompute_intrinsic_height();
+        markdown
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
@@ -285,10 +1269,9 @@ impl Markdown {
 
     pub fn set_markup(&mut self, markup: impl Into<String>) {
         self.markup = markup.into();
-        self.selection = None;
-        if let Ok(mut cache) = self.render_cache.write() {
-            *cache = MarkdownRenderCache::default();
-        }
+        self.composed_children = build_markdown_children(&self.markup);
+        self.recompute_intrinsic_height();
+        self.pending_recompose = true;
     }
 
     /// Extract all headings from the markdown as `(level, title)` pairs.
@@ -297,638 +1280,46 @@ impl Markdown {
     pub fn extract_headings(&self) -> Vec<(usize, String)> {
         parse_markdown_headings(&self.markup)
     }
-
-    fn heading_level_and_text(line: &str) -> Option<(usize, &str)> {
-        let trimmed = line.trim_start();
-        let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
-        if marker_len == 0 || marker_len > 6 {
-            return None;
-        }
-        let title = trimmed[marker_len..].trim();
-        if title.is_empty() {
-            return None;
-        }
-        Some((marker_len, title))
-    }
-
-    fn rich_style_for_type(
-        &self,
-        type_name: &str,
-        aliases: &[&str],
-        classes: &[&str],
-    ) -> rich_rs::Style {
-        crate::css::resolve_component_style_for_type(self, type_name, aliases, classes)
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new)
-    }
-
-    fn rich_style_for_child_of_type(
-        &self,
-        parent_type: &str,
-        _parent_aliases: &[&str],
-        child_classes: &[&str],
-    ) -> rich_rs::Style {
-        let parent_style =
-            crate::css::resolve_component_style_for_type(self, parent_type, &[], &[]);
-        let parent_meta = crate::css::selector_meta_component(parent_type, &[]);
-        let child_meta = crate::css::selector_meta_component("MarkdownTableCell", child_classes);
-        crate::css::with_style_stack(parent_meta, parent_style, || {
-            crate::css::resolve_style_for_meta(&child_meta)
-                .to_rich()
-                .unwrap_or_else(rich_rs::Style::new)
-        })
-    }
-
-    fn render_text_lines(
-        text: &str,
-        style: rich_rs::Style,
-        console: &Console,
-        width: usize,
-    ) -> Vec<Vec<Segment>> {
-        let mut text_options = console.options().clone();
-        text_options.size = (width.max(1), 1);
-        text_options.max_width = width.max(1);
-        text_options.max_height = 1;
-        let segments = Text::styled(text.to_string(), style).render(console, &text_options);
-        let lines = Segment::split_lines(segments);
-        if lines.is_empty() {
-            vec![Vec::new()]
-        } else {
-            lines
-        }
-    }
-
-    fn render_markdown_lines(
-        markup: &str,
-        style: rich_rs::Style,
-        console: &Console,
-        width: usize,
-    ) -> Vec<Vec<Segment>> {
-        let mut md_options = console.options().clone();
-        md_options.size = (width.max(1), 1);
-        md_options.max_width = width.max(1);
-        md_options.max_height = 1;
-        let markdown = rich_rs::markdown::Markdown::new(markup.to_string()).with_style(style);
-        let mut lines = Segment::split_lines(markdown.render(console, &md_options));
-        while lines
-            .last()
-            .is_some_and(|line| Segment::get_line_length(line) == 0)
-        {
-            lines.pop();
-        }
-        if lines.is_empty() {
-            vec![Vec::new()]
-        } else {
-            lines
-        }
-    }
-
-    fn apply_horizontal_alignment(
-        line: &mut Vec<rich_rs::Segment>,
-        width: usize,
-        align: HorizontalAlign,
-        style: rich_rs::Style,
-    ) -> usize {
-        if matches!(align, HorizontalAlign::Left) || line.is_empty() {
-            return 0;
-        }
-        let line_width = rich_rs::Segment::get_line_length(line);
-        if line_width >= width {
-            return 0;
-        }
-        let left_pad = match align {
-            HorizontalAlign::Left => 0,
-            HorizontalAlign::Center => (width - line_width) / 2,
-            HorizontalAlign::Right => width - line_width,
-        };
-        if left_pad == 0 {
-            return 0;
-        }
-        line.insert(0, rich_rs::Segment::styled(" ".repeat(left_pad), style));
-        left_pad
-    }
-
-    fn normalize_selection(
-        selection: (WidgetSelectionAnchor, WidgetSelectionAnchor),
-    ) -> (WidgetSelectionAnchor, WidgetSelectionAnchor) {
-        if selection.0.row < selection.1.row {
-            return selection;
-        }
-        if selection.0.row > selection.1.row {
-            return (selection.1, selection.0);
-        }
-        if selection.0.col <= selection.1.col {
-            selection
-        } else {
-            (selection.1, selection.0)
-        }
-    }
-
-    fn line_text_len(line: &str) -> usize {
-        rich_rs::cell_len(line.trim_end())
-    }
-
-    fn line_content_bounds(cache: &MarkdownRenderCache, row: usize) -> (usize, usize) {
-        let line_len = cache
-            .lines
-            .get(row)
-            .map(|line| Self::line_text_len(line))
-            .unwrap_or(0);
-        let (start, end) = cache
-            .content_bounds
-            .get(row)
-            .copied()
-            .unwrap_or((0, line_len));
-        (
-            start.min(line_len),
-            end.min(line_len).max(start.min(line_len)),
-        )
-    }
-
-    fn clamp_anchor(
-        cache: &MarkdownRenderCache,
-        anchor: WidgetSelectionAnchor,
-    ) -> WidgetSelectionAnchor {
-        if cache.lines.is_empty() {
-            return WidgetSelectionAnchor::default();
-        }
-        let row = anchor.row.min(cache.lines.len() - 1);
-        let (start, end) = Self::line_content_bounds(cache, row);
-        let col = anchor.col.min(end).max(start);
-        WidgetSelectionAnchor { row, col, index: 0 }
-    }
-
-    fn cell_to_byte_index(line: &str, cell: usize) -> usize {
-        let mut width = 0usize;
-        let mut idx = 0usize;
-        for (byte_idx, ch) in line.char_indices() {
-            let w = rich_rs::cell_len(&ch.to_string());
-            if width >= cell {
-                idx = byte_idx;
-                return idx;
-            }
-            width = width.saturating_add(w);
-            idx = byte_idx + ch.len_utf8();
-            if width >= cell {
-                return idx;
-            }
-        }
-        idx
-    }
-
-    fn slice_cells(line: &str, start_col: usize, end_col: usize) -> String {
-        if start_col >= end_col {
-            return String::new();
-        }
-        let start = Self::cell_to_byte_index(line, start_col);
-        let end = Self::cell_to_byte_index(line, end_col);
-        line.get(start..end).unwrap_or("").to_string()
-    }
-
-    fn selected_text_from_cache(
-        cache: &MarkdownRenderCache,
-        selection: (WidgetSelectionAnchor, WidgetSelectionAnchor),
-    ) -> Option<String> {
-        if cache.lines.is_empty() {
-            return None;
-        }
-        let (start, end) = Self::normalize_selection(selection);
-        let start = Self::clamp_anchor(cache, start);
-        let end = Self::clamp_anchor(cache, end);
-        if start.row == end.row && start.col == end.col {
-            return None;
-        }
-
-        let mut out = Vec::new();
-        for row in start.row..=end.row {
-            let line = cache.lines[row].trim_end();
-            let line_len = rich_rs::cell_len(line);
-            let (content_start, content_end) = Self::line_content_bounds(cache, row);
-            let slice = if row == start.row && row == end.row {
-                let slice_start = start.col.min(line_len).max(content_start);
-                let slice_end = end.col.min(line_len).min(content_end);
-                Self::slice_cells(line, slice_start, slice_end)
-            } else if row == start.row {
-                let slice_start = start.col.min(line_len).max(content_start);
-                Self::slice_cells(line, slice_start, content_end.min(line_len))
-            } else if row == end.row {
-                let slice_end = end.col.min(line_len).min(content_end);
-                Self::slice_cells(line, content_start, slice_end)
-            } else {
-                Self::slice_cells(line, content_start, content_end)
-            };
-            out.push(slice);
-        }
-        let joined = out.join("\n");
-        if joined.is_empty() {
-            None
-        } else {
-            Some(joined)
-        }
-    }
-
-    fn word_range_at(
-        cache: &MarkdownRenderCache,
-        x: u16,
-        y: u16,
-    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
-        if cache.lines.is_empty() {
-            return None;
-        }
-        let row = usize::from(y).min(cache.lines.len().saturating_sub(1));
-        let line = cache.lines[row].trim_end();
-        if line.is_empty() {
-            return None;
-        }
-        let line_len = rich_rs::cell_len(line);
-        if line_len == 0 {
-            return None;
-        }
-
-        let mut spans: Vec<(usize, usize, char)> = Vec::new();
-        let mut cell = 0usize;
-        for ch in line.chars() {
-            let width = rich_rs::cell_len(&ch.to_string()).max(1);
-            let start = cell;
-            let end = cell.saturating_add(width);
-            spans.push((start, end, ch));
-            cell = end;
-        }
-        if spans.is_empty() {
-            return None;
-        }
-
-        let target_col = usize::from(x).min(line_len.saturating_sub(1));
-        let mut idx = spans
-            .iter()
-            .position(|(_, end, _)| target_col < *end)
-            .unwrap_or(spans.len().saturating_sub(1));
-
-        if spans[idx].2.is_whitespace() {
-            if let Some(right) = ((idx + 1)..spans.len()).find(|&i| !spans[i].2.is_whitespace()) {
-                idx = right;
-            } else if let Some(left) = (0..idx).rev().find(|&i| !spans[i].2.is_whitespace()) {
-                idx = left;
-            } else {
-                return None;
-            }
-        }
-
-        let mut left = idx;
-        while left > 0 && !spans[left - 1].2.is_whitespace() {
-            left -= 1;
-        }
-        let mut right = idx;
-        while right + 1 < spans.len() && !spans[right + 1].2.is_whitespace() {
-            right += 1;
-        }
-
-        Some((
-            WidgetSelectionAnchor {
-                row,
-                col: spans[left].0,
-                index: 0,
-            },
-            WidgetSelectionAnchor {
-                row,
-                col: spans[right].1,
-                index: 0,
-            },
-        ))
-    }
-
-    fn all_range(
-        cache: &MarkdownRenderCache,
-    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
-        if cache.lines.is_empty() {
-            return None;
-        }
-        let last_row = cache.lines.len().saturating_sub(1);
-        let end_col = Self::line_text_len(&cache.lines[last_row]);
-        Some((
-            WidgetSelectionAnchor::default(),
-            WidgetSelectionAnchor {
-                row: last_row,
-                col: end_col,
-                index: 0,
-            },
-        ))
-    }
-
-    fn apply_selection_highlight(
-        lines: &[Vec<rich_rs::Segment>],
-        width: usize,
-        cache: &MarkdownRenderCache,
-        selection: Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)>,
-    ) -> Segments {
-        let Some(selection) = selection else {
-            let mut out = Segments::new();
-            let line_count = lines.len();
-            for (index, line) in lines.iter().enumerate() {
-                out.extend(line.clone());
-                if index + 1 < line_count {
-                    out.push(rich_rs::Segment::line());
-                }
-            }
-            return out;
-        };
-        if lines.is_empty() {
-            return Segments::new();
-        }
-        let height = lines.len().max(1);
-        let mut frame = FrameBuffer::from_lines(lines, width.max(1), height, None);
-        let (start, end) = Self::normalize_selection(selection);
-        let selection_bg = parse_color_like("#094573").unwrap_or_else(|| Color::rgb(0, 120, 215));
-        let selection_fg = parse_color_like("#ffffff")
-            .unwrap_or_else(|| Color::rgb(255, 255, 255))
-            .flatten_over(selection_bg);
-        let highlight = rich_rs::Style::new()
-            .with_bgcolor(selection_bg.to_simple_opaque())
-            .with_color(selection_fg.to_simple_opaque());
-
-        for row in start.row..=end.row {
-            if row >= frame.height {
-                break;
-            }
-            let row_start = if row == start.row { start.col } else { 0 };
-            let row_line_len = lines
-                .get(row)
-                .map(|line| rich_rs::Segment::get_line_length(line))
-                .unwrap_or(frame.width);
-            let row_end = if row == end.row {
-                end.col
-            } else {
-                row_line_len
-            };
-            let (content_start, content_end) = Self::line_content_bounds(cache, row);
-            let paint_start = row_start.min(frame.width).max(content_start);
-            let paint_end = row_end.min(frame.width).min(content_end);
-            for col in paint_start..paint_end {
-                let cell = frame.get_mut(col, row);
-                cell.style = Some(match cell.style {
-                    Some(existing) => existing.combine(&highlight),
-                    None => highlight,
-                });
-            }
-        }
-
-        frame.to_segments()
-    }
 }
 
 impl Widget for Markdown {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let mut lines: Vec<Vec<Segment>> = Vec::new();
-        let mut aligned_bounds: Vec<Option<(usize, usize)>> = Vec::new();
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
 
-        for block in parse_markdown_blocks(&self.markup) {
-            match block {
-                MarkdownBlock::Heading { level, text, .. } => {
-                    let type_name = format!("MarkdownH{level}");
-                    let class_name = format!("markdown--h{level}");
-                    let style = self.rich_style_for_type(
-                        &type_name,
-                        &["MarkdownHeader", "MarkdownBlock"],
-                        &[class_name.as_str()],
-                    );
-                    let component_style = crate::css::resolve_component_style_for_type(
-                        self,
-                        &type_name,
-                        &["MarkdownHeader", "MarkdownBlock"],
-                        &[class_name.as_str()],
-                    );
-                    let margin = component_style.effective_margin();
-                    for _ in 0..usize::from(margin.top) {
-                        lines.push(Vec::new());
-                        aligned_bounds.push(Some((0, 0)));
-                    }
-
-                    let mut heading_lines = Self::render_text_lines(&text, style, console, width);
-                    for mut line in heading_lines.drain(..) {
-                        let pre_align_width = Segment::get_line_length(&line);
-                        let pre_align_content_bounds = (0, pre_align_width);
-                        let horizontal_align = component_style
-                            .content_align
-                            .map(|align| align.horizontal)
-                            .or_else(|| {
-                                if level == 1 {
-                                    Some(HorizontalAlign::Center)
-                                } else {
-                                    None
-                                }
-                            });
-                        let mut bounds = pre_align_content_bounds;
-                        if let Some(horizontal) = horizontal_align {
-                            let left_pad = Self::apply_horizontal_alignment(
-                                &mut line, width, horizontal, style,
-                            );
-                            bounds = (
-                                left_pad + pre_align_content_bounds.0,
-                                left_pad + pre_align_content_bounds.1,
-                            );
-                        }
-                        lines.push(line);
-                        aligned_bounds.push(Some(bounds));
-                    }
-
-                    for _ in 0..usize::from(margin.bottom) {
-                        lines.push(Vec::new());
-                        aligned_bounds.push(Some((0, 0)));
-                    }
-                }
-                MarkdownBlock::Paragraph { raw, .. } => {
-                    let style =
-                        self.rich_style_for_type("MarkdownParagraph", &["MarkdownBlock"], &[]);
-                    for line in Self::render_markdown_lines(&raw, style, console, width) {
-                        lines.push(line);
-                        aligned_bounds.push(None);
-                    }
-                    lines.push(Vec::new());
-                    aligned_bounds.push(Some((0, 0)));
-                }
-                MarkdownBlock::List { ordered, raw, .. } => {
-                    let list_type = if ordered {
-                        "MarkdownOrderedList"
-                    } else {
-                        "MarkdownBulletList"
-                    };
-                    let list_style = crate::css::resolve_component_style_for_type(
-                        self,
-                        list_type,
-                        &["MarkdownList", "MarkdownBlock"],
-                        &[],
-                    );
-                    let list_rich_style = self.rich_style_for_type(
-                        list_type,
-                        &["MarkdownList", "MarkdownBlock"],
-                        &[],
-                    );
-                    for line in Self::render_markdown_lines(&raw, list_rich_style, console, width) {
-                        lines.push(line);
-                        aligned_bounds.push(None);
-                    }
-                    for _ in 0..usize::from(list_style.effective_margin().bottom) {
-                        lines.push(Vec::new());
-                        aligned_bounds.push(Some((0, 0)));
-                    }
-                }
-                MarkdownBlock::Table { headers, rows, .. } => {
-                    let header_style = self.rich_style_for_child_of_type(
-                        "MarkdownTableContent",
-                        &["MarkdownBlock"],
-                        &["header", "markdown-table--header"],
-                    );
-                    let cell_style = self.rich_style_for_child_of_type(
-                        "MarkdownTableContent",
-                        &["MarkdownBlock"],
-                        &["cell"],
-                    );
-                    let mut table = Table::new();
-                    for header in headers {
-                        table.add_column(
-                            Column::with_header(Box::new(Text::styled(header, header_style)))
-                                .header_style(header_style)
-                                .style(cell_style),
-                        );
-                    }
-                    for row in rows {
-                        let cells = row
-                            .into_iter()
-                            .map(|cell| {
-                                Box::new(Text::styled(cell, cell_style))
-                                    as Box<dyn Renderable + Send + Sync>
-                            })
-                            .collect::<Vec<_>>();
-                        table.add_row(Row::new(cells));
-                    }
-                    let mut table_opts = options.clone();
-                    table_opts.size = (width, 1);
-                    table_opts.max_width = width;
-                    let rendered = table.render(console, &table_opts);
-                    for line in Segment::split_lines(rendered) {
-                        lines.push(line);
-                        aligned_bounds.push(None);
-                    }
-                    lines.push(Vec::new());
-                    aligned_bounds.push(Some((0, 0)));
-                }
-                MarkdownBlock::CodeFence { raw, .. } => {
-                    let style = self.rich_style_for_type("MarkdownFence", &["MarkdownBlock"], &[]);
-                    for line in Self::render_markdown_lines(&raw, style, console, width) {
-                        lines.push(line);
-                        aligned_bounds.push(None);
-                    }
-                    lines.push(Vec::new());
-                    aligned_bounds.push(Some((0, 0)));
-                }
-                MarkdownBlock::HorizontalRule => {
-                    let style =
-                        self.rich_style_for_type("MarkdownHorizontalRule", &["MarkdownBlock"], &[]);
-                    lines.push(vec![Segment::styled("─".repeat(width), style)]);
-                    aligned_bounds.push(None);
-                }
-            }
-        }
-
-        if lines.is_empty() {
-            lines.push(Vec::new());
-            aligned_bounds.push(Some((0, 0)));
-        }
-        let height = lines.len().max(1);
-        let cache_frame = FrameBuffer::from_lines(&lines, width, height, None);
-        let plain_lines = cache_frame.as_plain_lines();
-        let mut content_bounds = plain_lines
-            .iter()
-            .map(|line| (0, Self::line_text_len(line)))
-            .collect::<Vec<_>>();
-        for (row, bounds) in aligned_bounds.into_iter().enumerate() {
-            if let Some((start, end)) = bounds
-                && row < content_bounds.len()
-            {
-                content_bounds[row] = (start, end);
-            }
-        }
-        let cache = MarkdownRenderCache {
-            width,
-            lines: plain_lines,
-            content_bounds,
-        };
-        if let Ok(mut cached_lines) = self.render_cache.write() {
-            *cached_lines = cache.clone();
-        }
-
-        Self::apply_selection_highlight(&lines, width, &cache, self.selection)
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        std::mem::take(&mut self.composed_children)
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
-        // Sync content from shared state (e.g. MarkdownViewer's go()/back()/forward()).
         if let Some(shared) = self.shared_markup.clone() {
-            if let Ok(current) = shared.read() {
-                if *current != self.markup {
-                    let new_content = current.clone();
-                    drop(current);
-                    self.set_markup(new_content);
-                }
+            if let Ok(current) = shared.read()
+                && *current != self.markup
+            {
+                let new_content = current.clone();
+                drop(current);
+                self.set_markup(new_content);
             }
         }
-        // Hidden/disconnected nodes can transiently receive width=0/1 during
-        // tree display toggles. Keep the last stable width (>1) so wrapped-height
-        // calculations remain stable across tab switches.
         if width > 1 {
-            self.layout_width = usize::from(width);
+            let layout_width = usize::from(width);
+            self.layout_width = layout_width;
+            self.recompute_intrinsic_height();
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if matches!(event, Event::Tick(_)) && self.pending_recompose {
+            ctx.request_recompose();
+            self.pending_recompose = false;
         }
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
-
-        if self.layout_width == 0 {
-            let base = self.markup.lines().count().max(1);
-            let heading_margin_rows = self
-                .markup
-                .lines()
-                .filter_map(Self::heading_level_and_text)
-                .map(|(level, _)| {
-                    let class_name = format!("markdown--h{level}");
-                    let component_style =
-                        crate::css::resolve_component_style(self, &[class_name.as_str()]);
-                    let margin = component_style.effective_margin();
-                    usize::from(margin.top) + usize::from(margin.bottom)
-                })
-                .sum::<usize>();
-            return Some(base.saturating_add(heading_margin_rows).max(1));
-        }
-        let width = self.layout_width.max(1);
-        if let Ok(cache) = self.render_cache.read()
-            && cache.width == width
-            && !cache.lines.is_empty()
-        {
-            return Some(cache.lines.len().max(1));
-        }
-
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (width, 1);
-        options.max_width = width;
-        options.max_height = 1;
-        let _ = Widget::render(self, &console, &options);
-        if let Ok(cache) = self.render_cache.read()
-            && cache.width == width
-            && !cache.lines.is_empty()
-        {
-            return Some(cache.lines.len().max(1));
-        }
-        Some(1)
+        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.intrinsic_height))
     }
 
     fn content_width(&self) -> Option<usize> {
-        // Python Textual's Markdown block model expands horizontally and applies
-        // heading/content alignment within that full region. Returning an intrinsic
-        // width hint here makes `width:auto` shrink to longest line, which breaks
-        // H1 centering parity in TabbedContent panes.
         None
     }
 
@@ -945,59 +1336,7 @@ impl Widget for Markdown {
     }
 
     fn allow_select(&self) -> bool {
-        true
-    }
-
-    fn selection_at(&self, x: u16, y: u16) -> Option<WidgetSelectionAnchor> {
-        let Ok(cache) = self.render_cache.read() else {
-            return None;
-        };
-        if cache.lines.is_empty() || cache.width == 0 {
-            return None;
-        }
-        let row = usize::from(y).min(cache.lines.len().saturating_sub(1));
-        let (content_start, content_end) = Self::line_content_bounds(&cache, row);
-        let col = usize::from(x).min(content_end).max(content_start);
-        Some(WidgetSelectionAnchor { row, col, index: 0 })
-    }
-
-    fn selection_word_range_at(
-        &self,
-        x: u16,
-        y: u16,
-    ) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
-        let Ok(cache) = self.render_cache.read() else {
-            return None;
-        };
-        Self::word_range_at(&cache, x, y)
-    }
-
-    fn selection_all_range(&self) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
-        let Ok(cache) = self.render_cache.read() else {
-            return None;
-        };
-        Self::all_range(&cache)
-    }
-
-    fn update_selection(&mut self, from: WidgetSelectionAnchor, to: WidgetSelectionAnchor) -> bool {
-        let normalized = Self::normalize_selection((from, to));
-        let changed = self.selection != Some(normalized);
-        self.selection = Some(normalized);
-        changed
-    }
-
-    fn clear_selection(&mut self) -> bool {
-        let changed = self.selection.is_some();
-        self.selection = None;
-        changed
-    }
-
-    fn get_selection(&self) -> Option<String> {
-        let selection = self.selection?;
-        let Ok(cache) = self.render_cache.read() else {
-            return None;
-        };
-        Self::selected_text_from_cache(&cache, selection)
+        false
     }
 }
 
@@ -1006,40 +1345,61 @@ impl Renderable for Markdown {
         Widget::render(self, console, options)
     }
 }
-
 #[cfg(test)]
 mod tests {
-    use super::{Label, Markdown, MarkdownRenderCache};
-    use crate::render::FrameBuffer;
-    use crate::style::parse_color_like;
-    use crate::widgets::{Widget, WidgetSelectionAnchor};
+    use super::{Label, Markdown};
+    use crate::widgets::Widget;
     use rich_rs::Console;
 
     #[test]
-    fn markdown_layout_height_ignores_transient_zero_width_layout_updates() {
+    fn markdown_layout_height_tracks_composed_block_geometry() {
         let mut markdown = Markdown::new(
             r#"
-# Duke Leto I Atreides
+# Markdown Viewer
 
-Head of House Atreides.
+## Features
+
+- Typography *emphasis*, **strong**, `inline code` etc.
+- Headers
+- Lists (bullet and ordered)
+- Syntax highlighted code blocks
+- Tables!
+
+## Tables
+
+| Name         | Type | Default | Description |
+|--------------|------|---------|-------------|
+| show_header  | bool | True    | Show the table header |
+| fixed_rows   | int  | 0       | Number of fixed rows |
+| fixed_columns| int  | 0       | Number of fixed columns |
+| zebra_stripes| bool | False   | Display alternating colors on rows |
+| header_height| int  | 1       | Height of header row |
+| show_cursor  | bool | True    | Show a cell cursor |
+
+## Code Blocks
+
+```python
+class ListViewExample(App):
+    def compose(self) -> ComposeResult:
+        yield ListView(
+            ListItem(Label("One")),
+            ListItem(Label("Two")),
+            ListItem(Label("Three")),
+        )
+        yield Footer()
+```
+
+## Litany Against Fear
+
+I must not fear. Fear is the mind-killer. Fear is the little-death that brings total obliteration.
 "#,
         );
-        markdown.on_layout(27, 8);
-        let stable = markdown.layout_height().expect("markdown height");
-        assert!(stable < 20, "sanity: wrapped markdown should stay compact");
-
-        markdown.on_layout(1, 0);
-        let after_one = markdown.layout_height().expect("markdown height");
-        assert_eq!(
-            after_one, stable,
-            "provisional width=1 updates must not inflate markdown height"
-        );
-
-        markdown.on_layout(0, 0);
-        let after_zero = markdown.layout_height().expect("markdown height");
-        assert_eq!(
-            after_zero, stable,
-            "zero-width hidden layout updates must not collapse width to 1 and inflate height"
+        markdown.on_layout(47, 24);
+        let measured = markdown.layout_height().expect("markdown height");
+        let source_lines = markdown.markup.lines().count().max(1);
+        assert!(
+            measured > source_lines,
+            "intrinsic markdown height must follow composed block geometry (including table/list/code), not raw source lines"
         );
     }
 
@@ -1073,128 +1433,6 @@ Head of House Atreides.
             None,
             "Label default should match Textual: no intrinsic shrink width unless explicitly enabled"
         );
-    }
-
-    #[test]
-    fn markdown_selection_returns_selected_text() {
-        let mut markdown = Markdown::new("Bene Gesserit and concubine.");
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (64, 6);
-        Widget::render(&markdown, &console, &options);
-
-        let start = markdown.selection_at(0, 0).expect("selection start");
-        let end = markdown.selection_at(4, 0).expect("selection end");
-        assert!(markdown.update_selection(start, end));
-        assert_eq!(markdown.get_selection().as_deref(), Some("Bene"));
-    }
-
-    #[test]
-    fn markdown_selection_can_span_multiple_lines() {
-        let cache = MarkdownRenderCache {
-            width: 20,
-            lines: vec!["first line".to_string(), "second line".to_string()],
-            content_bounds: vec![(0, 10), (0, 11)],
-        };
-        let from = WidgetSelectionAnchor {
-            row: 0,
-            col: 0,
-            index: 0,
-        };
-        let to = WidgetSelectionAnchor {
-            row: 1,
-            col: 6,
-            index: 0,
-        };
-        let selected = Markdown::selected_text_from_cache(&cache, (from, to));
-        assert_eq!(selected.as_deref(), Some("first line\nsecond"));
-    }
-
-    #[test]
-    fn markdown_word_range_selects_word_under_pointer() {
-        let mut markdown = Markdown::new("alpha beta gamma");
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (64, 6);
-        Widget::render(&markdown, &console, &options);
-
-        let (from, to) = markdown
-            .selection_word_range_at(8, 0)
-            .expect("word range should resolve");
-        assert!(markdown.update_selection(from, to));
-        assert_eq!(markdown.get_selection().as_deref(), Some("beta"));
-    }
-
-    #[test]
-    fn markdown_selection_all_range_covers_full_content() {
-        let mut markdown = Markdown::new("alpha\nbeta");
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (64, 6);
-        Widget::render(&markdown, &console, &options);
-
-        let (from, to) = markdown
-            .selection_all_range()
-            .expect("selection all should resolve");
-        assert!(markdown.update_selection(from, to));
-        assert_eq!(markdown.get_selection().as_deref(), Some("alpha beta"));
-    }
-
-    #[test]
-    fn markdown_multiline_selection_does_not_fill_to_widget_width() {
-        let mut markdown = Markdown::new("alpha\nbeta");
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (40, 6);
-        Widget::render(&markdown, &console, &options);
-
-        let start = markdown.selection_at(0, 0).expect("start");
-        let end = markdown.selection_at(2, 1).expect("end");
-        assert!(markdown.update_selection(start, end));
-
-        let frame = FrameBuffer::from_renderable(&console, &options, &markdown, None);
-        let selection_bg = parse_color_like("#094573")
-            .expect("selection bg token")
-            .to_simple_opaque();
-        assert_eq!(
-            frame.get(0, 0).style.as_ref().and_then(|s| s.bgcolor),
-            Some(selection_bg),
-            "selected text should use selection background"
-        );
-        assert_ne!(
-            frame.get(30, 0).style.as_ref().and_then(|s| s.bgcolor),
-            Some(selection_bg),
-            "selection should not bleed to end of row"
-        );
-    }
-
-    #[test]
-    fn markdown_selection_uses_consistent_fg_bg_across_text_styles() {
-        let mut markdown = Markdown::new("# Lady Jessica\nBene Gesserit");
-        let console = Console::new();
-        let mut options = console.options().clone();
-        options.size = (40, 6);
-        let initial = FrameBuffer::from_renderable(&console, &options, &markdown, None);
-        let initial_lines = initial.as_plain_lines();
-        let heading_x = initial_lines[0].find("Lady").expect("heading text x");
-        let (body_row, body_x) = initial_lines
-            .iter()
-            .enumerate()
-            .find_map(|(row, line)| line.find("Bene").map(|x| (row, x)))
-            .expect("body text x");
-
-        let start = markdown
-            .selection_at(heading_x as u16, 0)
-            .expect("start selection");
-        let end = markdown
-            .selection_at((body_x + 2) as u16, body_row as u16)
-            .expect("end selection");
-        assert!(markdown.update_selection(start, end));
-        let frame = FrameBuffer::from_renderable(&console, &options, &markdown, None);
-        let heading_style = frame.get(heading_x, 0).style.expect("heading style");
-        let body_style = frame.get(body_x, body_row).style.expect("body style");
-        assert_eq!(heading_style.bgcolor, body_style.bgcolor);
-        assert_eq!(heading_style.color, body_style.color);
     }
 
     #[test]

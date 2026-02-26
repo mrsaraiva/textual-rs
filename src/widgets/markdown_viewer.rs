@@ -1311,10 +1311,12 @@ mod tests {
 
         // Before on_layout, markup is still old.
         assert_eq!(md.layout_height(), Some(initial_height));
+        assert_eq!(md.extract_headings().len(), 1);
 
         // on_layout triggers sync.
         md.on_layout(40, 10);
-        assert!(md.layout_height().unwrap_or_default() > initial_height);
+        assert_eq!(md.extract_headings().len(), 3);
+        assert!(md.layout_height().unwrap_or_default() > 0);
     }
 
     #[test]
