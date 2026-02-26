@@ -8,7 +8,7 @@ use crate::compose::ComposeResult;
 use crate::event::{Event, EventCtx};
 use crate::message::{
     MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
-    ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated, TreeNodeSelected,
+    ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated,
 };
 
 use super::containers::VerticalScroll;
@@ -266,10 +266,6 @@ impl Widget for MarkdownTableOfContents {
         }
 
         if let Message::TreeNodeActivated(TreeNodeActivated {
-            data: Some(block_id),
-            ..
-        })
-        | Message::TreeNodeSelected(TreeNodeSelected {
             data: Some(block_id),
             ..
         }) = &message.message
@@ -632,7 +628,12 @@ impl MarkdownViewer {
             if let Some((level, id)) = by_source_line.get(&source_line) {
                 let (top, bottom) = heading_margins(*level);
                 if id == block_id {
-                    return visual_row.saturating_add(top);
+                    // Python parity: `scroll_to_widget(..., top=True)` aligns to the
+                    // heading block region (which includes heading top margin). Our
+                    // source-line approximation compensates by backing off one context
+                    // row plus the heading top margin so the viewport lands just before
+                    // the heading text, matching Python's visual position.
+                    return visual_row.saturating_sub(1 + top);
                 }
                 visual_row = visual_row
                     .saturating_add(top)
@@ -1141,8 +1142,11 @@ mod tests {
         let content = "Some preamble\n\n# First Heading\n\nText\n\n## Second Heading\n";
         let mut viewer = MarkdownViewer::new(content);
         viewer.on_layout(80, 24);
-        assert_eq!(viewer.heading_line_offset("first-heading"), 4);
-        assert_eq!(viewer.heading_line_offset("second-heading"), 11);
+        let first = viewer.heading_line_offset("first-heading");
+        let second = viewer.heading_line_offset("second-heading");
+        assert!(first < second);
+        assert_eq!(first, 0);
+        assert_eq!(second, 6);
     }
 
     #[test]
@@ -1196,12 +1200,12 @@ mod tests {
     }
 
     #[test]
-    fn toc_on_selected_posts_toc_selected() {
+    fn toc_on_selected_does_not_post_toc_selected() {
         let mut toc =
             MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
         let msg = MessageEvent {
             sender: crate::node_id::NodeId::default(),
-            message: Message::TreeNodeSelected(TreeNodeSelected {
+            message: Message::TreeNodeSelected(crate::message::TreeNodeSelected {
                 index: 0,
                 label: "Chapter".to_string(),
                 data: Some("chapter".to_string()),
@@ -1210,17 +1214,8 @@ mod tests {
         };
         let mut ctx = crate::event::EventCtx::default();
         toc.on_message(&msg, &mut ctx);
-        assert!(ctx.handled());
-        let messages = ctx.take_messages();
-        assert!(
-            messages.iter().any(|m| matches!(
-                &m.message,
-                Message::MarkdownTableOfContentsSelected(
-                    MarkdownTableOfContentsSelected { block_id }
-                ) if block_id == "chapter"
-            )),
-            "TOC should post MarkdownTableOfContentsSelected with block_id"
-        );
+        assert!(!ctx.handled());
+        assert!(ctx.take_messages().is_empty());
     }
 
     #[test]

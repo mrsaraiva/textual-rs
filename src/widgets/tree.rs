@@ -1414,53 +1414,79 @@ impl Widget for Tree {
                 crate::css::resolve_style_for_meta(&meta)
             })
         };
+        let default_bg = crate::style::parse_color_like("$background")
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+        let component_bg_base = crate::css::current_composited_background()
+            .or(parent_resolved.bg)
+            .unwrap_or(default_bg);
         let base_style = parent_resolved
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or_else(rich_rs::Style::new);
         let guide_style = resolve_component(&["tree--guides"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
         let guide_hover_style = resolve_component(&["tree--guides-hover"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(guide_style);
         let guide_selected_style = resolve_component(&["tree--guides-selected"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(guide_style);
         let label_style = resolve_component(&["tree--label"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
         let cursor_style = resolve_component(&["tree--cursor"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
         let highlight_style = resolve_component(&["tree--highlight"])
-            .to_rich()
+            .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
-        let _highlight_line_style = resolve_component(&["tree--highlight-line"])
-            .to_rich()
+        let highlight_line_style = resolve_component(&["tree--highlight-line"])
+            .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
+
+        let selected_path: Option<&[usize]> = if self.focused {
+            nodes.get(self.selected).map(|node| node.path.as_slice())
+        } else {
+            None
+        };
+        let hovered_path: Option<&[usize]> = self
+            .hovered_index
+            .and_then(|index| nodes.get(index))
+            .map(|node| node.path.as_slice());
 
         for row in 0..height {
             let index = self.offset + row;
             if let Some(node) = nodes.get(index) {
                 let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
+                let hover_in_path = hovered_path.is_some_and(|path| node.path.starts_with(path));
+                let selected_in_path =
+                    selected_path.is_some_and(|path| node.path.starts_with(path));
+                let row_line_style = if hover_in_path {
+                    highlight_line_style
+                } else {
+                    rich_rs::Style::default()
+                };
 
                 // Pick guide style for this row.
-                let row_guide_style = if highlighted && self.focused {
+                let row_guide_style = if selected_in_path {
                     guide_selected_style
-                } else if hovered {
+                } else if hover_in_path {
                     guide_hover_style
                 } else {
                     guide_style
                 };
+                let row_guide_style = row_guide_style + row_line_style;
 
                 // Build label style: base label + component classes + highlight + cursor.
-                let mut row_label_style = label_style;
+                let mut row_label_style = label_style + row_line_style;
                 // Apply node-specific component classes (e.g. directory-tree--file).
                 if !node.component_classes.is_empty() {
                     let cc_refs: Vec<&str> =
                         node.component_classes.iter().map(String::as_str).collect();
-                    if let Some(cc_style) = resolve_component(&cc_refs).to_rich() {
+                    if let Some(cc_style) =
+                        resolve_component(&cc_refs).to_rich_over(component_bg_base)
+                    {
                         row_label_style = row_label_style + cc_style;
                     }
                 }
@@ -1526,7 +1552,13 @@ impl Widget for Tree {
                 row_segments.extend(label_segs);
 
                 // Pad/crop to width.
-                let line = adjust_line_length_no_bg(&row_segments, width);
+                // For hover-line rows, fill the entire row width with hover background.
+                // Otherwise keep trailing cells transparent so parent surface composes naturally.
+                let line = if hover_in_path {
+                    Segment::adjust_line_length(&row_segments, width, Some(row_line_style), true)
+                } else {
+                    adjust_line_length_no_bg(&row_segments, width)
+                };
                 out.extend(line);
             } else {
                 // Empty row beyond visible nodes.
@@ -1910,6 +1942,61 @@ mod tests {
             content_segs.len() >= 6,
             "expected at least 6 non-empty segments for 3 rows with per-segment styling, got {}",
             content_segs.len()
+        );
+    }
+
+    #[test]
+    fn hovered_row_background_extends_to_row_end() {
+        use crate::render::FrameBuffer;
+        use crate::widgets::WidgetRenderable;
+
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+
+        let make_tree = || {
+            Tree::new(vec![
+                TreeNode::new("Root")
+                    .expanded(true)
+                    .allow_expand(true)
+                    .with_child(TreeNode::new("Child")),
+            ])
+        };
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (24, 2);
+        options.max_width = 24;
+        options.max_height = 2;
+
+        let baseline = make_tree();
+        let baseline_buf = FrameBuffer::from_renderable(
+            &console,
+            &options,
+            &WidgetRenderable::new(&baseline),
+            None,
+        );
+        let baseline_bg = baseline_buf
+            .get(23, 1)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+
+        let mut hovered = make_tree();
+        assert!(hovered.on_mouse_move(2, 1));
+        let hovered_buf = FrameBuffer::from_renderable(
+            &console,
+            &options,
+            &WidgetRenderable::new(&hovered),
+            None,
+        );
+        let hovered_bg = hovered_buf
+            .get(23, 1)
+            .style
+            .as_ref()
+            .and_then(|style| style.bgcolor);
+
+        assert_ne!(
+            hovered_bg, baseline_bg,
+            "hovered row should paint hover-line background through trailing cells"
         );
     }
 

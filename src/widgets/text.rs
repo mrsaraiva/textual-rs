@@ -973,6 +973,13 @@ impl Widget for MarkdownTableCell {
         }
     }
 
+    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
+        // Keep tooltip placement pinned to this cell's local center so runtime
+        // can convert through scroll-aware content-local coordinates.
+        let x = (self.layout_width.max(1) / 2).min(u16::MAX as usize) as u16;
+        Some((x, 0))
+    }
+
     fn styles(&self) -> Option<&WidgetStyles> {
         Some(&self.styles)
     }
@@ -1646,7 +1653,7 @@ impl Renderable for Markdown {
 }
 #[cfg(test)]
 mod tests {
-    use super::{Label, Markdown, MarkdownTableContentBlock};
+    use super::{Label, Markdown, MarkdownTableCell, MarkdownTableContentBlock};
     use crate::widgets::Widget;
     use rich_rs::Console;
 
@@ -1722,6 +1729,17 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             after_zero, stable,
             "zero-width hidden layout updates must not collapse width to 1 and inflate height"
         );
+    }
+
+    #[test]
+    fn markdown_table_cell_tooltip_anchor_uses_local_center() {
+        let mut cell = MarkdownTableCell::new(
+            "True".to_string(),
+            "True".to_string(),
+            vec!["cell".to_string()],
+        );
+        cell.on_layout(12, 1);
+        assert_eq!(cell.tooltip_anchor(), Some((6, 0)));
     }
 
     #[test]

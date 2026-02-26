@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (MarkdownViewer TOC hover-fill + heading landing parity)
+
+- **fix(widgets/tree): make TOC hover-line fill span full row width**
+  - Hover-path rows now pad with hover-line background through trailing cells
+    (instead of stopping at text width), matching Python TOC hover visuals.
+  - Added regression test for full-row hover background coverage in `Tree`.
+
+- **fix(widgets/markdown_viewer): align TOC heading navigation landing with Python**
+  - TOC selection scroll target now compensates heading top margin when computing
+    the line offset, so clicking entries like `Tables` lands one context row before
+    the heading rather than inside section body lines.
+
 ### 2026-02-26 (Markdown table keyline parity + markdown block visual fixes)
 
 - **fix(layout): reserve keyline ring for grid layouts (Python parity)**

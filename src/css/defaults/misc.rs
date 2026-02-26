@@ -304,7 +304,7 @@ MarkdownTableOfContents:focus-within {
 
 MarkdownTableOfContents > Tree {
     padding: 1;
-    width: auto;
+    width: 1fr;
     height: 1fr;
     bg: $panel;
 }
