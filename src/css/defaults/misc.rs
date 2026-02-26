@@ -11,6 +11,30 @@ Markdown {
     fg: $foreground;
     overflow-y: hidden;
 
+    MarkdownBlock {
+        &:dark > .code_inline {
+            bg: $warning 10%;
+            fg: $text-warning 95%;
+        }
+
+        &:light > .code_inline {
+            bg: $error 5%;
+            fg: $text-error 95%;
+        }
+
+        & > .em {
+            text-style: italic;
+        }
+
+        & > .strong {
+            text-style: bold;
+        }
+
+        & > .s {
+            text-style: strike;
+        }
+    }
+
     & .markdown--h1 {
         content-align: center middle;
         margin: 2 0 1 0;

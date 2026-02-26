@@ -16,38 +16,80 @@ pub fn layout_vertical(
     }
 
     // Phase 1: collect style specs (immutable borrow of tree).
-    let specs: Vec<ChildSpec> = children
-        .iter()
-        .map(|&child| {
-            let style = get_node_style(tree, child);
-            let intrinsic_height = tree
-                .get(child)
-                .and_then(|node| node.widget.layout_height())
-                .and_then(|h| u16::try_from(h).ok());
-            let intrinsic_width = tree
-                .get(child)
-                .and_then(|node| node.widget.content_width())
-                .and_then(|w| u16::try_from(w).ok());
-            let mut spec = extract_child_spec(
-                &style,
-                available.width,
-                available.height,
-                viewport,
-                intrinsic_height,
-                intrinsic_width,
-            );
+    let mut specs: Vec<ChildSpec> = Vec::with_capacity(children.len());
+    for &child in children {
+        let style = get_node_style(tree, child);
 
-            // P2-35: `expand: true` opts this child into flex-grow behavior on
-            // the layout axis even when intrinsic auto sizing would otherwise
-            // produce a fixed size.
-            if style.expand == Some(true) && spec.height_edge.size.is_some() {
-                spec.height_edge.size = None;
-                spec.height_edge.fraction = spec.height_edge.fraction.max(1);
-            }
+        // Seed auto-height widgets with a realistic content width before we ask
+        // for intrinsic height. Without this, widgets that depend on width
+        // (e.g. Markdown) can measure at width=1 and inflate their first-frame
+        // height by orders of magnitude.
+        let seed_spec = extract_child_spec(
+            &style,
+            available.width,
+            available.height,
+            viewport,
+            None,
+            None,
+        );
+        let mut seed_layout_w = available
+            .width
+            .saturating_sub(seed_spec.margin.left + seed_spec.margin.right);
+        if let Some(edge_w) = seed_spec.width_edge.size {
+            let explicit_w = edge_w.saturating_sub(seed_spec.margin.left + seed_spec.margin.right);
+            seed_layout_w = seed_layout_w.min(explicit_w);
+        }
+        if let Some(max_w) = seed_spec.max_width_cells {
+            let max_w_outer = if seed_spec.box_sizing == BoxSizing::BorderBox {
+                max_w
+            } else {
+                max_w.saturating_add(
+                    seed_spec.border_left
+                        + seed_spec.border_right
+                        + seed_spec.padding.left
+                        + seed_spec.padding.right,
+                )
+            };
+            seed_layout_w = seed_layout_w.min(max_w_outer);
+        }
+        let seed_content_w = seed_layout_w.saturating_sub(
+            seed_spec.border_left
+                + seed_spec.border_right
+                + seed_spec.padding.left
+                + seed_spec.padding.right,
+        );
+        let seed_content_h = available.height.max(1);
+        if let Some(node) = tree.get_mut(child) {
+            node.widget.on_layout(seed_content_w.max(1), seed_content_h);
+        }
 
-            spec
-        })
-        .collect();
+        let intrinsic_height = tree
+            .get(child)
+            .and_then(|node| node.widget.layout_height())
+            .and_then(|h| u16::try_from(h).ok());
+        let intrinsic_width = tree
+            .get(child)
+            .and_then(|node| node.widget.content_width())
+            .and_then(|w| u16::try_from(w).ok());
+        let mut spec = extract_child_spec(
+            &style,
+            available.width,
+            available.height,
+            viewport,
+            intrinsic_height,
+            intrinsic_width,
+        );
+
+        // P2-35: `expand: true` opts this child into flex-grow behavior on
+        // the layout axis even when intrinsic auto sizing would otherwise
+        // produce a fixed size.
+        if style.expand == Some(true) && spec.height_edge.size.is_some() {
+            spec.height_edge.size = None;
+            spec.height_edge.fraction = spec.height_edge.fraction.max(1);
+        }
+
+        specs.push(spec);
+    }
 
     // Phase 2: build edges for height distribution.
     let edges: Vec<Edge> = specs.iter().map(|s| s.height_edge).collect();

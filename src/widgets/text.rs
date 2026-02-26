@@ -1,3 +1,4 @@
+use pulldown_cmark::{Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use std::sync::{Arc, RwLock};
 
@@ -272,6 +273,10 @@ fn rendered_markdown_height(markup: &str, width: usize) -> usize {
     count_rendered_lines(rendered)
 }
 
+fn rendered_inline_height(markup: &str, width: usize) -> usize {
+    InlineTextDoc::parse(markup).rendered_height(width)
+}
+
 fn rendered_plain_height(text: &str, width: usize) -> usize {
     let console = Console::new();
     let mut options = console.options().clone();
@@ -280,6 +285,163 @@ fn rendered_plain_height(text: &str, width: usize) -> usize {
     options.max_height = 1;
     let rendered = Text::plain(text.to_string()).render(&console, &options);
     count_rendered_lines(rendered)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineRun {
+    text: String,
+    classes: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct InlineTextDoc {
+    plain: String,
+    runs: Vec<InlineRun>,
+}
+
+impl InlineTextDoc {
+    fn parse(markup: &str) -> Self {
+        let mut options = MdOptions::empty();
+        options.insert(MdOptions::ENABLE_TABLES);
+        options.insert(MdOptions::ENABLE_STRIKETHROUGH);
+        options.insert(MdOptions::ENABLE_TASKLISTS);
+        options.insert(MdOptions::ENABLE_HEADING_ATTRIBUTES);
+        let parser = MdParser::new_ext(markup, options);
+
+        let mut runs: Vec<InlineRun> = Vec::new();
+        let mut emphasis = 0usize;
+        let mut strong = 0usize;
+        let mut strike = 0usize;
+
+        for event in parser {
+            match event {
+                MdEvent::Start(MdTag::Emphasis) => emphasis = emphasis.saturating_add(1),
+                MdEvent::End(MdTagEnd::Emphasis) => emphasis = emphasis.saturating_sub(1),
+                MdEvent::Start(MdTag::Strong) => strong = strong.saturating_add(1),
+                MdEvent::End(MdTagEnd::Strong) => strong = strong.saturating_sub(1),
+                MdEvent::Start(MdTag::Strikethrough) => strike = strike.saturating_add(1),
+                MdEvent::End(MdTagEnd::Strikethrough) => strike = strike.saturating_sub(1),
+                MdEvent::Text(text) => {
+                    push_inline_run(
+                        &mut runs,
+                        collapse_inline_whitespace(&text),
+                        emphasis,
+                        strong,
+                        strike,
+                        false,
+                    );
+                }
+                MdEvent::Code(text) => {
+                    push_inline_run(
+                        &mut runs,
+                        text.to_string(),
+                        emphasis,
+                        strong,
+                        strike,
+                        true,
+                    );
+                }
+                MdEvent::SoftBreak => {
+                    push_inline_run(&mut runs, " ".to_string(), emphasis, strong, strike, false);
+                }
+                MdEvent::HardBreak => {
+                    push_inline_run(&mut runs, "\n".to_string(), emphasis, strong, strike, false);
+                }
+                _ => {}
+            }
+        }
+
+        let plain = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+        Self { plain, runs }
+    }
+
+    fn rendered_height(&self, width: usize) -> usize {
+        rendered_plain_height(&self.plain, width)
+    }
+
+    fn render_for_widget(
+        &self,
+        widget: &dyn Widget,
+        console: &Console,
+        options: &ConsoleOptions,
+    ) -> Segments {
+        let mut text = Text::plain(self.plain.clone());
+        let mut offset = 0usize;
+        for run in &self.runs {
+            let start = offset;
+            let end = start + run.text.chars().count();
+            offset = end;
+
+            if run.classes.is_empty() {
+                continue;
+            }
+
+            let mut style = rich_rs::Style::new();
+            let mut has_style = false;
+            for class in &run.classes {
+                if let Some(component) = crate::css::resolve_component_style(widget, &[class]).to_rich() {
+                    style = style.combine(&component);
+                    has_style = true;
+                }
+            }
+            if has_style {
+                text.stylize(start, end, style);
+            }
+        }
+        text.render(console, options)
+    }
+}
+
+fn push_inline_run(
+    runs: &mut Vec<InlineRun>,
+    text: String,
+    emphasis: usize,
+    strong: usize,
+    strike: usize,
+    code_inline: bool,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    let mut classes = Vec::new();
+    if code_inline {
+        classes.push("code_inline");
+    }
+    if emphasis > 0 {
+        classes.push("em");
+    }
+    if strong > 0 {
+        classes.push("strong");
+    }
+    if strike > 0 {
+        classes.push("s");
+    }
+
+    if let Some(last) = runs.last_mut()
+        && last.classes == classes
+    {
+        last.text.push_str(&text);
+        return;
+    }
+    runs.push(InlineRun { text, classes });
+}
+
+fn collapse_inline_whitespace(text: &str) -> String {
+    let mut out = String::new();
+    let mut prior_space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !prior_space {
+                out.push(' ');
+            }
+            prior_space = true;
+        } else {
+            prior_space = false;
+            out.push(ch);
+        }
+    }
+    out
 }
 
 #[derive(Debug)]
@@ -351,7 +513,7 @@ impl Widget for MarkdownHeadingBlock {
 
 #[derive(Debug)]
 struct MarkdownParagraphBlock {
-    raw: String,
+    inline_doc: InlineTextDoc,
     layout_width: usize,
     styles: WidgetStyles,
 }
@@ -359,7 +521,7 @@ struct MarkdownParagraphBlock {
 impl MarkdownParagraphBlock {
     fn new(raw: String) -> Self {
         Self {
-            raw,
+            inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             styles: WidgetStyles::default(),
         }
@@ -368,7 +530,7 @@ impl MarkdownParagraphBlock {
 
 impl Widget for MarkdownParagraphBlock {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+        self.inline_doc.render_for_widget(self, console, options)
     }
 
     fn style_type(&self) -> &'static str {
@@ -386,10 +548,8 @@ impl Widget for MarkdownParagraphBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
-            &self.raw,
-            self.layout_width.max(1),
-        )))
+        fixed_height_from_constraints(self.layout_constraints())
+            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -532,7 +692,7 @@ impl Widget for MarkdownBullet {
 
 #[derive(Debug)]
 struct MarkdownInlineItem {
-    raw: String,
+    inline_doc: InlineTextDoc,
     layout_width: usize,
     styles: WidgetStyles,
 }
@@ -540,7 +700,7 @@ struct MarkdownInlineItem {
 impl MarkdownInlineItem {
     fn new(raw: String) -> Self {
         Self {
-            raw,
+            inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             styles: WidgetStyles::default(),
         }
@@ -549,7 +709,7 @@ impl MarkdownInlineItem {
 
 impl Widget for MarkdownInlineItem {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+        self.inline_doc.render_for_widget(self, console, options)
     }
 
     fn style_type(&self) -> &'static str {
@@ -567,10 +727,8 @@ impl Widget for MarkdownInlineItem {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
-            &self.raw,
-            self.layout_width.max(1),
-        )))
+        fixed_height_from_constraints(self.layout_constraints())
+            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -584,15 +742,14 @@ impl Widget for MarkdownInlineItem {
 
 struct MarkdownListItemBlock {
     symbol: String,
-    item_text: String,
-    item_markup: String,
+    item_inline_doc: InlineTextDoc,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
     styles: WidgetStyles,
 }
 
 impl MarkdownListItemBlock {
-    fn new(symbol: String, item_text: String, item_markup: String) -> Self {
+    fn new(symbol: String, _item_text: String, item_markup: String) -> Self {
         let content = Vertical::new().with_child(MarkdownInlineItem::new(item_markup.clone()));
         let children: Vec<Box<dyn Widget>> = vec![
             Box::new(MarkdownBullet::new(symbol.clone())),
@@ -600,8 +757,7 @@ impl MarkdownListItemBlock {
         ];
         Self {
             symbol,
-            item_text,
-            item_markup,
+            item_inline_doc: InlineTextDoc::parse(&item_markup),
             layout_width: 0,
             children,
             styles: WidgetStyles::default(),
@@ -627,11 +783,8 @@ impl Widget for MarkdownListItemBlock {
     fn layout_height(&self) -> Option<usize> {
         let bullet_width = rich_rs::cell_len(&self.symbol).max(1);
         let content_width = self.layout_width.saturating_sub(bullet_width).max(1);
-        let _ = &self.item_text;
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
-            &self.item_markup,
-            content_width,
-        )))
+        fixed_height_from_constraints(self.layout_constraints())
+            .or(Some(self.item_inline_doc.rendered_height(content_width)))
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
@@ -650,7 +803,7 @@ impl Widget for MarkdownListItemBlock {
 struct MarkdownListBlock {
     ordered: bool,
     items: Vec<String>,
-    item_markups: Vec<String>,
+    item_inline_docs: Vec<InlineTextDoc>,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
     styles: WidgetStyles,
@@ -659,7 +812,6 @@ struct MarkdownListBlock {
 impl MarkdownListBlock {
     fn new(ordered: bool, items: Vec<String>, item_markups: Vec<String>) -> Self {
         let items_copy = items.clone();
-        let item_markups_copy = item_markups.clone();
         let children: Vec<Box<dyn Widget>> = if ordered {
             let width = items.len().to_string().len().saturating_add(2).max(2);
             items
@@ -690,7 +842,10 @@ impl MarkdownListBlock {
         Self {
             ordered,
             items: items_copy,
-            item_markups: item_markups_copy,
+            item_inline_docs: item_markups
+                .into_iter()
+                .map(|item| InlineTextDoc::parse(&item))
+                .collect(),
             layout_width: 0,
             children,
             styles: WidgetStyles::default(),
@@ -733,9 +888,9 @@ impl Widget for MarkdownListBlock {
         };
         let text_width = width.saturating_sub(bullet_width).max(1);
         let content_height = self
-            .item_markups
+            .item_inline_docs
             .iter()
-            .map(|item| rendered_markdown_height(item, text_width))
+            .map(|item| item.rendered_height(text_width))
             .sum::<usize>()
             .max(1);
         Some(content_height)
@@ -757,7 +912,7 @@ impl Widget for MarkdownListBlock {
 #[derive(Debug)]
 struct MarkdownTableCell {
     text: String,
-    raw: String,
+    inline_doc: InlineTextDoc,
     layout_width: usize,
     classes: Vec<String>,
     styles: WidgetStyles,
@@ -767,7 +922,7 @@ impl MarkdownTableCell {
     fn new(text: String, raw: String, classes: Vec<String>) -> Self {
         Self {
             text,
-            raw,
+            inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             classes,
             styles: WidgetStyles::default(),
@@ -777,7 +932,7 @@ impl MarkdownTableCell {
 
 impl Widget for MarkdownTableCell {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+        self.inline_doc.render_for_widget(self, console, options)
     }
 
     fn style_type(&self) -> &'static str {
@@ -796,10 +951,8 @@ impl Widget for MarkdownTableCell {
 
     fn layout_height(&self) -> Option<usize> {
         let _ = &self.text;
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
-            &self.raw,
-            self.layout_width.max(1),
-        )))
+        fixed_height_from_constraints(self.layout_constraints())
+            .or(Some(self.inline_doc.rendered_height(self.layout_width.max(1))))
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
@@ -811,6 +964,191 @@ impl Widget for MarkdownTableCell {
     }
 }
 
+fn table_cell_content_width(markup: &str) -> usize {
+    rich_rs::cell_len(&InlineTextDoc::parse(markup).plain).max(1)
+}
+
+fn compute_markdown_table_column_fractions(
+    header_markups: &[String],
+    row_markups: &[Vec<String>],
+    column_count: usize,
+) -> Vec<crate::style::Scalar> {
+    let columns = column_count.max(1);
+    (0..columns)
+        .map(|column| {
+            let header_width = header_markups
+                .get(column)
+                .map(|cell| table_cell_content_width(cell))
+                .unwrap_or(1);
+            let mut max_content = header_width;
+            for row in row_markups {
+                if let Some(cell) = row.get(column) {
+                    max_content = max_content.max(table_cell_content_width(cell));
+                }
+            }
+            let growth = max_content.saturating_sub(header_width);
+            // Python's grid-auto behavior keeps narrow semantic columns readable
+            // while allowing content-heavy columns to grow. Approximate this by
+            // smoothing row-driven growth so a single long token doesn't dominate.
+            let smoothed = header_width as f32 + (growth as f32).sqrt();
+            let weight = (smoothed.ceil() as usize)
+                .max(header_width)
+                .saturating_add(2)
+                .max(1);
+            // Include left/right padding from default CSS (`padding: 0 1`).
+            crate::style::Scalar::Fraction(weight as f32)
+        })
+        .collect()
+}
+
+fn compute_markdown_table_column_widths(
+    header_markups: &[String],
+    row_markups: &[Vec<String>],
+    table_width: usize,
+    column_count: usize,
+) -> Vec<usize> {
+    let columns = column_count.max(1);
+    let horizontal_gutter = columns.saturating_sub(1); // `grid-gutter: 1 1`
+    let budget = table_width
+        .saturating_sub(horizontal_gutter)
+        .max(columns);
+
+    let mut desired = vec![3usize; columns];
+    let mut minimum = vec![3usize; columns];
+
+    for column in 0..columns {
+        let header_content = header_markups
+            .get(column)
+            .map(|cell| table_cell_content_width(cell))
+            .unwrap_or(1);
+        let mut max_content = header_content;
+
+        for row in row_markups {
+            if let Some(cell) = row.get(column) {
+                max_content = max_content.max(table_cell_content_width(cell));
+            }
+        }
+
+        // Cell padding is `0 1` in default CSS.
+        desired[column] = max_content.saturating_add(2).max(3);
+        // Keep headers readable under compaction; row values may wrap/crop.
+        minimum[column] = header_content.saturating_add(2).max(3);
+        if desired[column] < minimum[column] {
+            desired[column] = minimum[column];
+        }
+    }
+
+    let mut widths = desired;
+    let mut total = widths.iter().sum::<usize>();
+
+    if total < budget {
+        let grow_col = columns.saturating_sub(1);
+        widths[grow_col] = widths[grow_col].saturating_add(budget - total);
+        return widths;
+    }
+
+    while total > budget {
+        let mut best_col = None;
+        let mut best_slack = 0usize;
+        for col in (0..columns).rev() {
+            let slack = widths[col].saturating_sub(minimum[col]);
+            if slack > best_slack {
+                best_slack = slack;
+                best_col = Some(col);
+            }
+        }
+        if let Some(col) = best_col {
+            widths[col] = widths[col].saturating_sub(1);
+            total = total.saturating_sub(1);
+        } else {
+            break;
+        }
+    }
+
+    if total > budget {
+        // If the hard minimum sum still exceeds the budget, shrink the widest
+        // columns first (typically the description column) instead of shrinking
+        // round-robin. This preserves narrow semantic columns (`Type`, `Default`)
+        // and better matches Python's table readability under tight widths.
+        const HARD_FLOOR: usize = 3;
+        while total > budget {
+            let mut best_col = None;
+            let mut best_width = 0usize;
+            for col in 0..columns {
+                if widths[col] > HARD_FLOOR
+                    && (widths[col] > best_width
+                        || (widths[col] == best_width && best_col.is_some_and(|idx| col > idx)))
+                {
+                    best_width = widths[col];
+                    best_col = Some(col);
+                }
+            }
+            let Some(col) = best_col else {
+                break;
+            };
+            widths[col] -= 1;
+            total -= 1;
+        }
+    }
+
+    widths
+}
+
+fn estimate_markdown_table_row_heights(
+    header_markups: &[String],
+    row_markups: &[Vec<String>],
+    column_widths: &[usize],
+    row_count_hint: usize,
+) -> Vec<usize> {
+    let columns = column_widths.len().max(1);
+    let mut row_heights: Vec<usize> = Vec::new();
+
+    let header_height = (0..columns)
+        .map(|column| {
+            let markup = header_markups
+                .get(column)
+                .map(|s| s.as_str())
+                .unwrap_or_default();
+            let content_width = column_widths
+                .get(column)
+                .copied()
+                .unwrap_or(1)
+                .saturating_sub(2)
+                .max(1);
+            rendered_inline_height(markup, content_width)
+        })
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    row_heights.push(header_height);
+
+    for row in row_markups {
+        let row_height = (0..columns)
+            .map(|column| {
+                let markup = row.get(column).map(|s| s.as_str()).unwrap_or_default();
+                let content_width = column_widths
+                    .get(column)
+                    .copied()
+                    .unwrap_or(1)
+                    .saturating_sub(2)
+                    .max(1);
+                rendered_inline_height(markup, content_width)
+            })
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        row_heights.push(row_height);
+    }
+
+    if row_heights.len() < row_count_hint {
+        row_heights.resize(row_count_hint, 1);
+    }
+    if row_heights.is_empty() {
+        row_heights.push(1);
+    }
+    row_heights
+}
+
 fn estimate_markdown_table_height(
     header_markups: &[String],
     row_markups: &[Vec<String>],
@@ -818,59 +1156,24 @@ fn estimate_markdown_table_height(
     column_count: usize,
     row_count_hint: usize,
 ) -> usize {
-    let mut row_heights =
-        estimate_markdown_table_row_heights(header_markups, row_markups, table_width, column_count);
-    if row_heights.len() < row_count_hint {
-        row_heights.resize(row_count_hint, 1);
-    }
-    if row_heights.is_empty() {
-        row_heights.push(1);
-    }
-    let row_count = row_heights.len().max(1);
-    let vertical_gutter = row_count.saturating_sub(1); // default `grid-gutter: 1 1`
-    let estimated_content = row_heights.into_iter().sum::<usize>();
-    estimated_content
-        .saturating_add(vertical_gutter)
-        .max(row_count_hint.saturating_mul(2).saturating_sub(1).max(1))
-}
-
-fn estimate_markdown_table_row_heights(
-    header_markups: &[String],
-    row_markups: &[Vec<String>],
-    table_width: usize,
-    column_count: usize,
-) -> Vec<usize> {
-    let columns = column_count.max(1);
-    let horizontal_gutter = columns.saturating_sub(1); // default `grid-gutter: 1 1`
-    let column_width = table_width
-        .saturating_sub(horizontal_gutter)
-        .max(1)
-        .div_ceil(columns)
-        .max(1);
-    // Default CSS gives table cells `padding: 0 1`, so text wraps in inner width.
-    let cell_content_width = column_width.saturating_sub(2).max(1);
-
-    let mut row_heights: Vec<usize> = Vec::new();
-    let header_height = header_markups
-        .iter()
-        .map(|cell| rendered_markdown_height(cell, cell_content_width))
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    row_heights.push(header_height);
-    for row in row_markups {
-        let row_height = row
-            .iter()
-            .map(|cell| rendered_markdown_height(cell, cell_content_width))
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        row_heights.push(row_height);
-    }
-    if row_heights.is_empty() {
-        row_heights.push(1);
-    }
+    let column_widths = compute_markdown_table_column_widths(
+        header_markups,
+        row_markups,
+        table_width,
+        column_count,
+    );
+    let row_heights = estimate_markdown_table_row_heights(
+        header_markups,
+        row_markups,
+        &column_widths,
+        row_count_hint,
+    );
+    let vertical_gutter = row_heights.len().saturating_sub(1); // `grid-gutter: 1 1`
     row_heights
+        .into_iter()
+        .sum::<usize>()
+        .saturating_add(vertical_gutter)
+        .max(1)
 }
 
 struct MarkdownTableContentBlock {
@@ -915,6 +1218,11 @@ impl MarkdownTableContentBlock {
             effective_row_markups.push(effective_row);
         }
         let row_count = rows.len().saturating_add(1).max(1);
+        let column_fractions = compute_markdown_table_column_fractions(
+            &effective_header_markups,
+            &effective_row_markups,
+            column_count as usize,
+        );
         let mut children: Vec<Box<dyn Widget>> = Vec::new();
         for (index, header) in headers.into_iter().enumerate() {
             children.push(Box::new(MarkdownTableCell::new(
@@ -950,6 +1258,7 @@ impl MarkdownTableContentBlock {
                 style: crate::style::Style {
                     grid_size_columns: Some(column_count),
                     grid_size_rows: Some(row_count as u16),
+                    grid_columns: Some(column_fractions),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -975,11 +1284,17 @@ impl Widget for MarkdownTableContentBlock {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
-        let mut row_heights = estimate_markdown_table_row_heights(
+        let column_widths = compute_markdown_table_column_widths(
             &self.header_markups,
             &self.row_markups,
             self.layout_width.max(1),
             self.column_count,
+        );
+        let mut row_heights = estimate_markdown_table_row_heights(
+            &self.header_markups,
+            &self.row_markups,
+            &column_widths,
+            self.row_count,
         );
         if row_heights.len() < self.row_count {
             row_heights.resize(self.row_count, 1);
@@ -1347,7 +1662,7 @@ impl Renderable for Markdown {
 }
 #[cfg(test)]
 mod tests {
-    use super::{Label, Markdown};
+    use super::{Label, Markdown, MarkdownTableContentBlock};
     use crate::widgets::Widget;
     use rich_rs::Console;
 
@@ -1488,5 +1803,171 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             header_style.color, cell_style.color,
             "header foreground should differ from body cell foreground"
         );
+    }
+
+    #[test]
+    fn markdown_table_content_sets_non_uniform_grid_column_weights() {
+        let content = MarkdownTableContentBlock::new(
+            vec![
+                "Name".to_string(),
+                "Type".to_string(),
+                "Default".to_string(),
+                "Description".to_string(),
+            ],
+            vec![
+                "Name".to_string(),
+                "Type".to_string(),
+                "Default".to_string(),
+                "Description".to_string(),
+            ],
+            vec![
+                vec![
+                    "`show_header`".to_string(),
+                    "`bool`".to_string(),
+                    "`True`".to_string(),
+                    "Show the table header".to_string(),
+                ],
+                vec![
+                    "`fixed_columns`".to_string(),
+                    "`int`".to_string(),
+                    "`0`".to_string(),
+                    "Number of fixed columns".to_string(),
+                ],
+            ],
+            vec![
+                vec![
+                    "`show_header`".to_string(),
+                    "`bool`".to_string(),
+                    "`True`".to_string(),
+                    "Show the table header".to_string(),
+                ],
+                vec![
+                    "`fixed_columns`".to_string(),
+                    "`int`".to_string(),
+                    "`0`".to_string(),
+                    "Number of fixed columns".to_string(),
+                ],
+            ],
+        );
+
+        let style = content.style().expect("table content style");
+        let columns = style.grid_columns.as_ref().expect("grid columns");
+        assert_eq!(columns.len(), 4);
+        let first_weight = match columns.first().expect("first column") {
+            crate::style::Scalar::Fraction(weight) => *weight,
+            _ => panic!("expected fraction column width"),
+        };
+        let has_distinct_weight = columns.iter().any(|column| match column {
+            crate::style::Scalar::Fraction(weight) => (weight - first_weight).abs() > f32::EPSILON,
+            _ => false,
+        });
+        assert!(
+            has_distinct_weight,
+            "table content should assign non-uniform column weights from cell contents"
+        );
+    }
+
+    #[test]
+    fn markdown_table_fraction_weights_keep_type_and_default_columns_readable() {
+        let fractions = super::compute_markdown_table_column_fractions(
+            &[
+                "Name".to_string(),
+                "Type".to_string(),
+                "Default".to_string(),
+                "Description".to_string(),
+            ],
+            &[
+                vec![
+                    "`show_header`".to_string(),
+                    "`bool`".to_string(),
+                    "`True`".to_string(),
+                    "Show the table header".to_string(),
+                ],
+                vec![
+                    "`fixed_columns`".to_string(),
+                    "`int`".to_string(),
+                    "`0`".to_string(),
+                    "Number of fixed columns".to_string(),
+                ],
+            ],
+            4,
+        );
+        let weights: Vec<f32> = fractions
+            .iter()
+            .map(|scalar| match scalar {
+                crate::style::Scalar::Fraction(value) => *value,
+                _ => panic!("expected fraction scalar"),
+            })
+            .collect();
+        assert_eq!(weights.len(), 4);
+        assert!(
+            weights[1] >= 6.0,
+            "type column should preserve a readable weight"
+        );
+        assert!(
+            weights[2] >= 9.0,
+            "default column should preserve a readable weight"
+        );
+        assert!(
+            weights[3] > weights[1] && weights[3] > weights[2],
+            "description column should still be the widest"
+        );
+    }
+
+    #[test]
+    fn markdown_table_column_compaction_preserves_narrow_semantic_columns() {
+        let headers = vec![
+            "Name".to_string(),
+            "Type".to_string(),
+            "Default".to_string(),
+            "Description".to_string(),
+        ];
+        let rows = vec![
+            vec![
+                "`show_header`".to_string(),
+                "`bool`".to_string(),
+                "`True`".to_string(),
+                "Show the table header".to_string(),
+            ],
+            vec![
+                "`fixed_columns`".to_string(),
+                "`int`".to_string(),
+                "`0`".to_string(),
+                "Number of fixed columns".to_string(),
+            ],
+        ];
+        let widths = super::compute_markdown_table_column_widths(&headers, &rows, 47, 4);
+        assert_eq!(widths.len(), 4);
+        assert!(
+            widths[1] >= 6,
+            "type column should retain readable width under compaction"
+        );
+        assert!(
+            widths[2] >= 9,
+            "default column should retain readable width under compaction"
+        );
+        assert!(
+            widths[3] >= widths[1] && widths[3] >= widths[2],
+            "description column should absorb most tight-width shrink"
+        );
+    }
+
+    #[test]
+    fn markdown_table_content_style_survives_tree_build() {
+        let mut root = crate::widgets::Container::new().with_child(Markdown::new(
+            "| Name | Type | Default | Description |\n| --- | --- | --- | --- |\n| `show_header` | `bool` | `True` | Show the table header |\n| `fixed_columns` | `int` | `0` | Number of fixed columns |\n",
+        ));
+        let tree =
+            crate::runtime::build_widget_tree_from_root(&mut root).expect("tree should exist");
+        let node_id = *tree
+            .query("MarkdownTableContent")
+            .expect("query should parse")
+            .first()
+            .expect("table content node should exist");
+        let node = tree.get(node_id).expect("table content node");
+        let style = node.widget.style().expect("inline style");
+        assert_eq!(style.grid_size_columns, Some(4));
+        let columns = style.grid_columns.expect("grid columns");
+        assert_eq!(columns.len(), 4);
     }
 }

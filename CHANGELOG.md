@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (MarkdownViewer sizing stability + table track rebalancing)
+
+- **fix(layout): seed width-dependent intrinsic height in vertical layout**
+  - `layout_vertical` now calls `on_layout(...)` with a provisional content width
+    before reading `layout_height()` for auto-sized children.
+  - Prevents first-frame width=`1` intrinsic-height explosions for widgets that
+    compute height from wrapping width (notably `Markdown` in `MarkdownViewer`).
+
+- **fix(widgets): rebalance markdown table column tracks under tight widths**
+  - Updated markdown table column fraction/compaction heuristics to keep semantic
+    columns (for example `Type`, `Default`) readable while allowing wide
+    description columns to absorb most shrink.
+  - Added regression tests for markdown table fraction weights and compaction.
+
 ### 2026-02-26 (Markdown render fidelity: preserve inline markdown content)
 
 - **refactor(widgets): preserve raw markdown slices in block parser**

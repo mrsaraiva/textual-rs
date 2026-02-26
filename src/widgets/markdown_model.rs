@@ -406,4 +406,42 @@ fn x() {}
         assert_eq!(list[0], "**bold**");
         assert_eq!(list[1], "`code`");
     }
+
+    #[test]
+    fn parse_table_markups_preserve_per_cell_inline_source() {
+        let blocks = parse_markdown_blocks(
+            "| Name | Description |\n| --- | --- |\n| `show_header` | Show the table header |\n| `fixed_rows` | Number of fixed rows |\n",
+        );
+        let table = blocks
+            .iter()
+            .find_map(|block| match block {
+                MarkdownBlock::Table {
+                    headers,
+                    header_markups,
+                    rows,
+                    row_markups,
+                    ..
+                } => Some((headers, header_markups, rows, row_markups)),
+                _ => None,
+            })
+            .expect("table block should exist");
+
+        let (headers, header_markups, rows, row_markups) = table;
+        assert_eq!(headers, &vec!["Name".to_string(), "Description".to_string()]);
+        assert_eq!(
+            header_markups,
+            &vec!["Name".to_string(), "Description".to_string()]
+        );
+        assert_eq!(
+            rows.first().expect("first row"),
+            &vec!["show_header".to_string(), "Show the table header".to_string()]
+        );
+        assert_eq!(
+            row_markups.first().expect("first row markups"),
+            &vec![
+                "`show_header`".to_string(),
+                "Show the table header".to_string()
+            ]
+        );
+    }
 }
