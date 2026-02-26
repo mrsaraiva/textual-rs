@@ -19,7 +19,6 @@ mod scroll_core;
 mod scroll_view;
 mod scrollable_container;
 mod styled;
-mod thin;
 mod vertical;
 mod vertical_group;
 mod vertical_scroll;

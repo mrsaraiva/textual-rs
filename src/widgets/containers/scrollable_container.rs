@@ -3,7 +3,7 @@ use crate::event::EventCtx;
 use crate::widgets::{BindingDecl, Container, Widget};
 
 use super::ScrollView;
-use super::thin::{delegate_renderable, delegate_widget_method};
+use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
 pub struct ScrollableContainer {
     inner: ScrollView,

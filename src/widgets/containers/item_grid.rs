@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::compose::ComposeResult;
 use crate::widgets::{Container, Widget};
 
-use super::thin::delegate_widget_to;
+use crate::widgets::delegate::delegate_widget_to;
 
 pub struct ItemGrid {
     inner: Container,

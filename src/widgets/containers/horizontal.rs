@@ -2,7 +2,7 @@ use crate::compose::ComposeResult;
 use crate::widgets::Widget;
 
 use super::Container;
-use super::thin::delegate_widget_to;
+use crate::widgets::delegate::delegate_widget_to;
 
 pub struct Horizontal {
     inner: Container,

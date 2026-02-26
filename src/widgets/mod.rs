@@ -71,9 +71,9 @@ pub use core::{
     BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetSelectionAnchor, WidgetStyles,
     classify_style_change,
 };
-pub use delegate::{delegate_renderable, delegate_widget_method, delegate_widget_to};
 pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
 pub use data_table::{CursorType, DataTable};
+pub use delegate::{delegate_renderable, delegate_widget_method, delegate_widget_to};
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};
 pub use header::{Header, HeaderClock, HeaderClockSpace, HeaderIcon, HeaderTitle};

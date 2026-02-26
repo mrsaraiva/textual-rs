@@ -2,7 +2,7 @@ use crate::compose::ComposeResult;
 use crate::style::Overflow;
 use crate::widgets::{ScrollableContainer, Widget};
 
-use super::thin::delegate_widget_to;
+use crate::widgets::delegate::delegate_widget_to;
 
 pub struct HorizontalScroll {
     inner: ScrollableContainer,

@@ -98,9 +98,8 @@ pub mod prelude {
         TabbedContent, Tabs, TextArea, TextAreaCursor, TextAreaSelection, TextAreaTheme, Toast,
         ToastSeverity, Tooltip, Tree, TreeNode, Vertical, VerticalGroup, VerticalScroll, Welcome,
         Widget, WidgetRenderable, WidgetStyles, classify_style_change, delegate_renderable,
-        delegate_widget_method, delegate_widget_to, preview_root,
-        preview_root_with_bottom, preview_root_with_top_bottom, summary_max, summary_mean,
-        summary_min,
+        delegate_widget_method, delegate_widget_to, preview_root, preview_root_with_bottom,
+        preview_root_with_top_bottom, summary_max, summary_mean, summary_min,
     };
     pub use crate::worker::{
         CancellationToken, WorkerId, WorkerRegistry, WorkerRequest, WorkerState,

@@ -28,6 +28,11 @@ until the API stabilizes.
   - Added `delegate-audit` markers on partial delegation sites to make required audits
     grep-friendly when the canonical list changes.
 
+- **refactor(widgets): remove `containers/thin` compatibility shim**
+  - Migrated all container wrappers to import delegation macros from `widgets::delegate`
+    directly.
+  - Removed `src/widgets/containers/thin.rs` and corresponding module wiring.
+
 ### 2026-02-26 (MarkdownViewer scroll parity + scrollbar sync fixes)
 
 - **fix(runtime): smooth scrollbar thumb sync without per-frame relayout**
