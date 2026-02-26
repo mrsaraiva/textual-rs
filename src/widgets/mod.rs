@@ -22,6 +22,7 @@ mod list_view;
 mod loading_indicator;
 mod log;
 mod markdown_viewer;
+pub(crate) mod markdown_model;
 mod masked_input;
 mod option_list;
 mod placeholder;

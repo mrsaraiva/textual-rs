@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (Markdown block-model foundation)
+
+- **feat(widgets): add internal Markdown block parser/model in textual-rs**
+  - Added `src/widgets/markdown_model.rs` with a pulldown-cmark based parser that
+    extracts block-level structure (headings, paragraphs, lists, tables, code fences, rules).
+  - This lays the groundwork for Python-style block-widget Markdown composition so
+    block-specific CSS selectors can be applied via real widget types.
+
 ### 2026-02-26 (Delegation regression fix: preserve wrapper CSS type identity)
 
 - **fix(widgets): keep thin wrapper `style_type`/aliases on `delegate_widget_to!`**

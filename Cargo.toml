@@ -22,6 +22,7 @@ slotmap = "1.1"
 regex = "1.12"
 open = "5.3"
 textual-macros = { path = "textual-macros" }
+pulldown-cmark = "0.13"
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["glob"] }
