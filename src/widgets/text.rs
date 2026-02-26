@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::render::FrameBuffer;
 use crate::style::{Color, HorizontalAlign, parse_color_like};
-use crate::widgets::markdown_model::{MarkdownBlock, parse_markdown_blocks};
+use crate::widgets::markdown_model::{MarkdownBlock, parse_markdown_blocks, parse_markdown_headings};
 
 use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
 
@@ -293,12 +293,7 @@ impl Markdown {
     ///
     /// Used by `MarkdownTableOfContents` to build the sidebar tree.
     pub fn extract_headings(&self) -> Vec<(usize, String)> {
-        self.markup
-            .lines()
-            .filter_map(|line| {
-                Self::heading_level_and_text(line).map(|(level, title)| (level, title.to_string()))
-            })
-            .collect()
+        parse_markdown_headings(&self.markup)
     }
 
     fn heading_level_and_text(line: &str) -> Option<(usize, &str)> {

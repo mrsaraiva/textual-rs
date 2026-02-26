@@ -13,6 +13,7 @@ use crate::message::{
 
 use super::containers::VerticalScroll;
 use super::delegate::{delegate_renderable, delegate_widget_method};
+use super::markdown_model::parse_markdown_headings_with_lines;
 use super::{Markdown, Tree, TreeNode, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
@@ -688,17 +689,8 @@ fn heading_margins(level: usize) -> (usize, usize) {
 pub(crate) fn parse_markdown_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
     let mut out = Vec::new();
     let mut slug_counts: HashMap<String, usize> = HashMap::new();
-    for (line_idx, line) in content.lines().enumerate() {
-        let trimmed = line.trim_start();
-        let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
-        if marker_len == 0 || marker_len > 6 {
-            continue;
-        }
-        let title = trimmed[marker_len..].trim();
-        if title.is_empty() {
-            continue;
-        }
-        let base = slugify_heading(title);
+    for (marker_len, title, line_idx) in parse_markdown_headings_with_lines(content) {
+        let base = slugify_heading(&title);
         let seen = slug_counts.entry(base.clone()).or_insert(0);
         let block_id = if *seen == 0 {
             base
@@ -706,7 +698,7 @@ pub(crate) fn parse_markdown_heading_lines(content: &str) -> Vec<(usize, String,
             format!("{base}-{}", *seen)
         };
         *seen += 1;
-        out.push((marker_len, title.to_string(), block_id, line_idx));
+        out.push((marker_len, title, block_id, line_idx));
     }
     out
 }

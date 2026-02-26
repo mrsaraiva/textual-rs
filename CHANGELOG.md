@@ -42,6 +42,14 @@ until the API stabilizes.
   - Added tests asserting bullet glyph cells resolve explicit styles in tree mode.
   - Added tests asserting table header/cell styles differ for markdown tables.
 
+### 2026-02-26 (Parser-aligned heading metadata flow)
+
+- **refactor(widgets): unify heading extraction on markdown parser model**
+  - Added parser-based heading metadata helpers in `markdown_model` including
+    heading line indices.
+  - Switched `Markdown::extract_headings()` and `MarkdownViewer` heading-line parsing
+    to use the shared parser model, reducing drift between TOC metadata and rendered blocks.
+
 ### 2026-02-26 (Delegation regression fix: preserve wrapper CSS type identity)
 
 - **fix(widgets): keep thin wrapper `style_type`/aliases on `delegate_widget_to!`**

@@ -114,6 +114,44 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
     blocks
 }
 
+pub(crate) fn parse_markdown_headings(markup: &str) -> Vec<(usize, String)> {
+    parse_markdown_headings_with_lines(markup)
+        .into_iter()
+        .map(|(level, text, _line)| (level, text))
+        .collect()
+}
+
+pub(crate) fn parse_markdown_headings_with_lines(markup: &str) -> Vec<(usize, String, usize)> {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+    let mut parser = Parser::new_ext(markup, options).into_offset_iter().peekable();
+    let mut headings = Vec::new();
+
+    while let Some((event, range)) = parser.next() {
+        if let Event::Start(Tag::Heading { level, .. }) = event {
+            let text = collect_plain_text_until(&mut parser, TagEnd::Heading(level));
+            let heading = collapse_ws(&text);
+            if !heading.is_empty() {
+                headings.push((
+                    heading_level(level),
+                    heading,
+                    line_index_for_offset(markup, range.start),
+                ));
+            }
+        }
+    }
+
+    headings
+}
+
+fn line_index_for_offset(markup: &str, byte_offset: usize) -> usize {
+    let clamped = byte_offset.min(markup.len());
+    markup[..clamped].bytes().filter(|b| *b == b'\n').count()
+}
+
 fn collect_plain_text_until(
     parser: &mut std::iter::Peekable<pulldown_cmark::OffsetIter<'_>>,
     end: TagEnd,
@@ -147,7 +185,7 @@ fn collapse_ws(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MarkdownBlock, parse_markdown_blocks};
+    use super::{MarkdownBlock, parse_markdown_blocks, parse_markdown_headings_with_lines};
 
     #[test]
     fn parse_headings_lists_and_table() {
@@ -181,5 +219,18 @@ fn x() {}
         assert!(blocks
             .iter()
             .any(|b| matches!(b, MarkdownBlock::CodeFence { language, .. } if language == "rust")));
+    }
+
+    #[test]
+    fn parse_headings_reports_line_indices() {
+        let headings = parse_markdown_headings_with_lines("# A\nx\n## B\n\n### C\n");
+        assert_eq!(
+            headings,
+            vec![
+                (1, "A".to_string(), 0),
+                (2, "B".to_string(), 2),
+                (3, "C".to_string(), 4)
+            ]
+        );
     }
 }
