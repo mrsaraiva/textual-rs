@@ -625,6 +625,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83c41efbf8f90ac44de7f3a868f0867851d261b56291732d0cbf7cceaaeb55a6"
+dependencies = [
+ "bitflags",
+ "getopts",
+ "memchr",
+ "pulldown-cmark-escape",
+ "unicase",
+]
+
+[[package]]
 name = "pulldown-cmark-escape"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -715,7 +728,7 @@ dependencies = [
  "crossterm 0.28.1",
  "once_cell",
  "phf",
- "pulldown-cmark",
+ "pulldown-cmark 0.12.2",
  "regex",
  "smallvec",
  "syntect",
@@ -958,6 +971,7 @@ dependencies = [
  "crossterm 0.28.1",
  "insta",
  "open",
+ "pulldown-cmark 0.13.1",
  "regex",
  "rich-rs",
  "richtui-crossterm",

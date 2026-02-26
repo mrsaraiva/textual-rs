@@ -15,6 +15,22 @@ until the API stabilizes.
   - This lays the groundwork for Python-style block-widget Markdown composition so
     block-specific CSS selectors can be applied via real widget types.
 
+### 2026-02-26 (Markdown block-driven render + typed component styling)
+
+- **feat(css): typed component style resolution helper**
+  - Added `resolve_component_style_for_type(...)` so a widget can resolve CSS
+    as if rendering a specific component type (for example `MarkdownBullet`,
+    `MarkdownTableContent`) while preserving parent selector context.
+
+- **refactor(widgets): Markdown now renders from internal block model**
+  - Replaced monolithic `rich-rs` markdown render call with block-driven rendering
+    over parsed markdown blocks.
+  - Heading/list/table/code-fence rendering now resolves style by markdown component
+    type names, enabling existing markdown default CSS to apply to bullets and
+    table content classes.
+  - Stabilized `layout_height()` to read from markdown render cache after render,
+    avoiding provisional-width height drift.
+
 ### 2026-02-26 (Delegation regression fix: preserve wrapper CSS type identity)
 
 - **fix(widgets): keep thin wrapper `style_type`/aliases on `delegate_widget_to!`**

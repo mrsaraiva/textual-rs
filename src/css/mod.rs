@@ -11,7 +11,7 @@ pub(crate) use selectors::{
     Combinator, SelectorChain, SelectorMeta, apply_display_visibility_to_tree,
     apply_style_to_segments, apply_widget_opacity_to_segments, begin_style_render_pass,
     current_parent_style, parse_selector_list, pop_style_context, push_style_context,
-    resolve_component_style, resolve_style, resolve_style_for_meta, selector_meta_component,
-    selector_meta_generic, selector_meta_generic_with_classes, take_layout_affected_style_changes,
-    with_style_stack,
+    resolve_component_style, resolve_component_style_for_type, resolve_style,
+    resolve_style_for_meta, selector_meta_component, selector_meta_generic,
+    selector_meta_generic_with_classes, take_layout_affected_style_changes, with_style_stack,
 };

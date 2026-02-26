@@ -1,10 +1,9 @@
-use rich_rs::markdown::Markdown as RichMarkdown;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
-use std::collections::VecDeque;
+use rich_rs::{Column, Console, ConsoleOptions, Renderable, Row, Segment, Segments, Table, Text};
 use std::sync::{Arc, RwLock};
 
 use crate::render::FrameBuffer;
 use crate::style::{Color, HorizontalAlign, parse_color_like};
+use crate::widgets::markdown_model::{MarkdownBlock, parse_markdown_blocks};
 
 use super::{Widget, WidgetSelectionAnchor, WidgetStyles, helpers::fixed_height_from_constraints};
 
@@ -302,18 +301,6 @@ impl Markdown {
             .collect()
     }
 
-    fn consume_heading_fragment<'a>(remaining: &'a str, fragment: &str) -> Option<&'a str> {
-        let remaining = remaining.trim_start();
-        let fragment = fragment.trim();
-        if fragment.is_empty() {
-            return Some(remaining);
-        }
-        if remaining == fragment {
-            return Some("");
-        }
-        remaining.strip_prefix(fragment)
-    }
-
     fn heading_level_and_text(line: &str) -> Option<(usize, &str)> {
         let trimmed = line.trim_start();
         let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
@@ -325,6 +312,31 @@ impl Markdown {
             return None;
         }
         Some((marker_len, title))
+    }
+
+    fn rich_style_for_type(&self, type_name: &str, aliases: &[&str], classes: &[&str]) -> rich_rs::Style {
+        crate::css::resolve_component_style_for_type(self, type_name, aliases, classes)
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new)
+    }
+
+    fn render_text_lines(
+        text: &str,
+        style: rich_rs::Style,
+        console: &Console,
+        width: usize,
+    ) -> Vec<Vec<Segment>> {
+        let mut text_options = console.options().clone();
+        text_options.size = (width.max(1), 1);
+        text_options.max_width = width.max(1);
+        text_options.max_height = 1;
+        let segments = Text::styled(text.to_string(), style).render(console, &text_options);
+        let lines = Segment::split_lines(segments);
+        if lines.is_empty() {
+            vec![Vec::new()]
+        } else {
+            lines
+        }
     }
 
     fn apply_horizontal_alignment(
@@ -622,156 +634,179 @@ impl Markdown {
 
 impl Widget for Markdown {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let rendered = RichMarkdown::new(self.markup.clone()).render(console, options);
-        let mut lines = rich_rs::Segment::split_lines(rendered);
+        let width = options.size.0.max(1);
+        let mut lines: Vec<Vec<Segment>> = Vec::new();
+        let mut aligned_bounds: Vec<Option<(usize, usize)>> = Vec::new();
 
-        let mut headings = self
-            .markup
-            .lines()
-            .filter_map(|line| {
-                let trimmed = line.trim_start();
-                let marker_len = trimmed.chars().take_while(|ch| *ch == '#').count();
-                if marker_len == 0 || marker_len > 6 {
-                    return None;
-                }
-                let title = trimmed[marker_len..].trim();
-                if title.is_empty() {
-                    return None;
-                }
-                Some((marker_len, title.to_string()))
-            })
-            .collect::<VecDeque<_>>();
-        let mut aligned_bounds: Vec<Option<(usize, usize)>> = vec![None; lines.len()];
-
-        if !headings.is_empty() {
-            let mut active_heading: Option<(usize, String)> = None;
-            let mut heading_margins: Vec<(usize, usize)> = vec![(0, 0); lines.len()];
-            for (line_index, line) in lines.iter_mut().enumerate() {
-                if headings.is_empty() {
-                    break;
-                }
-                let plain = line
-                    .iter()
-                    .filter(|segment| segment.control.is_none())
-                    .map(|segment| segment.text.as_ref())
-                    .collect::<String>();
-                let trimmed = plain.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                let mut matched_level: Option<usize> = None;
-                let mut heading_start = false;
-                let mut heading_end = false;
-                if let Some((level, remaining)) = active_heading.take() {
-                    if let Some(rest) = Self::consume_heading_fragment(&remaining, trimmed) {
-                        matched_level = Some(level);
-                        if rest.is_empty() {
-                            headings.pop_front();
-                            heading_end = true;
-                        } else {
-                            active_heading = Some((level, rest.to_string()));
-                        }
-                    }
-                }
-
-                if matched_level.is_none() {
-                    let Some((level, title)) = headings.front() else {
-                        break;
-                    };
-                    if let Some(rest) = Self::consume_heading_fragment(title, trimmed) {
-                        matched_level = Some(*level);
-                        heading_start = true;
-                        if rest.is_empty() {
-                            headings.pop_front();
-                            heading_end = true;
-                        } else {
-                            active_heading = Some((*level, rest.to_string()));
-                        }
-                    } else {
-                        continue;
-                    }
-                }
-
-                let level = matched_level.expect("matched heading level must be set");
-                let class_name = format!("markdown--h{level}");
-                let component_style =
-                    crate::css::resolve_component_style(self, &[class_name.as_str()]);
-                let fallback_style = line
-                    .iter()
-                    .find(|segment| segment.control.is_none())
-                    .and_then(|segment| segment.style)
-                    .unwrap_or_else(rich_rs::Style::new);
-                let style = component_style.to_rich().unwrap_or(fallback_style);
-                let heading_text = plain.trim().to_string();
-                line.clear();
-                if !heading_text.is_empty() {
-                    line.push(rich_rs::Segment::styled(heading_text, style));
-                }
-                let pre_align_width = rich_rs::Segment::get_line_length(line);
-                let pre_align_content_bounds = (0, pre_align_width);
-                let horizontal_align = component_style
-                    .content_align
-                    .map(|align| align.horizontal)
-                    .or_else(|| {
-                        if level == 1 {
-                            Some(HorizontalAlign::Center)
-                        } else {
-                            None
-                        }
-                    });
-                if let Some(horizontal) = horizontal_align {
-                    let left_pad = Self::apply_horizontal_alignment(
-                        line,
-                        options.size.0.max(1),
-                        horizontal,
-                        style,
+        for block in parse_markdown_blocks(&self.markup) {
+            match block {
+                MarkdownBlock::Heading { level, text } => {
+                    let type_name = format!("MarkdownH{level}");
+                    let class_name = format!("markdown--h{level}");
+                    let style = self.rich_style_for_type(
+                        &type_name,
+                        &["MarkdownHeader", "MarkdownBlock"],
+                        &[class_name.as_str()],
                     );
-                    aligned_bounds[line_index] = Some((
-                        left_pad + pre_align_content_bounds.0,
-                        left_pad + pre_align_content_bounds.1,
-                    ));
-                }
-                let margin = component_style.effective_margin();
-                heading_margins[line_index] = (
-                    if heading_start {
-                        usize::from(margin.top)
-                    } else {
-                        0
-                    },
-                    if heading_end {
-                        usize::from(margin.bottom)
-                    } else {
-                        0
-                    },
-                );
-            }
+                    let component_style = crate::css::resolve_component_style_for_type(
+                        self,
+                        &type_name,
+                        &["MarkdownHeader", "MarkdownBlock"],
+                        &[class_name.as_str()],
+                    );
+                    let margin = component_style.effective_margin();
+                    for _ in 0..usize::from(margin.top) {
+                        lines.push(Vec::new());
+                        aligned_bounds.push(Some((0, 0)));
+                    }
 
-            if heading_margins
-                .iter()
-                .any(|(top, bottom)| *top > 0 || *bottom > 0)
-            {
-                let mut expanded_lines: Vec<Vec<rich_rs::Segment>> = Vec::new();
-                let mut expanded_bounds: Vec<Option<(usize, usize)>> = Vec::new();
-                for (index, line) in lines.into_iter().enumerate() {
-                    let (top, bottom) = heading_margins[index];
-                    for _ in 0..top {
-                        expanded_lines.push(Vec::new());
-                        expanded_bounds.push(Some((0, 0)));
+                    let mut heading_lines = Self::render_text_lines(&text, style, console, width);
+                    for mut line in heading_lines.drain(..) {
+                        let pre_align_width = Segment::get_line_length(&line);
+                        let pre_align_content_bounds = (0, pre_align_width);
+                        let horizontal_align = component_style
+                            .content_align
+                            .map(|align| align.horizontal)
+                            .or_else(|| {
+                                if level == 1 {
+                                    Some(HorizontalAlign::Center)
+                                } else {
+                                    None
+                                }
+                            });
+                        let mut bounds = pre_align_content_bounds;
+                        if let Some(horizontal) = horizontal_align {
+                            let left_pad =
+                                Self::apply_horizontal_alignment(&mut line, width, horizontal, style);
+                            bounds = (
+                                left_pad + pre_align_content_bounds.0,
+                                left_pad + pre_align_content_bounds.1,
+                            );
+                        }
+                        lines.push(line);
+                        aligned_bounds.push(Some(bounds));
                     }
-                    expanded_lines.push(line);
-                    expanded_bounds.push(aligned_bounds[index]);
-                    for _ in 0..bottom {
-                        expanded_lines.push(Vec::new());
-                        expanded_bounds.push(Some((0, 0)));
+
+                    for _ in 0..usize::from(margin.bottom) {
+                        lines.push(Vec::new());
+                        aligned_bounds.push(Some((0, 0)));
                     }
                 }
-                lines = expanded_lines;
-                aligned_bounds = expanded_bounds;
+                MarkdownBlock::Paragraph { text } => {
+                    let style =
+                        self.rich_style_for_type("MarkdownParagraph", &["MarkdownBlock"], &[]);
+                    for line in Self::render_text_lines(&text, style, console, width) {
+                        lines.push(line);
+                        aligned_bounds.push(None);
+                    }
+                    lines.push(Vec::new());
+                    aligned_bounds.push(Some((0, 0)));
+                }
+                MarkdownBlock::List { ordered, items } => {
+                    let list_type = if ordered {
+                        "MarkdownOrderedList"
+                    } else {
+                        "MarkdownBulletList"
+                    };
+                    let list_style = crate::css::resolve_component_style_for_type(
+                        self,
+                        list_type,
+                        &["MarkdownList", "MarkdownBlock"],
+                        &[],
+                    );
+                    let item_style =
+                        self.rich_style_for_type("MarkdownListItem", &["MarkdownBlock"], &[]);
+                    let bullet_style =
+                        self.rich_style_for_type("MarkdownBullet", &["MarkdownBlock"], &[]);
+                    for (idx, item) in items.into_iter().enumerate() {
+                        let bullet = if ordered {
+                            format!("{}.", idx + 1)
+                        } else {
+                            "•".to_string()
+                        };
+                        let bullet_width = rich_rs::cell_len(&bullet).max(1) + 1;
+                        let item_lines = Self::render_text_lines(
+                            &item,
+                            item_style,
+                            console,
+                            width.saturating_sub(bullet_width).max(1),
+                        );
+                        for (line_idx, item_line) in item_lines.into_iter().enumerate() {
+                            let mut line = Vec::new();
+                            if line_idx == 0 {
+                                line.push(Segment::styled(format!("{bullet} "), bullet_style));
+                            } else {
+                                line.push(Segment::styled(" ".repeat(bullet_width), item_style));
+                            }
+                            line.extend(item_line);
+                            lines.push(line);
+                            aligned_bounds.push(None);
+                        }
+                    }
+                    for _ in 0..usize::from(list_style.effective_margin().bottom) {
+                        lines.push(Vec::new());
+                        aligned_bounds.push(Some((0, 0)));
+                    }
+                }
+                MarkdownBlock::Table { headers, rows } => {
+                    let header_style = self.rich_style_for_type(
+                        "MarkdownTableContent",
+                        &["MarkdownBlock"],
+                        &["header", "markdown-table--header"],
+                    );
+                    let cell_style =
+                        self.rich_style_for_type("MarkdownTableContent", &["MarkdownBlock"], &["cell"]);
+                    let mut table = Table::new();
+                    for header in headers {
+                        table.add_column(
+                            Column::with_header(Box::new(Text::styled(header, header_style)))
+                                .header_style(header_style)
+                                .style(cell_style),
+                        );
+                    }
+                    for row in rows {
+                        let cells = row
+                            .into_iter()
+                            .map(|cell| {
+                                Box::new(Text::styled(cell, cell_style))
+                                    as Box<dyn Renderable + Send + Sync>
+                            })
+                            .collect::<Vec<_>>();
+                        table.add_row(Row::new(cells));
+                    }
+                    let mut table_opts = options.clone();
+                    table_opts.size = (width, 1);
+                    table_opts.max_width = width;
+                    let rendered = table.render(console, &table_opts);
+                    for line in Segment::split_lines(rendered) {
+                        lines.push(line);
+                        aligned_bounds.push(None);
+                    }
+                    lines.push(Vec::new());
+                    aligned_bounds.push(Some((0, 0)));
+                }
+                MarkdownBlock::CodeFence { language: _, code } => {
+                    let style = self.rich_style_for_type("MarkdownFence", &["MarkdownBlock"], &[]);
+                    for line in Self::render_text_lines(&code, style, console, width) {
+                        lines.push(line);
+                        aligned_bounds.push(None);
+                    }
+                    lines.push(Vec::new());
+                    aligned_bounds.push(Some((0, 0)));
+                }
+                MarkdownBlock::HorizontalRule => {
+                    let style =
+                        self.rich_style_for_type("MarkdownHorizontalRule", &["MarkdownBlock"], &[]);
+                    lines.push(vec![Segment::styled("─".repeat(width), style)]);
+                    aligned_bounds.push(None);
+                }
             }
         }
 
-        let width = options.size.0.max(1);
+        if lines.is_empty() {
+            lines.push(Vec::new());
+            aligned_bounds.push(Some((0, 0)));
+        }
         let height = lines.len().max(1);
         let cache_frame = FrameBuffer::from_lines(&lines, width, height, None);
         let plain_lines = cache_frame.as_plain_lines();
@@ -851,9 +886,14 @@ impl Widget for Markdown {
         options.size = (width, 1);
         options.max_width = width;
         options.max_height = 1;
-        let rendered = Widget::render(self, &console, &options);
-        let line_count = rich_rs::Segment::split_lines(rendered).len().max(1);
-        Some(line_count)
+        let _ = Widget::render(self, &console, &options);
+        if let Ok(cache) = self.render_cache.read()
+            && cache.width == width
+            && !cache.lines.is_empty()
+        {
+            return Some(cache.lines.len().max(1));
+        }
+        Some(1)
     }
 
     fn content_width(&self) -> Option<usize> {

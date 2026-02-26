@@ -225,6 +225,24 @@ pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &
     })
 }
 
+pub(crate) fn resolve_component_style_for_type<T: Widget + ?Sized>(
+    widget: &T,
+    component_type: &str,
+    type_aliases: &[&str],
+    classes: &[&str],
+) -> Style {
+    let parent_meta = selector_meta_generic(widget);
+    let mut meta = selector_meta_component_for(widget, classes);
+    meta.type_name = component_type.to_string();
+    meta.type_aliases = type_aliases.iter().map(|alias| (*alias).to_string()).collect();
+    SELECTOR_STACK.with(|stack| {
+        stack.borrow_mut().push(parent_meta);
+        let out = resolve_style_for_meta(&meta);
+        stack.borrow_mut().pop();
+        out
+    })
+}
+
 pub(crate) fn with_style_stack<T>(meta: SelectorMeta, resolved: Style, f: impl FnOnce() -> T) -> T {
     STYLE_STACK.with(|style_stack| {
         SELECTOR_STACK.with(|selector_stack| {
