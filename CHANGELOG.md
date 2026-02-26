@@ -7,6 +7,17 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-02-26 (Delegation regression fix: preserve wrapper CSS type identity)
+
+- **fix(widgets): keep thin wrapper `style_type`/aliases on `delegate_widget_to!`**
+  - Stopped full-delegation macro from forwarding `style_type()` and
+    `style_type_aliases()` to the inner widget.
+  - Fixes regressions where wrappers like `Horizontal` were seen as `Container`,
+    breaking type-based default CSS (including `TabbedContent` tab-row layout/rendering).
+- **chore(widgets): refresh delegation audit baseline**
+  - Updated canonical delegate method count and all `delegate-audit` markers after
+    removing the two type-identity forwards from the full list.
+
 ### 2026-02-26 (Widget delegation primitive + audit guards)
 
 - **feat(widgets): framework-wide delegation primitive for wrapper widgets**

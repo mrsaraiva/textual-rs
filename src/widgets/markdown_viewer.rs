@@ -121,7 +121,7 @@ impl Widget for MarkdownTableOfContentsTree {
         self.tree.on_layout(width, height);
     }
 
-    // delegate-audit: 72 methods as of 2026-02-26
+    // delegate-audit: 70 methods as of 2026-02-26
     delegate_widget_method!(
         tree,
         [
@@ -784,7 +784,7 @@ impl Widget for MarkdownViewer {
         self.inner.on_message(message, ctx);
     }
 
-    // delegate-audit: 72 methods as of 2026-02-26
+    // delegate-audit: 70 methods as of 2026-02-26
     delegate_widget_method!(
         inner,
         [

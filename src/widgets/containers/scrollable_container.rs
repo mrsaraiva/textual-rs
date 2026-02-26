@@ -184,7 +184,7 @@ impl Widget for ScrollableContainer {
         }
     }
 
-    // delegate-audit: 72 methods as of 2026-02-26
+    // delegate-audit: 70 methods as of 2026-02-26
     delegate_widget_method!(
         inner,
         [

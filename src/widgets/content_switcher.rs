@@ -40,7 +40,7 @@ impl Widget for IdTaggedChild {
         Some(self.id.as_str())
     }
 
-    // delegate-audit: 72 methods as of 2026-02-26
+    // delegate-audit: 70 methods as of 2026-02-26
     delegate_widget_method!(
         child,
         [
