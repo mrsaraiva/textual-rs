@@ -31,6 +31,17 @@ until the API stabilizes.
   - Stabilized `layout_height()` to read from markdown render cache after render,
     avoiding provisional-width height drift.
 
+### 2026-02-26 (Markdown list/table style regression guards)
+
+- **fix(widgets): resolve nested table child classes under `MarkdownTableContent`**
+  - Added child-of-component style resolution in `Markdown` so selectors like
+    `MarkdownTableContent > .header` and `MarkdownTableContent > .cell` apply
+    with the correct parent context.
+
+- **test(widgets): add markdown list/table style regression tests**
+  - Added tests asserting bullet glyph cells resolve explicit styles in tree mode.
+  - Added tests asserting table header/cell styles differ for markdown tables.
+
 ### 2026-02-26 (Delegation regression fix: preserve wrapper CSS type identity)
 
 - **fix(widgets): keep thin wrapper `style_type`/aliases on `delegate_widget_to!`**

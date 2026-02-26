@@ -320,6 +320,23 @@ impl Markdown {
             .unwrap_or_else(rich_rs::Style::new)
     }
 
+    fn rich_style_for_child_of_type(
+        &self,
+        parent_type: &str,
+        _parent_aliases: &[&str],
+        child_classes: &[&str],
+    ) -> rich_rs::Style {
+        let parent_style =
+            crate::css::resolve_component_style_for_type(self, parent_type, &[], &[]);
+        let parent_meta = crate::css::selector_meta_component(parent_type, &[]);
+        let child_meta = crate::css::selector_meta_component("MarkdownTableCell", child_classes);
+        crate::css::with_style_stack(parent_meta, parent_style, || {
+            crate::css::resolve_style_for_meta(&child_meta)
+                .to_rich()
+                .unwrap_or_else(rich_rs::Style::new)
+        })
+    }
+
     fn render_text_lines(
         text: &str,
         style: rich_rs::Style,
@@ -749,13 +766,16 @@ impl Widget for Markdown {
                     }
                 }
                 MarkdownBlock::Table { headers, rows } => {
-                    let header_style = self.rich_style_for_type(
+                    let header_style = self.rich_style_for_child_of_type(
                         "MarkdownTableContent",
                         &["MarkdownBlock"],
                         &["header", "markdown-table--header"],
                     );
-                    let cell_style =
-                        self.rich_style_for_type("MarkdownTableContent", &["MarkdownBlock"], &["cell"]);
+                    let cell_style = self.rich_style_for_child_of_type(
+                        "MarkdownTableContent",
+                        &["MarkdownBlock"],
+                        &["cell"],
+                    );
                     let mut table = Table::new();
                     for header in headers {
                         table.add_column(
@@ -1167,5 +1187,61 @@ Head of House Atreides.
         let body_style = frame.get(body_x, body_row).style.expect("body style");
         assert_eq!(heading_style.bgcolor, body_style.bgcolor);
         assert_eq!(heading_style.color, body_style.color);
+    }
+
+    #[test]
+    fn markdown_bullet_render_has_explicit_style() {
+        let mut root = crate::widgets::Container::new().with_child(Markdown::new("- first\n- second"));
+        let mut tree = crate::runtime::build_widget_tree_from_root(&mut root)
+            .expect("tree should exist");
+        let console = Console::new();
+        let frame =
+            crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 40, 8);
+        let lines = frame.as_plain_lines();
+        let (row, col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| line.find('•').map(|col| (row, col)))
+            .expect("expected bullet glyph in rendered markdown list");
+        let bullet_style = frame
+            .get(col, row)
+            .style
+            .expect("bullet cell should carry resolved style");
+        assert!(
+            bullet_style.color.is_some(),
+            "bullet should resolve an explicit foreground color"
+        );
+    }
+
+    #[test]
+    fn markdown_table_header_style_differs_from_cell_style() {
+        let mut root = crate::widgets::Container::new().with_child(Markdown::new(
+            "| Name | Type |\n| --- | --- |\n| show_header | bool |\n| fixed_rows | int |\n",
+        ));
+        let mut tree = crate::runtime::build_widget_tree_from_root(&mut root)
+            .expect("tree should exist");
+        let console = Console::new();
+        let frame =
+            crate::runtime::render_tree_to_frame(&mut tree, &mut root, &console, 80, 16);
+        let lines = frame.as_plain_lines();
+        let (header_row, header_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| line.find("Name").map(|col| (row, col)))
+            .expect("header text should exist");
+        let (cell_row, cell_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| line.find("show_header").map(|col| (row, col)))
+            .expect("data cell text should exist");
+        let header_style = frame
+            .get(header_col, header_row)
+            .style
+            .expect("header style");
+        let cell_style = frame.get(cell_col, cell_row).style.expect("cell style");
+        assert_ne!(
+            header_style.color, cell_style.color,
+            "header foreground should differ from body cell foreground"
+        );
     }
 }
