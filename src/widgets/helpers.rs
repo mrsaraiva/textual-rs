@@ -116,7 +116,9 @@ pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize)
         let slice_len = visible_len.min(remaining);
         let mut text = segment.text.to_string();
         if offset_in_seg > 0 {
-            text = rich_rs::set_cell_size(&text, seg_len - offset_in_seg);
+            // Drop the leading `offset_in_seg` cells; keep everything after them.
+            // (Do NOT truncate the tail first — that would lose `offset_in_seg` cells
+            // off the end, breaking left-clipped content such as horizontal scrolling.)
             text = text.chars().skip(offset_in_seg).collect();
         }
         let cropped_text = rich_rs::set_cell_size(&text, slice_len);

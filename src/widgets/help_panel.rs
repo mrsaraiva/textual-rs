@@ -111,8 +111,13 @@ impl Widget for HelpPanel {
             help_options.size = (width, help_height);
             help_options.max_width = width;
             help_options.max_height = help_height;
-            let help_renderable = WidgetRenderable::new(&self.markdown);
-            let help = FrameBuffer::from_renderable(console, &help_options, &help_renderable, None);
+            // Render the help markup through the rich-rs markdown renderer directly. The
+            // textual `Markdown` widget is compose-only — its `render()` returns empty
+            // segments and its content lives in composed children rendered by the tree
+            // engine — so rendering it via `from_renderable` here produces nothing.
+            // `self.markdown` is still used for height/layout (`split_heights`) and CSS state.
+            let help_markdown = rich_rs::markdown::Markdown::new(self.help_markup.clone());
+            let help = FrameBuffer::from_renderable(console, &help_options, &help_markdown, None);
             Overlay::compose_overlay_at(&mut merged, &help, 0, 0);
         }
 

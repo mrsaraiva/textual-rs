@@ -43,6 +43,7 @@ impl TextualApp for MarkdownApp {
 
     fn compose(&mut self) -> AppRoot {
         let mut viewer = MarkdownViewer::new(DEMO_MD);
+        viewer.set_style_id(Some("markdown-viewer".to_string()));
         viewer.register_content("demo.md", DEMO_MD);
         viewer.register_content("example.md", EXAMPLE_MD);
         AppRoot::new().with_child(Footer::new()).with_child(viewer)
@@ -53,14 +54,14 @@ impl TextualApp for MarkdownApp {
         if let Some(ref path) = self.initial_path {
             if let Ok(content) = std::fs::read_to_string(path) {
                 let _ =
-                    app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                    app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                         viewer.register_content(path.clone(), content);
                         viewer.go(path.clone());
                     });
                 ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
             }
         } else {
-            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                 viewer.go("demo.md");
             });
             ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
@@ -69,19 +70,21 @@ impl TextualApp for MarkdownApp {
 
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         match key.name() {
-            "t" => {
+            "t" | "T" => {
                 // Python: self.markdown_viewer.show_table_of_contents = not ...
                 let _ =
-                    app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                    app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                         let show = !viewer.is_showing_table_of_contents();
                         viewer.set_show_table_of_contents(show);
                     });
                 ctx.set_handled();
+                ctx.request_style_invalidation();
+                ctx.request_layout_invalidation();
                 ctx.request_repaint();
             }
             "b" => {
                 let navigated = app
-                    .with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                    .with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                         viewer.back()
                     })
                     .unwrap_or(false);
@@ -93,7 +96,7 @@ impl TextualApp for MarkdownApp {
             }
             "f" => {
                 let navigated = app
-                    .with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+                    .with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                         viewer.forward()
                     })
                     .unwrap_or(false);
@@ -128,7 +131,7 @@ impl MarkdownApp {
     fn update_navigator_state(&mut self, app: &mut App) {
         let mut at_start = true;
         let mut at_end = true;
-        let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("MarkdownViewer", |viewer| {
+        let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
             at_start = viewer.navigator.at_start();
             at_end = viewer.navigator.at_end();
         });
@@ -159,6 +162,18 @@ mod tests {
     fn markdown_app_composes_without_panic() {
         let mut app = MarkdownApp::new();
         let _root = app.compose();
+    }
+
+    #[test]
+    fn markdown_viewer_has_stable_style_id_for_queries() {
+        let mut app = MarkdownApp::new();
+        let mut root = app.compose();
+        let children = root.take_composed_children();
+        let viewer = children
+            .iter()
+            .find(|child| child.style_type() == "MarkdownViewer")
+            .expect("expected composed MarkdownViewer child");
+        assert_eq!(viewer.style_id(), Some("markdown-viewer"));
     }
 
     #[test]

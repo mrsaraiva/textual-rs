@@ -311,9 +311,16 @@ pub fn resolve_layout(
         if is_dock_parent && flow.len() == 1 {
             layout_dock_fill(tree, flow[0], inner);
         } else {
+            // A horizontally-scrollable parent (overflow-x: auto/scroll) lets auto-width
+            // children keep their intrinsic width (overflowing the viewport) so the content
+            // can be scrolled horizontally instead of wrapping to the viewport width.
+            let allow_h_overflow = matches!(
+                style.overflow_x.or(style.overflow),
+                Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
+            );
             match strategy {
                 Layout::Vertical => {
-                    layout_vertical(tree, &flow, inner, viewport);
+                    layout_vertical(tree, &flow, inner, viewport, allow_h_overflow);
                     apply_parent_align(tree, &flow, inner, Layout::Vertical, style.align);
                 }
                 Layout::Grid => {
@@ -833,7 +840,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_vertical(&mut tree, &[a, b], available, (80, 50));
+        layout_vertical(&mut tree, &[a, b], available, (80, 50), false);
 
         // A: 80x10 at (0,0)
         assert_layout_rect(&tree, a, 0, 0, 80, 10);
@@ -855,7 +862,7 @@ mod tests {
         let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
 
         let available = Region::new(0, 0, 80, 50);
-        layout_vertical(&mut tree, &[fixed, flex], available, (80, 50));
+        layout_vertical(&mut tree, &[fixed, flex], available, (80, 50), false);
 
         assert_layout_rect(&tree, fixed, 0, 0, 80, 10);
         // Flex gets remaining: 50 - 10 = 40.
@@ -884,7 +891,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 20);
-        layout_vertical(&mut tree, &[a, b], available, (80, 20));
+        layout_vertical(&mut tree, &[a, b], available, (80, 20), false);
 
         assert_layout_rect(&tree, a, 0, 0, 80, 3);
         assert_layout_rect(&tree, b, 0, 3, 80, 6);
@@ -908,7 +915,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 20);
-        layout_vertical(&mut tree, &[a, b], available, (80, 20));
+        layout_vertical(&mut tree, &[a, b], available, (80, 20), false);
 
         // Auto-width with intrinsic width should not expand to full parent width.
         assert_layout_rect(&tree, a, 0, 0, 12, 3);
@@ -931,7 +938,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_vertical(&mut tree, &[child], available, (80, 50));
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
 
         // Edge total = 10 + 2 + 2 = 14, but height_edge has chrome=4 + Cells(10) = 14 via scalar_to_edge.
         // layout_rect: x=0+3=3, y=0+2=2, w=80-3-3=74, h=14-2-2=10
@@ -958,7 +965,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_vertical(&mut tree, &[child], available, (80, 50));
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
 
         // Default box-sizing is border-box (Textual parity):
         // explicit height includes border+padding chrome.
@@ -982,7 +989,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_vertical(&mut tree, &[child], available, (80, 50));
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
 
         // Max width 40 should constrain the layout width.
         let n = tree.get(child).unwrap();
@@ -1535,7 +1542,7 @@ mod tests {
         );
 
         let available = Region::new(10, 20, 60, 30);
-        layout_vertical(&mut tree, &[a], available, (80, 50));
+        layout_vertical(&mut tree, &[a], available, (80, 50), false);
 
         // A should be at x=10, y=20.
         assert_layout_rect(&tree, a, 10, 20, 70, 25);

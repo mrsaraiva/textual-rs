@@ -252,7 +252,12 @@ impl Widget for Welcome {
         body_options.size = (width, body_height);
         body_options.max_width = width;
         body_options.max_height = body_height;
-        let body_segments = self.markdown.render_styled(console, &body_options);
+        // Render the welcome body through the rich-rs markdown renderer directly. The
+        // textual `Markdown` widget is compose-only (its `render()` returns empty segments;
+        // content is rendered by the tree engine via composed children), so `render_styled`
+        // here yields nothing. `self.markdown` is retained for layout/lifecycle/messages.
+        let body_segments =
+            rich_rs::markdown::Markdown::new(WELCOME_MD.to_string()).render(console, &body_options);
         let body_lines = Segment::split_and_crop_lines(body_segments, width, None, true, false);
         let body_buf = FrameBuffer::from_lines(&body_lines, width, body_height, None);
 

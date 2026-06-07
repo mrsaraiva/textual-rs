@@ -3,8 +3,10 @@ use pulldown_cmark::{
 };
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use std::sync::{Arc, RwLock};
+use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
+use crate::message::{ActionDispatchRequested, Message};
 use crate::widgets::markdown_model::{
     MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
 };
@@ -222,6 +224,8 @@ pub struct Markdown {
     id: Option<String>,
     layout_width: usize,
     intrinsic_height: usize,
+    can_focus: bool,
+    focused: bool,
     composed_children: Vec<Box<dyn Widget>>,
     pending_recompose: bool,
     styles: WidgetStyles,
@@ -245,6 +249,8 @@ impl Clone for Markdown {
             id: self.id.clone(),
             layout_width: self.layout_width,
             intrinsic_height: self.intrinsic_height,
+            can_focus: self.can_focus,
+            focused: self.focused,
             composed_children: build_markdown_children(&self.markup),
             pending_recompose: self.pending_recompose,
             styles: self.styles.clone(),
@@ -289,6 +295,7 @@ fn rendered_plain_height(text: &str, width: usize) -> usize {
 struct InlineRun {
     text: String,
     classes: Vec<&'static str>,
+    link_href: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -310,6 +317,7 @@ impl InlineTextDoc {
         let mut emphasis = 0usize;
         let mut strong = 0usize;
         let mut strike = 0usize;
+        let mut link_stack: Vec<String> = Vec::new();
 
         for event in parser {
             match event {
@@ -319,6 +327,12 @@ impl InlineTextDoc {
                 MdEvent::End(MdTagEnd::Strong) => strong = strong.saturating_sub(1),
                 MdEvent::Start(MdTag::Strikethrough) => strike = strike.saturating_add(1),
                 MdEvent::End(MdTagEnd::Strikethrough) => strike = strike.saturating_sub(1),
+                MdEvent::Start(MdTag::Link { dest_url, .. }) => {
+                    link_stack.push(dest_url.to_string());
+                }
+                MdEvent::End(MdTagEnd::Link) => {
+                    link_stack.pop();
+                }
                 MdEvent::Text(text) => {
                     push_inline_run(
                         &mut runs,
@@ -326,17 +340,42 @@ impl InlineTextDoc {
                         emphasis,
                         strong,
                         strike,
+                        link_stack.last().map(String::as_str),
                         false,
                     );
                 }
                 MdEvent::Code(text) => {
-                    push_inline_run(&mut runs, text.to_string(), emphasis, strong, strike, true);
+                    push_inline_run(
+                        &mut runs,
+                        text.to_string(),
+                        emphasis,
+                        strong,
+                        strike,
+                        link_stack.last().map(String::as_str),
+                        true,
+                    );
                 }
                 MdEvent::SoftBreak => {
-                    push_inline_run(&mut runs, " ".to_string(), emphasis, strong, strike, false);
+                    push_inline_run(
+                        &mut runs,
+                        " ".to_string(),
+                        emphasis,
+                        strong,
+                        strike,
+                        link_stack.last().map(String::as_str),
+                        false,
+                    );
                 }
                 MdEvent::HardBreak => {
-                    push_inline_run(&mut runs, "\n".to_string(), emphasis, strong, strike, false);
+                    push_inline_run(
+                        &mut runs,
+                        "\n".to_string(),
+                        emphasis,
+                        strong,
+                        strike,
+                        link_stack.last().map(String::as_str),
+                        false,
+                    );
                 }
                 _ => {}
             }
@@ -355,17 +394,16 @@ impl InlineTextDoc {
         widget: &dyn Widget,
         console: &Console,
         options: &ConsoleOptions,
+        hovered_link: Option<&str>,
     ) -> Segments {
         let mut text = Text::plain(self.plain.clone());
+        let meta = crate::css::selector_meta_generic(widget);
+        let resolved = crate::css::resolve_style(widget, &meta);
         let mut offset = 0usize;
         for run in &self.runs {
             let start = offset;
             let end = start + run.text.chars().count();
             offset = end;
-
-            if run.classes.is_empty() {
-                continue;
-            }
 
             let mut style = rich_rs::Style::new();
             let mut has_style = false;
@@ -377,11 +415,122 @@ impl InlineTextDoc {
                     has_style = true;
                 }
             }
+
+            if let Some(href) = run.link_href.as_deref() {
+                let hovered = hovered_link.is_some_and(|active| active == href);
+                if hovered {
+                    if let Some(color) = resolved.link_color_hover.or(resolved.link_color) {
+                        style = style.with_color(color.to_simple_opaque());
+                        has_style = true;
+                    }
+                    if let Some(bg) = resolved.link_background_hover.or(resolved.link_background) {
+                        if bg.a > 0 {
+                            style = style.with_bgcolor(bg.to_simple_opaque());
+                            has_style = true;
+                        }
+                    }
+                    if let Some(flags) = resolved.link_style_hover.or(resolved.link_style) {
+                        apply_text_style_flags(&mut style, &flags);
+                        has_style = true;
+                    }
+                } else {
+                    if let Some(color) = resolved.link_color {
+                        style = style.with_color(color.to_simple_opaque());
+                        has_style = true;
+                    }
+                    if let Some(bg) = resolved.link_background {
+                        if bg.a > 0 {
+                            style = style.with_bgcolor(bg.to_simple_opaque());
+                            has_style = true;
+                        }
+                    }
+                    if let Some(flags) = resolved.link_style {
+                        apply_text_style_flags(&mut style, &flags);
+                        has_style = true;
+                    }
+                }
+            }
+
             if has_style {
                 text.stylize(start, end, style);
             }
+
+            if let Some(href) = run.link_href.as_deref() {
+                let mut link_meta = std::collections::BTreeMap::new();
+                link_meta.insert(
+                    "@click".to_string(),
+                    rich_rs::MetaValue::str(format_markdown_link_action(href)),
+                );
+                text.apply_meta(link_meta, start as isize, Some(end as isize));
+            }
         }
         text.render(console, options)
+    }
+
+    fn link_at_coords(&self, x: u16, y: u16, width: usize) -> Option<&str> {
+        let idx = self.char_index_at_coords(usize::from(x), usize::from(y), width.max(1))?;
+        self.link_at_char_index(idx)
+    }
+
+    fn link_at_char_index(&self, idx: usize) -> Option<&str> {
+        let mut start = 0usize;
+        for run in &self.runs {
+            let end = start + run.text.chars().count();
+            if idx >= start && idx < end {
+                return run.link_href.as_deref();
+            }
+            start = end;
+        }
+        None
+    }
+
+    fn char_index_at_coords(&self, x: usize, y: usize, width: usize) -> Option<usize> {
+        let mut row = 0usize;
+        let mut col = 0usize;
+        let mut idx = 0usize;
+        let mut row_has_content = false;
+
+        for ch in self.plain.chars() {
+            if ch == '\n' {
+                if row == y {
+                    return None;
+                }
+                row = row.saturating_add(1);
+                col = 0;
+                idx = idx.saturating_add(1);
+                row_has_content = false;
+                continue;
+            }
+
+            let cell_width = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+            if col + cell_width > width {
+                row = row.saturating_add(1);
+                col = 0;
+                row_has_content = false;
+            }
+            if row > y {
+                return None;
+            }
+            if row == y {
+                row_has_content = true;
+                if x >= col && x < col + cell_width {
+                    return Some(idx);
+                }
+            }
+
+            col += cell_width;
+            idx = idx.saturating_add(1);
+            if col >= width {
+                row = row.saturating_add(1);
+                col = 0;
+                row_has_content = false;
+            }
+        }
+
+        if row == y && row_has_content {
+            return None;
+        }
+        None
     }
 }
 
@@ -391,6 +540,7 @@ fn push_inline_run(
     emphasis: usize,
     strong: usize,
     strike: usize,
+    link_href: Option<&str>,
     code_inline: bool,
 ) {
     if text.is_empty() {
@@ -410,14 +560,22 @@ fn push_inline_run(
     if strike > 0 {
         classes.push("s");
     }
+    if link_href.is_some() {
+        classes.push("link");
+    }
 
     if let Some(last) = runs.last_mut()
         && last.classes == classes
+        && last.link_href.as_deref() == link_href
     {
         last.text.push_str(&text);
         return;
     }
-    runs.push(InlineRun { text, classes });
+    runs.push(InlineRun {
+        text,
+        classes,
+        link_href: link_href.map(ToString::to_string),
+    });
 }
 
 fn collapse_inline_whitespace(text: &str) -> String {
@@ -435,6 +593,32 @@ fn collapse_inline_whitespace(text: &str) -> String {
         }
     }
     out
+}
+
+fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
+    if flags.bold {
+        *style = style.with_bold(true);
+    }
+    if flags.dim {
+        *style = style.with_dim(true);
+    }
+    if flags.italic {
+        *style = style.with_italic(true);
+    }
+    if flags.underline {
+        *style = style.with_underline(true);
+    }
+    if flags.reverse {
+        *style = style.with_reverse(true);
+    }
+    if flags.strike {
+        *style = style.with_strike(true);
+    }
+}
+
+fn format_markdown_link_action(href: &str) -> String {
+    let escaped = href.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("link('{escaped}')")
 }
 
 #[derive(Debug)]
@@ -516,6 +700,7 @@ impl Widget for MarkdownHeadingBlock {
 struct MarkdownParagraphBlock {
     inline_doc: InlineTextDoc,
     layout_width: usize,
+    hovered_link: Option<String>,
     styles: WidgetStyles,
 }
 
@@ -524,6 +709,7 @@ impl MarkdownParagraphBlock {
         Self {
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
+            hovered_link: None,
             styles: WidgetStyles::default(),
         }
     }
@@ -531,7 +717,8 @@ impl MarkdownParagraphBlock {
 
 impl Widget for MarkdownParagraphBlock {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inline_doc.render_for_widget(self, console, options)
+        self.inline_doc
+            .render_for_widget(self, console, options, self.hovered_link.as_deref())
     }
 
     fn style_type(&self) -> &'static str {
@@ -545,6 +732,42 @@ impl Widget for MarkdownParagraphBlock {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
+        }
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hovered = self
+            .inline_doc
+            .link_at_coords(x, y, self.layout_width.max(1))
+            .map(ToString::to_string);
+        if hovered != self.hovered_link {
+            self.hovered_link = hovered;
+            return true;
+        }
+        false
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if !hovered {
+            self.hovered_link = None;
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::MouseUp(mouse) = event
+            && mouse.target.is_some_and(|t| t == self.node_id())
+            && let Some(href) =
+                self.inline_doc
+                    .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
+        {
+            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+                action: format_markdown_link_action(href),
+            }));
+            ctx.set_handled();
         }
     }
 
@@ -696,6 +919,7 @@ impl Widget for MarkdownBullet {
 struct MarkdownInlineItem {
     inline_doc: InlineTextDoc,
     layout_width: usize,
+    hovered_link: Option<String>,
     styles: WidgetStyles,
 }
 
@@ -704,6 +928,7 @@ impl MarkdownInlineItem {
         Self {
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
+            hovered_link: None,
             styles: WidgetStyles::default(),
         }
     }
@@ -711,7 +936,8 @@ impl MarkdownInlineItem {
 
 impl Widget for MarkdownInlineItem {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inline_doc.render_for_widget(self, console, options)
+        self.inline_doc
+            .render_for_widget(self, console, options, self.hovered_link.as_deref())
     }
 
     fn style_type(&self) -> &'static str {
@@ -725,6 +951,42 @@ impl Widget for MarkdownInlineItem {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
+        }
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hovered = self
+            .inline_doc
+            .link_at_coords(x, y, self.layout_width.max(1))
+            .map(ToString::to_string);
+        if hovered != self.hovered_link {
+            self.hovered_link = hovered;
+            return true;
+        }
+        false
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if !hovered {
+            self.hovered_link = None;
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::MouseUp(mouse) = event
+            && mouse.target.is_some_and(|t| t == self.node_id())
+            && let Some(href) =
+                self.inline_doc
+                    .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
+        {
+            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+                action: format_markdown_link_action(href),
+            }));
+            ctx.set_handled();
         }
     }
 
@@ -917,6 +1179,7 @@ struct MarkdownTableCell {
     text: String,
     inline_doc: InlineTextDoc,
     layout_width: usize,
+    hovered_link: Option<String>,
     classes: Vec<String>,
     styles: WidgetStyles,
 }
@@ -927,6 +1190,7 @@ impl MarkdownTableCell {
             text,
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
+            hovered_link: None,
             classes,
             styles: WidgetStyles::default(),
         }
@@ -938,7 +1202,8 @@ impl Widget for MarkdownTableCell {
         let mut one_line = options.clone();
         one_line.max_height = 1;
         one_line.size.1 = 1;
-        self.inline_doc.render_for_widget(self, console, &one_line)
+        self.inline_doc
+            .render_for_widget(self, console, &one_line, self.hovered_link.as_deref())
     }
 
     fn style_type(&self) -> &'static str {
@@ -956,6 +1221,42 @@ impl Widget for MarkdownTableCell {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
+        }
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let hovered = self
+            .inline_doc
+            .link_at_coords(x, y, self.layout_width.max(1))
+            .map(ToString::to_string);
+        if hovered != self.hovered_link {
+            self.hovered_link = hovered;
+            return true;
+        }
+        false
+    }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if !hovered {
+            self.hovered_link = None;
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::MouseUp(mouse) = event
+            && mouse.target.is_some_and(|t| t == self.node_id())
+            && let Some(href) =
+                self.inline_doc
+                    .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
+        {
+            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+                action: format_markdown_link_action(href),
+            }));
+            ctx.set_handled();
         }
     }
 
@@ -1539,6 +1840,8 @@ impl Markdown {
             id: None,
             layout_width: 1,
             intrinsic_height: 1,
+            can_focus: false,
+            focused: false,
             composed_children,
             pending_recompose: false,
             styles: WidgetStyles::default(),
@@ -1560,12 +1863,22 @@ impl Markdown {
             id: None,
             layout_width: 1,
             intrinsic_height: 1,
+            can_focus: false,
+            focused: false,
             composed_children,
             pending_recompose: false,
             styles: WidgetStyles::default(),
         };
         markdown.recompute_intrinsic_height();
         markdown
+    }
+
+    pub fn with_can_focus(mut self, can_focus: bool) -> Self {
+        self.can_focus = can_focus;
+        if !can_focus {
+            self.focused = false;
+        }
+        self
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
@@ -1591,6 +1904,22 @@ impl Markdown {
 impl Widget for Markdown {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
+    }
+
+    fn focusable(&self) -> bool {
+        self.can_focus
+    }
+
+    fn can_focus(&self) -> bool {
+        self.can_focus
+    }
+
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused && self.can_focus;
+    }
+
+    fn has_focus(&self) -> bool {
+        self.focused
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
@@ -1706,6 +2035,82 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         assert!(
             measured < source_lines,
             "intrinsic markdown height should reflect composed markdown blocks (collapsed table/list/code structure), not raw source line count"
+        );
+    }
+
+    #[test]
+    fn markdown_focusable_when_enabled() {
+        let mut markdown = Markdown::new("# Heading").with_can_focus(true);
+        assert!(markdown.focusable());
+        assert!(markdown.can_focus());
+        assert!(!markdown.has_focus());
+        markdown.set_focus(true);
+        assert!(markdown.has_focus());
+        markdown.set_focus(false);
+        assert!(!markdown.has_focus());
+    }
+
+    #[test]
+    fn inline_text_doc_marks_link_runs_with_link_class() {
+        let doc = super::InlineTextDoc::parse("See [example.md](./example.md) for details.");
+        assert!(
+            doc.runs
+                .iter()
+                .any(|run| run.classes.iter().any(|class| *class == "link")),
+            "expected at least one inline run to carry the link class"
+        );
+    }
+
+    #[test]
+    fn inline_text_doc_link_coords_resolve_href() {
+        let doc = super::InlineTextDoc::parse("See [example.md](./example.md) for details.");
+        assert_eq!(doc.link_at_coords(5, 0, 80), Some("./example.md"));
+        assert_eq!(doc.link_at_coords(0, 0, 80), None);
+    }
+
+    #[test]
+    fn markdown_paragraph_renders_click_action_meta_for_links() {
+        let paragraph = super::MarkdownParagraphBlock::new(
+            "See [example.md](./example.md) for details.".to_string(),
+        );
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (80, 1);
+        options.max_width = 80;
+        options.max_height = 1;
+        let rendered = paragraph.render(&console, &options);
+        let found = rendered.iter().any(|seg| {
+            seg.meta
+                .as_ref()
+                .and_then(|meta| meta.meta.as_ref())
+                .and_then(|meta| meta.get("@click"))
+                == Some(&rich_rs::MetaValue::str("link('./example.md')"))
+        });
+        assert!(
+            found,
+            "expected markdown links to carry @click action metadata"
+        );
+    }
+
+    #[test]
+    fn markdown_paragraph_link_default_background_is_transparent() {
+        let paragraph = super::MarkdownParagraphBlock::new(
+            "See [example.md](./example.md) for details.".to_string(),
+        );
+        let console = Console::new();
+        let mut options = console.options().clone();
+        options.size = (80, 1);
+        options.max_width = 80;
+        options.max_height = 1;
+        let rendered = paragraph.render(&console, &options);
+        let link_segment = rendered
+            .iter()
+            .find(|seg| seg.text.as_ref().contains("example.md"))
+            .expect("expected rendered link segment");
+        let bg = link_segment.style.and_then(|s| s.bgcolor);
+        assert!(
+            bg.is_none(),
+            "transparent link background should not force an opaque background color"
         );
     }
 

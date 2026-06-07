@@ -36,7 +36,7 @@
 //!
 //! # Kitty keyboard protocol
 //!
-//! The shared terminal driver (`richtui-crossterm`) supports the Kitty
+//! The terminal driver supports the Kitty
 //! keyboard protocol (mode 1: `DISAMBIGUATE_ESCAPE_CODES`) via a tri-state
 //! [`KeyboardProtocol`](crate::driver::KeyboardProtocol) setting:
 //!

@@ -371,29 +371,38 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
     }
     let _fw_guard = super::context::set_focus_within(focus_within_ids);
 
-    let node_ids = tree.walk_depth_first(root);
-    for node_id in node_ids {
-        let (display_val, visibility_val) = {
+    fn apply_node(tree: &mut WidgetTree, node_id: NodeId) {
+        let (meta, resolved, child_ids) = {
             let Some(node) = tree.get(node_id) else {
-                continue;
+                return;
             };
             let mut meta = selector_meta_generic_with_classes(
                 node.widget.as_ref(),
                 node.classes.iter().cloned(),
             );
             meta.states.focus_within = is_focus_within(node_id);
-            let style = resolve_style(node.widget.as_ref(), &meta);
-            (style.display, style.visibility)
+            let resolved = resolve_style(node.widget.as_ref(), &meta);
+            let child_ids = tree.children(node_id).to_vec();
+            (meta, resolved, child_ids)
         };
+
         // Apply CSS display state. Runtime-controlled display (for example
         // tab switching) is merged in WidgetTree as `effective = css && runtime`.
-        let display_bool = !matches!(display_val, Some(Display::None));
+        let display_bool = !matches!(resolved.display, Some(Display::None));
         tree.set_css_display(node_id, display_bool);
 
         // Apply visibility.
-        let vis = visibility_val.unwrap_or(Visibility::Visible);
+        let vis = resolved.visibility.unwrap_or(Visibility::Visible);
         tree.set_visibility(node_id, vis);
+
+        with_style_stack(meta, resolved, || {
+            for child_id in child_ids {
+                apply_node(tree, child_id);
+            }
+        });
     }
+
+    apply_node(tree, root);
 }
 
 #[cfg(test)]

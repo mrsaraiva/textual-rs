@@ -53,6 +53,10 @@ pub(crate) struct ChildSpec {
     pub(crate) max_height_cells: Option<u16>,
     /// Box-sizing model (P2-25).
     pub(crate) box_sizing: BoxSizing,
+    /// Whether `width` is `auto` (no explicit/percentage/fraction width). Used by
+    /// horizontally-scrollable parents to let auto-width children keep their intrinsic
+    /// width (exceeding the viewport) instead of being clamped/wrapped to it.
+    pub(crate) width_is_auto: bool,
 }
 
 /// Vertical chrome = margin.top + border_top + padding.top + padding.bottom + border_bottom + margin.bottom.
@@ -197,6 +201,8 @@ pub(crate) fn extract_child_spec(
         ),
     };
 
+    let width_is_auto = matches!(style.width.as_ref(), None | Some(Scalar::Auto));
+
     ChildSpec {
         height_edge,
         width_edge,
@@ -209,6 +215,7 @@ pub(crate) fn extract_child_spec(
         max_width_cells: max_w_cells,
         max_height_cells: max_h_cells,
         box_sizing,
+        width_is_auto,
     }
 }
 

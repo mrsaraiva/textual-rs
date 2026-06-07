@@ -3604,6 +3604,103 @@ mod tests {
         );
     }
 
+    #[test]
+    fn run_layout_pass_applies_parent_selector_display_rules() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Widget};
+
+        struct Parent {
+            classes: Vec<String>,
+        }
+
+        impl Parent {
+            fn new() -> Self {
+                Self {
+                    classes: Vec::new(),
+                }
+            }
+
+            fn set_show(&mut self, show: bool) {
+                if show {
+                    if !self.classes.iter().any(|c| c == "show") {
+                        self.classes.push("show".to_string());
+                    }
+                } else {
+                    self.classes.retain(|c| c != "show");
+                }
+            }
+        }
+
+        impl Widget for Parent {
+            fn style_type(&self) -> &'static str {
+                "Parent"
+            }
+
+            fn style_classes(&self) -> &[String] {
+                &self.classes
+            }
+
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        struct Child;
+
+        impl Widget for Child {
+            fn style_type(&self) -> &'static str {
+                "Child"
+            }
+
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                Segments::new()
+            }
+        }
+
+        let mut sheet = crate::css::default_widget_stylesheet();
+        sheet.extend(&crate::css::StyleSheet::parse(
+            r#"
+Parent > Child { display: none; }
+Parent.show > Child { display: block; }
+"#,
+        ));
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let parent_id = tree.mount(root, Box::new(Parent::new()));
+        let child_id = tree.mount(parent_id, Box::new(Child));
+
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            !tree.get(child_id).expect("child exists").display,
+            "child should be hidden by parent-combinator display:none rule"
+        );
+
+        {
+            let parent_node = tree.get_mut(parent_id).expect("parent node exists");
+            let parent_any = parent_node.widget.as_mut() as &mut dyn std::any::Any;
+            let parent = parent_any
+                .downcast_mut::<Parent>()
+                .expect("parent widget type should match");
+            parent.set_show(true);
+        }
+
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            tree.get(child_id).expect("child exists").display,
+            "child should become visible when parent class toggles matching rule"
+        );
+    }
+
     fn render_with_optional_screen(screen: Option<Box<dyn crate::screen::Screen>>) -> String {
         let mut app = App::new().expect("app should initialize");
         app.options.size = (80, 24);

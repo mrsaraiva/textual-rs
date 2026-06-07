@@ -10,6 +10,7 @@ pub fn layout_vertical(
     children: &[NodeId],
     available: Region,
     viewport: (u16, u16),
+    allow_h_overflow: bool,
 ) {
     if children.is_empty() {
         return;
@@ -19,6 +20,15 @@ pub fn layout_vertical(
     let mut specs: Vec<ChildSpec> = Vec::with_capacity(children.len());
     for &child in children {
         let style = get_node_style(tree, child);
+
+        let width_is_auto =
+            matches!(style.width.as_ref(), None | Some(crate::style::Scalar::Auto));
+        // Intrinsic content-width hint, used to (a) widen the height-measurement seed and
+        // (b) let auto-width children overflow a horizontally-scrollable parent.
+        let pre_intrinsic_w = tree
+            .get(child)
+            .and_then(|node| node.widget.content_width())
+            .and_then(|w| u16::try_from(w).ok());
 
         // Seed auto-height widgets with a realistic content width before we ask
         // for intrinsic height. Without this, widgets that depend on width
@@ -38,6 +48,20 @@ pub fn layout_vertical(
         if let Some(edge_w) = seed_spec.width_edge.size {
             let explicit_w = edge_w.saturating_sub(seed_spec.margin.left + seed_spec.margin.right);
             seed_layout_w = seed_layout_w.min(explicit_w);
+        }
+        // Horizontally-scrollable parent: measure auto-width children at their intrinsic
+        // width so wrapping widgets (e.g. Label) report unwrapped height.
+        if allow_h_overflow
+            && width_is_auto
+            && let Some(iw) = pre_intrinsic_w
+        {
+            let iw_outer = iw.saturating_add(
+                seed_spec.border_left
+                    + seed_spec.border_right
+                    + seed_spec.padding.left
+                    + seed_spec.padding.right,
+            );
+            seed_layout_w = seed_layout_w.max(iw_outer);
         }
         if let Some(max_w) = seed_spec.max_width_cells {
             let max_w_outer = if seed_spec.box_sizing == BoxSizing::BorderBox {
@@ -112,15 +136,23 @@ pub fn layout_vertical(
         // Layout rect excludes margin.
         let layout_x = available.x.saturating_add(spec.margin.left);
         let layout_y = y.saturating_add(spec.margin.top);
-        let mut layout_w = available
+        let base_w = available
             .width
             .saturating_sub(spec.margin.left + spec.margin.right);
+        let mut layout_w = base_w;
         let layout_h = total_h.saturating_sub(spec.margin.top + spec.margin.bottom);
 
         // Apply explicit width constraint (P2-25: width_edge.size includes chrome).
         if let Some(edge_w) = spec.width_edge.size {
             let explicit_w = edge_w.saturating_sub(spec.margin.left + spec.margin.right);
-            layout_w = layout_w.min(explicit_w);
+            if allow_h_overflow && spec.width_is_auto {
+                // Horizontally-scrollable parent: let auto-width children keep their
+                // intrinsic width (which may exceed the viewport) so the content
+                // overflows and can be scrolled, instead of wrapping to the viewport.
+                layout_w = explicit_w;
+            } else {
+                layout_w = base_w.min(explicit_w);
+            }
         }
 
         // Apply max-width constraint (border-box: value already includes chrome).

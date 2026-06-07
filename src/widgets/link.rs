@@ -236,7 +236,9 @@ impl Widget for Link {
                 style = style.with_color(color.to_simple_opaque());
             }
             if let Some(bg) = resolved.link_background_hover.or(resolved.link_background) {
-                style = style.with_bgcolor(bg.to_simple_opaque());
+                if bg.a > 0 {
+                    style = style.with_bgcolor(bg.to_simple_opaque());
+                }
             }
             if let Some(flags) = resolved.link_style_hover.or(resolved.link_style) {
                 apply_text_style_flags(&mut style, &flags);
@@ -247,7 +249,9 @@ impl Widget for Link {
                 style = style.with_color(color.to_simple_opaque());
             }
             if let Some(bg) = resolved.link_background {
-                style = style.with_bgcolor(bg.to_simple_opaque());
+                if bg.a > 0 {
+                    style = style.with_bgcolor(bg.to_simple_opaque());
+                }
             }
             if let Some(flags) = resolved.link_style {
                 apply_text_style_flags(&mut style, &flags);

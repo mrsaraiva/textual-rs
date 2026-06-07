@@ -1,37 +1,31 @@
 use rich_rs::Console;
-use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
+
+/// Render a widget through the compose/tree path (the way the runtime renders it),
+/// applying the default widget stylesheet, into a FrameBuffer for assertions/snapshots.
+///
+/// The `Markdown` widget is compose-only — its content lives in composed children that
+/// only render when mounted in a widget tree, so tests must render it this way rather
+/// than via `FrameBuffer::from_renderable`, which would yield an empty buffer.
+fn render_tree(root: &mut dyn Widget, width: usize, height: usize) -> FrameBuffer {
+    let console = Console::new();
+    let mut tree = build_widget_tree_from_root(root).expect("tree should build");
+    render_tree_to_frame(&mut tree, root, &console, width, height)
+}
 
 #[test]
 fn markdown_renders_basic_blocks() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (26, 6);
-    options.max_width = 26;
-    options.max_height = 6;
-
-    let markdown = Markdown::new("# Title\n\n- Alpha\n- Beta\n\n`code`");
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &markdown, None);
+    let mut markdown = Markdown::new("# Title\n\n- Alpha\n- Beta\n\n`code`");
+    let buf = render_tree(&mut markdown, 26, 9);
     insta::assert_snapshot!(buf.debug_dump());
 }
 
 #[test]
 fn markdown_h1_uses_default_component_style() {
-    let _guard = set_style_context(default_widget_stylesheet());
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (24, 3);
-    options.max_width = 24;
-    options.max_height = 3;
-
     let mut markdown = Markdown::new("# Heading");
-    markdown.on_layout(24, 3);
-
-    let buf =
-        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+    let buf = render_tree(&mut markdown, 24, 3);
 
     let mut heading_pos = None;
     for y in 0..buf.height {
@@ -63,18 +57,8 @@ fn markdown_h1_uses_default_component_style() {
 
 #[test]
 fn markdown_heading_style_matches_emoji_heading_text() {
-    let _guard = set_style_context(default_widget_stylesheet());
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (28, 3);
-    options.max_width = 28;
-    options.max_height = 3;
-
     let mut markdown = Markdown::new("# 👩‍🚀 Launch");
-    markdown.on_layout(28, 3);
-    let buf =
-        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+    let buf = render_tree(&mut markdown, 28, 3);
 
     let mut styled_cell = None;
     for y in 0..buf.height {
@@ -108,18 +92,8 @@ fn markdown_heading_style_matches_emoji_heading_text() {
 
 #[test]
 fn markdown_h1_content_align_centers_heading_text() {
-    let _guard = set_style_context(default_widget_stylesheet());
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (32, 3);
-    options.max_width = 32;
-    options.max_height = 3;
-
     let mut markdown = Markdown::new("# Lady Jessica");
-    markdown.on_layout(32, 3);
-    let buf =
-        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+    let buf = render_tree(&mut markdown, 32, 3);
 
     let expected_start = (32 - rich_rs::cell_len("Lady Jessica")) / 2;
     let mut actual = None;
@@ -145,18 +119,8 @@ fn markdown_h1_content_align_centers_heading_text() {
 
 #[test]
 fn markdown_wrapped_h1_keeps_component_style_on_wrapped_lines() {
-    let _guard = set_style_context(default_widget_stylesheet());
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (12, 8);
-    options.max_width = 12;
-    options.max_height = 8;
-
     let mut markdown = Markdown::new("# Heading wraps nicely");
-    markdown.on_layout(12, 8);
-    let buf =
-        FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&markdown), None);
+    let buf = render_tree(&mut markdown, 12, 8);
 
     let lines = buf.as_plain_lines();
     let wrapped_row = lines

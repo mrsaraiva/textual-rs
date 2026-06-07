@@ -1,9 +1,13 @@
 [package]
 name = "textual-macros"
-version = "0.0.1"
+version = "1.0.0-dev"
 edition = "2024"
 license = "MIT"
 description = "Proc macros for the textual TUI framework (#[reactive], #[on()], #[derive(Message)], etc.)"
+repository = "https://github.com/mrsaraiva/textual-rs"
+documentation = "https://docs.rs/textual-macros"
+keywords = ["terminal", "tui", "textual", "macros", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

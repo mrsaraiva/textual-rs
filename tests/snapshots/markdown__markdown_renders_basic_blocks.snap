@@ -1,13 +1,27 @@
 ---
 source: tests/markdown.rs
-assertion_line: 16
+assertion_line: 22
 expression: buf.debug_dump()
 ---
 lines:
-0: "          Title           "
+0: "                          "
 1: "                          "
-2: " • Alpha                  "
-3: " • Beta                   "
-4: "                          "
-5: "code                      "
+2: "          Title           "
+3: "                          "
+4: "• Alpha                   "
+5: "• Beta                    "
+6: "                          "
+7: "code                      "
+8: "                          "
 meta:
+(15,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(16,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(17,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(18,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(19,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(20,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(21,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(22,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(23,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(24,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(25,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }

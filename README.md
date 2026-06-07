@@ -1,8 +1,25 @@
 # textual-rs
 
+[![Crates.io](https://img.shields.io/crates/v/textual.svg)](https://crates.io/crates/textual)
+[![Documentation](https://docs.rs/textual/badge.svg)](https://docs.rs/textual)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Rust port of [Textual](https://github.com/Textualize/textual) — a **reactive TUI framework** for building rich terminal applications with widgets, CSS styling, layout, and event-driven architecture.
 
 Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering primitives and [`crossterm`](https://crates.io/crates/crossterm) for terminal I/O.
+
+> **Attribution.** textual-rs is a derivative work: a Rust port of
+> [Textual](https://github.com/Textualize/textual), created by Will McGugan and the
+> [Textualize](https://www.textualize.io/) team. All credit for the original framework
+> design, API, and concepts goes to them — this project exists only because of their work,
+> and aims to bring that experience to Rust. Published on crates.io as the `textual` crate.
+
+## Installing
+
+```toml
+[dependencies]
+textual = "1.0.0-dev"
+```
 
 ## Features
 

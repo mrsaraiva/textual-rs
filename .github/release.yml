@@ -1,0 +1,40 @@
+changelog:
+  categories:
+    - title: "Features"
+      labels:
+        - "enhancement"
+        - "feature"
+      exclude:
+        labels:
+          - "skip-changelog"
+    - title: "Bug Fixes"
+      labels:
+        - "bug"
+        - "fix"
+      exclude:
+        labels:
+          - "skip-changelog"
+    - title: "Performance"
+      labels:
+        - "performance"
+      exclude:
+        labels:
+          - "skip-changelog"
+    - title: "Documentation"
+      labels:
+        - "documentation"
+      exclude:
+        labels:
+          - "skip-changelog"
+    - title: "Other Changes"
+      labels:
+        - "*"
+      exclude:
+        labels:
+          - "skip-changelog"
+          - "dependencies"
+  exclude:
+    labels:
+      - "skip-changelog"
+    authors:
+      - "dependabot"

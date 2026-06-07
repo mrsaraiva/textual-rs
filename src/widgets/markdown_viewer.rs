@@ -4,11 +4,12 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 
+use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
 use crate::event::{Event, EventCtx};
 use crate::message::{
     MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
-    ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated,
+    NavigatorUpdated, ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated,
 };
 
 use super::containers::VerticalScroll;
@@ -21,6 +22,13 @@ use super::{Markdown, Tree, TreeNode, Widget, WidgetStyles};
 // ---------------------------------------------------------------------------
 
 type HeadingEntry = (usize, String, String);
+
+const MARKDOWN_VIEWER_ACTIONS: &[ActionDecl] = &[ActionDecl {
+    name: "link",
+    namespace: "markdown_viewer",
+    description: "Follow a markdown link",
+    default_binding: None,
+}];
 
 /// A sidebar widget showing the headings of a Markdown document as a tree.
 ///
@@ -479,7 +487,7 @@ impl MarkdownViewer {
         let shared_headings = Arc::new(RwLock::new(Self::parse_headings(&content)));
         let inner = VerticalScroll::new()
             .scroll_step(2)
-            .with_child(Markdown::with_shared_markup(shared_markup.clone()))
+            .with_child(Markdown::with_shared_markup(shared_markup.clone()).with_can_focus(true))
             .with_child(MarkdownTableOfContents::with_shared_headings(
                 shared_headings.clone(),
             ));
@@ -553,6 +561,26 @@ impl MarkdownViewer {
         if let Some(location) = self.navigator.forward() {
             if let Some(content) = self.content_map.get(location).cloned() {
                 self.apply_content_update(content);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn follow_link(&mut self, href: &str) -> bool {
+        let href = href.trim();
+        let path_part = href.split('#').next().unwrap_or_default().trim();
+        if path_part.is_empty() {
+            return false;
+        }
+
+        let mut candidates = vec![path_part.to_string()];
+        if let Some(stripped) = path_part.strip_prefix("./") {
+            candidates.push(stripped.to_string());
+        }
+
+        for candidate in candidates {
+            if self.content_map.contains_key(&candidate) && self.go(candidate) {
                 return true;
             }
         }
@@ -777,7 +805,28 @@ impl Widget for MarkdownViewer {
         self.inner.on_message(message, ctx);
     }
 
-    // delegate-audit: 70 methods as of 2026-02-26
+    fn action_namespace(&self) -> &str {
+        "markdown_viewer"
+    }
+
+    fn action_registry(&self) -> &[ActionDecl] {
+        MARKDOWN_VIEWER_ACTIONS
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if action.name == "link"
+            && let Some(href) = action.arguments.first()
+            && self.follow_link(href)
+        {
+            ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+            ctx.request_layout_invalidation();
+            ctx.request_repaint();
+            return true;
+        }
+        self.inner.execute_action(action, ctx)
+    }
+
+    // delegate-audit: 67 methods as of 2026-02-26
     delegate_widget_method!(
         inner,
         [
@@ -815,9 +864,6 @@ impl Widget for MarkdownViewer {
             preserve_underlay,
             bindings,
             binding_hints,
-            execute_action,
-            action_namespace,
-            action_registry,
             styles,
             styles_mut,
             style_type_aliases,
@@ -909,6 +955,20 @@ mod tests {
         assert!(
             has_scrollbar || children.len() >= 3,
             "expected scrollbar widgets in children"
+        );
+    }
+
+    #[test]
+    fn markdown_viewer_composes_focusable_markdown_document_child() {
+        let mut viewer = MarkdownViewer::new("# Test");
+        let children = viewer.take_composed_children();
+        let markdown_child = children
+            .iter()
+            .find(|child| child.style_type() == "Markdown")
+            .expect("expected Markdown child in MarkdownViewer composition");
+        assert!(
+            markdown_child.focusable(),
+            "MarkdownViewer should compose a focusable Markdown child (Python parity)"
         );
     }
 
@@ -1055,6 +1115,26 @@ mod tests {
         let mut viewer = MarkdownViewer::new("initial");
         assert!(!viewer.go("nonexistent.md"));
         assert_eq!(viewer.content, "initial");
+    }
+
+    #[test]
+    fn viewer_link_action_resolves_relative_registered_path() {
+        let mut viewer = MarkdownViewer::new("initial");
+        viewer.register_content("demo.md", "# Demo");
+        viewer.register_content("example.md", "# Example");
+        assert!(viewer.go("demo.md"));
+
+        let action =
+            crate::action::parse_action("link('./example.md')").expect("link action should parse");
+        let mut ctx = EventCtx::default();
+        assert!(viewer.execute_action(&action, &mut ctx));
+        assert_eq!(viewer.content, "# Example");
+        assert!(
+            ctx.take_messages()
+                .into_iter()
+                .any(|msg| matches!(msg.message, Message::NavigatorUpdated(_))),
+            "link navigation should emit NavigatorUpdated"
+        );
     }
 
     #[test]
