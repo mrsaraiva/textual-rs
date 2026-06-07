@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.crate_version.outputs.version }}"
-          if curl -sfL "https://crates.io/api/v1/crates/textual/${version}"; then
+          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual/${version}"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
