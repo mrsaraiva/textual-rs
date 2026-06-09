@@ -4,14 +4,14 @@
 [![Documentation](https://docs.rs/textual/badge.svg)](https://docs.rs/textual)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Rust port of [Textual](https://github.com/Textualize/textual) — a **reactive TUI framework** for building rich terminal applications with widgets, CSS styling, layout, and event-driven architecture.
+A Rust port of [Textual](https://github.com/Textualize/textual), a **reactive TUI framework** for building rich terminal applications with widgets, CSS styling, layout, and event-driven architecture.
 
 Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering primitives and [`crossterm`](https://crates.io/crates/crossterm) for terminal I/O.
 
 > **Attribution.** textual-rs is a derivative work: a Rust port of
 > [Textual](https://github.com/Textualize/textual), created by Will McGugan and the
 > [Textualize](https://www.textualize.io/) team. All credit for the original framework
-> design, API, and concepts goes to them — this project exists only because of their work,
+> design, API, and concepts goes to them. This project exists only because of their work
 > and aims to bring that experience to Rust. Published on crates.io as the `textual` crate.
 
 ## Installing
@@ -23,15 +23,15 @@ textual = "1.0.0-dev"
 
 ## Features
 
-- **56 widgets** — buttons, inputs, text areas, data tables, trees, tabs, markdown viewer, select, checkboxes, progress bars, overlays, and more
-- **108 CSS properties** — type/id/class/pseudo-class selectors, descendant/child combinators, nested `&` rules, cascade with specificity and `!important`, theme tokens
-- **Full layout engine** — vertical, horizontal, grid, dock, and absolute positioning with box model (margin, border, padding), scrolling, min/max constraints, fractional/percentage/viewport units
-- **Event system** — capture/bubble phases, focus management, keyboard bindings with action maps, mouse hit-testing, message bus
-- **Reactive runtime** — Tokio-based event loop, reactive state with watchers, workers for background tasks, CSS transitions with easing functions
-- **Hot-reloadable stylesheets** — external `.tcss` files with `App::watch_stylesheet()`
-- **Deterministic rendering** — frame buffer with screen diffing, metadata-safe hit-testing across repaints
-- **1,490 tests** — unit, integration, snapshot (via `insta`), and golden-file coverage
-- **`unsafe` forbidden** — enforced by lint configuration
+- **56 widgets:** buttons, inputs, text areas, data tables, trees, tabs, markdown viewer, select, checkboxes, progress bars, overlays, and more
+- **108 CSS properties:** type/id/class/pseudo-class selectors, descendant/child combinators, nested `&` rules, cascade with specificity and `!important`, theme tokens
+- **Full layout engine:** vertical, horizontal, grid, dock, and absolute positioning with box model (margin, border, padding), scrolling, min/max constraints, fractional/percentage/viewport units
+- **Event system:** capture/bubble phases, focus management, keyboard bindings with action maps, mouse hit-testing, message bus
+- **Reactive runtime:** Tokio-based event loop, reactive state with watchers, workers for background tasks, CSS transitions with easing functions
+- **Hot-reloadable stylesheets:** external `.tcss` files with `App::watch_stylesheet()`
+- **Deterministic rendering:** frame buffer with screen diffing, metadata-safe hit-testing across repaints
+- **1,490 tests:** unit, integration, snapshot (via `insta`), and golden-file coverage
+- **`unsafe` forbidden:** enforced by lint configuration
 
 ## Quick start
 
@@ -111,7 +111,7 @@ Widget tree → rich-rs Segments (with metadata) → FrameBuffer (2D grid) → f
 
 - **Event routing:** capture phase (root → focused) then bubble phase (focused → root)
 - **Style resolution:** CSS cascade with specificity, inheritance, and `!important`
-- **Rendering:** dirty-flag driven — widgets call `ctx.request_repaint()` to trigger re-render
+- **Rendering:** dirty-flag driven; widgets call `ctx.request_repaint()` to trigger re-render
 
 ## Build and test
 
@@ -141,9 +141,9 @@ Filters narrow output: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=error'`
 
 Python Textual is the source of truth for behavior and default styling. The port aligns:
 
-1. **Semantics first** — event/focus/message behavior, layout/box-model rules
-2. **Defaults second** — all 16 widget default CSS files match Python Textual verbatim
-3. **Visuals third** — render-time composition, border painting, opacity blending
+1. **Semantics first:** event/focus/message behavior, layout/box-model rules
+2. **Defaults second:** all 16 widget default CSS files match Python Textual verbatim
+3. **Visuals third:** render-time composition, border painting, opacity blending
 
 Rust idioms are used where appropriate (ownership, type safety, modular boundaries) while preserving behavioral parity.
 
