@@ -11,7 +11,7 @@ use crate::event::{
     EventCtx,
 };
 use crate::message::{
-    Message, TabActivated, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
+    Message, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
 };
 use crate::style::{Dock, TransitionTiming};
 
@@ -142,10 +142,10 @@ impl Widget for Tab {
         }
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.node_id() {
-                ctx.post_message(Message::TabClicked(crate::message::TabClicked {
+                ctx.post_message(crate::message::TabClicked {
                     id: self.id.clone().unwrap_or_default(),
                     title: self.label.clone(),
-                }));
+                });
                 ctx.set_handled();
             }
         }
@@ -326,16 +326,16 @@ impl Tabs {
         // Skip during initial construction (before any on_event call).
         if was_empty && self.live {
             if let Some(first) = state.tabs.first() {
-                let msg = Message::TabActivated(TabActivated {
+                let msg = TabActivated {
                     id: first.tab_id.clone(),
                     index: 0,
                     title: first.label.clone(),
-                });
+                };
                 drop(state);
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(msg);
+                    .push(msg.into());
                 return;
             }
         }
@@ -526,7 +526,7 @@ impl Tabs {
         self.pending_messages
             .lock()
             .expect("tabs pending lock")
-            .push(Message::TabsCleared(TabsCleared));
+            .push(TabsCleared.into());
     }
 
     pub fn tab_count(&self) -> usize {
@@ -590,12 +590,12 @@ impl Tabs {
             self.pending_messages
                 .lock()
                 .expect("tabs pending lock")
-                .push(Message::TabDisabled(TabDisabled { id: tab_id.clone() }));
+                .push(TabDisabled { id: tab_id.clone() }.into());
         } else {
             self.pending_messages
                 .lock()
                 .expect("tabs pending lock")
-                .push(Message::TabEnabled(TabEnabled { id: tab_id.clone() }));
+                .push(TabEnabled { id: tab_id.clone() }.into());
         }
         self.pending_messages
             .lock()
@@ -641,14 +641,14 @@ impl Tabs {
         );
         if hidden {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
-            pending.push(Message::TabHidden(TabHidden { id: tab_id.clone() }));
+            pending.push(TabHidden { id: tab_id.clone() }.into());
             pending.push(Message::AppAddClass(crate::message::AppAddClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
             }));
         } else {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
-            pending.push(Message::TabShown(TabShown { id: tab_id.clone() }));
+            pending.push(TabShown { id: tab_id.clone() }.into());
             pending.push(Message::AppRemoveClass(crate::message::AppRemoveClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
@@ -783,11 +783,11 @@ impl Tabs {
                     let state = self.state.lock().expect("tabs state lock");
                     state.tabs[next].label.clone()
                 };
-                ctx.post_message(Message::TabActivated(TabActivated {
+                ctx.post_message(TabActivated {
                     id: new_id,
                     index: next,
                     title,
-                }));
+                });
                 ctx.request_repaint();
             } else if let Some((target_start, target_end)) = target_span {
                 self.set_underline_range(target_start, target_end);
@@ -1233,22 +1233,19 @@ impl Widget for Tabs {
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        match &message.message {
-            Message::TabClicked(clicked) => {
-                if clicked.id.is_empty() {
-                    return;
-                }
-                let state = self.state.lock().expect("tabs state lock");
-                let index = self.index_for_id(&state, &clicked.id);
-                drop(state);
-                if let Some(index) = index {
-                    self.request_runtime_focus(ctx);
-                    if self.activate(index, Some(ctx)) {
-                        ctx.set_handled();
-                    }
+        if let Some(clicked) = message.downcast_ref::<TabClicked>() {
+            if clicked.id.is_empty() {
+                return;
+            }
+            let state = self.state.lock().expect("tabs state lock");
+            let index = self.index_for_id(&state, &clicked.id);
+            drop(state);
+            if let Some(index) = index {
+                self.request_runtime_focus(ctx);
+                if self.activate(index, Some(ctx)) {
+                    ctx.set_handled();
                 }
             }
-            _ => {}
         }
     }
 
@@ -1398,11 +1395,7 @@ mod tests {
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::TabActivated(..)))
-        );
+        assert!(messages.iter().any(|m| m.is::<TabActivated>()));
     }
 
     #[test]
@@ -1424,11 +1417,7 @@ mod tests {
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .all(|m| !matches!(m.message, Message::TabActivated(..)))
-        );
+        assert!(messages.iter().all(|m| !m.is::<TabActivated>()));
     }
 
     #[test]

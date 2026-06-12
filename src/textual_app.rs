@@ -1032,13 +1032,13 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .unwrap_or_else(|e| e.into_inner())
                     .on_list_view_item_activated(*index, item, ctx);
             }
-            Message::TabActivated(crate::message::TabActivated { index, title, .. }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_tab_activated(*index, title, ctx);
-            }
             _ => {}
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::TabActivated>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_tab_activated(m.index, &m.title, ctx);
         }
         if ctx.handled() {
             return;
@@ -1657,11 +1657,6 @@ mod tests {
                 index: 3,
                 item: "delta".to_string(),
             }),
-            Message::TabActivated(crate::message::TabActivated {
-                id: "general".to_string(),
-                index: 1,
-                title: "General".to_string(),
-            }),
         ];
         for message in messages.drain(..) {
             let mut ctx = EventCtx::default();
@@ -1671,6 +1666,21 @@ mod tests {
                     message,
                     control: None,
                 },
+                &mut ctx,
+            );
+        }
+        // TabActivated (converted to open struct form)
+        {
+            let mut ctx = EventCtx::default();
+            adapter.on_message(
+                &MessageEvent::new(
+                    NodeId::default(),
+                    crate::message::TabActivated {
+                        id: "general".to_string(),
+                        index: 1,
+                        title: "General".to_string(),
+                    },
+                ),
                 &mut ctx,
             );
         }

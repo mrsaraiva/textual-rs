@@ -1,7 +1,7 @@
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::{ChildDecl, ComposeResult};
 use crate::event::{BindingHint, Event, EventCtx};
-use crate::message::{Message, TabActivated, TabsCleared};
+use crate::message::{TabActivated, TabsCleared};
 use crate::reactive::ReactiveCtx;
 use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 use crate::widgets::{Container, Widget, WidgetStyles, helpers::empty_classes};
@@ -712,21 +712,17 @@ impl Widget for TabbedContent {
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        match &message.message {
-            Message::TabActivated(TabActivated { id, .. }) => {
-                if let Some(pane_id) = Self::sans_content_tab_id(id) {
-                    if self.set_active_id(&pane_id, Some(ctx)) {
-                        ctx.set_handled();
-                    }
+        if let Some(m) = message.downcast_ref::<TabActivated>() {
+            if let Some(pane_id) = Self::sans_content_tab_id(&m.id) {
+                if self.set_active_id(&pane_id, Some(ctx)) {
+                    ctx.set_handled();
                 }
             }
-            Message::TabsCleared(TabsCleared) => {
-                self.active = None;
-                ctx.request_layout_invalidation();
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            _ => {}
+        } else if message.is::<TabsCleared>() {
+            self.active = None;
+            ctx.request_layout_invalidation();
+            ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 
@@ -1191,15 +1187,15 @@ mod tests {
             .with_pane(TabPane::new("Paul", Label::new("third")).id("paul"));
         let active_before = tabs.active_id().map(str::to_string);
 
-        let event = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::TabActivated(TabActivated {
+        let event = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            TabActivated {
                 id: "--content-tab-child-two".to_string(),
                 index: 1,
                 title: "Alia".to_string(),
-            }),
-            control: Some(crate::node_id::NodeId::default()),
-        };
+            },
+        )
+        .with_control(crate::node_id::NodeId::default());
         let mut ctx = EventCtx::default();
         tabs.on_message(&event, &mut ctx);
 
