@@ -993,26 +993,26 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 .on_checkbox_changed(m.checked, ctx);
             return;
         }
-        match &message.message {
-            Message::InputChanged(crate::message::InputChanged { value, validation }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_input_changed(value, validation, ctx);
-            }
-            Message::InputSubmitted(crate::message::InputSubmitted { value }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_input_submitted(value, ctx);
-            }
-            Message::TextAreaChanged(crate::message::TextAreaChanged { value }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_text_area_changed(value, ctx);
-            }
-            _ => {}
+        if let Some(m) = message.downcast_ref::<crate::message::InputChanged>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_input_changed(&m.value, &m.validation, ctx);
+            return;
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::InputSubmitted>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_input_submitted(&m.value, ctx);
+            return;
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::TextAreaChanged>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_text_area_changed(&m.value, ctx);
+            return;
         }
         if let Some(m) = message.downcast_ref::<crate::message::ListViewSelectionChanged>() {
             self.app

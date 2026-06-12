@@ -669,9 +669,7 @@ impl Widget for Log {
                     || key.modifiers.contains(KeyModifiers::SUPER);
                 if ctrl && key.code == KeyCode::Char('c') {
                     if let Some(text) = self.selected_text() {
-                        ctx.post_message(Message::TextEditClipboardCopyRequested(
-                            TextEditClipboardCopyRequested { text, cut: false },
-                        ));
+                        ctx.post_message(TextEditClipboardCopyRequested { text, cut: false });
                         self.clear_selection();
                         ctx.request_repaint();
                         ctx.set_handled();

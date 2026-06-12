@@ -552,19 +552,17 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::TextAreaChanged(TextAreaChanged {
+        ctx.post_message(TextAreaChanged {
             value: self.text(),
-        }));
+        });
     }
 
     fn post_selection_changed(&self, ctx: &mut EventCtx) {
         let (a, b) = normalized_selection(self.selection);
-        ctx.post_message(Message::TextAreaSelectionChanged(
-            TextAreaSelectionChanged {
-                start: (a.row, a.col),
-                end: (b.row, b.col),
-            },
-        ));
+        ctx.post_message(TextAreaSelectionChanged {
+            start: (a.row, a.col),
+            end: (b.row, b.col),
+        });
     }
 
     fn save_undo_checkpoint(&mut self) {
@@ -1604,35 +1602,27 @@ impl Widget for TextArea {
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(
-                                TextEditClipboardCopyRequested { text, cut: false },
-                            ));
+                            ctx.post_message(TextEditClipboardCopyRequested { text, cut: false });
                         }
                     }
                     EditCommand::Cut => {
                         if let Some(text) = self.selected_text() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(
-                                TextEditClipboardCopyRequested { text, cut: true },
-                            ));
+                            ctx.post_message(TextEditClipboardCopyRequested { text, cut: true });
                             if self.delete_selection_if_any() {
                                 changed = true;
                                 value_changed = true;
                             }
                         } else if let Some(text) = self.cut_current_line() {
-                            ctx.post_message(Message::TextEditClipboardCopyRequested(
-                                TextEditClipboardCopyRequested { text, cut: true },
-                            ));
+                            ctx.post_message(TextEditClipboardCopyRequested { text, cut: true });
                             changed = true;
                             value_changed = true;
                             next_preferred = Some(self.cursor_cell_x());
                         }
                     }
                     EditCommand::Paste => {
-                        ctx.post_message(Message::TextEditClipboardPasteRequested(
-                            TextEditClipboardPasteRequested {
-                                target: self.node_id(),
-                            },
-                        ));
+                        ctx.post_message(TextEditClipboardPasteRequested {
+                            target: self.node_id(),
+                        });
                     }
                     EditCommand::Submit => {}
                 }
@@ -1656,17 +1646,15 @@ impl Widget for TextArea {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::TextEditClipboardPaste(TextEditClipboardPaste { target, text }) =
-            &message.message
-        {
-            if *target != self.node_id() {
+        if let Some(m) = message.downcast_ref::<TextEditClipboardPaste>() {
+            if m.target != self.node_id() {
                 return;
             }
             if self.read_only {
                 return;
             }
             self.save_undo_checkpoint();
-            if self.insert_clipboard_text(text) {
+            if self.insert_clipboard_text(&m.text) {
                 self.post_changed(ctx);
                 self.preferred_col_cells = Some(self.cursor_cell_x());
                 self.adjust_scroll_to_cursor();
@@ -2029,9 +2017,10 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert!(
-            messages.iter().any(
-                |m| matches!(m.message, Message::TextAreaChanged(TextAreaChanged { ref value }) if value == "x")
-            )
+            messages.iter().any(|m| {
+                m.downcast_ref::<TextAreaChanged>()
+                    .is_some_and(|c| c.value == "x")
+            })
         );
     }
 
@@ -2054,10 +2043,8 @@ mod tests {
         );
         let copy_messages = ctx.take_messages();
         assert!(copy_messages.iter().any(|m| {
-            matches!(
-                m.message,
-                Message::TextEditClipboardCopyRequested(TextEditClipboardCopyRequested { ref text, cut: false }) if text == "hello"
-            )
+            m.downcast_ref::<TextEditClipboardCopyRequested>()
+                .is_some_and(|r| r.text == "hello" && !r.cut)
         }));
 
         let mut ctx = EventCtx::default();
@@ -2070,10 +2057,8 @@ mod tests {
         );
         let paste_messages = ctx.take_messages();
         assert!(paste_messages.iter().any(|m| {
-            matches!(
-                m.message,
-                Message::TextEditClipboardPasteRequested(TextEditClipboardPasteRequested { target }) if target == NodeId::default()
-            )
+            m.downcast_ref::<TextEditClipboardPasteRequested>()
+                .is_some_and(|r| r.target == NodeId::default())
         }));
     }
 
@@ -2085,14 +2070,13 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         text_area.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
+            &MessageEvent::new(
+                NodeId::default(),
+                TextEditClipboardPaste {
                     target: NodeId::default(),
                     text: "X\nY".to_string(),
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
 
@@ -2198,14 +2182,13 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         ta.on_message(
-            &crate::message::MessageEvent {
-                sender: NodeId::default(),
-                message: Message::TextEditClipboardPaste(TextEditClipboardPaste {
+            &MessageEvent::new(
+                NodeId::default(),
+                TextEditClipboardPaste {
                     target: other_id,
                     text: "XYZ".to_string(),
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
         assert!(!ctx.handled());

@@ -2014,7 +2014,7 @@ impl Widget for CommandPalette {
             ctx.set_handled();
             return;
         }
-        if self.open && matches!(message.message, Message::InputChanged(..)) {
+        if self.open && message.is::<InputChanged>() {
             // In tree mode, InputChanged sender may be the focused branch node
             // rather than the inline query widget node. The open palette owns
             // query updates, so rebuild on any InputChanged while open.
@@ -2318,14 +2318,13 @@ mod tests {
         palette.query.set_text("zzzzzzzz");
         let mut msg_ctx = EventCtx::default();
         palette.on_message(
-            &MessageEvent {
-                sender: crate::node_id::node_id_from_ffi(77),
-                message: Message::InputChanged(InputChanged {
+            &MessageEvent::new(
+                crate::node_id::node_id_from_ffi(77),
+                InputChanged {
                     value: "zzzzzzzz".to_string(),
                     validation: crate::validation::ValidationResult::success(),
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut msg_ctx,
         );
         assert!(msg_ctx.handled());

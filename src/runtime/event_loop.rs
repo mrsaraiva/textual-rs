@@ -325,13 +325,13 @@ fn dispatch_simulated_key_like_input(
         if action == Action::CopySelectedText {
             if let Some(text) = app.action_copy_selected_text() {
                 let sender = App::runtime_message_sender();
-                pass.generated.push(MessageEvent {
-                    sender,
-                    message: Message::TextEditClipboardCopyRequested(
+                pass.generated.push(
+                    MessageEvent::new(
+                        sender,
                         crate::message::TextEditClipboardCopyRequested { text, cut: false },
-                    ),
-                    control: Some(sender),
-                });
+                    )
+                    .with_control(sender),
+                );
             } else {
                 app.notify_help_quit();
                 pass.repaint_requested = true;
@@ -479,36 +479,31 @@ fn collect_clipboard_runtime_messages_with_backend(
 ) -> Vec<MessageEvent> {
     let mut generated = Vec::new();
     for event in messages {
-        match &event.message {
-            Message::TextEditClipboardCopyRequested(
-                crate::message::TextEditClipboardCopyRequested { text, .. },
-            ) => {
-                *clipboard = Some(text.clone());
-                if !backend.copy(text) {
-                    debug_input("[clipboard] system copy unavailable; runtime fallback updated");
-                }
+        if let Some(m) = event.downcast_ref::<crate::message::TextEditClipboardCopyRequested>() {
+            *clipboard = Some(m.text.clone());
+            if !backend.copy(&m.text) {
+                debug_input("[clipboard] system copy unavailable; runtime fallback updated");
             }
-            Message::TextEditClipboardPasteRequested(
-                crate::message::TextEditClipboardPasteRequested { target },
-            ) => {
-                let text = if let Some(system_text) = backend.paste() {
-                    *clipboard = Some(system_text.clone());
-                    Some(system_text)
+        } else if let Some(m) =
+            event.downcast_ref::<crate::message::TextEditClipboardPasteRequested>()
+        {
+            let target = m.target;
+            let text = if let Some(system_text) = backend.paste() {
+                *clipboard = Some(system_text.clone());
+                Some(system_text)
+            } else {
+                if clipboard.is_some() {
+                    debug_input("[clipboard] system paste unavailable; using runtime fallback");
                 } else {
-                    if clipboard.is_some() {
-                        debug_input("[clipboard] system paste unavailable; using runtime fallback");
-                    } else {
-                        debug_input(
-                            "[clipboard] paste requested with no system data and empty fallback",
-                        );
-                    }
-                    clipboard.clone()
-                };
-                if let Some(text) = text {
-                    generated.push(App::clipboard_message_event(*target, text));
+                    debug_input(
+                        "[clipboard] paste requested with no system data and empty fallback",
+                    );
                 }
+                clipboard.clone()
+            };
+            if let Some(text) = text {
+                generated.push(App::clipboard_message_event(target, text));
             }
-            _ => {}
         }
     }
     generated
@@ -787,13 +782,13 @@ fn split_runtime_control_messages(
             Message::AppCopySelectedText(crate::message::AppCopySelectedText) => {
                 if let Some(text) = app.action_copy_selected_text() {
                     let sender = App::runtime_message_sender();
-                    pass.generated.push(MessageEvent {
-                        sender,
-                        message: Message::TextEditClipboardCopyRequested(
+                    pass.generated.push(
+                        MessageEvent::new(
+                            sender,
                             crate::message::TextEditClipboardCopyRequested { text, cut: false },
-                        ),
-                        control: Some(sender),
-                    });
+                        )
+                        .with_control(sender),
+                    );
                 } else {
                     app.notify_help_quit();
                     pass.repaint_requested = true;
@@ -2614,16 +2609,14 @@ impl App {
                                         let mut msg_outcome =
                                             self.dispatch_message_queue_with_runtime(
                                                 root,
-                                                vec![MessageEvent {
+                                                vec![MessageEvent::new(
                                                     sender,
-                                                    message: Message::TextEditClipboardCopyRequested(
-                                                        crate::message::TextEditClipboardCopyRequested {
-                                                            text,
-                                                            cut: false,
-                                                        },
-                                                    ),
-                                                    control: Some(sender),
-                                                }],
+                                                    crate::message::TextEditClipboardCopyRequested {
+                                                        text,
+                                                        cut: false,
+                                                    },
+                                                )
+                                                .with_control(sender)],
                                             );
                                         self.absorb_outcome(
                                             &mut msg_outcome,
@@ -5551,36 +5544,26 @@ mod tests {
         let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
             &[
-                MessageEvent {
-                    sender: node_id_from_ffi(1),
-                    message: Message::TextEditClipboardCopyRequested(
-                        crate::message::TextEditClipboardCopyRequested {
-                            text: "hello".to_string(),
-                            cut: false,
-                        },
-                    ),
-                    control: None,
-                },
-                MessageEvent {
-                    sender: node_id_from_ffi(2),
-                    message: Message::TextEditClipboardPasteRequested(
-                        crate::message::TextEditClipboardPasteRequested { target },
-                    ),
-                    control: None,
-                },
+                MessageEvent::new(
+                    node_id_from_ffi(1),
+                    crate::message::TextEditClipboardCopyRequested {
+                        text: "hello".to_string(),
+                        cut: false,
+                    },
+                ),
+                MessageEvent::new(
+                    node_id_from_ffi(2),
+                    crate::message::TextEditClipboardPasteRequested { target },
+                ),
             ],
             &mut backend,
         );
         assert_eq!(clipboard.as_deref(), Some("hello"));
         assert_eq!(backend.copied, vec!["hello".to_string()]);
         assert_eq!(generated.len(), 1);
-        assert!(matches!(
-            &generated[0].message,
-            Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste {
-                target: t,
-                text
-            }) if *t == target && text == "hello"
-        ));
+        assert!(generated[0]
+            .downcast_ref::<crate::message::TextEditClipboardPaste>()
+            .is_some_and(|m| m.target == target && m.text == "hello"));
     }
 
     #[test]
@@ -5590,13 +5573,10 @@ mod tests {
         let mut backend = StubClipboardBackend::default();
         let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
-            &[MessageEvent {
-                sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested(
-                    crate::message::TextEditClipboardPasteRequested { target },
-                ),
-                control: None,
-            }],
+            &[MessageEvent::new(
+                node_id_from_ffi(2),
+                crate::message::TextEditClipboardPasteRequested { target },
+            )],
             &mut backend,
         );
         assert!(generated.is_empty());
@@ -5614,22 +5594,18 @@ mod tests {
 
         let generated = collect_clipboard_runtime_messages_with_backend(
             &mut clipboard,
-            &[MessageEvent {
-                sender: node_id_from_ffi(2),
-                message: Message::TextEditClipboardPasteRequested(
-                    crate::message::TextEditClipboardPasteRequested { target },
-                ),
-                control: None,
-            }],
+            &[MessageEvent::new(
+                node_id_from_ffi(2),
+                crate::message::TextEditClipboardPasteRequested { target },
+            )],
             &mut backend,
         );
 
         assert_eq!(clipboard.as_deref(), Some("system"));
         assert_eq!(generated.len(), 1);
-        assert!(matches!(
-            &generated[0].message,
-            Message::TextEditClipboardPaste(crate::message::TextEditClipboardPaste { target: t, text }) if *t == target && text == "system"
-        ));
+        assert!(generated[0]
+            .downcast_ref::<crate::message::TextEditClipboardPaste>()
+            .is_some_and(|m| m.target == target && m.text == "system"));
     }
 
     struct StyleNode {

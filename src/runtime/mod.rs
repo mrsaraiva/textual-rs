@@ -1766,13 +1766,8 @@ impl App {
 
     pub(super) fn clipboard_message_event(target: NodeId, text: String) -> MessageEvent {
         let sender = Self::clipboard_message_sender();
-        MessageEvent {
-            sender,
-            message: crate::message::Message::TextEditClipboardPaste(
-                crate::message::TextEditClipboardPaste { target, text },
-            ),
-            control: Some(sender),
-        }
+        MessageEvent::new(sender, crate::message::TextEditClipboardPaste { target, text })
+            .with_control(sender)
     }
 
     pub fn driver(&self) -> &TerminalDriver {
