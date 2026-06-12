@@ -58,8 +58,8 @@ pub mod prelude {
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
     pub use crate::event::{
-        Action, ActionMap, AnimationEase, BindingHint, ClickEvent, Event, EventCtx, KeyBind,
-        MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
+        Action, ActionMap, AnimationEase, BindingHint, ClassOp, ClickEvent, Event, EventCtx,
+        KeyBind, MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
     };
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::*;

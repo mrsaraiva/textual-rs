@@ -1,8 +1,8 @@
 use crate::debug::debug_message;
-use crate::keys::format_key_display;
 use crate::keys::KeyEventData;
+use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
-use crate::node_id::{node_id_to_ffi, NodeId};
+use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::style::{Color, Scalar, Spacing, Tint};
 use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -513,6 +513,15 @@ impl ActionMap {
     }
 }
 
+/// A class mutation queued by a widget event handler and applied to the
+/// arena node record by the runtime after dispatch. Part of the queued-effects
+/// pattern alongside `messages` and `recompose_nodes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassOp {
+    Add(String),
+    Remove(String),
+}
+
 #[derive(Debug, Default)]
 pub struct EventCtx {
     node_id: NodeId,
@@ -525,6 +534,7 @@ pub struct EventCtx {
     style_animation_requests: Vec<StyleAnimationRequest>,
     worker_requests: Vec<WorkerRequest>,
     recompose_nodes: Vec<NodeId>,
+    class_ops: Vec<(NodeId, ClassOp)>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -645,9 +655,8 @@ impl EventCtx {
             "[post_message] sender={} payload={message:?}",
             node_id_to_ffi(self.node_id)
         ));
-        self.messages.push(
-            MessageEvent::from_boxed(self.node_id, message).with_control(self.node_id),
-        );
+        self.messages
+            .push(MessageEvent::from_boxed(self.node_id, message).with_control(self.node_id));
     }
 
     pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
@@ -846,6 +855,44 @@ impl EventCtx {
         std::mem::take(&mut self.recompose_nodes)
     }
 
+    /// Queue an `Add` class op on this widget's own node.
+    pub fn add_class(&mut self, class: &str) {
+        let node_id = self.node_id;
+        self.class_ops
+            .push((node_id, ClassOp::Add(class.to_string())));
+    }
+
+    /// Queue a `Remove` class op on this widget's own node.
+    pub fn remove_class(&mut self, class: &str) {
+        let node_id = self.node_id;
+        self.class_ops
+            .push((node_id, ClassOp::Remove(class.to_string())));
+    }
+
+    /// Queue an `Add` or `Remove` class op on this widget's own node based on `on`.
+    pub fn set_class(&mut self, on: bool, class: &str) {
+        if on {
+            self.add_class(class);
+        } else {
+            self.remove_class(class);
+        }
+    }
+
+    /// Queue an `Add` class op on an arbitrary node.
+    pub fn add_class_to(&mut self, node: NodeId, class: &str) {
+        self.class_ops.push((node, ClassOp::Add(class.to_string())));
+    }
+
+    /// Queue a `Remove` class op on an arbitrary node.
+    pub fn remove_class_from(&mut self, node: NodeId, class: &str) {
+        self.class_ops
+            .push((node, ClassOp::Remove(class.to_string())));
+    }
+
+    pub(crate) fn take_class_ops(&mut self) -> Vec<(NodeId, ClassOp)> {
+        std::mem::take(&mut self.class_ops)
+    }
+
     pub(crate) fn merge_from(&mut self, mut other: EventCtx) {
         if other.handled {
             self.handled = true;
@@ -868,6 +915,7 @@ impl EventCtx {
                 self.recompose_nodes.push(node_id);
             }
         }
+        self.class_ops.append(&mut other.class_ops);
     }
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
@@ -1047,25 +1095,37 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 8);
-        assert!(messages[0]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == overlay_id && m.visible));
-        assert!(messages[1]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == overlay_id && !m.visible));
-        assert!(messages[2]
-            .downcast_ref::<crate::message::OverlayToggle>()
-            .is_some_and(|m| m.overlay == overlay_id));
-        assert!(messages[3]
-            .downcast_ref::<crate::message::OverlayDismissRequested>()
-            .is_some_and(|m| m.overlay == Some(overlay_id)));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == overlay_id && m.visible)
+        );
+        assert!(
+            messages[1]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == overlay_id && !m.visible)
+        );
+        assert!(
+            messages[2]
+                .downcast_ref::<crate::message::OverlayToggle>()
+                .is_some_and(|m| m.overlay == overlay_id)
+        );
+        assert!(
+            messages[3]
+                .downcast_ref::<crate::message::OverlayDismissRequested>()
+                .is_some_and(|m| m.overlay == Some(overlay_id))
+        );
         assert!(messages[4].is::<crate::message::CommandPaletteOpened>());
-        assert!(messages[5]
-            .downcast_ref::<crate::message::CommandPaletteSetCommands>()
-            .is_some_and(|m| m.commands.len() == 1 && m.commands[0].id == "open"));
-        assert!(messages[6]
-            .downcast_ref::<crate::message::CommandPaletteCommandSelected>()
-            .is_some_and(|m| m.id == "open" && m.title == "Open"));
+        assert!(
+            messages[5]
+                .downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                .is_some_and(|m| m.commands.len() == 1 && m.commands[0].id == "open")
+        );
+        assert!(
+            messages[6]
+                .downcast_ref::<crate::message::CommandPaletteCommandSelected>()
+                .is_some_and(|m| m.id == "open" && m.title == "Open")
+        );
         assert!(messages[7].is::<crate::message::CommandPaletteClosed>());
     }
 

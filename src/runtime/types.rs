@@ -1,5 +1,5 @@
 use crate::css::{StyleRule, StyleSheet, node_selector_meta, resolve_node_style};
-use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
+use crate::event::{AnimationRequest, BindingHint, ClassOp, InvalidationFlags};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
@@ -202,6 +202,9 @@ pub struct DispatchOutcome {
     /// in preparation for a future Widget trait update that passes envelopes
     /// directly to `on_message()`.
     pub default_prevented: bool,
+    /// Class mutations queued by widget handlers during this dispatch cycle.
+    /// Applied to the arena tree by the runtime after dispatch.
+    pub class_ops: Vec<(NodeId, ClassOp)>,
 }
 
 impl DispatchOutcome {

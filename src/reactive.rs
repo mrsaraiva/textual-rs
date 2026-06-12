@@ -164,6 +164,7 @@ pub struct ReactiveCtx {
     changes: Vec<ReactiveChange>,
     repaint_requested: bool,
     layout_requested: bool,
+    class_ops: Vec<(NodeId, crate::event::ClassOp)>,
 }
 
 impl ReactiveCtx {
@@ -174,6 +175,7 @@ impl ReactiveCtx {
             changes: Vec::new(),
             repaint_requested: false,
             layout_requested: false,
+            class_ops: Vec::new(),
         }
     }
 
@@ -243,6 +245,45 @@ impl ReactiveCtx {
     pub fn clear_flags(&mut self) {
         self.repaint_requested = false;
         self.layout_requested = false;
+    }
+
+    /// Queue an `Add` class op on this widget's own node.
+    pub fn add_class(&mut self, class: &str) {
+        let node_id = self.node_id;
+        self.class_ops
+            .push((node_id, crate::event::ClassOp::Add(class.to_string())));
+    }
+
+    /// Queue a `Remove` class op on this widget's own node.
+    pub fn remove_class(&mut self, class: &str) {
+        let node_id = self.node_id;
+        self.class_ops
+            .push((node_id, crate::event::ClassOp::Remove(class.to_string())));
+    }
+
+    /// Queue an `Add` or `Remove` class op on this widget's own node based on `on`.
+    pub fn set_class(&mut self, on: bool, class: &str) {
+        if on {
+            self.add_class(class);
+        } else {
+            self.remove_class(class);
+        }
+    }
+
+    /// Queue an `Add` class op on an arbitrary node.
+    pub fn add_class_to(&mut self, node: NodeId, class: &str) {
+        self.class_ops
+            .push((node, crate::event::ClassOp::Add(class.to_string())));
+    }
+
+    /// Queue a `Remove` class op on an arbitrary node.
+    pub fn remove_class_from(&mut self, node: NodeId, class: &str) {
+        self.class_ops
+            .push((node, crate::event::ClassOp::Remove(class.to_string())));
+    }
+
+    pub(crate) fn take_class_ops(&mut self) -> Vec<(NodeId, crate::event::ClassOp)> {
+        std::mem::take(&mut self.class_ops)
     }
 }
 
@@ -315,6 +356,8 @@ pub struct ReactivePhaseResult {
     pub iterations: usize,
     /// Whether the iteration limit was hit (potential cycle).
     pub cycle_detected: bool,
+    /// Class mutations queued by watcher callbacks during the reactive phase.
+    pub class_ops: Vec<(NodeId, crate::event::ClassOp)>,
 }
 
 /// Run the reactive phase for a single widget: drain changes, call watchers,
@@ -386,6 +429,9 @@ pub fn run_reactive_phase_with_dispatch(
     if ctx.needs_layout() {
         result.needs_layout = true;
     }
+
+    // Drain any class ops queued by watcher callbacks.
+    result.class_ops = ctx.take_class_ops();
 
     result
 }

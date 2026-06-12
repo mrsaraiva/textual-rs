@@ -8,6 +8,7 @@ use crate::widgets::Widget;
 
 use super::dispatch_ctx::set_dispatch_recipient;
 use super::types::DispatchOutcome;
+use crate::event::ClassOp;
 
 #[cfg(test)]
 pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOutcome {
@@ -28,6 +29,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: ctx.take_class_ops(),
     };
     debug_message(&format!(
         "[dispatch_event] event={event_debug} handled={} repaint={} messages={}",
@@ -75,6 +77,7 @@ pub(crate) fn dispatch_mouse_scroll(
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: ctx.take_class_ops(),
     }
 }
 
@@ -175,6 +178,7 @@ pub fn dispatch_event_tree(
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: ctx.take_class_ops(),
     };
     debug_message(&format!(
         "[dispatch_event_tree] event={event_debug} handled={} repaint={} messages={}",
@@ -232,6 +236,7 @@ pub fn dispatch_event_to_target_tree(
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: ctx.take_class_ops(),
     }
 }
 
@@ -265,6 +270,7 @@ pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> Di
         worker_requests: aggregate.take_worker_requests(),
         recompose_nodes: aggregate.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: aggregate.take_class_ops(),
     }
 }
 
@@ -343,6 +349,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
+        class_ops: ctx.take_class_ops(),
     }
 }
 
@@ -421,6 +428,7 @@ pub fn dispatch_message_queue_tree(
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
     let mut worker_requests: Vec<crate::worker::WorkerRequest> = Vec::new();
     let mut recompose_nodes: Vec<NodeId> = Vec::new();
+    let mut class_ops: Vec<(NodeId, ClassOp)> = Vec::new();
 
     let mut queue: VecDeque<MessageEnvelope> =
         initial.into_iter().map(MessageEnvelope::new).collect();
@@ -448,6 +456,10 @@ pub fn dispatch_message_queue_tree(
         let mut next_anims = ctx.take_animation_requests();
         let mut next_workers = ctx.take_worker_requests();
         let mut next_recompose = ctx.take_recompose_nodes();
+        let mut next_class_ops = ctx.take_class_ops();
+        if !next_class_ops.is_empty() {
+            class_ops.append(&mut next_class_ops);
+        }
         if !next.is_empty() {
             let next_envelopes: VecDeque<MessageEnvelope> = next
                 .iter()
@@ -480,6 +492,7 @@ pub fn dispatch_message_queue_tree(
         worker_requests,
         recompose_nodes,
         default_prevented,
+        class_ops,
     }
 }
 
@@ -1682,9 +1695,11 @@ mod envelope_tests {
         coalesce_message_queue(&mut queue);
 
         assert_eq!(queue.len(), 1, "should coalesce to one message");
-        assert!(queue[0]
-            .downcast_ref::<crate::message::InputChanged>()
-            .is_some_and(|m| m.value == "ab"));
+        assert!(
+            queue[0]
+                .downcast_ref::<crate::message::InputChanged>()
+                .is_some_and(|m| m.value == "ab")
+        );
     }
 
     #[test]
@@ -1798,9 +1813,11 @@ mod envelope_tests {
         // First remaining should be ButtonPressed (index 0 InputChanged was removed).
         assert!(queue[0].is::<crate::message::ButtonPressed>());
         // Second should be the latest InputChanged.
-        assert!(queue[1]
-            .downcast_ref::<crate::message::InputChanged>()
-            .is_some_and(|m| m.value == "ab"));
+        assert!(
+            queue[1]
+                .downcast_ref::<crate::message::InputChanged>()
+                .is_some_and(|m| m.value == "ab")
+        );
     }
 
     #[test]

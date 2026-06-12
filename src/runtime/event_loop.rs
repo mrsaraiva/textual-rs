@@ -1,8 +1,8 @@
 use crate::css::{AppRuntimePseudos, set_app_active, set_app_runtime_pseudos, set_style_context};
 use crate::debug::{debug_input, debug_render, debug_timing, timing_enabled};
 use crate::event::{
-    Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, Event, EventCtx,
-    FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
+    Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, ClassOp, Event,
+    EventCtx, FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
     StyleAnimationRequest, StyleValue, UnmountEvent,
 };
 use crate::keys::KeyEventData;
@@ -84,8 +84,11 @@ fn should_dispatch_focused_help(
 
 fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
     if let Some((source, markup)) = current {
-        MessageEvent::new(source, crate::message::HelpPanelFocusedHelpChanged { source, markup })
-            .with_control(source)
+        MessageEvent::new(
+            source,
+            crate::message::HelpPanelFocusedHelpChanged { source, markup },
+        )
+        .with_control(source)
     } else {
         let sender = App::runtime_message_sender();
         MessageEvent::new(sender, crate::message::HelpPanelFocusedHelpCleared).with_control(sender)
@@ -186,6 +189,7 @@ fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut 
         .append(&mut outcome.animation_requests);
     pass.worker_requests.append(&mut outcome.worker_requests);
     pass.recompose_nodes.append(&mut outcome.recompose_nodes);
+    pass.class_ops.append(&mut outcome.class_ops);
     pass.generated.append(&mut outcome.messages);
 }
 
@@ -217,6 +221,7 @@ fn dispatch_simulated_key_like_input(
         .extend(app_key_ctx.take_worker_requests());
     pass.recompose_nodes
         .extend(app_key_ctx.take_recompose_nodes());
+    pass.class_ops.extend(app_key_ctx.take_class_ops());
     pass.generated.extend(app_key_ctx.take_messages());
     if pass.stop_requested || app_key_ctx.handled() {
         return;
@@ -374,10 +379,13 @@ fn worker_state_runtime_messages(
             let sender = registry
                 .owner(change.worker_id)
                 .unwrap_or_else(App::runtime_message_sender);
-            MessageEvent::new(sender, crate::message::WorkerStateChanged {
-                worker_id: change.worker_id,
-                state: change.state,
-            })
+            MessageEvent::new(
+                sender,
+                crate::message::WorkerStateChanged {
+                    worker_id: change.worker_id,
+                    state: change.state,
+                },
+            )
             .with_control(sender)
         })
         .collect()
@@ -519,6 +527,7 @@ struct RuntimeMessagePass {
     worker_requests: Vec<WorkerRequest>,
     recompose_nodes: Vec<NodeId>,
     stop_requested: bool,
+    class_ops: Vec<(crate::node_id::NodeId, ClassOp)>,
 }
 
 fn set_overlay_modal_display_tree(
@@ -831,8 +840,7 @@ fn split_runtime_control_messages(
         } else if let Some(m) = event.downcast_ref::<crate::message::AppScreenshot>() {
             let filename = m.filename.clone();
             let path = m.path.clone();
-            pass.repaint_requested |=
-                app.action_screenshot(filename.as_deref(), path.as_deref());
+            pass.repaint_requested |= app.action_screenshot(filename.as_deref(), path.as_deref());
         } else if event.is::<crate::message::AppShowHelpPanel>() {
             match app.action_show_help_panel() {
                 Ok(changed) => {
@@ -940,6 +948,7 @@ fn split_runtime_control_messages(
                         worker_requests: ctx.take_worker_requests(),
                         recompose_nodes: ctx.take_recompose_nodes(),
                         default_prevented: false,
+                        class_ops: ctx.take_class_ops(),
                     };
                     merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
                     dispatched = outcome.handled;
@@ -948,12 +957,8 @@ fn split_runtime_control_messages(
 
             if !dispatched {
                 let mut ctx = EventCtx::default();
-                let handled = execute_action_with_dispatch_target(
-                    root,
-                    &parsed,
-                    &mut ctx,
-                    NodeId::default(),
-                );
+                let handled =
+                    execute_action_with_dispatch_target(root, &parsed, &mut ctx, NodeId::default());
                 let mut outcome = DispatchOutcome {
                     handled: handled || ctx.handled(),
                     repaint_requested: ctx.repaint_requested(),
@@ -964,6 +969,7 @@ fn split_runtime_control_messages(
                     worker_requests: ctx.take_worker_requests(),
                     recompose_nodes: ctx.take_recompose_nodes(),
                     default_prevented: false,
+                    class_ops: ctx.take_class_ops(),
                 };
                 merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
                 dispatched = outcome.handled;
@@ -1727,8 +1733,7 @@ impl App {
                     let depth = tree.ancestors(node_id).len();
                     let widget = node.widget.as_ref();
                     // Dual-write: prefer node.state.focused over legacy widget getter.
-                    let is_focused =
-                        (node.state.focused || widget.has_focus()) && self.app_active;
+                    let is_focused = (node.state.focused || widget.has_focus()) && self.app_active;
 
                     // Layout rect from hit-test map.
                     let layout_rect = self.hit_test.rect(node_id);
@@ -1925,6 +1930,7 @@ impl App {
             aggregate
                 .recompose_nodes
                 .extend(pass.recompose_nodes.into_iter());
+            aggregate.class_ops.extend(pass.class_ops);
             let mut next_queue =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
             next_queue.extend(pass.generated);
@@ -1947,6 +1953,7 @@ impl App {
             aggregate
                 .recompose_nodes
                 .append(&mut outcome.recompose_nodes);
+            aggregate.class_ops.append(&mut outcome.class_ops);
             let emitted = std::mem::take(&mut outcome.messages);
             if !emitted.is_empty() {
                 aggregate.messages.extend(emitted.iter().cloned());
@@ -2459,6 +2466,7 @@ impl App {
                                             worker_requests: ctx.take_worker_requests(),
                                             recompose_nodes: ctx.take_recompose_nodes(),
                                             default_prevented: false,
+                                            class_ops: ctx.take_class_ops(),
                                         };
                                         self.absorb_outcome(
                                             &mut binding_outcome,
@@ -2522,6 +2530,7 @@ impl App {
                                     worker_requests: root_ctx.take_worker_requests(),
                                     recompose_nodes: root_ctx.take_recompose_nodes(),
                                     default_prevented: false,
+                                    class_ops: root_ctx.take_class_ops(),
                                 };
                                 self.absorb_outcome(
                                     &mut root_binding_outcome,
@@ -2576,6 +2585,7 @@ impl App {
                                         worker_requests: fallback_ctx.take_worker_requests(),
                                         recompose_nodes: fallback_ctx.take_recompose_nodes(),
                                         default_prevented: false,
+                                        class_ops: fallback_ctx.take_class_ops(),
                                     };
                                     self.absorb_outcome(
                                         &mut fallback_outcome,
@@ -2633,8 +2643,8 @@ impl App {
                                 if action == Action::CopySelectedText {
                                     if let Some(text) = self.action_copy_selected_text() {
                                         let sender = App::runtime_message_sender();
-                                        let mut msg_outcome =
-                                            self.dispatch_message_queue_with_runtime(
+                                        let mut msg_outcome = self
+                                            .dispatch_message_queue_with_runtime(
                                                 root,
                                                 vec![MessageEvent::new(
                                                     sender,
@@ -3779,6 +3789,7 @@ impl App {
                     worker_requests: app_tick_ctx.take_worker_requests(),
                     recompose_nodes: app_tick_ctx.take_recompose_nodes(),
                     default_prevented: false,
+                    class_ops: app_tick_ctx.take_class_ops(),
                 };
                 self.absorb_outcome(
                     &mut app_tick_outcome,
@@ -3945,6 +3956,11 @@ impl App {
                 requests.extend(msg_outcome.worker_requests);
                 requests
             },
+            class_ops: {
+                let mut ops = outcome.class_ops;
+                ops.extend(msg_outcome.class_ops);
+                ops
+            },
             recompose_nodes: {
                 let mut nodes = outcome.recompose_nodes;
                 nodes.extend(msg_outcome.recompose_nodes);
@@ -4012,6 +4028,17 @@ impl App {
         let recompose_nodes = std::mem::take(&mut outcome.recompose_nodes);
         if !recompose_nodes.is_empty() {
             self.request_widget_recompose_nodes(&recompose_nodes);
+        }
+        let class_ops = std::mem::take(&mut outcome.class_ops);
+        if !class_ops.is_empty() {
+            if let Some(tree) = self.active_widget_tree_mut() {
+                for (node, op) in class_ops {
+                    match op {
+                        ClassOp::Add(c) => tree.add_class(node, &c),
+                        ClassOp::Remove(c) => tree.remove_class(node, &c),
+                    }
+                }
+            }
         }
         accumulate_worker_requests(outcome);
     }
@@ -4116,7 +4143,10 @@ impl App {
                         continue;
                     }
                     let meta = crate::css::node_selector_meta(tree, node_id);
-                    out.insert(node_id, crate::css::resolve_node_style(tree, node_id, &meta));
+                    out.insert(
+                        node_id,
+                        crate::css::resolve_node_style(tree, node_id, &meta),
+                    );
                 }
             }
             return out;
@@ -4225,6 +4255,12 @@ impl App {
             aggregate.default_prevented |=
                 outcome.default_prevented || msg_outcome.default_prevented;
             aggregate.messages.extend(msg_outcome.messages);
+            aggregate
+                .class_ops
+                .extend(std::mem::take(&mut outcome.class_ops));
+            aggregate
+                .class_ops
+                .extend(std::mem::take(&mut msg_outcome.class_ops));
         }
         aggregate.repaint_requested = true;
         aggregate
@@ -4284,8 +4320,9 @@ impl App {
     ) {
         let mut repaint_requested = false;
         let mut layout_requested = false;
+        let mut all_class_ops: Vec<(NodeId, ClassOp)> = Vec::new();
         for mut entry in entries {
-            let result = if let Some(tree) = self.active_widget_tree_mut() {
+            let mut result = if let Some(tree) = self.active_widget_tree_mut() {
                 if let Some(node) = tree.get_mut(node_id) {
                     entry.run_with_dispatch(|changes, ctx| {
                         if let Some(reactive_widget) = node.widget.reactive_widget() {
@@ -4300,6 +4337,20 @@ impl App {
             };
             repaint_requested |= result.needs_repaint;
             layout_requested |= result.needs_layout;
+            if !result.class_ops.is_empty() {
+                all_class_ops.append(&mut result.class_ops);
+            }
+        }
+
+        if !all_class_ops.is_empty() {
+            if let Some(tree) = self.active_widget_tree_mut() {
+                for (node, op) in all_class_ops {
+                    match op {
+                        ClassOp::Add(c) => tree.add_class(node, &c),
+                        ClassOp::Remove(c) => tree.remove_class(node, &c),
+                    }
+                }
+            }
         }
 
         if layout_requested {
@@ -4432,6 +4483,7 @@ impl App {
                     worker_requests: root_capture_ctx.take_worker_requests(),
                     recompose_nodes: root_capture_ctx.take_recompose_nodes(),
                     default_prevented: false,
+                    class_ops: root_capture_ctx.take_class_ops(),
                 };
             }
         }
@@ -4473,6 +4525,11 @@ impl App {
                 root_recompose_nodes.extend(outcome.recompose_nodes);
                 outcome.recompose_nodes = root_recompose_nodes;
             }
+            let mut root_class_ops = root_capture_ctx.take_class_ops();
+            if !root_class_ops.is_empty() {
+                root_class_ops.extend(outcome.class_ops);
+                outcome.class_ops = root_class_ops;
+            }
         }
 
         // Root bridge for app-level behavior not mounted in the arena tree.
@@ -4503,6 +4560,7 @@ impl App {
             outcome
                 .recompose_nodes
                 .extend(root_event_ctx.take_recompose_nodes());
+            outcome.class_ops.extend(root_event_ctx.take_class_ops());
         }
 
         if !outcome.handled
@@ -4524,6 +4582,7 @@ impl App {
             outcome
                 .recompose_nodes
                 .extend(app_action_ctx.take_recompose_nodes());
+            outcome.class_ops.extend(app_action_ctx.take_class_ops());
         }
         if dismissed_tooltip {
             outcome.repaint_requested = true;
@@ -4648,6 +4707,7 @@ impl App {
                 .animation_requests
                 .extend(ctx.take_animation_requests());
             outcome.worker_requests.extend(ctx.take_worker_requests());
+            outcome.class_ops.extend(ctx.take_class_ops());
         }
         outcome
     }
@@ -5478,13 +5538,15 @@ mod tests {
         for key in ["j", "p", "l"] {
             let _outcome = app.dispatch_message_queue_with_runtime(
                 &mut runtime_root,
-                vec![MessageEvent::new(
-                    node_id_from_ffi(1),
-                    crate::message::AppSimulateKey {
-                        key: key.to_string(),
-                    },
-                )
-                .with_control(node_id_from_ffi(1))],
+                vec![
+                    MessageEvent::new(
+                        node_id_from_ffi(1),
+                        crate::message::AppSimulateKey {
+                            key: key.to_string(),
+                        },
+                    )
+                    .with_control(node_id_from_ffi(1)),
+                ],
             );
         }
 
@@ -5571,9 +5633,11 @@ mod tests {
         assert_eq!(clipboard.as_deref(), Some("hello"));
         assert_eq!(backend.copied, vec!["hello".to_string()]);
         assert_eq!(generated.len(), 1);
-        assert!(generated[0]
-            .downcast_ref::<crate::message::TextEditClipboardPaste>()
-            .is_some_and(|m| m.target == target && m.text == "hello"));
+        assert!(
+            generated[0]
+                .downcast_ref::<crate::message::TextEditClipboardPaste>()
+                .is_some_and(|m| m.target == target && m.text == "hello")
+        );
     }
 
     #[test]
@@ -5613,9 +5677,11 @@ mod tests {
 
         assert_eq!(clipboard.as_deref(), Some("system"));
         assert_eq!(generated.len(), 1);
-        assert!(generated[0]
-            .downcast_ref::<crate::message::TextEditClipboardPaste>()
-            .is_some_and(|m| m.target == target && m.text == "system"));
+        assert!(
+            generated[0]
+                .downcast_ref::<crate::message::TextEditClipboardPaste>()
+                .is_some_and(|m| m.target == target && m.text == "system")
+        );
     }
 
     struct StyleNode {
@@ -6304,14 +6370,18 @@ mod tests {
                 .iter()
                 .all(|event| event.control == Some(event.sender))
         );
-        assert!(messages.iter().any(|event| event.sender == owner_success
-            && event
-                .downcast_ref::<crate::message::WorkerStateChanged>()
-                .is_some_and(|m| m.state == WorkerState::Success)));
-        assert!(messages.iter().any(|event| event.sender == owner_error
-            && event
-                .downcast_ref::<crate::message::WorkerStateChanged>()
-                .is_some_and(|m| m.state == WorkerState::Error("boom".into()))));
+        assert!(messages.iter().any(|event| {
+            event.sender == owner_success
+                && event
+                    .downcast_ref::<crate::message::WorkerStateChanged>()
+                    .is_some_and(|m| m.state == WorkerState::Success)
+        }));
+        assert!(messages.iter().any(|event| {
+            event.sender == owner_error
+                && event
+                    .downcast_ref::<crate::message::WorkerStateChanged>()
+                    .is_some_and(|m| m.state == WorkerState::Error("boom".into()))
+        }));
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
@@ -6352,14 +6422,16 @@ mod tests {
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
 
-        let messages = vec![MessageEvent::new(
-            node_id_from_ffi(1),
-            crate::message::AppAddClass {
-                selector: "Button".to_string(),
-                class_name: "highlight".to_string(),
-            },
-        )
-        .with_control(node_id_from_ffi(1))];
+        let messages = vec![
+            MessageEvent::new(
+                node_id_from_ffi(1),
+                crate::message::AppAddClass {
+                    selector: "Button".to_string(),
+                    class_name: "highlight".to_string(),
+                },
+            )
+            .with_control(node_id_from_ffi(1)),
+        ];
         let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, messages);
         assert!(outcome.repaint_requested);
         assert!(outcome.invalidation.layout);
@@ -6395,8 +6467,11 @@ mod tests {
         let mut runtime_root = StyleNode::new("RuntimeRoot");
 
         let initial = vec![
-            MessageEvent::new(emitter_id, crate::message::FooterBindingsUpdated { count: 0 })
-                .with_control(emitter_id),
+            MessageEvent::new(
+                emitter_id,
+                crate::message::FooterBindingsUpdated { count: 0 },
+            )
+            .with_control(emitter_id),
         ];
         let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, initial);
         assert!(outcome.repaint_requested);
@@ -6541,8 +6616,9 @@ mod tests {
 
         let outcome = app.dispatch_message_queue_with_runtime(
             &mut root,
-            vec![MessageEvent::new(sender, crate::message::AppCopySelectedText)
-                .with_control(sender)],
+            vec![
+                MessageEvent::new(sender, crate::message::AppCopySelectedText).with_control(sender),
+            ],
         );
 
         assert!(outcome.repaint_requested);
@@ -6779,13 +6855,15 @@ mod tests {
         let mut runtime_root = StyleNode::new("RuntimeRoot");
         let outcome = app.dispatch_message_queue_with_runtime(
             &mut runtime_root,
-            vec![MessageEvent::new(
-                button,
-                crate::message::ActionDispatchRequested {
-                    action: "app.add_class('Button', 'from-action')".to_string(),
-                },
-            )
-            .with_control(button)],
+            vec![
+                MessageEvent::new(
+                    button,
+                    crate::message::ActionDispatchRequested {
+                        action: "app.add_class('Button', 'from-action')".to_string(),
+                    },
+                )
+                .with_control(button),
+            ],
         );
 
         assert!(outcome.repaint_requested);
@@ -7123,13 +7201,15 @@ mod tests {
         // Simulate pressing 'x', which maps to binding action "frob".
         let _outcome = app.dispatch_message_queue_with_runtime(
             &mut runtime_root,
-            vec![crate::message::MessageEvent::new(
-                crate::node_id::node_id_from_ffi(1),
-                crate::message::AppSimulateKey {
-                    key: "x".to_string(),
-                },
-            )
-            .with_control(crate::node_id::node_id_from_ffi(1))],
+            vec![
+                crate::message::MessageEvent::new(
+                    crate::node_id::node_id_from_ffi(1),
+                    crate::message::AppSimulateKey {
+                        key: "x".to_string(),
+                    },
+                )
+                .with_control(crate::node_id::node_id_from_ffi(1)),
+            ],
         );
 
         let got = recorded.lock().unwrap().clone();

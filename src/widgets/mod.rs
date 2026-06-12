@@ -48,6 +48,7 @@ mod tooltip;
 mod tree;
 mod welcome;
 
+pub use crate::event::ClassOp;
 pub use aliases::Static;
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
