@@ -64,8 +64,6 @@ impl<A> MessageHandlers<A> {
     /// Dispatch one message event. All handlers registered for the payload's
     /// concrete type run, in registration order. Returns `true` if any ran.
     pub fn dispatch(&mut self, app: &mut A, event: &MessageEvent, ctx: &mut EventCtx) -> bool {
-        // Migration form: use enum shim until Step 18 replaces MessageEvent's
-        // `message` field with `Box<dyn Msg>`.
         let type_id = event.payload_type_id();
         let mctx = MessageContext {
             sender: event.sender,
@@ -74,7 +72,7 @@ impl<A> MessageHandlers<A> {
         let mut ran = false;
         for (entry_id, f) in &mut self.entries {
             if *entry_id == type_id {
-                f(app, event.message.payload_any(), &mctx, ctx);
+                f(app, event.payload().as_any(), &mctx, ctx);
                 ran = true;
             }
         }
@@ -92,7 +90,7 @@ mod tests {
     use crate::message::{ButtonPressed, CheckboxChanged};
     use crate::node_id::node_id_from_ffi;
 
-    fn make_event<M: Into<crate::message::Message>>(msg: M) -> MessageEvent {
+    fn make_event<M: Msg>(msg: M) -> MessageEvent {
         MessageEvent::new(node_id_from_ffi(1), msg)
     }
 

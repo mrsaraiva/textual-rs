@@ -807,7 +807,7 @@ mod tests {
     use super::*;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
-    use crate::message::{Message, MessageEvent};
+    use crate::message::MessageEvent;
     use crate::prelude::{Label, Markdown};
     use crate::runtime::{build_widget_tree_from_root, render_tree_to_frame};
     use crate::widget_tree::WidgetTree;

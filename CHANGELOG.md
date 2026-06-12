@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA1 Step 18: Swap carrier to Box<dyn Msg>; remove the Message enum)
+
+- **BREAKING(message): `Message` enum removed; all messages are now `Box<dyn Msg>`**
+  - The closed ~110-variant `Message` enum is deleted entirely.
+  - `impl_message_from!` macro and the 109 `From<Struct> for Message` impls are gone.
+  - `payload_any()` / `payload_msg()` migration shims removed.
+  - `MessageEvent.message` field is now private (`Box<dyn Msg>`).
+  - New `MessageEvent::from_boxed(sender, Box<dyn Msg>)` constructor added.
+  - New `MessageEvent::payload() -> &dyn Msg` accessor added.
+  - `MessageEnvelope::message()` now returns `&dyn Msg` instead of `&Message`.
+  - `EventCtx::post_message` / `WidgetCtx::post_message` bounds changed from `M: Into<Message>` to `M: Msg`.
+  - New `EventCtx::post_message_boxed(Box<dyn Msg>)` added for pre-boxed payloads.
+  - Coalescer uses `payload_type_id()` comparison instead of `mem::discriminant` (fixes
+    cross-type coalescing for different custom types with `set_replaceable(true)`).
+
 ### 2026-06-12 (SPEC-RA1 Step 2: TypeId handler registration + #[on] downcast codegen)
 
 - **feat(message_handlers): new `MessageHandlers<A>` typed registration API**

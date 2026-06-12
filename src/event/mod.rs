@@ -1,7 +1,7 @@
 use crate::debug::debug_message;
 use crate::keys::format_key_display;
 use crate::keys::KeyEventData;
-use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
+use crate::message::{AsyncTaskRequest, CommandPaletteCommand, MessageEvent, Msg};
 use crate::node_id::{node_id_to_ffi, NodeId};
 use crate::style::{Color, Scalar, Spacing, Tint};
 use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
@@ -636,17 +636,18 @@ impl EventCtx {
         self.stop_requested
     }
 
-    pub fn post_message<M: Into<Message>>(&mut self, message: M) {
-        let message: Message = message.into();
+    pub fn post_message<M: Msg>(&mut self, message: M) {
+        self.post_message_boxed(Box::new(message));
+    }
+
+    pub fn post_message_boxed(&mut self, message: Box<dyn Msg>) {
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
             node_id_to_ffi(self.node_id)
         ));
-        self.messages.push(MessageEvent {
-            sender: self.node_id,
-            message,
-            control: Some(self.node_id),
-        });
+        self.messages.push(
+            MessageEvent::from_boxed(self.node_id, message).with_control(self.node_id),
+        );
     }
 
     pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
@@ -961,7 +962,7 @@ impl<'a> WidgetCtx<'a> {
 
     /// Post a message from this widget (sender = self).
     #[inline]
-    pub fn post_message<M: Into<Message>>(&mut self, message: M) {
+    pub fn post_message<M: Msg>(&mut self, message: M) {
         self.event_ctx.set_node_id(self.node_id);
         self.event_ctx.post_message(message);
     }
@@ -970,7 +971,7 @@ impl<'a> WidgetCtx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message};
+    use crate::message::{AsyncTaskRequest, CommandPaletteCommand};
     use crate::node_id::node_id_from_ffi;
     use crate::style::{Color, Scalar, Spacing, Tint};
     use std::time::Duration;

@@ -866,518 +866,13 @@ macro_rules! impl_message {
 }
 
 // ---------------------------------------------------------------------------
-// Message enum — newtype wrappers around individual structs
-// ---------------------------------------------------------------------------
-
-/// Generates `From<Struct> for Message` for each variant.
-macro_rules! impl_message_from {
-    ($($Variant:ident),* $(,)?) => {
-        $(
-            impl From<$Variant> for Message {
-                fn from(v: $Variant) -> Self {
-                    Message::$Variant(v)
-                }
-            }
-        )*
-    };
-}
-
-#[derive(Debug, Clone)]
-pub enum Message {
-    // Unit messages
-    ClearRequested(ClearRequested),
-    HeaderIconPressed(HeaderIconPressed),
-    HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
-    CommandPaletteOpened(CommandPaletteOpened),
-    CommandPaletteClosed(CommandPaletteClosed),
-    SelectionListSelectedChanged(SelectionListSelectedChanged),
-    ToastDismissed(ToastDismissed),
-    NavigatorUpdated(NavigatorUpdated),
-    TabsCleared(TabsCleared),
-    // Input / text editing
-    InputChanged(InputChanged),
-    InputSubmitted(InputSubmitted),
-    InputBlurred(InputBlurred),
-    TextAreaChanged(TextAreaChanged),
-    TextAreaSelectionChanged(TextAreaSelectionChanged),
-    TextEditClipboardCopyRequested(TextEditClipboardCopyRequested),
-    TextEditClipboardPasteRequested(TextEditClipboardPasteRequested),
-    TextEditClipboardPaste(TextEditClipboardPaste),
-    // Button / checkbox / switch / radio
-    ButtonPressed(ButtonPressed),
-    CheckboxChanged(CheckboxChanged),
-    SwitchChanged(SwitchChanged),
-    RadioButtonChanged(RadioButtonChanged),
-    RadioSetChanged(RadioSetChanged),
-    // List / select / option
-    ListViewSelectionChanged(ListViewSelectionChanged),
-    ListViewItemActivated(ListViewItemActivated),
-    OptionHighlighted(OptionHighlighted),
-    OptionSelected(OptionSelected),
-    SelectChanged(SelectChanged),
-    SelectionListToggled(SelectionListToggled),
-    // Tabs
-    TabActivated(TabActivated),
-    TabClicked(TabClicked),
-    TabDisabled(TabDisabled),
-    TabEnabled(TabEnabled),
-    TabHidden(TabHidden),
-    TabShown(TabShown),
-    TabPaneFocused(TabPaneFocused),
-    // Header / footer
-    HeaderToggled(HeaderToggled),
-    FooterBindingsUpdated(FooterBindingsUpdated),
-    ScreenTitleChanged(ScreenTitleChanged),
-    // Help panel
-    HelpPanelSetHelp(HelpPanelSetHelp),
-    HelpPanelClearHelp(HelpPanelClearHelp),
-    HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged),
-    // Tree / directory tree
-    TreeNodeSelected(TreeNodeSelected),
-    TreeNodeActivated(TreeNodeActivated),
-    TreeNodeToggled(TreeNodeToggled),
-    TreeNodeCollapsed(TreeNodeCollapsed),
-    TreeNodeExpanded(TreeNodeExpanded),
-    TreeNodeHighlighted(TreeNodeHighlighted),
-    DirectoryTreeFileSelected(DirectoryTreeFileSelected),
-    DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected),
-    // MarkdownViewer
-    MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected),
-    MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated),
-    // Overlay
-    OverlaySetVisible(OverlaySetVisible),
-    OverlaySetAnchor(OverlaySetAnchor),
-    OverlayClearAnchor(OverlayClearAnchor),
-    OverlayToggle(OverlayToggle),
-    OverlayDismissRequested(OverlayDismissRequested),
-    OverlayVisibilityChanged(OverlayVisibilityChanged),
-    // App actions
-    AppBack(AppBack),
-    AppBell(AppBell),
-    AppChangeTheme(AppChangeTheme),
-    AppCommandPalette(AppCommandPalette),
-    AppFocus(AppFocus),
-    AppFocusNext(AppFocusNext),
-    AppFocusPrevious(AppFocusPrevious),
-    AppHelpQuit(AppHelpQuit),
-    AppCopySelectedText(AppCopySelectedText),
-    AppHideHelpPanel(AppHideHelpPanel),
-    AppAddClass(AppAddClass),
-    AppRemoveClass(AppRemoveClass),
-    AppToggleClass(AppToggleClass),
-    AppSetDisabled(AppSetDisabled),
-    AppNotify(AppNotify),
-    AppPopScreen(AppPopScreen),
-    AppPushScreen(AppPushScreen),
-    AppScreenshot(AppScreenshot),
-    AppShowHelpPanel(AppShowHelpPanel),
-    AppSimulateKey(AppSimulateKey),
-    AppSuspendProcess(AppSuspendProcess),
-    AppSwitchMode(AppSwitchMode),
-    AppSwitchScreen(AppSwitchScreen),
-    AppToggleDark(AppToggleDark),
-    ActionDispatchRequested(ActionDispatchRequested),
-    // Command palette
-    CommandPaletteCommandSelected(CommandPaletteCommandSelected),
-    CommandPaletteSetCommands(CommandPaletteSetCommands),
-    // Scrollbars
-    ScrollbarScrollTo(ScrollbarScrollTo),
-    // Data table
-    DataTableCursorMoved(DataTableCursorMoved),
-    DataTableHeaderSelected(DataTableHeaderSelected),
-    DataTableCellActivated(DataTableCellActivated),
-    DataTableCellHighlighted(DataTableCellHighlighted),
-    DataTableRowHighlighted(DataTableRowHighlighted),
-    DataTableRowSelected(DataTableRowSelected),
-    DataTableColumnHighlighted(DataTableColumnHighlighted),
-    DataTableColumnSelected(DataTableColumnSelected),
-    // Misc widgets
-    PlaceholderVariantChanged(PlaceholderVariantChanged),
-    CollapsibleToggled(CollapsibleToggled),
-    LinkClicked(LinkClicked),
-    KeyPanelBindingsUpdated(KeyPanelBindingsUpdated),
-    KeyPanelScrolled(KeyPanelScrolled),
-    RichLogScrolled(RichLogScrolled),
-    // Async tasks / timers
-    AsyncTaskSpawn(AsyncTaskSpawn),
-    AsyncTaskCancel(AsyncTaskCancel),
-    AsyncTaskCancelTarget(AsyncTaskCancelTarget),
-    AsyncTaskCompleted(AsyncTaskCompleted),
-    AsyncTaskCancelled(AsyncTaskCancelled),
-    TimerSchedule(TimerSchedule),
-    TimerCancel(TimerCancel),
-    TimerFired(TimerFired),
-    TimerCancelled(TimerCancelled),
-    WorkerStateChanged(WorkerStateChanged),
-    // User-defined messages
-    Custom(Box<dyn Msg>),
-}
-
-impl_message_from!(
-    ClearRequested,
-    HeaderIconPressed,
-    HelpPanelFocusedHelpCleared,
-    CommandPaletteOpened,
-    CommandPaletteClosed,
-    SelectionListSelectedChanged,
-    ToastDismissed,
-    NavigatorUpdated,
-    TabsCleared,
-    InputChanged,
-    InputSubmitted,
-    InputBlurred,
-    TextAreaChanged,
-    TextAreaSelectionChanged,
-    TextEditClipboardCopyRequested,
-    TextEditClipboardPasteRequested,
-    TextEditClipboardPaste,
-    ButtonPressed,
-    CheckboxChanged,
-    SwitchChanged,
-    RadioButtonChanged,
-    RadioSetChanged,
-    ListViewSelectionChanged,
-    ListViewItemActivated,
-    OptionHighlighted,
-    OptionSelected,
-    SelectChanged,
-    SelectionListToggled,
-    TabActivated,
-    TabClicked,
-    TabDisabled,
-    TabEnabled,
-    TabHidden,
-    TabShown,
-    TabPaneFocused,
-    HeaderToggled,
-    FooterBindingsUpdated,
-    ScreenTitleChanged,
-    HelpPanelSetHelp,
-    HelpPanelClearHelp,
-    HelpPanelFocusedHelpChanged,
-    TreeNodeSelected,
-    TreeNodeActivated,
-    TreeNodeToggled,
-    TreeNodeCollapsed,
-    TreeNodeExpanded,
-    TreeNodeHighlighted,
-    DirectoryTreeFileSelected,
-    DirectoryTreeDirectorySelected,
-    MarkdownTableOfContentsSelected,
-    MarkdownTableOfContentsUpdated,
-    OverlaySetVisible,
-    OverlaySetAnchor,
-    OverlayClearAnchor,
-    OverlayToggle,
-    OverlayDismissRequested,
-    OverlayVisibilityChanged,
-    AppBack,
-    AppBell,
-    AppChangeTheme,
-    AppCommandPalette,
-    AppFocus,
-    AppFocusNext,
-    AppFocusPrevious,
-    AppHelpQuit,
-    AppCopySelectedText,
-    AppHideHelpPanel,
-    AppAddClass,
-    AppRemoveClass,
-    AppToggleClass,
-    AppSetDisabled,
-    AppNotify,
-    AppPopScreen,
-    AppPushScreen,
-    AppScreenshot,
-    AppShowHelpPanel,
-    AppSimulateKey,
-    AppSuspendProcess,
-    AppSwitchMode,
-    AppSwitchScreen,
-    AppToggleDark,
-    ActionDispatchRequested,
-    CommandPaletteCommandSelected,
-    CommandPaletteSetCommands,
-    ScrollbarScrollTo,
-    DataTableCursorMoved,
-    DataTableHeaderSelected,
-    DataTableCellActivated,
-    DataTableCellHighlighted,
-    DataTableRowHighlighted,
-    DataTableRowSelected,
-    DataTableColumnHighlighted,
-    DataTableColumnSelected,
-    PlaceholderVariantChanged,
-    CollapsibleToggled,
-    LinkClicked,
-    KeyPanelBindingsUpdated,
-    KeyPanelScrolled,
-    RichLogScrolled,
-    AsyncTaskSpawn,
-    AsyncTaskCancel,
-    AsyncTaskCancelTarget,
-    AsyncTaskCompleted,
-    AsyncTaskCancelled,
-    TimerSchedule,
-    TimerCancel,
-    TimerFired,
-    TimerCancelled,
-    WorkerStateChanged,
-);
-
-impl Message {
-    /// Payload of this variant as `&dyn Any`.
-    ///
-    /// Migration shim — deleted at Step 18 when the enum is removed.
-    pub(crate) fn payload_any(&self) -> &dyn std::any::Any {
-        match self {
-            Message::ClearRequested(m) => m,
-            Message::HeaderIconPressed(m) => m,
-            Message::HelpPanelFocusedHelpCleared(m) => m,
-            Message::CommandPaletteOpened(m) => m,
-            Message::CommandPaletteClosed(m) => m,
-            Message::SelectionListSelectedChanged(m) => m,
-            Message::ToastDismissed(m) => m,
-            Message::NavigatorUpdated(m) => m,
-            Message::TabsCleared(m) => m,
-            Message::InputChanged(m) => m,
-            Message::InputSubmitted(m) => m,
-            Message::InputBlurred(m) => m,
-            Message::TextAreaChanged(m) => m,
-            Message::TextAreaSelectionChanged(m) => m,
-            Message::TextEditClipboardCopyRequested(m) => m,
-            Message::TextEditClipboardPasteRequested(m) => m,
-            Message::TextEditClipboardPaste(m) => m,
-            Message::ButtonPressed(m) => m,
-            Message::CheckboxChanged(m) => m,
-            Message::SwitchChanged(m) => m,
-            Message::RadioButtonChanged(m) => m,
-            Message::RadioSetChanged(m) => m,
-            Message::ListViewSelectionChanged(m) => m,
-            Message::ListViewItemActivated(m) => m,
-            Message::OptionHighlighted(m) => m,
-            Message::OptionSelected(m) => m,
-            Message::SelectChanged(m) => m,
-            Message::SelectionListToggled(m) => m,
-            Message::TabActivated(m) => m,
-            Message::TabClicked(m) => m,
-            Message::TabDisabled(m) => m,
-            Message::TabEnabled(m) => m,
-            Message::TabHidden(m) => m,
-            Message::TabShown(m) => m,
-            Message::TabPaneFocused(m) => m,
-            Message::HeaderToggled(m) => m,
-            Message::FooterBindingsUpdated(m) => m,
-            Message::ScreenTitleChanged(m) => m,
-            Message::HelpPanelSetHelp(m) => m,
-            Message::HelpPanelClearHelp(m) => m,
-            Message::HelpPanelFocusedHelpChanged(m) => m,
-            Message::TreeNodeSelected(m) => m,
-            Message::TreeNodeActivated(m) => m,
-            Message::TreeNodeToggled(m) => m,
-            Message::TreeNodeCollapsed(m) => m,
-            Message::TreeNodeExpanded(m) => m,
-            Message::TreeNodeHighlighted(m) => m,
-            Message::DirectoryTreeFileSelected(m) => m,
-            Message::DirectoryTreeDirectorySelected(m) => m,
-            Message::MarkdownTableOfContentsSelected(m) => m,
-            Message::MarkdownTableOfContentsUpdated(m) => m,
-            Message::OverlaySetVisible(m) => m,
-            Message::OverlaySetAnchor(m) => m,
-            Message::OverlayClearAnchor(m) => m,
-            Message::OverlayToggle(m) => m,
-            Message::OverlayDismissRequested(m) => m,
-            Message::OverlayVisibilityChanged(m) => m,
-            Message::AppBack(m) => m,
-            Message::AppBell(m) => m,
-            Message::AppChangeTheme(m) => m,
-            Message::AppCommandPalette(m) => m,
-            Message::AppFocus(m) => m,
-            Message::AppFocusNext(m) => m,
-            Message::AppFocusPrevious(m) => m,
-            Message::AppHelpQuit(m) => m,
-            Message::AppCopySelectedText(m) => m,
-            Message::AppHideHelpPanel(m) => m,
-            Message::AppAddClass(m) => m,
-            Message::AppRemoveClass(m) => m,
-            Message::AppToggleClass(m) => m,
-            Message::AppSetDisabled(m) => m,
-            Message::AppNotify(m) => m,
-            Message::AppPopScreen(m) => m,
-            Message::AppPushScreen(m) => m,
-            Message::AppScreenshot(m) => m,
-            Message::AppShowHelpPanel(m) => m,
-            Message::AppSimulateKey(m) => m,
-            Message::AppSuspendProcess(m) => m,
-            Message::AppSwitchMode(m) => m,
-            Message::AppSwitchScreen(m) => m,
-            Message::AppToggleDark(m) => m,
-            Message::ActionDispatchRequested(m) => m,
-            Message::CommandPaletteCommandSelected(m) => m,
-            Message::CommandPaletteSetCommands(m) => m,
-            Message::ScrollbarScrollTo(m) => m,
-            Message::DataTableCursorMoved(m) => m,
-            Message::DataTableHeaderSelected(m) => m,
-            Message::DataTableCellActivated(m) => m,
-            Message::DataTableCellHighlighted(m) => m,
-            Message::DataTableRowHighlighted(m) => m,
-            Message::DataTableRowSelected(m) => m,
-            Message::DataTableColumnHighlighted(m) => m,
-            Message::DataTableColumnSelected(m) => m,
-            Message::PlaceholderVariantChanged(m) => m,
-            Message::CollapsibleToggled(m) => m,
-            Message::LinkClicked(m) => m,
-            Message::KeyPanelBindingsUpdated(m) => m,
-            Message::KeyPanelScrolled(m) => m,
-            Message::RichLogScrolled(m) => m,
-            Message::AsyncTaskSpawn(m) => m,
-            Message::AsyncTaskCancel(m) => m,
-            Message::AsyncTaskCancelTarget(m) => m,
-            Message::AsyncTaskCompleted(m) => m,
-            Message::AsyncTaskCancelled(m) => m,
-            Message::TimerSchedule(m) => m,
-            Message::TimerCancel(m) => m,
-            Message::TimerFired(m) => m,
-            Message::TimerCancelled(m) => m,
-            Message::WorkerStateChanged(m) => m,
-            Message::Custom(b) => b.as_any(),
-        }
-    }
-
-    /// Payload as the `Msg` trait object.
-    ///
-    /// Migration shim — deleted at Step 18 when the enum is removed.
-    pub(crate) fn payload_msg(&self) -> &dyn Msg {
-        match self {
-            Message::ClearRequested(m) => m,
-            Message::HeaderIconPressed(m) => m,
-            Message::HelpPanelFocusedHelpCleared(m) => m,
-            Message::CommandPaletteOpened(m) => m,
-            Message::CommandPaletteClosed(m) => m,
-            Message::SelectionListSelectedChanged(m) => m,
-            Message::ToastDismissed(m) => m,
-            Message::NavigatorUpdated(m) => m,
-            Message::TabsCleared(m) => m,
-            Message::InputChanged(m) => m,
-            Message::InputSubmitted(m) => m,
-            Message::InputBlurred(m) => m,
-            Message::TextAreaChanged(m) => m,
-            Message::TextAreaSelectionChanged(m) => m,
-            Message::TextEditClipboardCopyRequested(m) => m,
-            Message::TextEditClipboardPasteRequested(m) => m,
-            Message::TextEditClipboardPaste(m) => m,
-            Message::ButtonPressed(m) => m,
-            Message::CheckboxChanged(m) => m,
-            Message::SwitchChanged(m) => m,
-            Message::RadioButtonChanged(m) => m,
-            Message::RadioSetChanged(m) => m,
-            Message::ListViewSelectionChanged(m) => m,
-            Message::ListViewItemActivated(m) => m,
-            Message::OptionHighlighted(m) => m,
-            Message::OptionSelected(m) => m,
-            Message::SelectChanged(m) => m,
-            Message::SelectionListToggled(m) => m,
-            Message::TabActivated(m) => m,
-            Message::TabClicked(m) => m,
-            Message::TabDisabled(m) => m,
-            Message::TabEnabled(m) => m,
-            Message::TabHidden(m) => m,
-            Message::TabShown(m) => m,
-            Message::TabPaneFocused(m) => m,
-            Message::HeaderToggled(m) => m,
-            Message::FooterBindingsUpdated(m) => m,
-            Message::ScreenTitleChanged(m) => m,
-            Message::HelpPanelSetHelp(m) => m,
-            Message::HelpPanelClearHelp(m) => m,
-            Message::HelpPanelFocusedHelpChanged(m) => m,
-            Message::TreeNodeSelected(m) => m,
-            Message::TreeNodeActivated(m) => m,
-            Message::TreeNodeToggled(m) => m,
-            Message::TreeNodeCollapsed(m) => m,
-            Message::TreeNodeExpanded(m) => m,
-            Message::TreeNodeHighlighted(m) => m,
-            Message::DirectoryTreeFileSelected(m) => m,
-            Message::DirectoryTreeDirectorySelected(m) => m,
-            Message::MarkdownTableOfContentsSelected(m) => m,
-            Message::MarkdownTableOfContentsUpdated(m) => m,
-            Message::OverlaySetVisible(m) => m,
-            Message::OverlaySetAnchor(m) => m,
-            Message::OverlayClearAnchor(m) => m,
-            Message::OverlayToggle(m) => m,
-            Message::OverlayDismissRequested(m) => m,
-            Message::OverlayVisibilityChanged(m) => m,
-            Message::AppBack(m) => m,
-            Message::AppBell(m) => m,
-            Message::AppChangeTheme(m) => m,
-            Message::AppCommandPalette(m) => m,
-            Message::AppFocus(m) => m,
-            Message::AppFocusNext(m) => m,
-            Message::AppFocusPrevious(m) => m,
-            Message::AppHelpQuit(m) => m,
-            Message::AppCopySelectedText(m) => m,
-            Message::AppHideHelpPanel(m) => m,
-            Message::AppAddClass(m) => m,
-            Message::AppRemoveClass(m) => m,
-            Message::AppToggleClass(m) => m,
-            Message::AppSetDisabled(m) => m,
-            Message::AppNotify(m) => m,
-            Message::AppPopScreen(m) => m,
-            Message::AppPushScreen(m) => m,
-            Message::AppScreenshot(m) => m,
-            Message::AppShowHelpPanel(m) => m,
-            Message::AppSimulateKey(m) => m,
-            Message::AppSuspendProcess(m) => m,
-            Message::AppSwitchMode(m) => m,
-            Message::AppSwitchScreen(m) => m,
-            Message::AppToggleDark(m) => m,
-            Message::ActionDispatchRequested(m) => m,
-            Message::CommandPaletteCommandSelected(m) => m,
-            Message::CommandPaletteSetCommands(m) => m,
-            Message::ScrollbarScrollTo(m) => m,
-            Message::DataTableCursorMoved(m) => m,
-            Message::DataTableHeaderSelected(m) => m,
-            Message::DataTableCellActivated(m) => m,
-            Message::DataTableCellHighlighted(m) => m,
-            Message::DataTableRowHighlighted(m) => m,
-            Message::DataTableRowSelected(m) => m,
-            Message::DataTableColumnHighlighted(m) => m,
-            Message::DataTableColumnSelected(m) => m,
-            Message::PlaceholderVariantChanged(m) => m,
-            Message::CollapsibleToggled(m) => m,
-            Message::LinkClicked(m) => m,
-            Message::KeyPanelBindingsUpdated(m) => m,
-            Message::KeyPanelScrolled(m) => m,
-            Message::RichLogScrolled(m) => m,
-            Message::AsyncTaskSpawn(m) => m,
-            Message::AsyncTaskCancel(m) => m,
-            Message::AsyncTaskCancelTarget(m) => m,
-            Message::AsyncTaskCompleted(m) => m,
-            Message::AsyncTaskCancelled(m) => m,
-            Message::TimerSchedule(m) => m,
-            Message::TimerCancel(m) => m,
-            Message::TimerFired(m) => m,
-            Message::TimerCancelled(m) => m,
-            Message::WorkerStateChanged(m) => m,
-            Message::Custom(b) => b.as_ref(),
-        }
-    }
-
-    /// Whether this (newer) message can replace the provided older pending message.
-    ///
-    /// Delegates to the `Msg` trait implementations (single source of truth).
-    pub fn can_replace(&self, pending: &Message) -> bool {
-        self.payload_msg().can_replace(pending.payload_msg())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MessageEvent / MessageEnvelope (unchanged structure)
+// MessageEvent / MessageEnvelope
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct MessageEvent {
     pub sender: NodeId,
-    pub message: Message,
+    message: Box<dyn Msg>,
     /// The originating widget ("control") — defaults to sender.
     /// Handlers can use this to identify which widget produced the message,
     /// even when the message has bubbled through containers.
@@ -1385,13 +880,20 @@ pub struct MessageEvent {
 }
 
 impl MessageEvent {
-    /// Construct a `MessageEvent` from any type that converts `Into<Message>`.
-    ///
-    /// Migration form: the bound will change to `M: Msg` at Step 18.
-    pub fn new<M: Into<Message>>(sender: NodeId, message: M) -> Self {
+    /// Construct a `MessageEvent` from any type implementing `Msg`.
+    pub fn new<M: Msg>(sender: NodeId, message: M) -> Self {
         Self {
             sender,
-            message: message.into(),
+            message: Box::new(message),
+            control: None,
+        }
+    }
+
+    /// Construct a `MessageEvent` from a pre-boxed `Msg` trait object.
+    pub fn from_boxed(sender: NodeId, message: Box<dyn Msg>) -> Self {
+        Self {
+            sender,
+            message,
             control: None,
         }
     }
@@ -1402,11 +904,16 @@ impl MessageEvent {
         self
     }
 
+    /// A reference to the message payload as a `Msg` trait object.
+    pub fn payload(&self) -> &dyn Msg {
+        self.message.as_ref()
+    }
+
     /// Downcast the payload to a concrete type `T`.
     ///
     /// Returns `Some(&T)` if the payload is of type `T`, `None` otherwise.
     pub fn downcast_ref<T: Msg>(&self) -> Option<&T> {
-        self.message.payload_any().downcast_ref::<T>()
+        self.payload().as_any().downcast_ref::<T>()
     }
 
     /// Returns `true` if the payload is of type `T`.
@@ -1416,7 +923,7 @@ impl MessageEvent {
 
     /// The `TypeId` of the concrete payload type.
     pub fn payload_type_id(&self) -> std::any::TypeId {
-        self.message.payload_any().type_id()
+        self.payload().as_any().type_id()
     }
 }
 
@@ -1511,9 +1018,9 @@ impl MessageEnvelope {
         self.event.sender
     }
 
-    /// Convenience accessor: a reference to the inner [`Message`].
-    pub fn message(&self) -> &Message {
-        &self.event.message
+    /// A reference to the message payload (was `&Message` enum; now `&dyn Msg`).
+    pub fn message(&self) -> &dyn Msg {
+        self.event.payload()
     }
 
     /// Downcast the envelope's payload to a concrete type `T`.
@@ -1538,16 +1045,15 @@ mod tests {
     use super::*;
     use crate::node_id::node_id_from_ffi;
 
-    /// Helper: build a simple `MessageEvent` for testing.
+    /// Helper: build a simple `MessageEvent` for testing (uses trait form).
     fn test_event() -> MessageEvent {
-        MessageEvent {
-            sender: node_id_from_ffi(1),
-            message: Message::ButtonPressed(ButtonPressed {
+        MessageEvent::new(
+            node_id_from_ffi(1),
+            ButtonPressed {
                 description: "ok".into(),
                 button_id: None,
-            }),
-            control: None,
-        }
+            },
+        )
     }
 
     // --- Construction defaults ---
@@ -1632,14 +1138,10 @@ mod tests {
     }
 
     #[test]
-    fn message_returns_event_message() {
+    fn message_returns_button_pressed_payload() {
         let env = MessageEnvelope::new(test_event());
-        match env.message() {
-            Message::ButtonPressed(ButtonPressed { description, .. }) => {
-                assert_eq!(description, "ok");
-            }
-            other => panic!("unexpected message variant: {:?}", other),
-        }
+        let bp = env.downcast_ref::<ButtonPressed>().expect("expected ButtonPressed");
+        assert_eq!(bp.description, "ok");
     }
 
     // --- From<MessageEvent> ---
@@ -1658,7 +1160,7 @@ mod tests {
         let expected_sender = evt.sender;
         let env: MessageEnvelope = evt.into();
         assert_eq!(env.sender(), expected_sender);
-        assert!(matches!(env.message(), Message::ButtonPressed(..)));
+        assert!(env.is::<ButtonPressed>());
     }
 
     // --- Flag independence ---
@@ -1740,24 +1242,6 @@ mod tests {
         assert_eq!(cloned.control(), Some(other));
     }
 
-    // --- From impls ---
-
-    #[test]
-    fn from_unit_struct_into_message() {
-        let msg: Message = ClearRequested.into();
-        assert!(matches!(msg, Message::ClearRequested(..)));
-    }
-
-    #[test]
-    fn from_field_struct_into_message() {
-        let msg: Message = ButtonPressed {
-            description: "test".into(),
-            button_id: None,
-        }
-        .into();
-        assert!(matches!(msg, Message::ButtonPressed(..)));
-    }
-
     // --- MessageEvent control field ---
 
     #[test]
@@ -1772,14 +1256,11 @@ mod tests {
     #[test]
     fn explicit_control_preserved_by_envelope() {
         let other = node_id_from_ffi(42);
-        let evt = MessageEvent {
-            sender: node_id_from_ffi(1),
-            message: Message::ButtonPressed(ButtonPressed {
-                description: "ctrl".into(),
-                button_id: None,
-            }),
-            control: Some(other),
-        };
+        let evt = MessageEvent::new(node_id_from_ffi(1), ButtonPressed {
+            description: "ctrl".into(),
+            button_id: None,
+        })
+        .with_control(other);
         let env = MessageEnvelope::new(evt);
         // Envelope should use the explicit control, not sender.
         assert_eq!(env.control(), Some(other));
@@ -1787,39 +1268,95 @@ mod tests {
 
     #[test]
     fn control_none_is_allowed() {
-        let evt = MessageEvent {
-            sender: node_id_from_ffi(1),
-            message: Message::ClearRequested(ClearRequested),
-            control: None,
-        };
+        let evt = MessageEvent::new(node_id_from_ffi(1), ClearRequested);
         // None is allowed on the event; envelope promotes it.
         assert!(evt.control.is_none());
         let env = MessageEnvelope::new(evt);
         assert_eq!(env.control(), Some(node_id_from_ffi(1)));
     }
 
-    // --- Message::can_replace ---
+    // --- Msg trait can_replace ---
 
     #[test]
-    fn message_can_replace_known_variants() {
-        let a = Message::InputChanged(InputChanged {
+    fn replaceable_trait_impl_returns_true_for_same_type() {
+        let a = InputChanged {
             value: "a".into(),
             validation: ValidationResult::success(),
-        });
-        let b = Message::InputChanged(InputChanged {
+        };
+        let b = InputChanged {
             value: "ab".into(),
             validation: ValidationResult::success(),
-        });
+        };
+        // b can replace a because InputChanged is impl_message!(_, replaceable)
         assert!(b.can_replace(&a));
-        assert!(!Message::ButtonPressed(ButtonPressed {
-            description: "x".into(),
-            button_id: None,
-        })
-        .can_replace(&Message::ButtonPressed(ButtonPressed {
-            description: "y".into(),
-            button_id: None,
-        })));
     }
+
+    #[test]
+    fn non_replaceable_trait_impl_returns_false() {
+        let x = ButtonPressed { description: "x".into(), button_id: None };
+        let y = ButtonPressed { description: "y".into(), button_id: None };
+        // ButtonPressed is plain impl_message! — can_replace defaults to false
+        assert!(!x.can_replace(&y));
+    }
+
+    #[test]
+    fn can_replace_false_across_different_types() {
+        let a = InputChanged {
+            value: "a".into(),
+            validation: ValidationResult::success(),
+        };
+        let b = ButtonPressed { description: "x".into(), button_id: None };
+        // Different types — never replace each other
+        assert!(!b.can_replace(&a));
+        assert!(!a.can_replace(&b));
+    }
+
+    // --- downcast_ref / is / payload_type_id ---
+
+    #[test]
+    fn downcast_ref_hits_correct_type() {
+        let evt = test_event();
+        let bp = evt.downcast_ref::<ButtonPressed>().unwrap();
+        assert_eq!(bp.description, "ok");
+    }
+
+    #[test]
+    fn downcast_ref_misses_wrong_type() {
+        let evt = test_event();
+        assert!(evt.downcast_ref::<ClearRequested>().is_none());
+    }
+
+    #[test]
+    fn is_returns_true_for_correct_type() {
+        let evt = test_event();
+        assert!(evt.is::<ButtonPressed>());
+    }
+
+    #[test]
+    fn is_returns_false_for_wrong_type() {
+        let evt = test_event();
+        assert!(!evt.is::<ClearRequested>());
+    }
+
+    #[test]
+    fn payload_type_id_distinguishes_two_zero_sized_types() {
+        let e1 = MessageEvent::new(node_id_from_ffi(1), ClearRequested);
+        let e2 = MessageEvent::new(node_id_from_ffi(1), HeaderIconPressed);
+        assert_ne!(e1.payload_type_id(), e2.payload_type_id());
+    }
+
+    #[test]
+    fn box_dyn_msg_clone_preserves_payload() {
+        let original: Box<dyn Msg> = Box::new(ButtonPressed {
+            description: "clone-me".into(),
+            button_id: None,
+        });
+        let cloned = original.clone();
+        let bp = cloned.as_any().downcast_ref::<ButtonPressed>().unwrap();
+        assert_eq!(bp.description, "clone-me");
+    }
+
+    // --- Custom Msg impl (key-based replacement) ---
 
     #[derive(Debug, Clone)]
     struct ReplaceableCustom {
@@ -1844,12 +1381,27 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct OtherCustom;
+    crate::impl_message!(OtherCustom);
+
     #[test]
     fn custom_message_can_replace_uses_user_hook() {
-        let older = Message::Custom(Box::new(ReplaceableCustom { key: 7 }));
-        let newer_same_key = Message::Custom(Box::new(ReplaceableCustom { key: 7 }));
-        let newer_other_key = Message::Custom(Box::new(ReplaceableCustom { key: 9 }));
+        let older = ReplaceableCustom { key: 7 };
+        let newer_same_key = ReplaceableCustom { key: 7 };
+        let newer_other_key = ReplaceableCustom { key: 9 };
         assert!(newer_same_key.can_replace(&older));
         assert!(!newer_other_key.can_replace(&older));
+    }
+
+    #[test]
+    fn two_different_custom_types_do_not_coalesce() {
+        // TypeId refinement: two distinct custom types must not coalesce each other.
+        let a = ReplaceableCustom { key: 1 };
+        let b = OtherCustom;
+        // a.can_replace checks downcast_ref::<ReplaceableCustom> on b — fails.
+        assert!(!a.can_replace(&b));
+        // b.can_replace (default false) also returns false.
+        assert!(!b.can_replace(&a));
     }
 }

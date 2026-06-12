@@ -11,7 +11,7 @@ use crate::event::{
     EventCtx,
 };
 use crate::message::{
-    Message, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
+    Msg, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
 };
 use crate::style::{Dock, TransitionTiming};
 
@@ -256,7 +256,7 @@ pub struct Tabs {
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
-    pending_messages: Arc<Mutex<Vec<Message>>>,
+    pending_messages: Arc<Mutex<Vec<Box<dyn Msg>>>>,
     /// True after the first event dispatch (widget is live in the tree).
     /// Used to gate runtime-only messages from `add_tab`.
     live: bool,
@@ -335,7 +335,7 @@ impl Tabs {
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(msg.into());
+                    .push(Box::new(msg));
                 return;
             }
         }
@@ -526,7 +526,7 @@ impl Tabs {
         self.pending_messages
             .lock()
             .expect("tabs pending lock")
-            .push(TabsCleared.into());
+            .push(Box::new(TabsCleared));
     }
 
     pub fn tab_count(&self) -> usize {
@@ -590,20 +590,20 @@ impl Tabs {
             self.pending_messages
                 .lock()
                 .expect("tabs pending lock")
-                .push(TabDisabled { id: tab_id.clone() }.into());
+                .push(Box::new(TabDisabled { id: tab_id.clone() }));
         } else {
             self.pending_messages
                 .lock()
                 .expect("tabs pending lock")
-                .push(TabEnabled { id: tab_id.clone() }.into());
+                .push(Box::new(TabEnabled { id: tab_id.clone() }));
         }
         self.pending_messages
             .lock()
             .expect("tabs pending lock")
-            .push(crate::message::AppSetDisabled {
+            .push(Box::new(crate::message::AppSetDisabled {
                 selector: self.scoped_tab_selector(&tab_id),
                 disabled,
-            }.into());
+            }));
         if state.active.is_none() {
             self.ensure_active_exists(state);
         }
@@ -641,18 +641,18 @@ impl Tabs {
         );
         if hidden {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
-            pending.push(TabHidden { id: tab_id.clone() }.into());
-            pending.push(crate::message::AppAddClass {
+            pending.push(Box::new(TabHidden { id: tab_id.clone() }));
+            pending.push(Box::new(crate::message::AppAddClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
-            }.into());
+            }));
         } else {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
-            pending.push(TabShown { id: tab_id.clone() }.into());
-            pending.push(crate::message::AppRemoveClass {
+            pending.push(Box::new(TabShown { id: tab_id.clone() }));
+            pending.push(Box::new(crate::message::AppRemoveClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
-            }.into());
+            }));
         }
         if hidden && is_active {
             if let Some(next) = replacement {
@@ -668,19 +668,19 @@ impl Tabs {
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(crate::message::AppRemoveClass {
+                    .push(Box::new(crate::message::AppRemoveClass {
                         selector: self.scoped_tab_selector(&prev),
                         class_name: "-active".to_string(),
-                    }.into());
+                    }));
             }
             if let Some(next) = state.active.clone() {
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(crate::message::AppAddClass {
+                    .push(Box::new(crate::message::AppAddClass {
                         selector: self.scoped_tab_selector(&next),
                         class_name: "-active".to_string(),
-                    }.into());
+                    }));
             }
         }
         true
@@ -721,18 +721,18 @@ impl Tabs {
                     self.pending_messages
                         .lock()
                         .expect("tabs pending lock")
-                        .push(crate::message::AppRemoveClass {
+                        .push(Box::new(crate::message::AppRemoveClass {
                             selector: self.scoped_tab_selector(&prev),
                             class_name: "-active".to_string(),
-                        }.into());
+                        }));
                 }
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(crate::message::AppAddClass {
+                    .push(Box::new(crate::message::AppAddClass {
                         selector: self.scoped_tab_selector(&new_id),
                         class_name: "-active".to_string(),
-                    }.into());
+                    }));
             }
             let target_span = self.underline_span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {
@@ -1163,7 +1163,7 @@ impl Widget for Tabs {
         {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             for msg in pending.drain(..) {
-                ctx.post_message(msg);
+                ctx.post_message_boxed(msg);
             }
         }
 

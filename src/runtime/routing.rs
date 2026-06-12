@@ -361,8 +361,7 @@ pub(crate) fn coalesce_message_queue(queue: &mut std::collections::VecDeque<Mess
 
     fn envelope_replaces_pending(newer: &MessageEnvelope, older: &MessageEnvelope) -> bool {
         if newer.can_replace() {
-            return std::mem::discriminant(newer.message())
-                == std::mem::discriminant(older.message());
+            return newer.event.payload_type_id() == older.event.payload_type_id();
         }
         newer.message().can_replace(older.message())
     }
@@ -737,7 +736,6 @@ mod message_tests {
     use super::*;
     use crate::event::{MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
-    use crate::message::Message;
     use crate::runtime::render::{apply_layout_info_tree_from_layout_rects, run_layout_pass};
     use crate::widget_tree::WidgetTree;
     use crate::widgets::{AppRoot, Button, Label, ScrollView};
@@ -1464,7 +1462,7 @@ mod message_tests {
 #[cfg(test)]
 mod envelope_tests {
     use super::*;
-    use crate::message::{Message, MessageEnvelope, MessageEvent, Msg};
+    use crate::message::{MessageEnvelope, MessageEvent, Msg};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::WidgetTree;
     use crate::widgets::Label;
@@ -1513,7 +1511,7 @@ mod envelope_tests {
     }
 
     /// Helper: build a MessageEvent from a sender FFI id and a typed message.
-    fn msg_event<M: Into<Message>>(sender_ffi: u64, message: M) -> MessageEvent {
+    fn msg_event<M: crate::message::Msg>(sender_ffi: u64, message: M) -> MessageEvent {
         MessageEvent::new(node_id_from_ffi(sender_ffi), message)
     }
 

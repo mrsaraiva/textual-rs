@@ -804,7 +804,6 @@ mod tests {
     use super::*;
     use crate::event::{Event, EventCtx, MouseDownEvent};
     use crate::keys::KeyEventData;
-    use crate::message::Message;
     use crate::node_id::node_id_from_ffi;
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;

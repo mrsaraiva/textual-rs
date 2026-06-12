@@ -2195,7 +2195,7 @@ mod tests {
     use super::*;
     use crate::css::{StyleSheet, set_style_context};
     use crate::event::{Action, Event, EventCtx};
-    use crate::message::{CommandPaletteCommand, Message};
+    use crate::message::CommandPaletteCommand;
     use crate::node_id::NodeId;
     use crate::render::FrameBuffer;
     use crate::widgets::Label;
