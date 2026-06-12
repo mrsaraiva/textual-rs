@@ -7,7 +7,7 @@ use crate::render::{Cell, FrameBuffer};
 
 use crate::node_id::NodeId;
 use crate::widgets::{
-    Spacer, Widget, WidgetRenderable, WidgetStyles, helpers::fixed_height_from_constraints,
+    helpers::fixed_height_from_constraints, Spacer, Widget, WidgetRenderable, WidgetStyles,
 };
 
 pub struct Overlay {
@@ -120,12 +120,10 @@ impl Overlay {
         self.visible = visible;
         // Runtime consumes OverlayVisibilityChanged and toggles modal subtree
         // `display` in tree mode.
-        ctx.post_message(Message::OverlayVisibilityChanged(
-            OverlayVisibilityChanged {
-                overlay: self.node_id(),
-                visible,
-            },
-        ));
+        ctx.post_message(OverlayVisibilityChanged {
+            overlay: self.node_id(),
+            visible,
+        });
         ctx.request_repaint();
     }
 
@@ -286,26 +284,28 @@ impl Widget for Overlay {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         // Overlay-specific message handling (works in both modes).
-        match &message.message {
-            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
-                if *overlay == self.node_id() =>
-            {
-                self.set_visible(*visible, ctx);
+        if let Some(m) = message.downcast_ref::<OverlaySetVisible>() {
+            if m.overlay == self.node_id() {
+                self.set_visible(m.visible, ctx);
                 ctx.set_handled();
+                return;
             }
-            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == self.node_id() => {
+        }
+        if let Some(m) = message.downcast_ref::<OverlayToggle>() {
+            if m.overlay == self.node_id() {
                 self.set_visible(!self.visible, ctx);
                 ctx.set_handled();
+                return;
             }
-            Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                let target_matches = overlay.map(|id| id == self.node_id()).unwrap_or(true);
-                let sender_in_modal = self.modal_contains(message.sender);
-                if target_matches && (sender_in_modal || overlay.is_some()) {
-                    self.set_visible(false, ctx);
-                    ctx.set_handled();
-                }
+        }
+        if let Some(m) = message.downcast_ref::<OverlayDismissRequested>() {
+            let target_matches = m.overlay.map(|id| id == self.node_id()).unwrap_or(true);
+            let sender_in_modal = self.modal_contains(message.sender);
+            if target_matches && (sender_in_modal || m.overlay.is_some()) {
+                self.set_visible(false, ctx);
+                ctx.set_handled();
             }
-            _ => {}
+            return;
         }
 
         // In tree mode, skip child forwarding — the tree handles message routing.
@@ -397,14 +397,13 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // OverlaySetVisible targeting our real NodeId should hide the overlay.
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlaySetVisible(OverlaySetVisible {
+        let msg_event = MessageEvent::new(
+            NodeId::default(),
+            OverlaySetVisible {
                 overlay: id,
                 visible: false,
-            }),
-            control: None,
-        };
+            },
+        );
         overlay.on_message(&msg_event, &mut ctx);
         assert!(
             ctx.handled(),
@@ -427,14 +426,13 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // OverlaySetVisible targeting a different NodeId should be ignored.
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlaySetVisible(OverlaySetVisible {
+        let msg_event = MessageEvent::new(
+            NodeId::default(),
+            OverlaySetVisible {
                 overlay: other,
                 visible: false,
-            }),
-            control: None,
-        };
+            },
+        );
         overlay.on_message(&msg_event, &mut ctx);
         assert!(
             !ctx.handled(),
@@ -453,11 +451,7 @@ mod tests {
         let mut overlay = Overlay::new(base, modal).visible(true);
         let mut ctx = EventCtx::default();
 
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayToggle(OverlayToggle { overlay: id }),
-            control: None,
-        };
+        let msg_event = MessageEvent::new(NodeId::default(), OverlayToggle { overlay: id });
         overlay.on_message(&msg_event, &mut ctx);
         assert!(ctx.handled());
         assert!(
@@ -476,13 +470,10 @@ mod tests {
         let mut overlay = Overlay::new(base, modal).visible(true);
         let mut ctx = EventCtx::default();
 
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayDismissRequested(OverlayDismissRequested {
-                overlay: Some(id),
-            }),
-            control: None,
-        };
+        let msg_event = MessageEvent::new(
+            NodeId::default(),
+            OverlayDismissRequested { overlay: Some(id) },
+        );
         overlay.on_message(&msg_event, &mut ctx);
         assert!(ctx.handled());
         assert!(!overlay.is_visible());
@@ -501,13 +492,12 @@ mod tests {
         let mut overlay = Overlay::new(base, modal).visible(true);
         let mut ctx = EventCtx::default();
 
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayDismissRequested(OverlayDismissRequested {
+        let msg_event = MessageEvent::new(
+            NodeId::default(),
+            OverlayDismissRequested {
                 overlay: Some(other),
-            }),
-            control: None,
-        };
+            },
+        );
         overlay.on_message(&msg_event, &mut ctx);
         assert!(!ctx.handled());
         assert!(overlay.is_visible());
@@ -560,14 +550,13 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // set_visible via message should not panic after extraction
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlaySetVisible(OverlaySetVisible {
+        let msg_event = MessageEvent::new(
+            NodeId::default(),
+            OverlaySetVisible {
                 overlay: id,
                 visible: false,
-            }),
-            control: None,
-        };
+            },
+        );
         overlay.on_message(&msg_event, &mut ctx);
         assert!(ctx.handled());
         assert!(!overlay.is_visible());
@@ -583,11 +572,7 @@ mod tests {
         let _ = overlay.take_composed_children();
         let mut ctx = EventCtx::default();
 
-        let msg_event = MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayToggle(OverlayToggle { overlay: id }),
-            control: None,
-        };
+        let msg_event = MessageEvent::new(NodeId::default(), OverlayToggle { overlay: id });
         overlay.on_message(&msg_event, &mut ctx);
         assert!(ctx.handled());
         assert!(!overlay.is_visible());

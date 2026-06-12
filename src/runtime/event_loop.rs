@@ -646,6 +646,19 @@ fn split_runtime_control_messages(
             }
             continue;
         }
+        if let Some(m) = event.downcast_ref::<crate::message::OverlayVisibilityChanged>() {
+            let overlay = m.overlay;
+            let visible = m.visible;
+            if let Some(tree) = app.active_widget_tree_mut()
+                && set_overlay_modal_display_tree(tree, overlay, visible)
+            {
+                pass.repaint_requested = true;
+                pass.invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
+            pass.deliver.push(event);
+            continue;
+        }
         match event.message {
             Message::AppAddClass(crate::message::AppAddClass {
                 selector,
@@ -982,19 +995,6 @@ fn split_runtime_control_messages(
                         crate::node_id::node_id_to_ffi(event.sender)
                     ));
                 }
-            }
-            Message::OverlayVisibilityChanged(crate::message::OverlayVisibilityChanged {
-                overlay,
-                visible,
-            }) => {
-                if let Some(tree) = app.active_widget_tree_mut()
-                    && set_overlay_modal_display_tree(tree, overlay, visible)
-                {
-                    pass.repaint_requested = true;
-                    pass.invalidation
-                        .merge(crate::event::InvalidationFlags::layout());
-                }
-                pass.deliver.push(event);
             }
             _ => pass.deliver.push(event),
         }

@@ -4,13 +4,13 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::render::FrameBuffer;
-use crate::style::{Constrain, Display, Offset, OffsetValue, Position, Scalar, parse_color_like};
+use crate::style::{parse_color_like, Constrain, Display, Offset, OffsetValue, Position, Scalar};
 
 use crate::node_id::NodeId;
 
 use super::{
-    Overlay, Widget, WidgetRenderable, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Overlay, Widget, WidgetRenderable, WidgetStyles,
 };
 
 pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
@@ -287,12 +287,10 @@ impl Tooltip {
             return;
         }
         self.visible = visible;
-        ctx.post_message(Message::OverlayVisibilityChanged(
-            OverlayVisibilityChanged {
-                overlay: self.node_id(),
-                visible,
-            },
-        ));
+        ctx.post_message(OverlayVisibilityChanged {
+            overlay: self.node_id(),
+            visible,
+        });
         ctx.request_repaint();
     }
 
@@ -662,44 +660,45 @@ impl Widget for Tooltip {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        match &message.message {
-            Message::OverlaySetVisible(OverlaySetVisible { overlay, visible })
-                if *overlay == self.node_id() =>
-            {
-                self.set_visible(*visible, ctx);
+        if let Some(m) = message.downcast_ref::<OverlaySetVisible>() {
+            if m.overlay == self.node_id() {
+                self.set_visible(m.visible, ctx);
                 ctx.set_handled();
+                return;
             }
-            Message::OverlaySetAnchor(OverlaySetAnchor { overlay, x, y })
-                if *overlay == self.node_id() =>
-            {
-                self.set_anchor(*x, *y);
+        }
+        if let Some(m) = message.downcast_ref::<OverlaySetAnchor>() {
+            if m.overlay == self.node_id() {
+                self.set_anchor(m.x, m.y);
                 ctx.request_repaint();
                 ctx.set_handled();
+                return;
             }
-            Message::OverlayClearAnchor(OverlayClearAnchor { overlay })
-                if *overlay == self.node_id() =>
-            {
+        }
+        if let Some(m) = message.downcast_ref::<OverlayClearAnchor>() {
+            if m.overlay == self.node_id() {
                 self.clear_anchor();
                 ctx.request_repaint();
                 ctx.set_handled();
-            }
-            Message::OverlayToggle(OverlayToggle { overlay }) if *overlay == self.node_id() => {
-                self.set_visible(!self.visible, ctx);
-                ctx.set_handled();
-            }
-            Message::OverlayDismissRequested(OverlayDismissRequested { overlay }) => {
-                let target_matches = overlay.map(|t| t == self.node_id()).unwrap_or(true);
-                if self.visible && target_matches {
-                    self.set_visible(false, ctx);
-                    ctx.set_handled();
-                } else {
-                    self.child.on_message(message, ctx);
-                }
-            }
-            _ => {
-                self.child.on_message(message, ctx);
+                return;
             }
         }
+        if let Some(m) = message.downcast_ref::<OverlayToggle>() {
+            if m.overlay == self.node_id() {
+                self.set_visible(!self.visible, ctx);
+                ctx.set_handled();
+                return;
+            }
+        }
+        if let Some(m) = message.downcast_ref::<OverlayDismissRequested>() {
+            let target_matches = m.overlay.map(|t| t == self.node_id()).unwrap_or(true);
+            if self.visible && target_matches {
+                self.set_visible(false, ctx);
+                ctx.set_handled();
+                return;
+            }
+        }
+        self.child.on_message(message, ctx);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
@@ -776,27 +775,22 @@ mod tests {
         let mut tooltip = Tooltip::new(super::super::Label::new("base"), "tip");
         let mut ctx = EventCtx::default();
         tooltip.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::OverlaySetVisible(OverlaySetVisible {
+            &MessageEvent::new(
+                NodeId::default(),
+                OverlaySetVisible {
                     overlay: NodeId::default(),
                     visible: true,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
         assert!(tooltip.is_visible());
 
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|event| {
-            matches!(
-                event.message,
-                Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
-                    overlay,
-                    visible: true
-                }) if overlay == NodeId::default()
-            )
+            event
+                .downcast_ref::<OverlayVisibilityChanged>()
+                .is_some_and(|m| m.overlay == NodeId::default() && m.visible)
         }));
     }
 

@@ -1742,48 +1742,24 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 6);
-        assert!(matches!(
-            messages[0].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: true,
-            }) if overlay == first
-        ));
-        assert!(matches!(
-            messages[1].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: false,
-            }) if overlay == first
-        ));
-        assert!(matches!(
-            messages[2].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: true,
-            }) if overlay == second
-        ));
-        assert!(matches!(
-            messages[3].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: false,
-            }) if overlay == second
-        ));
-        assert!(matches!(
-            messages[4].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: true,
-            }) if overlay == first
-        ));
-        assert!(matches!(
-            messages[5].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay,
-                visible: false,
-            }) if overlay == first
-        ));
+        assert!(messages[0]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == first && m.visible));
+        assert!(messages[1]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == first && !m.visible));
+        assert!(messages[2]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == second && m.visible));
+        assert!(messages[3]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == second && !m.visible));
+        assert!(messages[4]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == first && m.visible));
+        assert!(messages[5]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == first && !m.visible));
     }
 
     #[test]

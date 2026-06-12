@@ -1981,13 +1981,10 @@ impl Widget for CommandPalette {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if self.open
-            && matches!(
-                message.message,
-                Message::OverlaySetVisible(..)
-                    | Message::OverlayToggle(..)
-                    | Message::OverlayDismissRequested(..)
-                    | Message::OverlayVisibilityChanged(..)
-            )
+            && (message.is::<OverlaySetVisible>()
+                || message.is::<OverlayToggle>()
+                || message.is::<OverlayDismissRequested>()
+                || message.is::<OverlayVisibilityChanged>())
         {
             self.set_open(false, ctx);
         }
@@ -2594,14 +2591,13 @@ mod tests {
 
         let mut transition_ctx = EventCtx::default();
         palette.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
+            &MessageEvent::new(
+                NodeId::default(),
+                OverlayVisibilityChanged {
                     overlay: NodeId::default(),
                     visible: true,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut transition_ctx,
         );
         assert!(!palette.is_open());

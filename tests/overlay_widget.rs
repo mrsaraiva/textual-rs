@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
@@ -95,11 +95,7 @@ fn overlay_dismiss_message_hides_modal() {
 
     let mut ctx = EventCtx::default();
     overlay.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None }),
-            control: None,
-        },
+        &MessageEvent::new(NodeId::default(), OverlayDismissRequested { overlay: None }),
         &mut ctx,
     );
 

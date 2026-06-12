@@ -688,9 +688,7 @@ impl EventCtx {
     }
 
     pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
-        self.post_message(Message::OverlaySetVisible(
-            crate::message::OverlaySetVisible { overlay, visible },
-        ));
+        self.post_message(crate::message::OverlaySetVisible { overlay, visible });
     }
 
     pub fn show_overlay(&mut self, overlay: NodeId) {
@@ -702,15 +700,11 @@ impl EventCtx {
     }
 
     pub fn toggle_overlay(&mut self, overlay: NodeId) {
-        self.post_message(Message::OverlayToggle(crate::message::OverlayToggle {
-            overlay,
-        }));
+        self.post_message(crate::message::OverlayToggle { overlay });
     }
 
     pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
-        self.post_message(Message::OverlayDismissRequested(
-            crate::message::OverlayDismissRequested { overlay },
-        ));
+        self.post_message(crate::message::OverlayDismissRequested { overlay });
     }
 
     pub fn open_command_palette(&mut self) {
@@ -1052,28 +1046,18 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 8);
-        assert!(matches!(
-            messages[0].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay: target,
-                visible: true
-            }) if target == overlay_id
-        ));
-        assert!(matches!(
-            messages[1].message,
-            Message::OverlaySetVisible(crate::message::OverlaySetVisible {
-                overlay: target,
-                visible: false
-            }) if target == overlay_id
-        ));
-        assert!(matches!(
-            messages[2].message,
-            Message::OverlayToggle(crate::message::OverlayToggle { overlay: target }) if target == overlay_id
-        ));
-        assert!(matches!(
-            messages[3].message,
-            Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay: Some(target) }) if target == overlay_id
-        ));
+        assert!(messages[0]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == overlay_id && m.visible));
+        assert!(messages[1]
+            .downcast_ref::<crate::message::OverlaySetVisible>()
+            .is_some_and(|m| m.overlay == overlay_id && !m.visible));
+        assert!(messages[2]
+            .downcast_ref::<crate::message::OverlayToggle>()
+            .is_some_and(|m| m.overlay == overlay_id));
+        assert!(messages[3]
+            .downcast_ref::<crate::message::OverlayDismissRequested>()
+            .is_some_and(|m| m.overlay == Some(overlay_id)));
         assert!(messages[4].is::<crate::message::CommandPaletteOpened>());
         assert!(messages[5]
             .downcast_ref::<crate::message::CommandPaletteSetCommands>()

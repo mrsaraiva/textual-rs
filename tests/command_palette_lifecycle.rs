@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::message::MessageEvent;
@@ -59,14 +59,13 @@ fn command_palette_closes_when_overlay_visibility_changes() {
 
     let mut transition_ctx = EventCtx::default();
     palette.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::OverlayVisibilityChanged(OverlayVisibilityChanged {
+        &MessageEvent::new(
+            NodeId::default(),
+            OverlayVisibilityChanged {
                 overlay: NodeId::default(),
                 visible: true,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut transition_ctx,
     );
     assert!(!palette.is_open());
