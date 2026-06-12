@@ -31,26 +31,29 @@ fn tree_render(
 struct BorderCaptionWidget {
     title: &'static str,
     subtitle: &'static str,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl BorderCaptionWidget {
     fn new(title: &'static str, subtitle: &'static str) -> Self {
-        let mut styles = WidgetStyles::default();
-        styles.style = styles
+        let mut seed = NodeSeed::default();
+        seed.styles.style = seed
+            .styles
             .style
             .border_top(textual::style::Color::parse("white").unwrap())
             .border_bottom(textual::style::Color::parse("white").unwrap())
             .border_left(textual::style::Color::parse("white").unwrap())
             .border_right(textual::style::Color::parse("white").unwrap());
-        styles.style.border_title_align = Some(HorizontalAlign::Center);
-        styles.style.border_subtitle_align = Some(HorizontalAlign::Right);
-        styles.style.border_title_color = Some(textual::style::Color::parse("yellow").unwrap());
-        styles.style.border_subtitle_color = Some(textual::style::Color::parse("cyan").unwrap());
+        seed.styles.style.border_title_align = Some(HorizontalAlign::Center);
+        seed.styles.style.border_subtitle_align = Some(HorizontalAlign::Right);
+        seed.styles.style.border_title_color =
+            Some(textual::style::Color::parse("yellow").unwrap());
+        seed.styles.style.border_subtitle_color =
+            Some(textual::style::Color::parse("cyan").unwrap());
         Self {
             title,
             subtitle,
-            styles,
+            seed,
         }
     }
 }
@@ -82,22 +85,26 @@ impl Widget for BorderCaptionWidget {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
 struct FillWidget {
     style_type_name: &'static str,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl FillWidget {
     fn new(style_type_name: &'static str, style: Style) -> Self {
-        let mut styles = WidgetStyles::default();
-        styles.style = style;
+        let mut seed = NodeSeed::default();
+        seed.styles.style = style;
         Self {
             style_type_name,
-            styles,
+            seed,
         }
     }
 }
@@ -121,7 +128,11 @@ impl Widget for FillWidget {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -854,14 +865,14 @@ fn p2g34_keyline_draws_separator_between_children() {
 /// to exercise the tree-level text-overflow truncation wiring.
 struct WideRenderWidget {
     text: String,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl WideRenderWidget {
     fn new(text: &str) -> Self {
         Self {
             text: text.to_string(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 }
@@ -885,11 +896,15 @@ impl Widget for WideRenderWidget {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -899,8 +914,8 @@ fn p2_31_nowrap_ellipsis_narrow_pipeline() {
     // Uses a custom widget that renders text wider than its layout rect.
     let mut widget = WideRenderWidget::new("abcdefghijklmnop"); // 16 chars
     widget.set_width(8);
-    widget.styles.style.text_wrap = Some(TextWrap::NoWrap);
-    widget.styles.style.text_overflow = Some(TextOverflow::Ellipsis);
+    widget.seed.styles.style.text_wrap = Some(TextWrap::NoWrap);
+    widget.seed.styles.style.text_overflow = Some(TextOverflow::Ellipsis);
 
     let mut root = Container::new().with_child(widget);
     let (_tree, _frame, lines) = tree_render(&mut root, 20, 3);

@@ -241,19 +241,23 @@ pub struct GameCell {
     is_cursor: bool,
     id: String,
     classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl GameCell {
     pub fn new(row: usize, col: usize, filled: bool, is_cursor: bool) -> Self {
+        let id = Self::id_for(row, col);
+        let mut seed = NodeSeed::default();
+        seed.css_id = Some(id.clone());
+        seed.styles.style_id = Some(id.clone());
         let mut cell = Self {
             row,
             col,
             filled,
             is_cursor,
-            id: Self::id_for(row, col),
+            id,
             classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed,
         };
         cell.rebuild_classes();
         cell
@@ -302,12 +306,8 @@ impl Widget for GameCell {
         Widget::render(&Label::new(" "), console, options)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
@@ -330,7 +330,7 @@ pub struct GameHeader {
     moves: usize,
     filled: usize,
     children_extracted: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl GameHeader {
@@ -339,7 +339,7 @@ impl GameHeader {
             moves,
             filled,
             children_extracted: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 }
@@ -371,12 +371,8 @@ impl Widget for GameHeader {
         Some(1)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
@@ -398,7 +394,7 @@ impl Renderable for GameHeader {
 pub struct WinnerMessage {
     text: String,
     visible: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl WinnerMessage {
@@ -406,7 +402,7 @@ impl WinnerMessage {
         Self {
             text: String::new(),
             visible: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -456,12 +452,8 @@ impl Widget for WinnerMessage {
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
