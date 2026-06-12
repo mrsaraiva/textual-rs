@@ -6,10 +6,7 @@ use crate::render::FrameBuffer;
 
 use crate::node_id::NodeId;
 
-use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
-    Button, ButtonVariant, Markdown, Widget, WidgetStyles,
-};
+use super::{Button, ButtonVariant, Markdown, NodeSeed, Widget};
 
 const WELCOME_MD: &str = r#"# Welcome!
 
@@ -29,20 +26,14 @@ Where the fear has gone there will be nothing. Only I will remain.""#;
 pub struct Welcome {
     markdown: Markdown,
     close: Button,
-    focused: bool,
-    hovered: bool,
     last_width: u16,
     last_height: u16,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl std::fmt::Debug for Welcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Welcome")
-            .field("focused", &self.focused)
-            .field("hovered", &self.hovered)
             .field("last_width", &self.last_width)
             .field("last_height", &self.last_height)
             .finish()
@@ -57,16 +48,14 @@ impl Default for Welcome {
 
 impl Welcome {
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("welcome".to_string());
         Self {
             markdown: Markdown::new(WELCOME_MD),
             close: Button::new("OK").variant(ButtonVariant::Success),
-            focused: false,
-            hovered: false,
             last_width: 1,
             last_height: 1,
-            classes: vec!["welcome".to_string()],
-            focused_classes: vec!["welcome".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -118,26 +107,6 @@ impl Widget for Welcome {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        self.close.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        if !hovered {
-            self.close.set_hovered(false);
-        }
-    }
-
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_width = width.max(1);
         self.last_height = height.max(1);
@@ -152,10 +121,6 @@ impl Widget for Welcome {
     }
 
     fn on_unmount(&mut self) {
-        self.focused = false;
-        self.hovered = false;
-        self.close.set_focus(false);
-        self.close.set_hovered(false);
         self.markdown.on_unmount();
         self.close.on_unmount();
     }
@@ -181,6 +146,7 @@ impl Widget for Welcome {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let focused = self.node_state().focused;
         match event {
             Event::MouseDown(mouse) => {
                 let translated = self.translate_mouse_down(*mouse);
@@ -190,8 +156,13 @@ impl Widget for Welcome {
                 let translated = self.translate_mouse_up(*mouse);
                 self.close.on_event(&translated, ctx);
             }
-            Event::Action(_) | Event::Key(_) if self.focused => {
+            Event::Action(_) | Event::Key(_) if focused => {
+                // Welcome acts as a proxy for the close button when focused.
+                // Temporarily promote the close button to focused so it handles
+                // keyboard events correctly (Button.on_event checks self.focused).
+                self.close.set_focus(true);
                 self.close.on_event(event, ctx);
+                self.close.set_focus(false);
             }
             _ => {}
         }
@@ -220,11 +191,7 @@ impl Widget for Welcome {
         if self.last_height > 1 && y + 1 >= self.last_height {
             self.close.on_mouse_move(x, 0)
         } else {
-            let was_hovered = self.close.is_hovered();
-            if was_hovered {
-                self.close.set_hovered(false);
-            }
-            was_hovered
+            false
         }
     }
 
@@ -281,7 +248,7 @@ impl Widget for Welcome {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
+        None
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -292,22 +259,8 @@ impl Widget for Welcome {
         "Welcome"
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

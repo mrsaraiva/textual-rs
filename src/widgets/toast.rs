@@ -4,8 +4,8 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    NodeSeed, Widget, WidgetStyles,
+    helpers::adjust_line_length_no_bg,
 };
 
 /// Severity level for toast notifications.
@@ -40,25 +40,22 @@ pub struct Toast {
     severity: ToastSeverity,
     timeout_remaining: u64,
     dismissed: bool,
-    hovered: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Toast {
     pub fn new(message: impl Into<String>, severity: ToastSeverity) -> Self {
         let message = message.into();
+        let mut seed = NodeSeed::default();
+        seed.classes.push(severity.class_name().to_string());
         Self {
             message,
             title: None,
             severity,
             timeout_remaining: DEFAULT_TIMEOUT,
             dismissed: false,
-            hovered: false,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed,
         }
-        .rebuild_classes()
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -77,11 +74,6 @@ impl Toast {
 
     pub fn message(&self) -> &str {
         &self.message
-    }
-
-    fn rebuild_classes(mut self) -> Self {
-        self.classes = vec![self.severity.class_name().to_string()];
-        self
     }
 
     fn dismiss(&mut self, ctx: &mut EventCtx) {
@@ -122,17 +114,22 @@ impl Toast {
     }
 }
 
+/// Build a `SelectorMeta` for off-tree toast rendering (e.g. notification overlay).
+///
+/// This constructs the meta explicitly from severity so that CSS rules for
+/// Toast severity classes apply correctly when the toast is rendered without
+/// being mounted in the arena tree. See §T-9 in SPEC-RA2-node-record.md.
+pub(crate) fn toast_selector_meta(severity: ToastSeverity) -> crate::css::SelectorMeta {
+    crate::css::SelectorMeta::new(
+        "Toast".to_string(),
+        None,
+        vec![severity.class_name().to_string()],
+    )
+}
+
 impl Widget for Toast {
     fn focusable(&self) -> bool {
         false
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
     }
 
     fn mouse_interactive(&self) -> bool {
@@ -235,28 +232,26 @@ impl Widget for Toast {
         let chrome_height = usize::from(padding.top.saturating_add(padding.bottom))
             .saturating_add(border_top)
             .saturating_add(border_bottom);
-        let intrinsic = content_lines.saturating_add(chrome_height);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
+        Some(content_lines.saturating_add(chrome_height))
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.seed.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.seed.styles)
     }
 
     fn style_type(&self) -> &'static str {
         "Toast"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve the inline style so post-mount style() queries remain accurate.
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

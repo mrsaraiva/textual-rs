@@ -4,8 +4,8 @@ use crate::event::{Event, EventCtx};
 use crate::style::{Color, parse_color_like};
 
 use super::{
-    Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
+    NodeSeed, Widget,
+    helpers::adjust_line_length_no_bg,
 };
 
 /// An animated loading indicator that displays cycling gradient dots.
@@ -28,18 +28,18 @@ pub struct LoadingIndicator {
     /// When false, renders static "Loading..." text instead of animated dots.
     /// Matches Python Textual's `animation_level == "none"` behavior.
     animation_enabled: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl LoadingIndicator {
     /// Create a new `LoadingIndicator`.
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("loading-indicator".to_string());
         Self {
             tick: 0,
             animation_enabled: true,
-            classes: vec!["loading-indicator".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -188,23 +188,15 @@ impl Widget for LoadingIndicator {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
+        None
     }
 
     fn style_type(&self) -> &'static str {
         "LoadingIndicator"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

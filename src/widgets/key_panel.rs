@@ -8,34 +8,28 @@ use crate::message::*;
 use crate::style::parse_color_like;
 
 use super::footer::FooterBinding;
-use super::helpers::{
-    adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints, pad_lines_to_width,
-};
+use super::helpers::{adjust_line_length_no_bg, pad_lines_to_width};
 
-use super::{ScrollBar, ScrollView, Widget, WidgetStyles};
+use super::{NodeSeed, ScrollBar, ScrollView, Widget};
 
 pub(crate) const KEY_PANEL_VSCROLLBAR_ID: &str = "__key_panel_vscrollbar";
 
 #[derive(Debug, Clone)]
 pub struct BindingsTable {
     bindings: Vec<FooterBinding>,
-    id: Option<String>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl BindingsTable {
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
-            id: None,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        self.seed.css_id = Some(id.into());
         self
     }
 
@@ -265,27 +259,11 @@ impl Widget for BindingsTable {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.line_count()))
+        Some(self.line_count())
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -297,7 +275,6 @@ impl Renderable for BindingsTable {
 
 #[derive(Debug)]
 pub struct KeyPanel {
-    id: Option<String>,
     title: String,
     table: BindingsTable,
     offset_y: usize,
@@ -307,14 +284,12 @@ pub struct KeyPanel {
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
     scrollbar_extracted: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl KeyPanel {
     pub fn new() -> Self {
         Self {
-            id: None,
             title: "Key Bindings".to_string(),
             table: BindingsTable::new().with_id("bindings-table"),
             offset_y: 0,
@@ -324,8 +299,7 @@ impl KeyPanel {
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
             scrollbar_extracted: false,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -335,7 +309,7 @@ impl KeyPanel {
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        self.seed.css_id = Some(id.into());
         self
     }
 
@@ -516,27 +490,11 @@ impl Widget for KeyPanel {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
+        None
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {

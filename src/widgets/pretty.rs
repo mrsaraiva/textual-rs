@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use super::{
-    Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
+    NodeSeed, Widget,
+    helpers::adjust_line_length_no_bg,
 };
 
 /// Internal data source for Pretty.
@@ -54,7 +54,7 @@ impl PrettySource {
 pub struct Pretty {
     source: PrettySource,
     layout_width: usize,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     border_title_text: Option<String>,
 }
 
@@ -66,7 +66,7 @@ impl Pretty {
         Self {
             source: PrettySource::Static(format!("{:?}", value)),
             layout_width: 1,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             border_title_text: None,
         }
     }
@@ -76,7 +76,7 @@ impl Pretty {
         Self {
             source: PrettySource::Static(debug_str.into()),
             layout_width: 1,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             border_title_text: None,
         }
     }
@@ -90,7 +90,7 @@ impl Pretty {
         Self {
             source: PrettySource::Shared(debug_str),
             layout_width: 1,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             border_title_text: None,
         }
     }
@@ -205,9 +205,6 @@ impl Widget for Pretty {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         let debug_str = self.debug_str();
         if debug_str.is_empty() {
             return Some(1);
@@ -217,12 +214,8 @@ impl Widget for Pretty {
         Some(text.lines().count().max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

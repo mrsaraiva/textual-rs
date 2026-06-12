@@ -6,10 +6,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::style::Color;
 
-use super::{
-    Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
-};
+use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// The variant determines what text a placeholder displays.
@@ -71,39 +68,34 @@ pub struct Placeholder {
     /// Cached content-box dimensions from the last layout pass.
     last_width: usize,
     last_height: usize,
-    hovered: bool,
-    disabled: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Placeholder {
     pub fn new(label: impl Into<String>) -> Self {
         let color_index = COLOR_COUNTER.fetch_add(1, Ordering::Relaxed) % PLACEHOLDER_COLORS.len();
         let label = label.into();
-        Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("placeholder".to_string());
+        seed.classes.push("-default".to_string());
+        let mut ph = Self {
             label,
             variant: PlaceholderVariant::Default,
             color_index,
             last_width: 0,
             last_height: 0,
-            hovered: false,
-            disabled: false,
-            classes: vec!["placeholder".to_string(), "-default".to_string()],
-            styles: WidgetStyles::default(),
-        }
-        .apply_bg_color()
-    }
-
-    /// Set the initial disabled state (builder pattern).
-    pub fn disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
+            seed,
+        };
+        ph.apply_bg_color();
+        ph
     }
 
     pub fn with_variant(mut self, variant: PlaceholderVariant) -> Self {
+        // Remove old variant class and add new one in seed.
+        let old_class = self.variant.class_name().to_string();
+        self.seed.classes.retain(|c| c != &old_class);
         self.variant = variant;
-        self.rebuild_classes();
+        self.seed.classes.push(self.variant.class_name().to_string());
         self
     }
 
@@ -130,52 +122,29 @@ impl Placeholder {
         }
     }
 
-    /// Reactive setter for `disabled`. Records the change in the provided
-    /// [`ReactiveCtx`].
-    pub fn set_disabled(&mut self, value: bool, ctx: &mut ReactiveCtx) {
-        if self.disabled != value {
-            let old = self.disabled;
-            self.disabled = value;
-            ctx.record_change(
-                "disabled",
-                ReactiveFlags::reactive(),
-                Box::new(old),
-                Box::new(value),
-            );
-        }
-    }
-
     // ── Watchers ─────────────────────────────────────────────────────────
 
     fn watch_variant(
         &mut self,
-        _old: &PlaceholderVariant,
-        _new: &PlaceholderVariant,
-        _ctx: &mut ReactiveCtx,
+        old: &PlaceholderVariant,
+        new: &PlaceholderVariant,
+        ctx: &mut ReactiveCtx,
     ) {
-        self.rebuild_classes();
+        ctx.remove_class(old.class_name());
+        ctx.add_class(new.class_name());
     }
 
     pub fn cycle_variant(&mut self) {
         self.variant = self.variant.next();
-        self.rebuild_classes();
     }
 
-    fn rebuild_classes(&mut self) {
-        self.classes = vec![
-            "placeholder".to_string(),
-            self.variant.class_name().to_string(),
-        ];
-    }
-
-    fn apply_bg_color(mut self) -> Self {
+    fn apply_bg_color(&mut self) {
         let hex = PLACEHOLDER_COLORS[self.color_index];
         if let Some(color) = crate::style::parse_color_like(hex) {
             // Apply at 50% opacity to match Python Textual's `background: {color} 50%`.
             let bg = Color::rgba(color.r, color.g, color.b, 128);
-            self.styles.set_bg(bg);
+            self.seed.styles.set_bg(bg);
         }
-        self
     }
 
     fn render_text(&self, width: usize, height: usize) -> String {
@@ -210,14 +179,6 @@ impl Widget for Placeholder {
         false
     }
 
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-    }
-
     fn mouse_interactive(&self) -> bool {
         true
     }
@@ -227,21 +188,17 @@ impl Widget for Placeholder {
         self.last_height = height as usize;
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if self.disabled {
+        if self.node_state().disabled {
             return;
         }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+                let old_class = self.variant.class_name().to_string();
                 self.cycle_variant();
+                let new_class = self.variant.class_name().to_string();
+                ctx.remove_class(&old_class);
+                ctx.add_class(&new_class);
                 ctx.post_message(PlaceholderVariantChanged {
                     variant: self.variant.message_name().to_string(),
                 });
@@ -305,27 +262,15 @@ impl Widget for Placeholder {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-    }
-
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        None
     }
 
     fn style_type(&self) -> &'static str {
         "Placeholder"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -441,29 +386,8 @@ mod tests {
     }
 
     #[test]
-    fn disabled_blocks_events() {
-        let mut ph = Placeholder::new("test").disabled(true);
-        assert!(ph.is_disabled());
-        // Create a fake mouse event targeting this placeholder.
-        let event = Event::MouseDown(crate::event::MouseDownEvent {
-            x: 0,
-            y: 0,
-            screen_x: 0,
-            screen_y: 0,
-            target: NodeId::default(),
-        });
-        let mut ctx = EventCtx::default();
-        ph.on_event(&event, &mut ctx);
-        // Should remain Default because disabled blocks event handling.
-        assert_eq!(ph.variant(), PlaceholderVariant::Default);
-        assert!(!ctx.handled());
-        assert!(ctx.take_messages().is_empty());
-    }
-
-    #[test]
     fn enabled_handles_click() {
         let mut ph = Placeholder::new("test");
-        assert!(!ph.is_disabled());
         let event = Event::MouseDown(crate::event::MouseDownEvent {
             x: 0,
             y: 0,
@@ -485,16 +409,36 @@ mod tests {
     }
 
     #[test]
-    fn with_variant_sets_classes() {
+    fn with_variant_sets_seed_class() {
         let ph = Placeholder::new("test").with_variant(PlaceholderVariant::Text);
-        let classes = ph.style_classes();
-        assert!(classes.iter().any(|c| c == "-text"));
+        assert!(ph.seed.classes.iter().any(|c| c == "-text"));
+        assert!(!ph.seed.classes.iter().any(|c| c == "-default"));
     }
 
     #[test]
     fn style_type_is_placeholder() {
         let ph = Placeholder::new("test");
         assert_eq!(ph.style_type(), "Placeholder");
+    }
+
+    #[test]
+    fn click_queues_class_ops_on_event_ctx() {
+        let mut ph = Placeholder::new("test");
+        // Default variant is "-default"; click cycles to "-size".
+        let event = Event::MouseDown(crate::event::MouseDownEvent {
+            x: 0,
+            y: 0,
+            screen_x: 0,
+            screen_y: 0,
+            target: NodeId::default(),
+        });
+        let mut ctx = EventCtx::default();
+        ph.on_event(&event, &mut ctx);
+        assert_eq!(ph.variant(), PlaceholderVariant::Size);
+        // Class ops should reflect the variant change.
+        let ops = ctx.take_class_ops();
+        assert!(ops.iter().any(|(_id, op)| matches!(op, crate::event::ClassOp::Remove(c) if c == "-default")));
+        assert!(ops.iter().any(|(_id, op)| matches!(op, crate::event::ClassOp::Add(c) if c == "-size")));
     }
 }
 

@@ -1,11 +1,11 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{Widget, WidgetStyles, helpers::fixed_height_from_constraints};
+use super::{NodeSeed, Widget};
 
 pub struct Spacer {
     height: usize,
     width_hint: Option<usize>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Spacer {
@@ -13,7 +13,7 @@ impl Spacer {
         Self {
             height: height.max(1),
             width_hint: None,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -38,19 +38,15 @@ impl Widget for Spacer {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.height))
+        Some(self.height)
     }
 
     fn content_width(&self) -> Option<usize> {
         Some(self.width_hint.unwrap_or(1).max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

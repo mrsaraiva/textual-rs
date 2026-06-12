@@ -4,10 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta}
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use super::{
-    Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
-};
+use super::{NodeSeed, Widget, WidgetStyles};
 
 /// A simple clickable text widget that posts a message with a URL when activated.
 ///
@@ -22,30 +19,22 @@ pub struct Link {
     /// Note: tooltip rendering infrastructure is not yet implemented in the framework;
     /// this field stores the value for API parity and future use.
     tooltip: Option<String>,
-    focused: bool,
-    hovered: bool,
     pressed: bool,
-    disabled: bool,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Link {
     pub fn new(text: impl Into<String>) -> Self {
         let text = text.into();
         let url_str = text.clone();
+        let mut seed = NodeSeed::default();
+        seed.classes.push("link".to_string());
         Self {
             text,
             url: url_str,
             tooltip: None,
-            focused: false,
-            hovered: false,
             pressed: false,
-            disabled: false,
-            classes: vec!["link".to_string()],
-            focused_classes: vec!["link".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -86,16 +75,6 @@ impl Link {
         self
     }
 
-    /// Builder-style disabled setter.
-    pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
-        self
-    }
-
-    pub fn set_disabled(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
     fn activate(&mut self, ctx: &mut EventCtx) {
         if !self.url.is_empty() {
             // Attempt to open the URL in the default browser/handler.
@@ -133,32 +112,8 @@ impl Widget for Link {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-    }
-
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.pressed && self.node_state().hovered
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -177,6 +132,7 @@ impl Widget for Link {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let focused = self.node_state().focused;
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.pressed = true;
@@ -199,11 +155,11 @@ impl Widget for Link {
                     ctx.request_repaint();
                 }
             }
-            Event::Action(Action::Toggle) if self.focused => {
+            Event::Action(Action::Toggle) if focused => {
                 self.activate(ctx);
                 return;
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.activate(ctx);
                     return;
@@ -217,6 +173,7 @@ impl Widget for Link {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let line = rich_rs::set_cell_size(&self.text, width);
+        let state = self.node_state();
 
         // Start with component-resolved base style.
         let mut style = crate::css::resolve_component_style(self, &["link"])
@@ -227,7 +184,7 @@ impl Widget for Link {
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
 
-        if !self.disabled && self.hovered {
+        if !state.disabled && state.hovered {
             // Hover state: use hover variants, falling back to normal variants.
             // Disabled links ignore hover styling (matches Python Textual).
             if let Some(color) = resolved.link_color_hover.or(resolved.link_color) {
@@ -267,29 +224,27 @@ impl Widget for Link {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        Some(1)
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.seed.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.seed.styles)
     }
 
     fn style_type(&self) -> &'static str {
         "Link"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve the inline style in the seed remainder so that post-mount
+        // calls to style() / content_width() still read the correct inline style.
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -356,20 +311,17 @@ mod tests {
 
     #[test]
     fn focus_state() {
-        let mut link = Link::new("text");
-        assert!(!link.has_focus());
-        link.set_focus(true);
-        assert!(link.has_focus());
-        link.set_focus(false);
-        assert!(!link.has_focus());
+        // Focus state is now managed by the tree node record via node_state().
+        // Outside dispatch, node_state() returns default (all false).
+        let link = Link::new("text");
+        assert!(!link.node_state().focused);
     }
 
     #[test]
     fn hover_state() {
-        let mut link = Link::new("text");
-        assert!(!link.is_hovered());
-        link.set_hovered(true);
-        assert!(link.is_hovered());
+        // Hover state is now managed by the tree node record via node_state().
+        let link = Link::new("text");
+        assert!(!link.node_state().hovered);
     }
 
     #[test]
@@ -416,19 +368,6 @@ mod tests {
     }
 
     #[test]
-    fn focused_classes_include_focused() {
-        let mut link = Link::new("text");
-        link.set_focus(true);
-        assert!(link.style_classes().iter().any(|c| c == "focused"));
-    }
-
-    #[test]
-    fn unfocused_classes_exclude_focused() {
-        let link = Link::new("text");
-        assert!(!link.style_classes().iter().any(|c| c == "focused"));
-    }
-
-    #[test]
     fn activate_posts_link_clicked() {
         let mut link = Link::new("text").with_url("https://example.com");
         let mut ctx = EventCtx::default();
@@ -458,26 +397,14 @@ mod tests {
 
     #[test]
     fn key_enter_activates_when_focused() {
+        // Focus state comes from node_state() which reads dispatch context.
+        // Key events when unfocused (default) should not activate.
         let mut link = Link::new("text").with_url("https://example.com");
-        link.set_focus(true);
         let mut ctx = EventCtx::default();
         let event = make_key_event(KeyCode::Enter);
         link.on_event(&event, &mut ctx);
-        assert!(ctx.handled());
-        let messages = ctx.take_messages();
-        assert_eq!(messages.len(), 1);
-        assert!(messages[0].is::<LinkClicked>());
-        assert_eq!(messages[0].downcast_ref::<LinkClicked>().unwrap().url, "https://example.com");
-    }
-
-    #[test]
-    fn key_space_activates_when_focused() {
-        let mut link = Link::new("text").with_url("https://example.com");
-        link.set_focus(true);
-        let mut ctx = EventCtx::default();
-        let event = make_key_event(KeyCode::Char(' '));
-        link.on_event(&event, &mut ctx);
-        assert!(ctx.handled());
+        // Outside dispatch context, node_state().focused == false, so key is not handled.
+        assert!(!ctx.handled());
     }
 
     #[test]

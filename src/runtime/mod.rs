@@ -1,5 +1,5 @@
 mod devtools;
-pub(crate) mod dispatch_ctx;
+pub mod dispatch_ctx;
 mod event_loop;
 mod helpers;
 mod render;

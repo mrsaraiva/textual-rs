@@ -4,6 +4,7 @@ use textual::event::MouseDownEvent;
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -49,11 +50,13 @@ fn welcome_re_emits_button_press_from_widget_sender() {
 #[test]
 fn welcome_key_press_is_forwarded_to_close_button() {
     let mut welcome = Welcome::new();
-    welcome.set_focus(true);
     welcome.on_layout(48, 10);
 
     let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
+    // Focus state is managed by the runtime; inject it for this test.
+    let focused_state = NodeState { focused: true, ..Default::default() };
+    let _guard = set_dispatch_recipient(NodeId::default(), focused_state);
     welcome.on_event(&Event::Key(enter), &mut ctx);
 
     assert!(ctx.handled());
@@ -101,13 +104,14 @@ fn welcome_single_row_layout_routes_mouse_to_close_button() {
 }
 
 #[test]
-fn welcome_clears_hover_state_on_unmount() {
+fn welcome_unmount_does_not_panic() {
+    // Hover/focus state is managed by the runtime node record (NodeState);
+    // set_hovered/is_hovered are no-ops on migrated widgets.
+    // Verify that unmount completes without panicking.
     let mut welcome = Welcome::new();
     welcome.on_layout(32, 6);
-    welcome.set_hovered(true);
-    assert!(welcome.is_hovered());
-
     welcome.on_unmount();
+    // After unmount, node_state() defaults to all-false.
     assert!(!welcome.is_hovered());
 }
 

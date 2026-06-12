@@ -9,8 +9,7 @@ use crate::style::{parse_color_like, Constrain, Display, Offset, OffsetValue, Po
 use crate::node_id::NodeId;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
-    Overlay, Widget, WidgetRenderable, WidgetStyles,
+    NodeSeed, Overlay, Widget, WidgetRenderable, WidgetStyles,
 };
 
 pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
@@ -44,12 +43,17 @@ pub struct Tooltip {
     max_width: usize,
     y_offset: usize,
     anchor: Option<(usize, usize)>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
+    /// Behavior-derived inline style for system-mode positioning (display, position, size, offset).
+    /// Written by `apply_system_geometry`; contributed via `Widget::style()`.
+    inline_style: WidgetStyles,
 }
 
 impl Tooltip {
     pub fn new(child: impl Widget + 'static, text: impl Into<String>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("tooltip".to_string());
+        seed.classes.push("-textual-system".to_string());
         Self {
             child: Box::new(child),
             text: text.into(),
@@ -59,8 +63,8 @@ impl Tooltip {
             max_width: 40,
             y_offset: 1,
             anchor: None,
-            classes: vec!["tooltip".to_string(), "-textual-system".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
+            inline_style: WidgetStyles::default(),
         }
     }
 
@@ -181,11 +185,8 @@ impl Tooltip {
     }
 
     fn apply_system_geometry(&mut self, geometry: SystemTooltipGeometry) -> bool {
-        let Some(styles) = self.styles_mut() else {
-            return false;
-        };
         let mut changed = false;
-        let style = &mut styles.style;
+        let style = &mut self.inline_style.style;
 
         if style.display != Some(Display::Block) {
             style.display = Some(Display::Block);
@@ -582,7 +583,7 @@ impl Widget for Tooltip {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(self.child.layout_height())
+        self.child.layout_height()
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -714,48 +715,24 @@ impl Widget for Tooltip {
         self.child.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.child.has_focus()
-    }
-
-    fn is_disabled(&self) -> bool {
-        self.child.is_disabled()
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.child.is_hovered()
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.child.set_hovered(hovered);
-    }
-
     fn mouse_interactive(&self) -> bool {
         self.child.mouse_interactive()
+    }
+
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.inline_style)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.inline_style)
     }
 
     fn style_type(&self) -> &'static str {
         "Tooltip"
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

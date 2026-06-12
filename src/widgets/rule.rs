@@ -1,9 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{
-    Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
-};
+use super::{NodeSeed, Widget, WidgetStyles};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Orientation of a rule separator.
@@ -61,8 +58,7 @@ impl LineStyle {
 pub struct Rule {
     orientation: RuleOrientation,
     line_style: LineStyle,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Rule {
@@ -71,11 +67,13 @@ impl Rule {
             RuleOrientation::Horizontal => "rule--horizontal",
             RuleOrientation::Vertical => "rule--vertical",
         };
+        let mut seed = NodeSeed::default();
+        seed.classes.push("rule".to_string());
+        seed.classes.push(class.to_string());
         Self {
             orientation,
             line_style: LineStyle::Solid,
-            classes: vec!["rule".to_string(), class.to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -114,8 +112,6 @@ impl Rule {
         if self.orientation != orientation {
             let old = self.orientation;
             self.orientation = orientation;
-            // Update CSS classes immediately (also done via watcher in runtime).
-            self.update_orientation_classes(&old, &orientation);
             ctx.record_change(
                 "orientation",
                 ReactiveFlags::reactive(),
@@ -142,7 +138,12 @@ impl Rule {
 
     // ── Watchers ─────────────────────────────────────────────────────────
 
-    fn update_orientation_classes(&mut self, old: &RuleOrientation, new: &RuleOrientation) {
+    fn watch_orientation(
+        &mut self,
+        old: &RuleOrientation,
+        new: &RuleOrientation,
+        ctx: &mut ReactiveCtx,
+    ) {
         let old_class = match old {
             RuleOrientation::Horizontal => "rule--horizontal",
             RuleOrientation::Vertical => "rule--vertical",
@@ -151,17 +152,8 @@ impl Rule {
             RuleOrientation::Horizontal => "rule--horizontal",
             RuleOrientation::Vertical => "rule--vertical",
         };
-        self.classes.retain(|c| c != old_class);
-        self.classes.push(new_class.to_string());
-    }
-
-    fn watch_orientation(
-        &mut self,
-        old: &RuleOrientation,
-        new: &RuleOrientation,
-        _ctx: &mut ReactiveCtx,
-    ) {
-        self.update_orientation_classes(old, new);
+        ctx.remove_class(old_class);
+        ctx.add_class(new_class);
     }
 }
 
@@ -188,10 +180,10 @@ impl Widget for Rule {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(match self.orientation {
+        match self.orientation {
             RuleOrientation::Horizontal => Some(1),
             RuleOrientation::Vertical => None, // expand to fill
-        })
+        }
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -231,24 +223,23 @@ impl Widget for Rule {
         out
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.seed.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.seed.styles)
     }
 
     fn style_type(&self) -> &'static str {
         "Rule"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve the inline style so post-mount style() queries remain accurate.
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -321,25 +312,43 @@ mod tests {
     }
 
     #[test]
-    fn set_orientation_updates_classes() {
+    fn set_orientation_updates_class_ops() {
+        use crate::event::ClassOp;
         let mut r = Rule::horizontal();
-        let mut ctx = ReactiveCtx::new(make_node_id());
-        assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
-        assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));
+        let node_id = make_node_id();
+        let mut ctx = ReactiveCtx::new(node_id);
 
         r.set_orientation(RuleOrientation::Vertical, &mut ctx);
         assert_eq!(r.orientation(), RuleOrientation::Vertical);
-        assert!(r.style_classes().iter().any(|c| c == "rule--vertical"));
-        assert!(!r.style_classes().iter().any(|c| c == "rule--horizontal"));
+
+        // Drain changes and run reactive_dispatch to trigger watch_orientation.
+        let changes = ctx.take_changes();
+        r.reactive_dispatch(&changes, &mut ctx);
+
+        let ops = ctx.take_class_ops();
+        let removes: Vec<_> = ops
+            .iter()
+            .filter(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "rule--horizontal"))
+            .collect();
+        let adds: Vec<_> = ops
+            .iter()
+            .filter(|(_, op)| matches!(op, ClassOp::Add(c) if c == "rule--vertical"))
+            .collect();
+        assert!(!removes.is_empty(), "should remove rule--horizontal");
+        assert!(!adds.is_empty(), "should add rule--vertical");
     }
 
     #[test]
     fn set_orientation_noop_same() {
+        use crate::event::ClassOp;
         let mut r = Rule::horizontal();
         let mut ctx = ReactiveCtx::new(make_node_id());
-        let classes_before: Vec<String> = r.style_classes().to_vec();
+        // Setting same orientation should record no changes.
         r.set_orientation(RuleOrientation::Horizontal, &mut ctx);
-        assert_eq!(r.style_classes(), &classes_before[..]);
+        let changes = ctx.take_changes();
+        r.reactive_dispatch(&changes, &mut ctx);
+        let ops = ctx.take_class_ops();
+        assert!(ops.is_empty(), "no class ops for noop orientation change");
     }
 
     #[test]
@@ -452,7 +461,5 @@ mod tests {
         r.set_orientation(RuleOrientation::Vertical, &mut ctx);
         r.set_orientation(RuleOrientation::Horizontal, &mut ctx);
         assert_eq!(r.orientation(), RuleOrientation::Horizontal);
-        assert!(r.style_classes().iter().any(|c| c == "rule--horizontal"));
-        assert!(!r.style_classes().iter().any(|c| c == "rule--vertical"));
     }
 }

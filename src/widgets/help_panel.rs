@@ -4,10 +4,7 @@ use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 use crate::render::FrameBuffer;
 
-use super::{
-    FooterBinding, KeyPanel, Markdown, Overlay, Widget, WidgetRenderable, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
-};
+use super::{FooterBinding, KeyPanel, Markdown, NodeSeed, Overlay, Widget, WidgetRenderable};
 
 /// Context-sensitive help panel baseline.
 ///
@@ -20,31 +17,33 @@ pub struct HelpPanel {
     show_help: bool,
     app_active: bool,
     help_markup: String,
-    classes: Vec<String>,
-    classes_with_help: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl HelpPanel {
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("help-panel".to_string());
+        seed.classes.push("-textual-system".to_string());
         Self {
             markdown: Markdown::new("").with_id("widget-help"),
             key_panel: KeyPanel::new().with_id("keys-help"),
             show_help: false,
             app_active: true,
             help_markup: String::new(),
-            classes: vec!["help-panel".to_string(), "-textual-system".to_string()],
-            classes_with_help: vec![
-                "help-panel".to_string(),
-                "-textual-system".to_string(),
-                "-show-help".to_string(),
-            ],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
     pub fn with_help(mut self, markup: impl Into<String>) -> Self {
-        self.set_help(markup);
+        let markup = markup.into();
+        let show = !markup.trim().is_empty();
+        self.help_markup = markup.clone();
+        self.show_help = show;
+        self.markdown.set_markup(markup);
+        if show {
+            self.seed.classes.push("-show-help".to_string());
+        }
         self
     }
 
@@ -133,9 +132,6 @@ impl Widget for HelpPanel {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         if self.show_help {
             let markdown_height = self.markdown.layout_height().unwrap_or(1).max(1);
             let key_panel_height = self.key_panel.layout_height().unwrap_or(1).max(1);
@@ -187,6 +183,11 @@ impl Widget for HelpPanel {
         if let Event::AppFocus(active) = event {
             if self.app_active != *active {
                 self.app_active = *active;
+                if self.app_active && self.show_help {
+                    ctx.add_class("-show-help");
+                } else {
+                    ctx.remove_class("-show-help");
+                }
                 ctx.request_repaint();
             }
         }
@@ -206,6 +207,7 @@ impl Widget for HelpPanel {
         if let Some(m) = message.downcast_ref::<HelpPanelSetHelp>() {
             if m.panel == self.node_id() {
                 self.set_help(m.markup.clone());
+                ctx.set_class(self.show_help && self.app_active, "-show-help");
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
@@ -213,16 +215,19 @@ impl Widget for HelpPanel {
         } else if let Some(m) = message.downcast_ref::<HelpPanelClearHelp>() {
             if m.panel == self.node_id() {
                 self.clear_help();
+                ctx.remove_class("-show-help");
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
         } else if let Some(m) = message.downcast_ref::<HelpPanelFocusedHelpChanged>() {
             self.set_help(m.markup.clone());
+            ctx.set_class(self.show_help && self.app_active, "-show-help");
             ctx.request_repaint();
             return;
         } else if message.is::<HelpPanelFocusedHelpCleared>() {
             self.clear_help();
+            ctx.remove_class("-show-help");
             ctx.request_repaint();
             return;
         }
@@ -241,22 +246,8 @@ impl Widget for HelpPanel {
         "HelpPanel"
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.show_help && self.app_active {
-            &self.classes_with_help
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -271,45 +262,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn help_panel_toggles_show_help_class() {
+    fn help_panel_toggles_show_help_state() {
         let mut panel = HelpPanel::new();
         assert!(!panel.showing_help());
-        assert!(
-            !panel
-                .style_classes()
-                .iter()
-                .any(|class| class == "-show-help")
-        );
 
         panel.set_help("# Help\nSome text");
         assert!(panel.showing_help());
-        assert!(
-            panel
-                .style_classes()
-                .iter()
-                .any(|class| class == "-show-help")
-        );
     }
 
     #[test]
-    fn help_panel_clear_help_removes_show_help_class() {
+    fn help_panel_with_help_sets_show_help_seed_class() {
+        let panel = HelpPanel::new().with_help("## Help\nbody");
+        assert!(panel.showing_help());
+        // Seed classes include -show-help for initial builder state.
+        assert!(panel.seed.classes.iter().any(|c| c == "-show-help"));
+    }
+
+    #[test]
+    fn help_panel_clear_help_removes_show_help_state() {
         let mut panel = HelpPanel::new().with_help("## Help\nbody");
         assert!(panel.showing_help());
-        assert!(
-            panel
-                .style_classes()
-                .iter()
-                .any(|class| class == "-show-help")
-        );
-
         panel.clear_help();
         assert!(!panel.showing_help());
-        assert!(
-            !panel
-                .style_classes()
-                .iter()
-                .any(|class| class == "-show-help")
-        );
     }
 
     #[test]

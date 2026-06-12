@@ -7,8 +7,8 @@ use crate::renderables::Bar;
 use crate::style::Color;
 
 use super::{
-    Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    NodeSeed, Widget,
+    helpers::adjust_line_length_no_bg,
 };
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -222,8 +222,7 @@ pub struct ProgressBar {
     eta: Eta,
     /// Monotonic reference point for ETA time tracking.
     start_instant: Instant,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl ProgressBar {
@@ -231,6 +230,8 @@ impl ProgressBar {
     ///
     /// Pass `Some(total)` for a determinate bar, or `None` for indeterminate.
     pub fn new(total: Option<f64>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("progress-bar".to_string());
         Self {
             total: total.map(|t| t.max(0.0)),
             progress: 0.0,
@@ -241,8 +242,7 @@ impl ProgressBar {
             gradient: None,
             eta: Eta::new(),
             start_instant: Instant::now(),
-            classes: vec!["progress-bar".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -670,7 +670,7 @@ impl Widget for ProgressBar {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        Some(1)
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -687,24 +687,12 @@ impl Widget for ProgressBar {
         Some(width.max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
     fn style_type(&self) -> &'static str {
         "ProgressBar"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
