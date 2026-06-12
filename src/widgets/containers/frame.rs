@@ -5,7 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    Spacer, Widget, WidgetStyles,
+    NodeSeed, Spacer, Widget, WidgetStyles,
     helpers::{apply_debug_box, fixed_height_from_constraints},
 };
 
@@ -13,7 +13,7 @@ pub struct Frame {
     child: Box<dyn Widget>,
     padding: usize,
     border: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     child_extracted: bool,
 }
 
@@ -23,7 +23,7 @@ impl Frame {
             child: Box::new(child),
             padding: 1,
             border: true,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             child_extracted: false,
         }
     }
@@ -308,11 +308,17 @@ impl Widget for Frame {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn focusable(&self) -> bool {

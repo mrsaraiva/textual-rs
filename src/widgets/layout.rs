@@ -8,7 +8,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::node_id::NodeId;
 
 use super::{
-    LayoutConstraints, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
         constraints_from_style, fixed_height_from_constraints, margin_from_style,
@@ -22,7 +22,7 @@ pub struct Row {
     children_extracted: bool,
     align: RowAlign,
     last_layout_width: u16,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Row {
@@ -32,7 +32,7 @@ impl Row {
             children_extracted: false,
             align: RowAlign::Top,
             last_layout_width: 0,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -384,11 +384,17 @@ impl Widget for Row {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn render_with_debug(
@@ -785,10 +791,9 @@ pub struct Dock {
     items: Vec<DockItem>,
     items_extracted: bool,
     fixed_height: Option<usize>,
-    focused: bool,
     last_layout_width: AtomicUsize,
     last_layout_height: AtomicUsize,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Dock {
@@ -797,10 +802,9 @@ impl Dock {
             items: Vec::new(),
             items_extracted: false,
             fixed_height: None,
-            focused: false,
             last_layout_width: AtomicUsize::new(1),
             last_layout_height: AtomicUsize::new(1),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -1051,7 +1055,6 @@ impl Widget for Dock {
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
         if self.is_tree_mode() || !focused {
             if !focused && !self.is_tree_mode() {
                 for item in &mut self.items {
@@ -1074,9 +1077,9 @@ impl Widget for Dock {
 
     fn has_focus(&self) -> bool {
         if self.is_tree_mode() {
-            return self.focused;
+            return self.node_state().focused;
         }
-        self.focused || self.items.iter().any(|item| item.child.has_focus())
+        self.node_state().focused || self.items.iter().any(|item| item.child.has_focus())
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1436,11 +1439,17 @@ impl Widget for Dock {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn render_with_debug(
@@ -1805,9 +1814,7 @@ pub struct Grid {
     col_gaps: usize,
     row_sizes: Option<Vec<usize>>,
     col_sizes: Option<Vec<usize>>,
-    style_id: Option<String>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Grid {
@@ -1823,9 +1830,7 @@ impl Grid {
             col_gaps: 0,
             row_sizes: None,
             col_sizes: None,
-            style_id: None,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -1870,18 +1875,18 @@ impl Grid {
     }
 
     pub fn id(mut self, value: impl Into<String>) -> Self {
-        self.style_id = Some(value.into());
+        self.seed.css_id = Some(value.into());
         self
     }
 
     pub fn class(mut self, value: impl Into<String>) -> Self {
-        self.classes.push(value.into());
+        self.seed.classes.push(value.into());
         self
     }
 
     pub fn classes(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
         for value in values {
-            self.classes.push(value.into());
+            self.seed.classes.push(value.into());
         }
         self
     }
@@ -2285,19 +2290,25 @@ impl Widget for Grid {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
     }
 
     fn style_id(&self) -> Option<&str> {
-        self.style_id.as_deref()
+        self.seed.css_id.as_deref()
     }
 
     fn style_classes(&self) -> &[String] {
-        &self.classes
+        &self.seed.classes
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

@@ -7,7 +7,8 @@ use crate::render::{Cell, FrameBuffer};
 
 use crate::node_id::NodeId;
 use crate::widgets::{
-    helpers::fixed_height_from_constraints, Spacer, Widget, WidgetRenderable, WidgetStyles,
+    helpers::fixed_height_from_constraints, NodeSeed, Spacer, Widget, WidgetRenderable,
+    WidgetStyles,
 };
 
 pub struct Overlay {
@@ -16,7 +17,7 @@ pub struct Overlay {
     visible: bool,
     trap_base_events: bool,
     dismiss_on_escape: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     children_extracted: bool,
 }
 
@@ -28,7 +29,7 @@ impl Overlay {
             visible: true,
             trap_base_events: true,
             dismiss_on_escape: true,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             children_extracted: false,
         }
     }
@@ -320,11 +321,17 @@ impl Widget for Overlay {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn layout_height(&self) -> Option<usize> {

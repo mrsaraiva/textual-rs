@@ -15,15 +15,15 @@ use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{
-    ScrollBar, ScrollBarCorner, Widget, WidgetStyles, helpers::fixed_height_from_constraints,
-    scrollbar_max_offset,
+    NodeSeed, ScrollBar, ScrollBarCorner, Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints, scrollbar_max_offset,
 };
 
 pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
     focused: Option<NodeId>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     offset_x: f32,
     offset_y: f32,
     scroll_step_x: usize,
@@ -78,7 +78,7 @@ impl AppRoot {
             children: Vec::new(),
             children_extracted: false,
             focused: None,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             offset_x: 0.0,
             offset_y: 0.0,
             scroll_step_x: 2,
@@ -551,11 +551,17 @@ impl Widget for AppRoot {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn style_type(&self) -> &'static str {

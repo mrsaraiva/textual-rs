@@ -6,29 +6,29 @@ use crate::message::MessageEvent;
 use crate::style::Style;
 
 use crate::widgets::{
-    LayoutConstraints, Spacer, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Spacer, Widget, WidgetStyles,
     helpers::{fixed_height_from_constraints, merge_constraints},
 };
 
 pub struct Styled {
     child: Box<dyn Widget>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     child_extracted: bool,
 }
 
 impl Styled {
     pub fn new(child: impl Widget + 'static, style: Style) -> Self {
-        let mut styles = WidgetStyles::default();
-        styles.style = style;
+        let mut seed = NodeSeed::default();
+        seed.styles.style = style;
         Self {
             child: Box::new(child),
-            styles,
+            seed,
             child_extracted: false,
         }
     }
 
     pub fn style(mut self, style: Style) -> Self {
-        self.styles.style = style;
+        self.seed.styles.style = style;
         self
     }
 }
@@ -90,23 +90,29 @@ impl Widget for Styled {
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        merge_constraints(self.styles.layout, self.child.layout_constraints())
+        merge_constraints(self.seed.styles.layout, self.child.layout_constraints())
     }
 
     fn style(&self) -> Option<Style> {
-        Some(self.styles.style.clone())
+        Some(self.seed.styles.style.clone())
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
     }
 
     fn style_type(&self) -> &'static str {
         "Styled"
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

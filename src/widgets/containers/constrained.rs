@@ -5,14 +5,14 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    LayoutConstraints, Spacer, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Spacer, Widget, WidgetStyles,
     helpers::{clamp_with_constraints, merge_constraints},
 };
 
 pub struct Constrained {
     child: Box<dyn Widget>,
     constraints: LayoutConstraints,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     child_extracted: bool,
     extracted_child_layout_height: Option<usize>,
     extracted_child_content_width: Option<usize>,
@@ -23,7 +23,7 @@ impl Constrained {
         Self {
             child: Box::new(child),
             constraints: LayoutConstraints::default(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             child_extracted: false,
             extracted_child_layout_height: None,
             extracted_child_content_width: None,
@@ -197,15 +197,21 @@ impl Widget for Constrained {
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        merge_constraints(self.styles.layout, self.constraints)
+        merge_constraints(self.seed.styles.layout, self.constraints)
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

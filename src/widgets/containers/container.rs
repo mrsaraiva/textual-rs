@@ -6,14 +6,14 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
 use crate::widgets::{
-    Widget, WidgetStyles,
+    NodeSeed, Widget, WidgetStyles,
     helpers::{apply_debug_box, fixed_height_from_constraints},
 };
 
 pub struct Container {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Container {
@@ -21,7 +21,7 @@ impl Container {
         Self {
             children: Vec::new(),
             children_extracted: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -56,12 +56,6 @@ impl Container {
 }
 
 impl Widget for Container {
-    fn has_focus(&self) -> bool {
-        false
-    }
-
-    fn set_focus(&mut self, _focused: bool) {}
-
     fn compose(&self) -> ComposeResult {
         Vec::new()
     }
@@ -190,11 +184,17 @@ impl Widget for Container {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

@@ -5,15 +5,13 @@ use crate::event::{Event, EventCtx};
 use crate::style::Style;
 
 use crate::widgets::{
-    LayoutConstraints, Spacer, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Spacer, Widget, WidgetStyles,
     helpers::{fixed_height_from_constraints, merge_constraints},
 };
 
 pub struct Node {
     child: Box<dyn Widget>,
-    style_id: Option<String>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     child_extracted: bool,
 }
 
@@ -21,26 +19,24 @@ impl Node {
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
             child: Box::new(child),
-            style_id: None,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             child_extracted: false,
         }
     }
 
     pub fn id(mut self, value: impl Into<String>) -> Self {
-        self.style_id = Some(value.into());
+        self.seed.css_id = Some(value.into());
         self
     }
 
     pub fn class(mut self, value: impl Into<String>) -> Self {
-        self.classes.push(value.into());
+        self.seed.classes.push(value.into());
         self
     }
 
     pub fn classes(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
         for value in values {
-            self.classes.push(value.into());
+            self.seed.classes.push(value.into());
         }
         self
     }
@@ -97,19 +93,19 @@ impl Widget for Node {
     }
 
     fn layout_constraints(&self) -> LayoutConstraints {
-        merge_constraints(self.styles.layout, self.child.layout_constraints())
+        merge_constraints(self.seed.styles.layout, self.child.layout_constraints())
     }
 
     fn style(&self) -> Option<Style> {
-        Some(self.styles.style.clone())
+        Some(self.seed.styles.style.clone())
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
     }
 
     fn style_type(&self) -> &'static str {
@@ -117,11 +113,17 @@ impl Widget for Node {
     }
 
     fn style_id(&self) -> Option<&str> {
-        self.style_id.as_deref()
+        self.seed.css_id.as_deref()
     }
 
     fn style_classes(&self) -> &[String] {
-        &self.classes
+        &self.seed.classes
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

@@ -16,7 +16,7 @@ use crate::node_id::NodeId;
 use crate::renderables::Blank;
 use crate::widgets::scrollbar;
 use crate::widgets::{
-    BindingDecl, Container, ScrollBar, ScrollBarCorner, Spacer, Widget, WidgetStyles,
+    BindingDecl, Container, NodeSeed, ScrollBar, ScrollBarCorner, Spacer, Widget, WidgetStyles,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
         fixed_height_from_constraints, pad_lines_to_width,
@@ -30,7 +30,6 @@ pub(crate) const SCROLL_VIEW_SCROLLBAR_CORNER_ID: &str = "__scrollview_scrollbar
 pub struct ScrollView {
     child: Box<dyn Widget>,
     child_extracted: bool,
-    focused: bool,
     height: Option<usize>,
     pub(crate) offset_y: usize,
     render_offset_y: f32,
@@ -50,7 +49,7 @@ pub struct ScrollView {
     hover_v_track: bool,
     hover_h_thumb: bool,
     hover_h_track: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl ScrollView {
@@ -61,7 +60,6 @@ impl ScrollView {
         Self {
             child: Box::new(child),
             child_extracted: false,
-            focused: false,
             height: None,
             offset_y: 0,
             render_offset_y: 0.0,
@@ -81,7 +79,7 @@ impl ScrollView {
             hover_v_track: false,
             hover_h_thumb: false,
             hover_h_track: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -647,17 +645,6 @@ impl Widget for ScrollView {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        if !self.child_extracted {
-            self.child.set_focus(focused);
-        }
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
     fn set_hovered(&mut self, hovered: bool) {
         if !hovered {
             self.hover_v_thumb = false;
@@ -1007,11 +994,17 @@ impl Widget for ScrollView {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn render_with_debug(
@@ -1540,8 +1533,8 @@ impl Widget for ScrollView {
         // Horizontal-only scroll containers use wheel Y deltas to scroll X.
         let mut resolved_dx = delta_x;
         let mut resolved_dy = delta_y;
-        let overflow_x = self.styles.style.overflow_x.unwrap_or(Overflow::Auto);
-        let overflow_y = self.styles.style.overflow_y.unwrap_or(Overflow::Auto);
+        let overflow_x = self.seed.styles.style.overflow_x.unwrap_or(Overflow::Auto);
+        let overflow_y = self.seed.styles.style.overflow_y.unwrap_or(Overflow::Auto);
         if resolved_dx == 0
             && resolved_dy != 0
             && matches!(overflow_y, Overflow::Hidden)
