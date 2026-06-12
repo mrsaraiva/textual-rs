@@ -1,4 +1,4 @@
-use crate::css::{StyleRule, StyleSheet};
+use crate::css::{StyleRule, StyleSheet, node_selector_meta, resolve_node_style};
 use crate::event::{AnimationRequest, BindingHint, InvalidationFlags};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
@@ -102,12 +102,9 @@ impl NodeHitTestMap {
             return (0, 0);
         };
 
-        let (inset_x, inset_y) = if let Some(node) = tree.get(target) {
-            let meta = crate::css::selector_meta_generic_with_classes(
-                node.widget.as_ref(),
-                node.classes.iter().cloned(),
-            );
-            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+        let (inset_x, inset_y) = if tree.get(target).is_some() {
+            let meta = node_selector_meta(tree, target);
+            let resolved = resolve_node_style(tree, target, &meta);
             let line_pad = resolved.line_pad.unwrap_or(0) as usize;
             let (top, _bottom, left, _right) = border_spacing_from_style(&resolved);
             (left.saturating_add(line_pad) as u16, top as u16)

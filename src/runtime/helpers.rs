@@ -1,4 +1,4 @@
-use crate::css::{resolve_style, selector_meta_generic_with_classes, with_style_stack};
+use crate::css::{node_selector_meta, resolve_node_style, with_style_stack};
 use crate::driver::PointerShape;
 use crate::event::{
     Action, ActionMap, ClickEvent, Event, KeyBind, MouseEnterEvent, MouseLeaveEvent,
@@ -212,7 +212,8 @@ pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId
         if !node.display || node.visibility != crate::style::Visibility::Visible {
             continue;
         }
-        if node.widget.style_id() == Some(SYSTEM_TOOLTIP_STYLE_ID) {
+        let node_css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
+        if node_css_id == Some(SYSTEM_TOOLTIP_STYLE_ID) {
             continue;
         }
         let mut render_shift_x: i32 = 0;
@@ -345,8 +346,9 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };
+    let css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
     matches!(
-        node.widget.style_id(),
+        css_id,
         Some(
             APP_ROOT_VSCROLLBAR_ID
                 | APP_ROOT_HSCROLLBAR_ID
@@ -385,10 +387,8 @@ fn resolve_style_along_path(
     index: usize,
 ) -> Option<crate::style::Style> {
     let id = *path.get(index)?;
-    let node = tree.get(id)?;
-    let meta =
-        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
-    let resolved = resolve_style(node.widget.as_ref(), &meta);
+    let meta = node_selector_meta(tree, id);
+    let resolved = resolve_node_style(tree, id, &meta);
     if index + 1 == path.len() {
         Some(resolved)
     } else {
@@ -431,7 +431,8 @@ pub(crate) fn pointer_shape_for_hover_tree(
     };
 
     let mouse_interactive = node.widget.mouse_interactive();
-    let disabled = node.widget.is_disabled();
+    // Dual-write phase: merge node.state.disabled with legacy widget getter.
+    let disabled = node.state.disabled || node.widget.is_disabled();
 
     if !mouse_interactive {
         return PointerShape::Default;
@@ -442,16 +443,16 @@ pub(crate) fn pointer_shape_for_hover_tree(
         return PointerShape::NotAllowed;
     }
 
-    // Read the widget's computed CSS `pointer` property.
-    if let Some(style) = node.widget.style() {
-        if let Some(ptr) = style.pointer {
-            return match ptr {
-                crate::style::Pointer::Default => PointerShape::Default,
-                crate::style::Pointer::Pointer => PointerShape::Pointer,
-                crate::style::Pointer::Text => PointerShape::Text,
-                crate::style::Pointer::NotAllowed => PointerShape::NotAllowed,
-            };
-        }
+    // Read the node's resolved CSS `pointer` property via node record path.
+    let meta = node_selector_meta(tree, id);
+    let resolved = resolve_node_style(tree, id, &meta);
+    if let Some(ptr) = resolved.pointer {
+        return match ptr {
+            crate::style::Pointer::Default => PointerShape::Default,
+            crate::style::Pointer::Pointer => PointerShape::Pointer,
+            crate::style::Pointer::Text => PointerShape::Text,
+            crate::style::Pointer::NotAllowed => PointerShape::NotAllowed,
+        };
     }
 
     // Default for interactive widgets with no explicit CSS pointer.

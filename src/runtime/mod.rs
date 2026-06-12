@@ -2320,7 +2320,7 @@ impl App {
         let root = tree.root()?;
         tree.walk_depth_first(root).into_iter().find(|node_id| {
             tree.get(*node_id)
-                .and_then(|node| node.widget.style_id())
+                .and_then(|node| node.css_id.as_deref().or_else(|| node.widget.style_id()))
                 .is_some_and(|id| id == SYSTEM_TOOLTIP_STYLE_ID)
         })
     }
@@ -2572,7 +2572,7 @@ impl App {
             }
             if tree
                 .get(target)
-                .and_then(|node| node.widget.style_id())
+                .and_then(|node| node.css_id.as_deref().or_else(|| node.widget.style_id()))
                 .is_some_and(|id| id == SYSTEM_TOOLTIP_STYLE_ID)
             {
                 return None;
