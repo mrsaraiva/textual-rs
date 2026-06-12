@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA1 Step 20: Public dispatch_message_queue_tree + acceptance tests)
+
+- **feat(runtime): `dispatch_message_queue_tree` is now `pub`**
+  - Promoted from `pub(crate)` to `pub` in `src/runtime/routing.rs`.
+  - Re-exported from `textual::runtime` alongside `dispatch_event_tree`.
+  - Added to the `textual::prelude` re-export block.
+  - Doc comment updated to explain the public role as the canonical tree message pump.
+
+- **test(open_messages): RA-1 acceptance test suite**
+  - New integration test `tests/open_messages.rs` (11 tests, T5 in SPEC-RA1).
+  - Custom `Ping` and `CursorEcho` / `AltEcho` messages defined entirely outside `src/`.
+  - Covers: bubble order, stop propagation, `can_replace` coalescing (same-sender /
+    different-sender / non-replaceable), `control` field propagation, built-in/custom
+    coexistence, TypeId refinement regression (distinct replaceable types do not coalesce),
+    `MessageHandlers<A>` typed registration, and `#[on(ThirdPartyType)]` dispatch.
+
 ### 2026-06-12 (SPEC-RA1 Step 19: Rename Msg trait to Message)
 
 - **BREAKING(message): `Msg` trait renamed to `Message` (final API name)**

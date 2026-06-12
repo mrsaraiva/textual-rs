@@ -393,14 +393,19 @@ pub(crate) fn coalesce_message_queue(queue: &mut std::collections::VecDeque<Mess
     }
 }
 
-/// Drain and dispatch a queue of messages through the arena tree.
+/// Canonical tree message pump: drain and dispatch a queue of messages through
+/// the arena tree.
 ///
 /// Each `MessageEvent` is wrapped in a [`MessageEnvelope`] that controls
 /// propagation.  Messages bubble from the sender node up to the root; a
 /// handler can stop propagation via `ctx.set_handled()` (maps to
 /// `envelope.stop()`).  Before dispatching each batch the queue is
 /// coalesced according to message-level replacement semantics.
-pub(crate) fn dispatch_message_queue_tree(
+///
+/// This is the same pump used internally by the framework. Third-party
+/// integration tests and tooling may drive it directly alongside
+/// [`dispatch_event_tree`] to exercise custom widgets and messages.
+pub fn dispatch_message_queue_tree(
     tree: &mut WidgetTree,
     initial: Vec<MessageEvent>,
 ) -> DispatchOutcome {

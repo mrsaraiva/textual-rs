@@ -16,7 +16,10 @@ pub use render::{
     render_tree_to_frame_with_debug, render_tree_to_frame_with_stylesheet, resolve_axis_constrain,
     run_layout_pass, text_overflow_mode,
 };
-pub use routing::{dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree};
+pub use routing::{
+    dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
+    focused_node_id_tree,
+};
 pub use types::DispatchOutcome;
 
 use crate::animation::{Animator, animation_level_from_env};
