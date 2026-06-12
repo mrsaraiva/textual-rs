@@ -84,6 +84,29 @@ pub trait TextualApp: Send + 'static {
     /// already exist and can be reached via `app.query_one()` / `app.query_mut()`.
     fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {}
 
+    /// Register typed message handlers. Called once before the runtime starts.
+    ///
+    /// Handlers receive `&mut self` (the app state), the typed payload, sender
+    /// metadata, and the event context. This is a convenience layer over the
+    /// same message bus that drives `on_message` — not a separate dispatch path.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn register_message_handlers(&mut self, handlers: &mut MessageHandlers<Self>)
+    /// where
+    ///     Self: Sized,
+    /// {
+    ///     handlers.on::<ButtonPressed>(|app, msg, _mctx, ctx| {
+    ///         // ...
+    ///     });
+    /// }
+    /// ```
+    fn register_message_handlers(&mut self, _handlers: &mut crate::message_handlers::MessageHandlers<Self>)
+    where
+        Self: Sized,
+    {
+    }
+
     /// Return a mutable `ReactiveWidget` reference if this app uses
     /// `#[derive(Reactive)]` on its struct fields.
     ///
@@ -305,6 +328,7 @@ struct TextualAppAdapter<T: TextualApp> {
     children_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
+    message_handlers: crate::message_handlers::MessageHandlers<T>,
 }
 
 fn build_textual_app_runtime_root<T: TextualApp>(
@@ -330,6 +354,11 @@ impl<T: TextualApp> TextualAppAdapter<T> {
     }
 
     fn new(app: Arc<Mutex<T>>, child: impl Widget + 'static) -> Self {
+        let mut message_handlers = crate::message_handlers::MessageHandlers::new();
+        {
+            let mut locked = app.lock().unwrap_or_else(|e| e.into_inner());
+            locked.register_message_handlers(&mut message_handlers);
+        }
         Self {
             app,
             app_child: Box::new(child),
@@ -338,6 +367,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             children_extracted: false,
             command_palette_providers: Vec::new(),
             command_palette_provider_index: HashMap::new(),
+            message_handlers,
         }
     }
 
@@ -941,6 +971,17 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 }
             }
             _ => {}
+        }
+        // Typed handler registry (Block between A and B).
+        // Dispatches all registered handlers for the message's concrete payload type.
+        // Runs AFTER adapter state management (Block A) but BEFORE built-in typed hooks
+        // (Block B), so `command_palette_visible` / `help_panel_visible` are already set.
+        {
+            let mut app = self.app.lock().unwrap_or_else(|e| e.into_inner());
+            self.message_handlers.dispatch(&mut *app, message, ctx);
+        }
+        if ctx.handled() {
+            return;
         }
         match &message.message {
             Message::ButtonPressed(crate::message::ButtonPressed { description, .. }) => {
@@ -2554,5 +2595,105 @@ mod tests {
         let guard = app_state.lock().unwrap();
         assert_eq!(guard.count, 101);
         assert_eq!(guard.watch_log.len(), 2);
+    }
+
+    // ---------------------------------------------------------------------------
+    // T3: MessageHandlers adapter-wiring tests
+    // ---------------------------------------------------------------------------
+
+    #[derive(Default)]
+    struct HandlerWiringApp {
+        typed_handler_count: usize,
+        builtin_hook_count: usize,
+    }
+
+    impl TextualApp for HandlerWiringApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn register_message_handlers(
+            &mut self,
+            handlers: &mut crate::message_handlers::MessageHandlers<Self>,
+        ) {
+            handlers.on::<crate::message::ButtonPressed, _>(|app, _msg, _mctx, _ctx| {
+                app.typed_handler_count += 1;
+            });
+        }
+
+        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {
+            self.builtin_hook_count += 1;
+        }
+    }
+
+    #[derive(Default)]
+    struct HandlerSetHandledApp {
+        typed_handler_count: usize,
+        builtin_hook_count: usize,
+    }
+
+    impl TextualApp for HandlerSetHandledApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+
+        fn register_message_handlers(
+            &mut self,
+            handlers: &mut crate::message_handlers::MessageHandlers<Self>,
+        ) {
+            handlers.on::<crate::message::ButtonPressed, _>(|app, _msg, _mctx, ctx| {
+                app.typed_handler_count += 1;
+                ctx.set_handled();
+            });
+        }
+
+        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {
+            self.builtin_hook_count += 1;
+        }
+    }
+
+    #[test]
+    fn typed_handler_runs_before_builtin_hook() {
+        let app = Arc::new(Mutex::new(HandlerWiringApp::default()));
+        let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
+        let mut ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ButtonPressed(crate::message::ButtonPressed {
+                    description: "test".to_string(),
+                    button_id: None,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        let guard = app.lock().unwrap();
+        assert_eq!(guard.typed_handler_count, 1, "typed handler ran");
+        assert_eq!(guard.builtin_hook_count, 1, "builtin hook also ran");
+    }
+
+    #[test]
+    fn typed_handler_set_handled_suppresses_builtin_hook() {
+        let app = Arc::new(Mutex::new(HandlerSetHandledApp::default()));
+        let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
+        let mut ctx = EventCtx::default();
+        adapter.on_message(
+            &MessageEvent {
+                sender: NodeId::default(),
+                message: Message::ButtonPressed(crate::message::ButtonPressed {
+                    description: "test".to_string(),
+                    button_id: None,
+                }),
+                control: None,
+            },
+            &mut ctx,
+        );
+        let guard = app.lock().unwrap();
+        assert_eq!(guard.typed_handler_count, 1, "typed handler ran");
+        assert_eq!(
+            guard.builtin_hook_count, 0,
+            "builtin hook suppressed by set_handled"
+        );
     }
 }

@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA1 Step 2: TypeId handler registration + #[on] downcast codegen)
+
+- **feat(message_handlers): new `MessageHandlers<A>` typed registration API**
+  - New module `src/message_handlers.rs` with `MessageHandlers<A>` and `MessageContext`.
+  - `handlers.on::<T>(|app, msg, mctx, ctx| ...)` registers a closure dispatched by `TypeId`.
+  - Multiple handlers for the same type all run in registration order.
+  - `MessageHandlers::dispatch` returns `true` if any handler ran.
+  - Exported from prelude as `pub use crate::message_handlers::{MessageContext, MessageHandlers}`.
+
+- **feat(textual_app): `TextualApp::register_message_handlers` hook**
+  - New optional trait method; `TextualAppAdapter` calls it once in `new()`.
+  - Dispatch inserted between Block A (command palette/help panel state) and Block B
+    (built-in typed hooks); typed handlers calling `ctx.set_handled()` suppress Block B.
+
+- **BREAKING(macros): `#[on(T)]` generated dispatcher signature changed**
+  - Old: `fn __on_dispatch_x(&mut self, msg: &Message, _sender: NodeId, ctx: &mut EventCtx) -> bool`
+  - New: `fn __on_dispatch_x(&mut self, event: &MessageEvent, ctx: &mut EventCtx) -> bool`
+  - Body uses `event.downcast_ref::<T>()` instead of enum-match.
+  - Works for third-party message types (type in caller's scope, not enum variant).
+
 ### 2026-06-12 (SPEC-RA1 Step 1: Promote UserMessage to open Msg trait)
 
 - **BREAKING(message): `UserMessage` trait removed; replaced by `Msg` (will be renamed `Message` at Step 19)**

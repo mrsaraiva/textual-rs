@@ -14,9 +14,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Expr, ExprLit, Ident, ItemFn, Lit, Meta, Token,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
+    Expr, ExprLit, Ident, ItemFn, Lit, Meta, Token,
 };
 
 /// Parsed arguments from `#[on(MessageType)]` or `#[on(MessageType, selector = "...")]`.
@@ -104,13 +104,15 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let msg_variant = &args.message_type;
 
     let call_expr = quote! {
-        self.#fn_name(event, ctx);
+        self.#fn_name(payload, ctx);
     };
 
     // All dispatch methods share a uniform signature:
-    //   fn __on_dispatch_<name>(&mut self, msg: &Message, sender: NodeId, ctx: &mut EventCtx) -> bool
+    //   fn __on_dispatch_<name>(&mut self, event: &MessageEvent, ctx: &mut EventCtx) -> bool
     // This allows the runtime to call any generated dispatcher through a single
     // interface regardless of whether a selector was specified.
+    // The `#msg_variant` is now a *type* in the caller's scope (not an enum variant),
+    // so `#[on(MyCustomMessage)]` works for third-party messages too.
     let selector_items = if let Some(ref selector_str) = args.selector {
         let selector_const = format_ident!("__ON_SELECTOR_{}", fn_name.to_string().to_uppercase());
         quote! {
@@ -131,11 +133,10 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         #[allow(non_snake_case)]
         fn #dispatch_name(
             &mut self,
-            msg: &textual::message::Message,
-            _sender: textual::node_id::NodeId,
+            event: &textual::message::MessageEvent,
             ctx: &mut textual::event::EventCtx,
         ) -> bool {
-            if let textual::message::Message::#msg_variant(ref event) = *msg {
+            if let Some(payload) = event.downcast_ref::<#msg_variant>() {
                 #call_expr
                 return true;
             }
@@ -199,8 +200,9 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_button"));
         assert!(output_str.contains("ButtonPressed"));
         assert!(!output_str.contains("__ON_SELECTOR"));
-        // Uniform signature: sender param always present.
-        assert!(output_str.contains("_sender"));
+        // New signature: takes &MessageEvent, not (_sender, &Message).
+        assert!(output_str.contains("MessageEvent"));
+        assert!(!output_str.contains("_sender"));
     }
 
     #[test]
@@ -216,7 +218,8 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_save"));
         assert!(output_str.contains("__ON_SELECTOR_HANDLE_SAVE"));
         assert!(output_str.contains("\"#save\""));
-        // Uniform signature: sender param always present.
-        assert!(output_str.contains("_sender"));
+        // New signature: takes &MessageEvent, not (_sender, &Message).
+        assert!(output_str.contains("MessageEvent"));
+        assert!(!output_str.contains("_sender"));
     }
 }

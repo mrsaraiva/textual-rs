@@ -1,7 +1,7 @@
 //! Integration tests for the `#[on(MessageType)]` attribute macro.
 
 use textual::event::EventCtx;
-use textual::message::{ButtonPressed, CheckboxChanged, Message};
+use textual::message::{ButtonPressed, CheckboxChanged, MessageEvent};
 use textual::node_id::node_id_from_ffi;
 use textual::on;
 
@@ -58,20 +58,31 @@ fn dummy_sender() -> textual::node_id::NodeId {
     node_id_from_ffi(1)
 }
 
+fn button_event() -> MessageEvent {
+    MessageEvent::new(
+        dummy_sender(),
+        ButtonPressed {
+            description: "ok".into(),
+            button_id: None,
+        },
+    )
+}
+
+fn checkbox_event(checked: bool) -> MessageEvent {
+    MessageEvent::new(dummy_sender(), CheckboxChanged { checked })
+}
+
 // ---------------------------------------------------------------------------
-// Tests — type-only dispatch (uniform signature: msg, sender, ctx)
+// Tests — type-only dispatch (new signature: &MessageEvent, &mut EventCtx)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn dispatch_matches_correct_message_type() {
     let mut app = MyApp::new();
-    let msg = Message::ButtonPressed(ButtonPressed {
-        description: "ok".into(),
-        button_id: None,
-    });
+    let event = button_event();
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_button(&msg, dummy_sender(), &mut ctx);
+    let matched = app.__on_dispatch_handle_button(&event, &mut ctx);
     assert!(matched);
     assert_eq!(app.button_count, 1);
 }
@@ -79,10 +90,10 @@ fn dispatch_matches_correct_message_type() {
 #[test]
 fn dispatch_ignores_wrong_message_type() {
     let mut app = MyApp::new();
-    let msg = Message::CheckboxChanged(CheckboxChanged { checked: true });
+    let event = checkbox_event(true);
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_button(&msg, dummy_sender(), &mut ctx);
+    let matched = app.__on_dispatch_handle_button(&event, &mut ctx);
     assert!(!matched);
     assert_eq!(app.button_count, 0);
 }
@@ -90,10 +101,10 @@ fn dispatch_ignores_wrong_message_type() {
 #[test]
 fn dispatch_checkbox_handler() {
     let mut app = MyApp::new();
-    let msg = Message::CheckboxChanged(CheckboxChanged { checked: true });
+    let event = checkbox_event(true);
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_checkbox(&msg, dummy_sender(), &mut ctx);
+    let matched = app.__on_dispatch_handle_checkbox(&event, &mut ctx);
     assert!(matched);
     assert_eq!(app.last_checkbox, Some(true));
 }
@@ -101,32 +112,32 @@ fn dispatch_checkbox_handler() {
 #[test]
 fn dispatch_checkbox_ignores_button() {
     let mut app = MyApp::new();
-    let msg = Message::ButtonPressed(ButtonPressed {
-        description: "no".into(),
-        button_id: None,
-    });
+    let event = button_event();
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_checkbox(&msg, dummy_sender(), &mut ctx);
+    let matched = app.__on_dispatch_handle_checkbox(&event, &mut ctx);
     assert!(!matched);
     assert!(app.last_checkbox.is_none());
 }
 
 // ---------------------------------------------------------------------------
-// Tests — selector dispatch (same uniform signature)
+// Tests — selector dispatch (same signature)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn selector_dispatch_matches_message_type() {
     let mut app = MyApp::new();
-    let msg = Message::ButtonPressed(ButtonPressed {
-        description: "save".into(),
-        button_id: None,
-    });
     let sender = node_id_from_ffi(42);
+    let event = MessageEvent::new(
+        sender,
+        ButtonPressed {
+            description: "save".into(),
+            button_id: None,
+        },
+    );
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_save(&msg, sender, &mut ctx);
+    let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
     assert!(matched);
     assert_eq!(app.save_count, 1);
 }
@@ -134,11 +145,11 @@ fn selector_dispatch_matches_message_type() {
 #[test]
 fn selector_dispatch_ignores_wrong_type() {
     let mut app = MyApp::new();
-    let msg = Message::CheckboxChanged(CheckboxChanged { checked: false });
     let sender = node_id_from_ffi(42);
+    let event = MessageEvent::new(sender, CheckboxChanged { checked: false });
     let mut ctx = test_ctx();
 
-    let matched = app.__on_dispatch_handle_save(&msg, sender, &mut ctx);
+    let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
     assert!(!matched);
     assert_eq!(app.save_count, 0);
 }
@@ -155,15 +166,12 @@ fn selector_const_is_generated() {
 #[test]
 fn multiple_dispatches_accumulate() {
     let mut app = MyApp::new();
-    let msg = Message::ButtonPressed(ButtonPressed {
-        description: "click".into(),
-        button_id: None,
-    });
+    let event = button_event();
     let mut ctx = test_ctx();
 
-    app.__on_dispatch_handle_button(&msg, dummy_sender(), &mut ctx);
-    app.__on_dispatch_handle_button(&msg, dummy_sender(), &mut ctx);
-    app.__on_dispatch_handle_button(&msg, dummy_sender(), &mut ctx);
+    app.__on_dispatch_handle_button(&event, &mut ctx);
+    app.__on_dispatch_handle_button(&event, &mut ctx);
+    app.__on_dispatch_handle_button(&event, &mut ctx);
 
     assert_eq!(app.button_count, 3);
 }

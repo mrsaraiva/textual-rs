@@ -16,6 +16,7 @@ pub mod event;
 pub mod keys;
 pub mod layout;
 pub mod message;
+pub mod message_handlers;
 pub mod node_id;
 pub mod reactive;
 pub mod render;
@@ -62,6 +63,7 @@ pub mod prelude {
     };
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::*;
+    pub use crate::message_handlers::{MessageContext, MessageHandlers};
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
     pub use crate::runtime::{
         App, DispatchOutcome, DomQuery, DomQueryMut, build_widget_tree_from_root,
