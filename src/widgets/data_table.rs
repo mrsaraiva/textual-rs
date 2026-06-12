@@ -1179,10 +1179,10 @@ impl Widget for DataTable {
             }
             "select_cursor" => {
                 if !self.rows.is_empty() && !self.headers.is_empty() {
-                    ctx.post_message(Message::DataTableCellActivated(DataTableCellActivated {
+                    ctx.post_message(DataTableCellActivated {
                         row: self.selected,
                         column: self.cursor_column,
-                    }));
+                    });
                 }
                 true
             }
@@ -1199,10 +1199,10 @@ impl Widget for DataTable {
             && !self.rows.is_empty()
             && !self.headers.is_empty()
         {
-            ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
+            ctx.post_message(DataTableCursorMoved {
                 row: self.selected,
                 column: self.cursor_column,
-            }));
+            });
         }
         if handled {
             ctx.set_handled();
@@ -1248,14 +1248,12 @@ impl Widget for DataTable {
                     self.ensure_cursor_column_visible(self.content_width as usize);
                 }
                 if let Some(col) = header_clicked {
-                    ctx.post_message(Message::DataTableHeaderSelected(DataTableHeaderSelected {
-                        column: col,
-                    }));
+                    ctx.post_message(DataTableHeaderSelected { column: col });
                 } else if selection_changed || cursor_changed {
-                    ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
+                    ctx.post_message(DataTableCursorMoved {
                         row: self.selected,
                         column: self.cursor_column,
-                    }));
+                    });
                 }
                 ctx.set_handled();
                 return;
@@ -1502,10 +1500,10 @@ impl Widget for DataTable {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     if !self.rows.is_empty() && !self.headers.is_empty() {
-                        ctx.post_message(Message::DataTableCellActivated(DataTableCellActivated {
+                        ctx.post_message(DataTableCellActivated {
                             row: self.selected,
                             column: self.cursor_column,
-                        }));
+                        });
                         handled = true;
                     }
                 }
@@ -1523,10 +1521,10 @@ impl Widget for DataTable {
             && !self.rows.is_empty()
             && !self.headers.is_empty()
         {
-            ctx.post_message(Message::DataTableCursorMoved(DataTableCursorMoved {
+            ctx.post_message(DataTableCursorMoved {
                 row: self.selected,
                 column: self.cursor_column,
-            }));
+            });
         }
         if handled {
             ctx.set_handled();
@@ -2027,10 +2025,8 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::DataTableHeaderSelected(DataTableHeaderSelected { column: 2 })
-        ));
+        assert!(messages[0].is::<DataTableHeaderSelected>());
+        assert_eq!(messages[0].downcast_ref::<DataTableHeaderSelected>().unwrap().column, 2);
     }
 
     #[test]
@@ -2176,10 +2172,8 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::DataTableHeaderSelected(DataTableHeaderSelected { column: 1 })
-        ));
+        assert!(messages[0].is::<DataTableHeaderSelected>());
+        assert_eq!(messages[0].downcast_ref::<DataTableHeaderSelected>().unwrap().column, 1);
     }
 
     #[test]
@@ -2205,10 +2199,9 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::DataTableCursorMoved(DataTableCursorMoved { row: 1, column: 0 })
-        ));
+        assert!(messages[0].is::<DataTableCursorMoved>());
+        let m = messages[0].downcast_ref::<DataTableCursorMoved>().unwrap();
+        assert_eq!((m.row, m.column), (1, 0));
     }
 
     #[test]
@@ -2236,10 +2229,9 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::DataTableCellActivated(DataTableCellActivated { row: 1, column: 1 })
-        ));
+        assert!(messages[0].is::<DataTableCellActivated>());
+        let m = messages[0].downcast_ref::<DataTableCellActivated>().unwrap();
+        assert_eq!((m.row, m.column), (1, 1));
     }
 
     #[test]

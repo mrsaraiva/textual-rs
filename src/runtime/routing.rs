@@ -1464,7 +1464,7 @@ mod message_tests {
 #[cfg(test)]
 mod envelope_tests {
     use super::*;
-    use crate::message::{Message, MessageEnvelope, MessageEvent};
+    use crate::message::{Message, MessageEnvelope, MessageEvent, Msg};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::WidgetTree;
     use crate::widgets::Label;
@@ -1905,13 +1905,8 @@ mod envelope_tests {
                 }))
         );
         assert!(
-            Message::DataTableCursorMoved(crate::message::DataTableCursorMoved {
-                row: 0,
-                column: 0,
-            })
-            .can_replace(&Message::DataTableCursorMoved(
-                crate::message::DataTableCursorMoved { row: 1, column: 1 }
-            ))
+            crate::message::DataTableCursorMoved { row: 0, column: 0 }
+                .can_replace(&crate::message::DataTableCursorMoved { row: 1, column: 1 })
         );
         assert!(
             Message::OptionHighlighted(crate::message::OptionHighlighted { index: 0 }).can_replace(
