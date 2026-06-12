@@ -139,14 +139,13 @@ fn help_panel_help_can_be_driven_via_messages() {
     let mut panel = HelpPanel::new();
     let mut ctx = EventCtx::default();
     panel.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::HelpPanelSetHelp(HelpPanelSetHelp {
+        &MessageEvent::new(
+            NodeId::default(),
+            HelpPanelSetHelp {
                 panel: NodeId::default(),
                 markup: "## Runtime help".to_string(),
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut ctx,
     );
 
@@ -156,13 +155,10 @@ fn help_panel_help_can_be_driven_via_messages() {
 
     let mut clear_ctx = EventCtx::default();
     panel.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::HelpPanelClearHelp(HelpPanelClearHelp {
-                panel: NodeId::default(),
-            }),
-            control: None,
-        },
+        &MessageEvent::new(
+            NodeId::default(),
+            HelpPanelClearHelp { panel: NodeId::default() },
+        ),
         &mut clear_ctx,
     );
     assert!(clear_ctx.handled());
@@ -174,14 +170,13 @@ fn help_panel_handles_focused_help_pipeline_messages() {
     let mut panel = HelpPanel::new();
     let mut set_ctx = EventCtx::default();
     panel.on_message(
-        &MessageEvent {
-            sender: node_id_from_ffi(100),
-            message: Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
+        &MessageEvent::new(
+            node_id_from_ffi(100),
+            HelpPanelFocusedHelpChanged {
                 source: node_id_from_ffi(100),
                 markup: "## Focused widget help".to_string(),
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut set_ctx,
     );
     assert!(panel.showing_help());
@@ -189,11 +184,7 @@ fn help_panel_handles_focused_help_pipeline_messages() {
 
     let mut clear_ctx = EventCtx::default();
     panel.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
-            control: None,
-        },
+        &MessageEvent::new(NodeId::default(), HelpPanelFocusedHelpCleared),
         &mut clear_ctx,
     );
     assert!(!panel.showing_help());

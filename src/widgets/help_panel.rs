@@ -203,36 +203,28 @@ impl Widget for HelpPanel {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        match &message.message {
-            Message::HelpPanelSetHelp(HelpPanelSetHelp { panel, markup })
-                if *panel == self.node_id() =>
-            {
-                self.set_help(markup.clone());
+        if let Some(m) = message.downcast_ref::<HelpPanelSetHelp>() {
+            if m.panel == self.node_id() {
+                self.set_help(m.markup.clone());
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            Message::HelpPanelClearHelp(HelpPanelClearHelp { panel })
-                if *panel == self.node_id() =>
-            {
+        } else if let Some(m) = message.downcast_ref::<HelpPanelClearHelp>() {
+            if m.panel == self.node_id() {
                 self.clear_help();
                 ctx.request_repaint();
                 ctx.set_handled();
                 return;
             }
-            Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
-                markup, ..
-            }) => {
-                self.set_help(markup.clone());
-                ctx.request_repaint();
-                return;
-            }
-            Message::HelpPanelFocusedHelpCleared(_) => {
-                self.clear_help();
-                ctx.request_repaint();
-                return;
-            }
-            _ => {}
+        } else if let Some(m) = message.downcast_ref::<HelpPanelFocusedHelpChanged>() {
+            self.set_help(m.markup.clone());
+            ctx.request_repaint();
+            return;
+        } else if message.is::<HelpPanelFocusedHelpCleared>() {
+            self.clear_help();
+            ctx.request_repaint();
+            return;
         }
 
         self.markdown.on_message(message, ctx);
@@ -345,14 +337,13 @@ mod tests {
 
         // Simulate runtime sending HelpPanelFocusedHelpChanged on focus change.
         let mut ctx = EventCtx::default();
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::HelpPanelFocusedHelpChanged(HelpPanelFocusedHelpChanged {
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            HelpPanelFocusedHelpChanged {
                 source: crate::node_id::NodeId::default(),
                 markup: "## Widget Help\nPress Enter to confirm.".to_string(),
-            }),
-            control: None,
-        };
+            },
+        );
         panel.on_message(&msg, &mut ctx);
         assert!(panel.showing_help());
         assert_eq!(panel.help(), "## Widget Help\nPress Enter to confirm.");
@@ -365,11 +356,10 @@ mod tests {
         assert!(panel.showing_help());
 
         let mut ctx = EventCtx::default();
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::HelpPanelFocusedHelpCleared(HelpPanelFocusedHelpCleared),
-            control: None,
-        };
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            HelpPanelFocusedHelpCleared,
+        );
         panel.on_message(&msg, &mut ctx);
         assert!(!panel.showing_help());
         assert!(ctx.repaint_requested());

@@ -84,22 +84,11 @@ fn should_dispatch_focused_help(
 
 fn focused_help_message(current: Option<(NodeId, String)>) -> MessageEvent {
     if let Some((source, markup)) = current {
-        MessageEvent {
-            sender: source,
-            message: Message::HelpPanelFocusedHelpChanged(
-                crate::message::HelpPanelFocusedHelpChanged { source, markup },
-            ),
-            control: Some(source),
-        }
+        MessageEvent::new(source, crate::message::HelpPanelFocusedHelpChanged { source, markup })
+            .with_control(source)
     } else {
         let sender = App::runtime_message_sender();
-        MessageEvent {
-            sender,
-            message: Message::HelpPanelFocusedHelpCleared(
-                crate::message::HelpPanelFocusedHelpCleared,
-            ),
-            control: Some(sender),
-        }
+        MessageEvent::new(sender, crate::message::HelpPanelFocusedHelpCleared).with_control(sender)
     }
 }
 
