@@ -558,9 +558,9 @@ impl Tabs {
 
     fn request_runtime_focus(&self, ctx: &mut EventCtx) {
         if let Some(widget_id) = self.style_id() {
-            ctx.post_message(Message::AppFocus(crate::message::AppFocus {
+            ctx.post_message(crate::message::AppFocus {
                 widget_id: widget_id.to_string(),
-            }));
+            });
         }
     }
 
@@ -600,10 +600,10 @@ impl Tabs {
         self.pending_messages
             .lock()
             .expect("tabs pending lock")
-            .push(Message::AppSetDisabled(crate::message::AppSetDisabled {
+            .push(crate::message::AppSetDisabled {
                 selector: self.scoped_tab_selector(&tab_id),
                 disabled,
-            }));
+            }.into());
         if state.active.is_none() {
             self.ensure_active_exists(state);
         }
@@ -642,17 +642,17 @@ impl Tabs {
         if hidden {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             pending.push(TabHidden { id: tab_id.clone() }.into());
-            pending.push(Message::AppAddClass(crate::message::AppAddClass {
+            pending.push(crate::message::AppAddClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
-            }));
+            }.into());
         } else {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
             pending.push(TabShown { id: tab_id.clone() }.into());
-            pending.push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+            pending.push(crate::message::AppRemoveClass {
                 selector: self.scoped_tab_selector(&tab_id),
                 class_name: "-hidden".to_string(),
-            }));
+            }.into());
         }
         if hidden && is_active {
             if let Some(next) = replacement {
@@ -668,19 +668,19 @@ impl Tabs {
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                    .push(crate::message::AppRemoveClass {
                         selector: self.scoped_tab_selector(&prev),
                         class_name: "-active".to_string(),
-                    }));
+                    }.into());
             }
             if let Some(next) = state.active.clone() {
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(Message::AppAddClass(crate::message::AppAddClass {
+                    .push(crate::message::AppAddClass {
                         selector: self.scoped_tab_selector(&next),
                         class_name: "-active".to_string(),
-                    }));
+                    }.into());
             }
         }
         true
@@ -707,32 +707,32 @@ impl Tabs {
             drop(state);
             if let Some(ctx) = ctx.as_mut() {
                 if let Some(prev) = prev_id {
-                    ctx.post_message(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                    ctx.post_message(crate::message::AppRemoveClass {
                         selector: self.scoped_tab_selector(&prev),
                         class_name: "-active".to_string(),
-                    }));
+                    });
                 }
-                ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                ctx.post_message(crate::message::AppAddClass {
                     selector: self.scoped_tab_selector(&new_id),
                     class_name: "-active".to_string(),
-                }));
+                });
             } else {
                 if let Some(prev) = prev_id {
                     self.pending_messages
                         .lock()
                         .expect("tabs pending lock")
-                        .push(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                        .push(crate::message::AppRemoveClass {
                             selector: self.scoped_tab_selector(&prev),
                             class_name: "-active".to_string(),
-                        }));
+                        }.into());
                 }
                 self.pending_messages
                     .lock()
                     .expect("tabs pending lock")
-                    .push(Message::AppAddClass(crate::message::AppAddClass {
+                    .push(crate::message::AppAddClass {
                         selector: self.scoped_tab_selector(&new_id),
                         class_name: "-active".to_string(),
-                    }));
+                    }.into());
             }
             let target_span = self.underline_span_for_index(next);
             if let Some(ctx) = ctx.as_mut() {

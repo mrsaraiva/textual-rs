@@ -9,7 +9,7 @@ use crate::action::{APP_ACTIONS, ActionDecl, ParsedAction};
 use crate::demo_snapshot::{SnapshotArgs, snapshot_widget};
 use crate::event::{Action, Event, EventCtx};
 use crate::keys::KeyEventData;
-use crate::message::{CommandPaletteCommand, Message, MessageEvent};
+use crate::message::{CommandPaletteCommand, MessageEvent};
 use crate::node_id::NodeId;
 use crate::reactive::{ReactiveCtx, ReactiveWidget};
 use crate::style::{Position, Scalar};
@@ -563,7 +563,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppBack(crate::message::AppBack));
+                ctx.post_message(crate::message::AppBack);
                 ctx.set_handled();
                 true
             }
@@ -571,7 +571,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppBell(crate::message::AppBell));
+                ctx.post_message(crate::message::AppBell);
                 ctx.set_handled();
                 true
             }
@@ -579,7 +579,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppChangeTheme(crate::message::AppChangeTheme));
+                ctx.post_message(crate::message::AppChangeTheme);
                 ctx.set_handled();
                 true
             }
@@ -587,9 +587,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppCommandPalette(
-                    crate::message::AppCommandPalette,
-                ));
+                ctx.post_message(crate::message::AppCommandPalette);
                 ctx.set_handled();
                 true
             }
@@ -597,9 +595,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some(widget_id) = single_arg(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppFocus(crate::message::AppFocus {
+                ctx.post_message(crate::message::AppFocus {
                     widget_id: widget_id.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -607,7 +605,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppFocusNext(crate::message::AppFocusNext));
+                ctx.post_message(crate::message::AppFocusNext);
                 ctx.set_handled();
                 true
             }
@@ -615,7 +613,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppFocusPrevious(crate::message::AppFocusPrevious));
+                ctx.post_message(crate::message::AppFocusPrevious);
                 ctx.set_handled();
                 true
             }
@@ -623,7 +621,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppHelpQuit(crate::message::AppHelpQuit));
+                ctx.post_message(crate::message::AppHelpQuit);
                 ctx.set_handled();
                 true
             }
@@ -631,9 +629,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppCopySelectedText(
-                    crate::message::AppCopySelectedText,
-                ));
+                ctx.post_message(crate::message::AppCopySelectedText);
                 ctx.set_handled();
                 true
             }
@@ -641,7 +637,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppHideHelpPanel(crate::message::AppHideHelpPanel));
+                ctx.post_message(crate::message::AppHideHelpPanel);
                 ctx.set_handled();
                 true
             }
@@ -649,10 +645,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some((selector, class_name)) = selector_and_class(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
+                ctx.post_message(crate::message::AppAddClass {
                     selector: selector.to_string(),
                     class_name: class_name.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -660,10 +656,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some((selector, class_name)) = selector_and_class(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppRemoveClass(crate::message::AppRemoveClass {
+                ctx.post_message(crate::message::AppRemoveClass {
                     selector: selector.to_string(),
                     class_name: class_name.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -671,10 +667,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some((selector, class_name)) = selector_and_class(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppToggleClass(crate::message::AppToggleClass {
+                ctx.post_message(crate::message::AppToggleClass {
                     selector: selector.to_string(),
                     class_name: class_name.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -689,11 +685,11 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .get(2)
                     .cloned()
                     .unwrap_or_else(|| "information".to_string());
-                ctx.post_message(Message::AppNotify(crate::message::AppNotify {
+                ctx.post_message(crate::message::AppNotify {
                     message,
                     title,
                     severity,
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -701,7 +697,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppPopScreen(crate::message::AppPopScreen));
+                ctx.post_message(crate::message::AppPopScreen);
                 ctx.set_handled();
                 true
             }
@@ -709,9 +705,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some(screen) = single_arg(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppPushScreen(crate::message::AppPushScreen {
+                ctx.post_message(crate::message::AppPushScreen {
                     screen: screen.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -719,10 +715,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if action.arguments.len() > 2 {
                     return false;
                 }
-                ctx.post_message(Message::AppScreenshot(crate::message::AppScreenshot {
+                ctx.post_message(crate::message::AppScreenshot {
                     filename: action.arguments.first().cloned(),
                     path: action.arguments.get(1).cloned(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -730,7 +726,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
+                ctx.post_message(crate::message::AppShowHelpPanel);
                 ctx.set_handled();
                 true
             }
@@ -738,9 +734,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some(key) = single_arg(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppSimulateKey(crate::message::AppSimulateKey {
+                ctx.post_message(crate::message::AppSimulateKey {
                     key: key.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -748,9 +744,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppSuspendProcess(
-                    crate::message::AppSuspendProcess,
-                ));
+                ctx.post_message(crate::message::AppSuspendProcess);
                 ctx.set_handled();
                 true
             }
@@ -758,9 +752,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some(mode) = single_arg(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppSwitchMode(crate::message::AppSwitchMode {
+                ctx.post_message(crate::message::AppSwitchMode {
                     mode: mode.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -768,9 +762,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 let Some(screen) = single_arg(action) else {
                     return false;
                 };
-                ctx.post_message(Message::AppSwitchScreen(crate::message::AppSwitchScreen {
+                ctx.post_message(crate::message::AppSwitchScreen {
                     screen: screen.to_string(),
-                }));
+                });
                 ctx.set_handled();
                 true
             }
@@ -778,7 +772,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if !no_args(action) {
                     return false;
                 }
-                ctx.post_message(Message::AppToggleDark(crate::message::AppToggleDark));
+                ctx.post_message(crate::message::AppToggleDark);
                 ctx.set_handled();
                 true
             }
@@ -953,20 +947,16 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 return;
             }
         }
-        match &message.message {
-            Message::AppShowHelpPanel(_) => {
-                self.help_panel_visible = true;
-                if self.command_palette_visible {
-                    self.publish_command_palette_commands(ctx);
-                }
+        if message.is::<crate::message::AppShowHelpPanel>() {
+            self.help_panel_visible = true;
+            if self.command_palette_visible {
+                self.publish_command_palette_commands(ctx);
             }
-            Message::AppHideHelpPanel(_) => {
-                self.help_panel_visible = false;
-                if self.command_palette_visible {
-                    self.publish_command_palette_commands(ctx);
-                }
+        } else if message.is::<crate::message::AppHideHelpPanel>() {
+            self.help_panel_visible = false;
+            if self.command_palette_visible {
+                self.publish_command_palette_commands(ctx);
             }
-            _ => {}
         }
         // Typed handler registry (Block between A and B).
         // Dispatches all registered handlers for the message's concrete payload type.
@@ -1521,11 +1511,7 @@ mod tests {
 
         let mut show_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::AppShowHelpPanel(crate::message::AppShowHelpPanel),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::AppShowHelpPanel),
             &mut show_ctx,
         );
         let show_messages = show_ctx.take_messages();
@@ -1545,11 +1531,7 @@ mod tests {
 
         let mut hide_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::AppHideHelpPanel(crate::message::AppHideHelpPanel),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::AppHideHelpPanel),
             &mut hide_ctx,
         );
         let hide_messages = hide_ctx.take_messages();
@@ -1900,27 +1882,21 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 3);
-        assert!(matches!(
-            messages[0].message,
-            Message::AppAddClass(crate::message::AppAddClass {
-                ref selector,
-                ref class_name
-            }) if selector == "Button" && class_name == "primary"
-        ));
-        assert!(matches!(
-            messages[1].message,
-            Message::AppRemoveClass(crate::message::AppRemoveClass {
-                ref selector,
-                ref class_name
-            }) if selector == "Button" && class_name == "primary"
-        ));
-        assert!(matches!(
-            messages[2].message,
-            Message::AppToggleClass(crate::message::AppToggleClass {
-                ref selector,
-                ref class_name
-            }) if selector == "Button" && class_name == "primary"
-        ));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::AppAddClass>()
+                .is_some_and(|m| m.selector == "Button" && m.class_name == "primary")
+        );
+        assert!(
+            messages[1]
+                .downcast_ref::<crate::message::AppRemoveClass>()
+                .is_some_and(|m| m.selector == "Button" && m.class_name == "primary")
+        );
+        assert!(
+            messages[2]
+                .downcast_ref::<crate::message::AppToggleClass>()
+                .is_some_and(|m| m.selector == "Button" && m.class_name == "primary")
+        );
     }
 
     #[test]
@@ -2174,36 +2150,12 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert!(!messages.is_empty());
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppBack(_)))
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppBell(_)))
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppFocus(_)))
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppNotify(_)))
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppSwitchMode(_)))
-        );
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::AppToggleDark(_)))
-        );
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppBack>()));
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppBell>()));
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppFocus>()));
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppNotify>()));
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppSwitchMode>()));
+        assert!(messages.iter().any(|m| m.is::<crate::message::AppToggleDark>()));
     }
 
     #[test]

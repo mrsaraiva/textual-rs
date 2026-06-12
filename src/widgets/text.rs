@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use unicode_width::UnicodeWidthChar;
 
 use crate::event::{Event, EventCtx};
-use crate::message::{ActionDispatchRequested, Message};
+use crate::message::ActionDispatchRequested;
 use crate::widgets::markdown_model::{
     MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
 };
@@ -764,9 +764,9 @@ impl Widget for MarkdownParagraphBlock {
                 self.inline_doc
                     .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
         {
-            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+            ctx.post_message(ActionDispatchRequested {
                 action: format_markdown_link_action(href),
-            }));
+            });
             ctx.set_handled();
         }
     }
@@ -983,9 +983,9 @@ impl Widget for MarkdownInlineItem {
                 self.inline_doc
                     .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
         {
-            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+            ctx.post_message(ActionDispatchRequested {
                 action: format_markdown_link_action(href),
-            }));
+            });
             ctx.set_handled();
         }
     }
@@ -1253,9 +1253,9 @@ impl Widget for MarkdownTableCell {
                 self.inline_doc
                     .link_at_coords(mouse.x, mouse.y, self.layout_width.max(1))
         {
-            ctx.post_message(Message::ActionDispatchRequested(ActionDispatchRequested {
+            ctx.post_message(ActionDispatchRequested {
                 action: format_markdown_link_action(href),
-            }));
+            });
             ctx.set_handled();
         }
     }

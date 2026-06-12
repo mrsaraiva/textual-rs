@@ -1263,23 +1263,23 @@ impl CommandPalette {
             "keys" => {
                 let hide = self.help_panel_visible || self.show_key_panel;
                 if hide {
-                    ctx.post_message(Message::AppHideHelpPanel(crate::message::AppHideHelpPanel));
+                    ctx.post_message(crate::message::AppHideHelpPanel);
                     self.help_panel_visible = false;
                     self.set_key_panel_visible(false, ctx);
                 } else {
-                    ctx.post_message(Message::AppShowHelpPanel(crate::message::AppShowHelpPanel));
+                    ctx.post_message(crate::message::AppShowHelpPanel);
                     self.help_panel_visible = true;
                     self.set_key_panel_visible(true, ctx);
                 }
             }
             "theme" => {
-                ctx.post_message(Message::AppChangeTheme(crate::message::AppChangeTheme));
+                ctx.post_message(crate::message::AppChangeTheme);
             }
             "screenshot" => {
-                ctx.post_message(Message::AppScreenshot(crate::message::AppScreenshot {
+                ctx.post_message(crate::message::AppScreenshot {
                     filename: None,
                     path: None,
-                }));
+                });
             }
             _ => {}
         }
@@ -1991,10 +1991,10 @@ impl Widget for CommandPalette {
         self.query.on_message(message, ctx);
         self.list.on_message(message, ctx);
         self.key_panel.on_message(message, ctx);
-        if matches!(message.message, Message::AppShowHelpPanel(_)) {
+        if message.is::<crate::message::AppShowHelpPanel>() {
             self.help_panel_visible = true;
             self.set_key_panel_visible(true, ctx);
-        } else if matches!(message.message, Message::AppHideHelpPanel(_)) {
+        } else if message.is::<crate::message::AppHideHelpPanel>() {
             self.help_panel_visible = false;
             self.set_key_panel_visible(false, ctx);
         }
@@ -2348,7 +2348,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|event| matches!(event.message, Message::AppShowHelpPanel(_)))
+                .any(|event| event.is::<crate::message::AppShowHelpPanel>())
         );
         assert!(messages.iter().any(|event| {
             event.downcast_ref::<CommandPaletteCommandSelected>().is_some_and(|m| m.id == "keys")
@@ -2498,7 +2498,7 @@ mod tests {
         assert!(
             second_messages
                 .iter()
-                .any(|event| matches!(event.message, Message::AppHideHelpPanel(_))),
+                .any(|event| event.is::<crate::message::AppHideHelpPanel>()),
             "second keys invocation should emit hide-help message"
         );
         let second = second_ctx.take_animation_requests();

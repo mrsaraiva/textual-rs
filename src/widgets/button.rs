@@ -342,11 +342,9 @@ impl Button {
                 "[button] dispatch action=\"{}\" label=\"{}\"",
                 action_str, self.label
             ));
-            ctx.post_message(Message::ActionDispatchRequested(
-                crate::message::ActionDispatchRequested {
-                    action: action_str.clone(),
-                },
-            ));
+            ctx.post_message(crate::message::ActionDispatchRequested {
+                action: action_str.clone(),
+            });
         } else {
             ctx.post_message(ButtonPressed {
                 description: self.describe(),
@@ -786,7 +784,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ActionDispatchRequested(..))),
+                .any(|m| m.is::<crate::message::ActionDispatchRequested>()),
             "ActionDispatchRequested should be emitted when action is set"
         );
     }
@@ -811,7 +809,7 @@ mod tests {
         assert!(
             messages
                 .iter()
-                .any(|m| matches!(m.message, Message::ActionDispatchRequested(..))),
+                .any(|m| m.is::<crate::message::ActionDispatchRequested>()),
             "ActionDispatchRequested should be emitted when action is set"
         );
     }

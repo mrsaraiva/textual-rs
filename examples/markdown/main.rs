@@ -8,7 +8,7 @@
 ///
 /// Rust: `MarkdownViewer::register_content()` + `go()` for navigation,
 /// `check_action()` for dimming, `NavigatorUpdated` for refresh_bindings.
-use textual::message::{Message, NavigatorUpdated};
+use textual::message::NavigatorUpdated;
 use textual::prelude::*;
 
 const DEMO_MD: &str = include_str!("demo.md");
@@ -64,7 +64,7 @@ impl TextualApp for MarkdownApp {
             let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
                 viewer.go("demo.md");
             });
-            ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+            ctx.post_message(NavigatorUpdated);
         }
     }
 

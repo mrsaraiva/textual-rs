@@ -100,7 +100,7 @@ impl Widget for HeaderIcon {
                 if mouse.target.is_some_and(|target| target == self.node_id()) {
                     ctx.post_message(HeaderIconPressed);
                     if self.command_palette_action_key.is_some() {
-                        ctx.post_message(Message::AppCommandPalette(AppCommandPalette));
+                        ctx.post_message(AppCommandPalette);
                     }
                     ctx.request_repaint();
                     ctx.set_handled();
@@ -756,10 +756,7 @@ mod tests {
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 2);
         assert!(messages[0].is::<HeaderIconPressed>());
-        assert!(matches!(
-            messages[1].message,
-            Message::AppCommandPalette(AppCommandPalette)
-        ));
+        assert!(messages[1].is::<AppCommandPalette>());
     }
 
     #[test]

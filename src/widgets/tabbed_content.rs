@@ -858,24 +858,20 @@ mod tests {
 
     fn apply_runtime_class_messages(tree: &mut WidgetTree, messages: Vec<MessageEvent>) {
         for event in messages {
-            match event.message {
-                Message::AppAddClass(payload) => {
-                    let matches = tree
-                        .query(&payload.selector)
-                        .expect("selector should parse");
-                    for node in matches {
-                        tree.add_class(node, &payload.class_name);
-                    }
+            if let Some(payload) = event.downcast_ref::<crate::message::AppAddClass>() {
+                let matches = tree
+                    .query(&payload.selector)
+                    .expect("selector should parse");
+                for node in matches {
+                    tree.add_class(node, &payload.class_name);
                 }
-                Message::AppRemoveClass(payload) => {
-                    let matches = tree
-                        .query(&payload.selector)
-                        .expect("selector should parse");
-                    for node in matches {
-                        tree.remove_class(node, &payload.class_name);
-                    }
+            } else if let Some(payload) = event.downcast_ref::<crate::message::AppRemoveClass>() {
+                let matches = tree
+                    .query(&payload.selector)
+                    .expect("selector should parse");
+                for node in matches {
+                    tree.remove_class(node, &payload.class_name);
                 }
-                _ => {}
             }
         }
     }

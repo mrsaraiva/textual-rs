@@ -17,7 +17,7 @@ pub use toggle_option::{OptionId, OptionItem};
 /// A scrollable, navigable list of selectable options.
 ///
 /// Supports separators between groups, disabled items, keyboard and mouse navigation,
-/// and emits [`Message::OptionHighlighted`] / [`Message::OptionSelected`] messages.
+/// and emits [`OptionHighlighted`] / [`OptionSelected`] messages.
 #[derive(Debug, Clone)]
 pub struct OptionList {
     items: Vec<OptionItem>,

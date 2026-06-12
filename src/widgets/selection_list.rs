@@ -76,8 +76,8 @@ pub type SelectionListString = SelectionList<String>;
 ///
 /// # Messages
 ///
-/// - [`Message::SelectionListToggled`] — posted when an individual item is toggled.
-/// - [`Message::SelectionListSelectedChanged`] — posted when the overall selected set changes.
+/// - [`SelectionListToggled`] — posted when an individual item is toggled.
+/// - [`SelectionListSelectedChanged`] — posted when the overall selected set changes.
 pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
     inner: OptionList,
     disabled: bool,

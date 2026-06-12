@@ -873,9 +873,9 @@ impl Widget for Footer {
                             "[footer] click binding key=\"{}\" action_key=\"{}\" desc=\"{}\"",
                             binding.key, action_key, binding.description
                         ));
-                        ctx.post_message(Message::AppSimulateKey(crate::message::AppSimulateKey {
+                        ctx.post_message(crate::message::AppSimulateKey {
                             key: action_key.to_string(),
-                        }));
+                        });
                         ctx.set_handled();
                         ctx.request_repaint();
                     }
@@ -1158,10 +1158,11 @@ mod tests {
         assert!(ctx.repaint_requested());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            &messages[0].message,
-            Message::AppSimulateKey(crate::message::AppSimulateKey { key }) if key == "^q"
-        ));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::AppSimulateKey>()
+                .is_some_and(|m| m.key == "^q")
+        );
     }
 
     #[test]
@@ -1197,10 +1198,11 @@ mod tests {
             );
             let messages = ctx.take_messages();
             assert!(
-                messages.iter().any(|event| matches!(
-                    &event.message,
-                    Message::AppSimulateKey(crate::message::AppSimulateKey { key }) if key == expected_key
-                )),
+                messages.iter().any(|event| {
+                    event
+                        .downcast_ref::<crate::message::AppSimulateKey>()
+                        .is_some_and(|m| m.key == expected_key)
+                }),
                 "click at x={x} should emit {expected_key:?}"
             );
         }
@@ -1238,10 +1240,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert!(
-            messages.iter().any(|event| matches!(
-                &event.message,
-                Message::AppSimulateKey(crate::message::AppSimulateKey { key }) if key == "b"
-            )),
+            messages.iter().any(|event| {
+                event
+                    .downcast_ref::<crate::message::AppSimulateKey>()
+                    .is_some_and(|m| m.key == "b")
+            }),
             "second grouped key click should emit key 'b'"
         );
     }
@@ -1278,10 +1281,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert!(
-            messages.iter().any(|event| matches!(
-                &event.message,
-                Message::AppSimulateKey(crate::message::AppSimulateKey { key }) if key == "ctrl+p"
-            )),
+            messages.iter().any(|event| {
+                event
+                    .downcast_ref::<crate::message::AppSimulateKey>()
+                    .is_some_and(|m| m.key == "ctrl+p")
+            }),
             "command palette click should emit raw key spec ctrl+p"
         );
     }
@@ -1309,10 +1313,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            &messages[0].message,
-            Message::AppSimulateKey(crate::message::AppSimulateKey { key }) if key == "ctrl+p"
-        ));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::AppSimulateKey>()
+                .is_some_and(|m| m.key == "ctrl+p")
+        );
     }
 
     #[test]

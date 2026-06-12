@@ -350,7 +350,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
 /// For each older/newer envelope pair with the same sender:
 /// - if the newer envelope has `set_replaceable(true)`, it replaces older
 ///   envelopes of the same message variant;
-/// - otherwise replacement is delegated to `Message::can_replace(pending)`.
+/// - otherwise replacement is delegated to the payload's `can_replace` trait method.
 ///
 /// This keeps envelope-level override support while making replacement
 /// semantics message-driven (Python parity).
@@ -1830,7 +1830,7 @@ mod envelope_tests {
         let _root_id = tree.set_root(Box::new(Label::new("x")));
 
         // Three InputChanged from the same sender — should coalesce to one
-        // via Message::can_replace.
+        // via the replaceable can_replace trait impl.
         let messages = vec![
             MessageEvent::new(
                 sender,
