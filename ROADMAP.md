@@ -490,7 +490,7 @@ Detailed execution plan, evidence, acceptance criteria, and success metric live 
 | Status | Step | Notes |
 |--------|------|-------|
 | Done | RA-0 Verification gate | Harness + blocking CI landed (`dfc566e`, `25e58e9`); verified 8/8 green. Gate rule persists: no RA phase marked Done without harness + test + LOC-metric evidence |
-| Pending | RA-1 Open messages | Trait-object-first message dispatch (`TypeId`); the one hard breaking change — land before 1.0 |
+| Done | RA-1 Open messages | Landed 2026-06-12 (21 commits, `321586c`..`03891bb`): `Message` enum removed, open trait + `impl_message!`, `TypeId` `MessageHandlers`, `#[on]` downcast codegen, third-party acceptance tests (`tests/open_messages.rs`). Gate evidence: full suite 2,564/0; pty harness 8/8 (5 Pass / 2 XFail unchanged); LOC metric re-measured 2.7x (unchanged — ergonomics targets are RA-2/RA-3) |
 | Pending | RA-2 Node-record split | Arena owns id/classes/styles/geometry/state; `Widget` trait shrinks to behavior |
 | Pending | RA-3 Signals-first state | Promote `#[derive(Reactive)]`/`Signal<T>` to primary model; rewrite shared examples |
 | Pending | RA-4 Typed handles | `Handle<W>.update(...)` for residual direct access |
