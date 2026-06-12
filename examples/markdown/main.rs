@@ -42,8 +42,7 @@ impl TextualApp for MarkdownApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let mut viewer = MarkdownViewer::new(DEMO_MD);
-        viewer.set_style_id(Some("markdown-viewer".to_string()));
+        let mut viewer = MarkdownViewer::new(DEMO_MD).with_id("markdown-viewer");
         viewer.register_content("demo.md", DEMO_MD);
         viewer.register_content("example.md", EXAMPLE_MD);
         AppRoot::new().with_child(Footer::new()).with_child(viewer)

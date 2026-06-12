@@ -12,8 +12,8 @@ use crate::widgets::markdown_model::{
 };
 
 use super::{
-    Vertical, Widget, WidgetStyles,
-    helpers::{border_spacing_from_style, fixed_height_from_constraints},
+    NodeSeed, Vertical, Widget, WidgetStyles,
+    helpers::border_spacing_from_style,
 };
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
@@ -42,7 +42,6 @@ impl LabelVariant {
 
 #[derive(Debug, Clone)]
 pub struct Label {
-    id: Option<String>,
     text: String,
     wrap: bool,
     markup: bool,
@@ -50,14 +49,14 @@ pub struct Label {
     shrink: bool,
     layout_width: usize,
     variant: Option<LabelVariant>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Label {
     pub fn new(text: impl Into<String>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["label".to_string()];
         Self {
-            id: None,
             text: text.into(),
             wrap: true,
             markup: false,
@@ -67,13 +66,12 @@ impl Label {
             shrink: false,
             layout_width: 0,
             variant: None,
-            classes: vec!["label".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        self.seed.css_id = Some(id.into());
         self
     }
 
@@ -127,9 +125,9 @@ impl Label {
     }
 
     fn rebuild_classes(&mut self) {
-        self.classes = vec!["label".to_string()];
+        self.seed.classes = vec!["label".to_string()];
         if let Some(v) = self.variant {
-            self.classes.push(v.css_class().to_string());
+            self.seed.classes.push(v.css_class().to_string());
         }
     }
 
@@ -190,23 +188,25 @@ impl Widget for Label {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.intrinsic_height()))
+        Some(self.intrinsic_height())
     }
 
     fn style_classes(&self) -> &[String] {
-        &self.classes
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.id.as_deref()
+        &self.seed.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.classes = seed.classes.clone();
+        seed
     }
 }
 
@@ -221,21 +221,18 @@ pub struct Markdown {
     /// Shared content reference for parent-driven content updates (e.g. from MarkdownViewer).
     /// When set, `on_layout()` syncs `self.markup` from this shared state before computing height.
     shared_markup: Option<Arc<RwLock<String>>>,
-    id: Option<String>,
     layout_width: usize,
     intrinsic_height: usize,
     can_focus: bool,
-    focused: bool,
     composed_children: Vec<Box<dyn Widget>>,
     pending_recompose: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl std::fmt::Debug for Markdown {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Markdown")
             .field("markup_len", &self.markup.len())
-            .field("id", &self.id)
             .field("pending_recompose", &self.pending_recompose)
             .finish()
     }
@@ -246,14 +243,12 @@ impl Clone for Markdown {
         let mut cloned = Self {
             markup: self.markup.clone(),
             shared_markup: self.shared_markup.clone(),
-            id: self.id.clone(),
             layout_width: self.layout_width,
             intrinsic_height: self.intrinsic_height,
             can_focus: self.can_focus,
-            focused: self.focused,
             composed_children: build_markdown_children(&self.markup),
             pending_recompose: self.pending_recompose,
-            styles: self.styles.clone(),
+            seed: self.seed.clone(),
         };
         cloned.recompute_intrinsic_height();
         cloned
@@ -626,18 +621,18 @@ struct MarkdownHeadingBlock {
     level: usize,
     text: String,
     layout_width: usize,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl MarkdownHeadingBlock {
     fn new(level: usize, text: String) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = vec![format!("markdown--h{}", level.clamp(1, 6))];
         Self {
             level,
             text,
             layout_width: 0,
-            classes: vec![format!("markdown--h{}", level.clamp(1, 6))],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 }
@@ -677,22 +672,28 @@ impl Widget for MarkdownHeadingBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_plain_height(
+        Some(rendered_plain_height(
             &self.text,
             self.layout_width.max(1),
-        )))
+        ))
     }
 
     fn style_classes(&self) -> &[String] {
-        &self.classes
+        &self.seed.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.classes = seed.classes.clone();
+        seed
     }
 }
 
@@ -701,7 +702,6 @@ struct MarkdownParagraphBlock {
     inline_doc: InlineTextDoc,
     layout_width: usize,
     hovered_link: Option<String>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownParagraphBlock {
@@ -710,7 +710,6 @@ impl MarkdownParagraphBlock {
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             hovered_link: None,
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -751,8 +750,12 @@ impl Widget for MarkdownParagraphBlock {
         false
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_link = None;
         }
     }
@@ -772,17 +775,7 @@ impl Widget for MarkdownParagraphBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(
-            self.inline_doc.rendered_height(self.layout_width.max(1)),
-        ))
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(self.inline_doc.rendered_height(self.layout_width.max(1)))
     }
 }
 
@@ -790,7 +783,6 @@ impl Widget for MarkdownParagraphBlock {
 struct MarkdownFenceBlock {
     raw: String,
     layout_width: usize,
-    styles: WidgetStyles,
 }
 
 impl MarkdownFenceBlock {
@@ -798,7 +790,6 @@ impl MarkdownFenceBlock {
         Self {
             raw,
             layout_width: 0,
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -823,31 +814,19 @@ impl Widget for MarkdownFenceBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(rendered_markdown_height(
+        Some(rendered_markdown_height(
             &self.raw,
             self.layout_width.max(1),
-        )))
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        ))
     }
 }
 
 #[derive(Debug)]
-struct MarkdownHorizontalRuleBlock {
-    styles: WidgetStyles,
-}
+struct MarkdownHorizontalRuleBlock;
 
 impl MarkdownHorizontalRuleBlock {
     fn new() -> Self {
-        Self {
-            styles: WidgetStyles::default(),
-        }
+        Self
     }
 }
 
@@ -866,30 +845,18 @@ impl Widget for MarkdownHorizontalRuleBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(1)
     }
 }
 
 #[derive(Debug)]
 struct MarkdownBullet {
     symbol: String,
-    styles: WidgetStyles,
 }
 
 impl MarkdownBullet {
     fn new(symbol: String) -> Self {
-        Self {
-            symbol,
-            styles: WidgetStyles::default(),
-        }
+        Self { symbol }
     }
 }
 
@@ -905,14 +872,6 @@ impl Widget for MarkdownBullet {
     fn content_width(&self) -> Option<usize> {
         Some(rich_rs::cell_len(&self.symbol).max(1))
     }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
-    }
 }
 
 #[derive(Debug)]
@@ -920,7 +879,6 @@ struct MarkdownInlineItem {
     inline_doc: InlineTextDoc,
     layout_width: usize,
     hovered_link: Option<String>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownInlineItem {
@@ -929,7 +887,6 @@ impl MarkdownInlineItem {
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             hovered_link: None,
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -970,8 +927,12 @@ impl Widget for MarkdownInlineItem {
         false
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_link = None;
         }
     }
@@ -991,17 +952,7 @@ impl Widget for MarkdownInlineItem {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(
-            self.inline_doc.rendered_height(self.layout_width.max(1)),
-        ))
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(self.inline_doc.rendered_height(self.layout_width.max(1)))
     }
 }
 
@@ -1010,7 +961,6 @@ struct MarkdownListItemBlock {
     item_inline_doc: InlineTextDoc,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownListItemBlock {
@@ -1025,7 +975,6 @@ impl MarkdownListItemBlock {
             item_inline_doc: InlineTextDoc::parse(&item_markup),
             layout_width: 0,
             children,
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -1048,20 +997,11 @@ impl Widget for MarkdownListItemBlock {
     fn layout_height(&self) -> Option<usize> {
         let bullet_width = rich_rs::cell_len(&self.symbol).max(1);
         let content_width = self.layout_width.saturating_sub(bullet_width).max(1);
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.item_inline_doc.rendered_height(content_width)))
+        Some(self.item_inline_doc.rendered_height(content_width))
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         std::mem::take(&mut self.children)
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
     }
 }
 
@@ -1071,7 +1011,6 @@ struct MarkdownListBlock {
     item_inline_docs: Vec<InlineTextDoc>,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownListBlock {
@@ -1113,7 +1052,6 @@ impl MarkdownListBlock {
                 .collect(),
             layout_width: 0,
             children,
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -1142,9 +1080,6 @@ impl Widget for MarkdownListBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(h);
-        }
         let width = self.layout_width.max(1);
         let bullet_width = if self.ordered {
             self.items.len().to_string().len().saturating_add(2).max(2)
@@ -1164,14 +1099,6 @@ impl Widget for MarkdownListBlock {
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         std::mem::take(&mut self.children)
     }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
-    }
 }
 
 #[derive(Debug)]
@@ -1180,19 +1107,19 @@ struct MarkdownTableCell {
     inline_doc: InlineTextDoc,
     layout_width: usize,
     hovered_link: Option<String>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl MarkdownTableCell {
     fn new(text: String, raw: String, classes: Vec<String>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = classes;
         Self {
             text,
             inline_doc: InlineTextDoc::parse(&raw),
             layout_width: 0,
             hovered_link: None,
-            classes,
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 }
@@ -1215,7 +1142,7 @@ impl Widget for MarkdownTableCell {
     }
 
     fn style_classes(&self) -> &[String] {
-        &self.classes
+        &self.seed.classes
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {
@@ -1240,8 +1167,12 @@ impl Widget for MarkdownTableCell {
         false
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_link = None;
         }
     }
@@ -1262,7 +1193,7 @@ impl Widget for MarkdownTableCell {
 
     fn layout_height(&self) -> Option<usize> {
         let _ = &self.text;
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        Some(1)
     }
 
     fn tooltip(&self) -> Option<String> {
@@ -1282,11 +1213,17 @@ impl Widget for MarkdownTableCell {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.classes = seed.classes.clone();
+        seed
     }
 }
 
@@ -1474,7 +1411,9 @@ struct MarkdownTableContentBlock {
     row_markups: Vec<Vec<String>>,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
-    styles: WidgetStyles,
+    /// Computed row heights from the last on_layout call; contributed via style() hook.
+    grid_rows: Option<Vec<crate::style::Scalar>>,
+    seed: NodeSeed,
 }
 
 impl MarkdownTableContentBlock {
@@ -1538,6 +1477,10 @@ impl MarkdownTableContentBlock {
                 )));
             }
         }
+        let mut seed = NodeSeed::default();
+        seed.styles.style.grid_size_columns = Some(column_count);
+        seed.styles.style.grid_size_rows = Some(row_count as u16);
+        seed.styles.style.grid_columns = Some(column_fractions);
         Self {
             column_count: column_count as usize,
             header_markups: effective_header_markups,
@@ -1545,15 +1488,8 @@ impl MarkdownTableContentBlock {
             row_markups: effective_row_markups,
             layout_width: 0,
             children,
-            styles: WidgetStyles {
-                style: crate::style::Style {
-                    grid_size_columns: Some(column_count),
-                    grid_size_rows: Some(row_count as u16),
-                    grid_columns: Some(column_fractions),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+            grid_rows: None,
+            seed,
         }
     }
 }
@@ -1591,7 +1527,9 @@ impl Widget for MarkdownTableContentBlock {
         if row_heights.len() < self.row_count {
             row_heights.resize(self.row_count, 1);
         }
-        self.styles.style.grid_rows = Some(
+        // Rule 6: post-layout style contribution via style() hook instead of
+        // mutating stored inline styles.
+        self.grid_rows = Some(
             row_heights
                 .into_iter()
                 .map(|height| crate::style::Scalar::Cells(height.min(u16::MAX as usize) as u16))
@@ -1599,10 +1537,14 @@ impl Widget for MarkdownTableContentBlock {
         );
     }
 
+    fn style(&self) -> Option<crate::style::Style> {
+        self.grid_rows.as_ref().map(|rows| crate::style::Style {
+            grid_rows: Some(rows.clone()),
+            ..Default::default()
+        })
+    }
+
     fn layout_height(&self) -> Option<usize> {
-        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(h);
-        }
         Some(estimate_markdown_table_height(
             &self.header_markups,
             &self.row_markups,
@@ -1617,11 +1559,15 @@ impl Widget for MarkdownTableContentBlock {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -1632,7 +1578,6 @@ struct MarkdownTableBlock {
     row_markups: Vec<Vec<String>>,
     layout_width: usize,
     children: Vec<Box<dyn Widget>>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownTableBlock {
@@ -1679,7 +1624,6 @@ impl MarkdownTableBlock {
                 rows,
                 effective_row_markups,
             ))],
-            styles: WidgetStyles::default(),
         }
     }
 }
@@ -1704,9 +1648,6 @@ impl Widget for MarkdownTableBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(h) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(h);
-        }
         Some(estimate_markdown_table_height(
             &self.header_markups,
             &self.row_markups,
@@ -1718,14 +1659,6 @@ impl Widget for MarkdownTableBlock {
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         std::mem::take(&mut self.children)
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
     }
 }
 
@@ -1837,14 +1770,12 @@ impl Markdown {
         let mut markdown = Self {
             markup,
             shared_markup: None,
-            id: None,
             layout_width: 1,
             intrinsic_height: 1,
             can_focus: false,
-            focused: false,
             composed_children,
             pending_recompose: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         markdown.recompute_intrinsic_height();
         markdown
@@ -1860,14 +1791,12 @@ impl Markdown {
         let mut markdown = Self {
             markup: initial,
             shared_markup: Some(shared),
-            id: None,
             layout_width: 1,
             intrinsic_height: 1,
             can_focus: false,
-            focused: false,
             composed_children,
             pending_recompose: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         markdown.recompute_intrinsic_height();
         markdown
@@ -1875,14 +1804,11 @@ impl Markdown {
 
     pub fn with_can_focus(mut self, can_focus: bool) -> Self {
         self.can_focus = can_focus;
-        if !can_focus {
-            self.focused = false;
-        }
         self
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        self.seed.css_id = Some(id.into());
         self
     }
 
@@ -1914,14 +1840,6 @@ impl Widget for Markdown {
         self.can_focus
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused && self.can_focus;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         std::mem::take(&mut self.composed_children)
     }
@@ -1951,23 +1869,23 @@ impl Widget for Markdown {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.intrinsic_height))
+        Some(self.intrinsic_height)
     }
 
     fn content_width(&self) -> Option<usize> {
         None
     }
 
-    fn style_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn allow_select(&self) -> bool {
@@ -2040,14 +1958,12 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
 
     #[test]
     fn markdown_focusable_when_enabled() {
-        let mut markdown = Markdown::new("# Heading").with_can_focus(true);
+        let markdown = Markdown::new("# Heading").with_can_focus(true);
         assert!(markdown.focusable());
         assert!(markdown.can_focus());
-        assert!(!markdown.has_focus());
-        markdown.set_focus(true);
-        assert!(markdown.has_focus());
-        markdown.set_focus(false);
-        assert!(!markdown.has_focus());
+        let markdown_not_focusable = Markdown::new("# Heading");
+        assert!(!markdown_not_focusable.focusable());
+        assert!(!markdown_not_focusable.can_focus());
     }
 
     #[test]
@@ -2257,7 +2173,7 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             ],
         );
 
-        let style = content.style().expect("table content style");
+        let style = content.styles().expect("table content styles").style.clone();
         let columns = style.grid_columns.as_ref().expect("grid columns");
         assert_eq!(columns.len(), 4);
         let first_weight = match columns.first().expect("first column") {
@@ -2371,8 +2287,8 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             .expect("query should parse")
             .first()
             .expect("table content node should exist");
-        let node = tree.get(node_id).expect("table content node");
-        let style = node.widget.style().expect("inline style");
+        let styles = tree.styles(node_id).expect("table content node styles");
+        let style = styles.style.clone();
         assert_eq!(style.grid_size_columns, Some(4));
         let columns = style.grid_columns.expect("grid columns");
         assert_eq!(columns.len(), 4);

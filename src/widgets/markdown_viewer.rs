@@ -15,7 +15,7 @@ use crate::message::{
 use super::containers::VerticalScroll;
 use super::delegate::{delegate_renderable, delegate_widget_method};
 use super::markdown_model::parse_markdown_headings_with_lines;
-use super::{Markdown, Tree, TreeNode, Widget, WidgetStyles};
+use super::{Markdown, NodeSeed, Tree, TreeNode, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
 // MarkdownTableOfContents
@@ -35,21 +35,18 @@ const MARKDOWN_VIEWER_ACTIONS: &[ActionDecl] = &[ActionDecl {
 /// Mirrors Python's `MarkdownTableOfContents` (which composes a real `Tree` child).
 pub struct MarkdownTableOfContents {
     shared_headings: Arc<RwLock<Vec<HeadingEntry>>>,
-    styles: WidgetStyles,
 }
 
 impl MarkdownTableOfContents {
     pub fn new(headings: Vec<HeadingEntry>) -> Self {
         Self {
             shared_headings: Arc::new(RwLock::new(headings)),
-            styles: WidgetStyles::default(),
         }
     }
 
     pub fn with_shared_headings(shared: Arc<RwLock<Vec<HeadingEntry>>>) -> Self {
         Self {
             shared_headings: shared,
-            styles: WidgetStyles::default(),
         }
     }
 
@@ -143,8 +140,6 @@ impl Widget for MarkdownTableOfContentsTree {
             focusable,
             can_focus,
             can_focus_children,
-            set_focus,
-            has_focus,
             on_mount,
             on_unmount,
             on_tick,
@@ -168,27 +163,15 @@ impl Widget for MarkdownTableOfContentsTree {
             child_display_for_tree,
             tree_child_content_inset,
             layout_height,
-            layout_constraints,
             preserve_underlay,
             bindings,
             binding_hints,
             execute_action,
             action_namespace,
             action_registry,
-            styles,
-            styles_mut,
             style_type_aliases,
-            style_id,
-            style_classes,
-            set_style_id,
             border_title,
             border_subtitle,
-            is_disabled,
-            set_disabled_state,
-            is_loading,
-            set_loading_state,
-            is_hovered,
-            set_hovered,
             is_active,
             mouse_interactive,
             tooltip,
@@ -248,14 +231,6 @@ impl Widget for MarkdownTableOfContents {
 
     fn can_focus_children(&self) -> bool {
         true
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
@@ -464,6 +439,8 @@ pub struct MarkdownViewer {
     content_map: HashMap<String, String>,
     /// Whether a TOC-updated message should be emitted on the next event turn.
     toc_dirty: bool,
+    /// One-shot identity/style payload consumed at mount.
+    seed: NodeSeed,
 }
 
 impl MarkdownViewer {
@@ -494,7 +471,16 @@ impl MarkdownViewer {
             navigator,
             content_map,
             toc_dirty: true,
+            seed: NodeSeed::default(),
         }
+    }
+
+    /// Set a CSS id for this viewer (for query routing via `#id` selectors).
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        self.seed.css_id = Some(id.clone());
+        self.seed.styles.style_id = Some(id);
+        self
     }
 
     /// Register content for a path key.
@@ -733,8 +719,24 @@ impl Widget for MarkdownViewer {
         "MarkdownViewer"
     }
 
+    fn styles(&self) -> Option<&WidgetStyles> {
+        Some(&self.seed.styles)
+    }
+
+    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
+        Some(&mut self.seed.styles)
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        self.seed.styles.style_id.as_deref()
+    }
+
     fn style_classes(&self) -> &[String] {
         &self.classes
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn focusable(&self) -> bool {
@@ -822,8 +824,6 @@ impl Widget for MarkdownViewer {
             render_lines,
             compose,
             take_composed_children,
-            set_focus,
-            has_focus,
             on_mount,
             on_unmount,
             on_tick,
@@ -846,23 +846,12 @@ impl Widget for MarkdownViewer {
             tree_child_content_inset,
             layout_height,
             content_width,
-            layout_constraints,
             preserve_underlay,
             bindings,
             binding_hints,
-            styles,
-            styles_mut,
             style_type_aliases,
-            style_id,
-            set_style_id,
             border_title,
             border_subtitle,
-            is_disabled,
-            set_disabled_state,
-            is_loading,
-            set_loading_state,
-            is_hovered,
-            set_hovered,
             is_active,
             mouse_interactive,
             tooltip,
