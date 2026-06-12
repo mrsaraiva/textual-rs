@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Real-PTY parity harness (tests/pty_parity.rs): runs example binaries in a
+  # genuine pseudo-terminal and compares screens against Python-generated
+  # goldens (tests/pty_parity/golden/, regenerated only via
+  # tools/parity/gen-python-goldens.sh). BLOCKING by design — failures mean a
+  # parity regression in a Pass case or an unpromoted fix (strict XPASS).
+  # Unlike the unit suite, this job is headless-safe: the harness allocates its
+  # own PTY instead of needing the runner to have a controlling terminal.
+  pty-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-parity-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build examples
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo build --examples
+      - name: PTY parity tests (blocking)
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test --test pty_parity -- --nocapture
+
+  # Full unit/integration suite. Many runtime tests initialize a real terminal
+  # driver and need a controlling TTY (they hit WouldBlock on headless CI), so
+  # this job remains non-blocking until the runtime tests are headless-safe.
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Tests
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test

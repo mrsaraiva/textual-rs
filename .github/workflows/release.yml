@@ -33,6 +33,31 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: cargo test
 
+  # Real-PTY parity harness — BLOCKING release gate. Runs example binaries in a
+  # genuine pseudo-terminal against Python-generated goldens; headless-safe
+  # because the harness allocates its own PTY (unlike the unit suite above).
+  pty-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-parity-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build examples
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo build --examples
+      - name: PTY parity tests (blocking)
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: cargo test --test pty_parity -- --nocapture
+
   package:
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +73,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    needs: [package]
+    needs: [package, pty-parity]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
