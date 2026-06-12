@@ -1,9 +1,20 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
+use slotmap::SlotMap;
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+
+fn make_node_id() -> NodeId {
+    let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+    sm.insert(())
+}
+
+fn focused_state() -> NodeState {
+    NodeState { focused: true, ..Default::default() }
+}
 
 #[test]
 fn tree_renders_expanded_and_collapsed_nodes() {
@@ -40,7 +51,7 @@ fn tree_right_key_expands_selected_node() {
             .expanded(false)
             .with_child(TreeNode::new("Child")),
     ]);
-    tree.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     tree.on_layout(24, 5);
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
@@ -133,7 +144,7 @@ fn tree_navigation_skips_disabled_nodes() {
             .with_child(TreeNode::new("Disabled Child").disabled(true))
             .with_child(TreeNode::new("Enabled Child")),
     ]);
-    tree.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     tree.on_layout(24, 5);
     let mut rctx = ReactiveCtx::new(NodeId::default());
     tree.set_selected(0, &mut rctx);
@@ -176,7 +187,7 @@ fn tree_allows_expansion_without_preloaded_children() {
             .expanded(false)
             .allow_expand(true),
     ]);
-    tree.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     tree.on_layout(24, 5);
 
     let console = Console::new();
@@ -224,7 +235,7 @@ fn tree_enter_posts_activation_message_without_toggling() {
             .expanded(false)
             .with_child(TreeNode::new("Child")),
     ]);
-    tree.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     tree.on_layout(24, 4);
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

@@ -9,8 +9,8 @@ use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 use crate::node_id::NodeId;
 
 use super::{
-    Tree, TreeNode, Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
+    NodeSeed, Tree, TreeNode, Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints,
 };
 
 /// Icon for an expanded folder (Python: `ICON_NODE_EXPANDED`).
@@ -104,13 +104,9 @@ pub struct DirectoryTree {
     show_hidden: bool,
     /// Optional path filter predicate; paths for which the predicate returns false are excluded.
     filter: Option<fn(&Path) -> bool>,
-    focused: bool,
-    hovered: bool,
     last_width: u16,
     last_height: u16,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    pub(crate) seed: NodeSeed,
 }
 
 impl DirectoryTree {
@@ -139,13 +135,9 @@ impl DirectoryTree {
             next_task_id: 1,
             show_hidden,
             filter,
-            focused: false,
-            hovered: false,
             last_width: 1,
             last_height: 1,
-            classes: vec!["directory-tree".to_string()],
-            focused_classes: vec!["directory-tree".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         this.rebuild_tree(None);
         this
@@ -205,7 +197,6 @@ impl DirectoryTree {
         collect_visible_entries(&self.root, &mut self.visible_entries);
 
         let mut tree = Tree::new(vec![self.root.to_tree_node()]);
-        tree.set_focus(self.focused);
         tree.on_layout(self.last_width, self.last_height);
 
         if let Some(path) = preferred_path {
@@ -387,22 +378,16 @@ impl Widget for DirectoryTree {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        self.tree.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        self.tree.set_hovered(hovered);
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        // Propagate hover state changes to the inner Tree so hover highlighting clears
+        // when DirectoryTree loses hover.
+        if !new.hovered {
+            self.tree.on_node_state_changed(_old, new);
+        }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -412,12 +397,8 @@ impl Widget for DirectoryTree {
     }
 
     fn on_unmount(&mut self) {
-        self.focused = false;
-        self.hovered = false;
         self.inflight_loads_by_path.clear();
         self.inflight_loads_by_task.clear();
-        self.tree.set_focus(false);
-        self.tree.set_hovered(false);
         self.tree.on_unmount();
     }
 
@@ -511,22 +492,18 @@ impl Widget for DirectoryTree {
         "DirectoryTree"
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     // delegate-audit: 70 methods as of 2026-02-26
@@ -567,8 +544,6 @@ impl Widget for DirectoryTree {
             action_namespace,
             action_registry,
             style_type_aliases,
-            style_id,
-            set_style_id,
             border_title,
             border_subtitle,
             is_disabled,

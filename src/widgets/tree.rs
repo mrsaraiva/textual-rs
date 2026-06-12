@@ -8,8 +8,8 @@ use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    BindingDecl, ScrollView, Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    BindingDecl, NodeSeed, ScrollView, Widget, WidgetStyles,
+    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
 };
 
 #[derive(Debug, Clone)]
@@ -139,8 +139,6 @@ pub struct Tree {
     roots: Vec<TreeNode>,
     selected: usize,
     offset: usize,
-    focused: bool,
-    hovered: bool,
     hovered_index: Option<usize>,
     pressed_activation_index: Option<usize>,
     viewport_height: usize,
@@ -151,9 +149,7 @@ pub struct Tree {
     show_guides: bool,
     /// Indentation width per tree level in cells. Clamped to [2, 10]. Default: 4.
     guide_depth: usize,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 #[derive(Debug, Clone)]
@@ -178,8 +174,6 @@ impl Tree {
             roots,
             selected: 0,
             offset: 0,
-            focused: false,
-            hovered: false,
             hovered_index: None,
             pressed_activation_index: None,
             viewport_height: 1,
@@ -187,9 +181,7 @@ impl Tree {
             show_root: true,
             show_guides: true,
             guide_depth: 4,
-            classes: vec!["tree".to_string()],
-            focused_classes: vec!["tree".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -1086,21 +1078,12 @@ impl Widget for Tree {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_index = None;
         }
     }
@@ -1248,7 +1231,7 @@ impl Widget for Tree {
                 }
                 self.pressed_activation_index = None;
             }
-            Event::Action(action) if self.focused => match action {
+            Event::Action(action) if self.node_state().focused => match action {
                 Action::ScrollUp => {
                     self.move_selection(-1, ctx);
                     ctx.set_handled();
@@ -1271,7 +1254,7 @@ impl Widget for Tree {
                 }
                 _ => {}
             },
-            Event::Key(key) if self.focused => {
+            Event::Key(key) if self.node_state().focused => {
                 let shift = key.modifiers.contains(KeyModifiers::SHIFT);
                 let shift_handled = if shift {
                     match key.code {
@@ -1354,8 +1337,7 @@ impl Widget for Tree {
             }
             Event::AppFocus(false) => {
                 self.pressed_activation_index = None;
-                if self.hovered || self.hovered_index.is_some() {
-                    self.hovered = false;
+                if self.hovered_index.is_some() {
                     self.hovered_index = None;
                     ctx.request_repaint();
                 }
@@ -1391,7 +1373,6 @@ impl Widget for Tree {
     }
 
     fn on_unmount(&mut self) {
-        self.hovered = false;
         self.hovered_index = None;
         self.pressed_activation_index = None;
     }
@@ -1441,7 +1422,7 @@ impl Widget for Tree {
             .to_rich_over(component_bg_base)
             .unwrap_or(base_style);
 
-        let selected_path: Option<&[usize]> = if self.focused {
+        let selected_path: Option<&[usize]> = if self.node_state().focused {
             nodes.get(self.selected).map(|node| node.path.as_slice())
         } else {
             None
@@ -1588,22 +1569,18 @@ impl Widget for Tree {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -1643,9 +1620,20 @@ mod tests {
     use crate::keys::KeyEventData;
     use crate::message::*;
     use crate::node_id::NodeId;
-    use crate::widgets::Widget;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::{NodeState, Widget};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::Console;
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
 
     #[test]
     fn highlighted_node_uses_highlight_class_not_hover() {
@@ -1701,7 +1689,7 @@ mod tests {
                 .expanded(false)
                 .with_child(TreeNode::new("Child")),
         ]);
-        tree.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         tree.on_layout(24, 4);
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

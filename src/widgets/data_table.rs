@@ -9,8 +9,8 @@ use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    BindingDecl, ScrollBar, ScrollView, Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints, focused_classes},
+    BindingDecl, NodeSeed, ScrollBar, ScrollView, Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints,
 };
 
 pub(crate) const DATA_TABLE_HSCROLLBAR_ID: &str = "__data_table_hscrollbar";
@@ -67,14 +67,12 @@ pub struct DataTable {
     next_column_key: usize,
     content_width: u16,
     content_height: u16,
-    focused: bool,
-    hovered: bool,
     hover_coordinate: Option<(usize, usize)>,
     scrollbar_extracted: bool,
     show_header: bool,
     show_row_labels: bool,
     zebra_stripes: bool,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -103,14 +101,12 @@ impl DataTable {
             next_column_key: 0,
             content_width: 0,
             content_height: 0,
-            focused: false,
-            hovered: false,
             hover_coordinate: None,
             scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
             zebra_stripes: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         for header in headers {
             let _ = out.add_column(header);
@@ -930,14 +926,12 @@ impl Default for DataTable {
             next_column_key: 0,
             content_width: 0,
             content_height: 0,
-            focused: false,
-            hovered: false,
             hover_coordinate: None,
             scrollbar_extracted: false,
             show_header: true,
             show_row_labels: true,
             zebra_stripes: false,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         out.recompute_column_widths();
         out
@@ -985,7 +979,7 @@ impl Widget for DataTable {
         }
         self.scrollbar_extracted = true;
         let mut hbar = ScrollBar::new(false, 1);
-        hbar.set_style_id(Some(DATA_TABLE_HSCROLLBAR_ID.to_string()));
+        hbar.seed.css_id = Some(DATA_TABLE_HSCROLLBAR_ID.to_string());
         vec![Box::new(hbar)]
     }
 
@@ -997,21 +991,12 @@ impl Widget for DataTable {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hover_coordinate = None;
         }
     }
@@ -1261,7 +1246,7 @@ impl Widget for DataTable {
             _ => {}
         }
 
-        if !self.focused {
+        if !self.node_state().focused {
             return;
         }
         let mut handled = false;
@@ -1550,7 +1535,7 @@ impl Widget for DataTable {
         let column_widths = self.column_widths();
         let rendered_columns = self.rendered_column_indices();
         let cursor_type = self.cursor_type;
-        let show_cursor = self.focused && cursor_type != CursorType::None;
+        let show_cursor = self.node_state().focused && cursor_type != CursorType::None;
 
         // Cursor and hover coordinates.
         let cursor_coord = (self.selected, self.cursor_column);
@@ -1724,20 +1709,18 @@ impl Widget for DataTable {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            focused_classes()
-        } else {
-            empty_classes()
-        }
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
@@ -1828,7 +1811,23 @@ mod tests {
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use slotmap::SlotMap;
+
+    fn make_node_id() -> NodeId {
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
+
+    fn hovered_state() -> NodeState {
+        NodeState { hovered: true, ..Default::default() }
+    }
 
     #[test]
     fn header_click_does_not_change_selected_row() {
@@ -1891,11 +1890,10 @@ mod tests {
             vec![vec!["row0".into()], vec!["row1".into()]],
         );
         table.on_layout(20, 4);
-        table.set_hovered(true);
         table.on_mouse_move(0, 1);
         assert_eq!(table.hover_coordinate, Some((0, 0)));
 
-        table.set_hovered(false);
+        table.on_node_state_changed(hovered_state(), NodeState::default());
         assert_eq!(table.hover_coordinate, None);
     }
 
@@ -2079,7 +2077,7 @@ mod tests {
                 .map(|n| vec![format!("row{n}"), "x".into(), "y".into()])
                 .collect(),
         );
-        table.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         table.content_height = 4;
         let mut rctx = ReactiveCtx::new(NodeId::default());
         table.set_cursor(3, 2, &mut rctx);
@@ -2130,7 +2128,7 @@ mod tests {
         );
         let mut rctx = ReactiveCtx::new(NodeId::default());
         table.set_fixed_columns(1, &mut rctx);
-        table.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         table.on_layout(12, 3);
         table.set_cursor(0, 3, &mut rctx);
         let offset_at_end = table.horizontal_offset;
@@ -2185,7 +2183,7 @@ mod tests {
                 vec!["r1".into(), "c1".into()],
             ],
         );
-        table.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
         table.on_event(
@@ -2213,7 +2211,7 @@ mod tests {
                 vec!["r1".into(), "c1".into()],
             ],
         );
-        table.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut rctx = ReactiveCtx::new(NodeId::default());
         table.set_cursor(1, 1, &mut rctx);
         let mut ctx = EventCtx::default();
@@ -2298,7 +2296,7 @@ mod tests {
             ],
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
-        table.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut rctx = ReactiveCtx::new(NodeId::default());
         table.set_cursor_type(CursorType::Row, &mut rctx);
         table.on_layout(12, 4);

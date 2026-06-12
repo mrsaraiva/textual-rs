@@ -1,7 +1,18 @@
 use rich_rs::Console;
+use slotmap::SlotMap;
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+
+fn make_node_id() -> NodeId {
+    let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+    sm.insert(())
+}
+
+fn focused_state() -> NodeState {
+    NodeState { focused: true, ..Default::default() }
+}
 
 #[test]
 fn list_view_renders_selection() {
@@ -51,7 +62,7 @@ fn list_view_mouse_click_selects_row() {
 #[test]
 fn list_view_scroll_actions_keep_selection_visible() {
     let mut list = ListView::new((0..20).map(|idx| format!("item-{idx}")).collect());
-    list.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     list.on_layout(20, 4);
     let mut ctx = EventCtx::default();
     for _ in 0..7 {
@@ -93,7 +104,7 @@ fn list_view_navigation_skips_disabled_items() {
         "three".to_string(),
     ]);
     list.set_item_disabled(1, true);
-    list.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     list.on_layout(20, 3);
 
     let mut ctx = EventCtx::default();

@@ -76,12 +76,6 @@ pub(crate) fn empty_classes() -> &'static [String] {
     EMPTY.get_or_init(Vec::new)
 }
 
-pub(crate) fn focused_classes() -> &'static [String] {
-    use std::sync::OnceLock;
-    static FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
-    FOCUSED.get_or_init(|| vec!["focused".to_string()])
-}
-
 pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize) -> Vec<Segment> {
     if width == 0 {
         return Vec::new();

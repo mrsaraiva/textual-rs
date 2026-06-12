@@ -11,8 +11,8 @@ use textual::keys::KeyEventData;
 use textual::node_id::NodeId;
 use textual::prelude::*;
 use textual::runtime::{
-    build_widget_tree_from_root, focused_node_id_tree, render_tree_to_frame,
-    tree_content_local_coords, widget_at_tree_layout,
+    build_widget_tree_from_root, dispatch_ctx::set_dispatch_recipient, focused_node_id_tree,
+    render_tree_to_frame, tree_content_local_coords, widget_at_tree_layout,
 };
 use textual::widget_tree::WidgetTree;
 
@@ -287,12 +287,14 @@ fn focus_node(tree: &mut WidgetTree, target: NodeId) -> bool {
         return false;
     }
     if let Some(current_id) = current {
+        tree.set_focus_state(current_id, false);
         let _ = textual::runtime::dispatch_event_to_target_tree(
             tree,
             current_id,
             &Event::Blur(BlurEvent { node: current_id }),
         );
     }
+    tree.set_focus_state(target, true);
     textual::runtime::dispatch_event_to_target_tree(
         tree,
         target,
@@ -377,6 +379,7 @@ fn find_click_for_sink(
 
 struct DataTableNavProbe {
     inner: DataTable,
+    focused: bool,
     sink: Arc<Mutex<Vec<String>>>,
 }
 
@@ -391,6 +394,7 @@ impl DataTableNavProbe {
                     vec!["Gamma".into(), "3".into()],
                 ],
             ),
+            focused: false,
             sink,
         }
     }
@@ -406,11 +410,11 @@ impl Widget for DataTableNavProbe {
     }
 
     fn has_focus(&self) -> bool {
-        self.inner.has_focus()
+        self.focused || self.node_state().focused
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.inner.set_focus(focused);
+        self.focused = focused;
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -420,19 +424,28 @@ impl Widget for DataTableNavProbe {
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
             Event::Focus(_) => {
-                self.inner.set_focus(true);
+                self.focused = true;
                 ctx.set_handled();
                 return;
             }
             Event::Blur(_) => {
-                self.inner.set_focus(false);
+                self.focused = false;
                 ctx.set_handled();
                 return;
             }
             _ => {}
         }
+        // Forward to inner table; use a focused dispatch context if this probe is focused.
+        // Preserve the current node_id so mouse.target checks still match.
         let before = self.inner.selected();
-        self.inner.on_event(event, ctx);
+        if self.has_focus() {
+            let node_id = self.node_id();
+            let focused_ns = NodeState { focused: true, ..Default::default() };
+            let _guard = set_dispatch_recipient(node_id, focused_ns);
+            self.inner.on_event(event, ctx);
+        } else {
+            self.inner.on_event(event, ctx);
+        }
         let after = self.inner.selected();
         if before != after {
             self.sink

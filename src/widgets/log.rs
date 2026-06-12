@@ -8,9 +8,9 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as R
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use super::helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints};
+use super::helpers::{adjust_line_length_no_bg, fixed_height_from_constraints};
 
-use super::{ScrollBar, ScrollView, Widget, WidgetStyles};
+use super::{NodeSeed, ScrollBar, ScrollView, Widget, WidgetStyles};
 
 pub(crate) const LOG_VSCROLLBAR_ID: &str = "__log_vscrollbar";
 
@@ -110,17 +110,14 @@ pub struct Log {
     auto_scroll: bool,
     scroll_step: usize,
     offset_y: usize,
-    focused: bool,
     highlight: bool,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
     content_height: AtomicUsize,
     viewport_height: AtomicUsize,
     widget_width: AtomicUsize,
     widget_height: AtomicUsize,
     scrollbar_extracted: bool,
     max_line_width: usize,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     // WP-24: text selection
     selection_anchor: Option<LogPos>,
     selection_end: Option<LogPos>,
@@ -138,17 +135,14 @@ impl Log {
             auto_scroll: true,
             scroll_step: 1,
             offset_y: 0,
-            focused: false,
             highlight: false,
-            classes: Vec::new(),
-            focused_classes: vec!["-focus".to_string()],
             content_height: AtomicUsize::new(1),
             viewport_height: AtomicUsize::new(1),
             widget_width: AtomicUsize::new(1),
             widget_height: AtomicUsize::new(1),
             scrollbar_extracted: false,
             max_line_width: 0,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             selection_anchor: None,
             selection_end: None,
             selecting: false,
@@ -584,7 +578,7 @@ impl Widget for Log {
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 2);
-        vbar.set_style_id(Some(LOG_VSCROLLBAR_ID.to_string()));
+        vbar.seed.css_id = Some(LOG_VSCROLLBAR_ID.to_string());
         vec![Box::new(vbar)]
     }
 
@@ -653,18 +647,10 @@ impl Widget for Log {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         // WP-24: handle key events for copy
         if let Event::Key(key) = event {
-            if self.focused {
+            if self.node_state().focused {
                 let ctrl = key.modifiers.contains(KeyModifiers::CONTROL)
                     || key.modifiers.contains(KeyModifiers::SUPER);
                 if ctrl && key.code == KeyCode::Char('c') {
@@ -775,22 +761,18 @@ impl Widget for Log {
         fixed_height_from_constraints(self.layout_constraints())
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn get_selection(&self) -> Option<String> {

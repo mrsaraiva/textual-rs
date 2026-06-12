@@ -1,7 +1,18 @@
 use rich_rs::Console;
+use slotmap::SlotMap;
 use textual::prelude::*;
 use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+
+fn make_node_id() -> NodeId {
+    let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+    sm.insert(())
+}
+
+fn focused_state() -> NodeState {
+    NodeState { focused: true, ..Default::default() }
+}
 
 #[test]
 fn data_table_renders_header_and_rows() {
@@ -101,7 +112,7 @@ fn data_table_row_cursor_actions_can_scroll_horizontal_viewport() {
         ],
         vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
     );
-    table.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut rctx = ReactiveCtx::new(NodeId::default());
     table.set_cursor_type(CursorType::Row, &mut rctx);
     table.on_layout(12, 4);

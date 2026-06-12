@@ -4,9 +4,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
+use slotmap::SlotMap;
 use textual::message::{AsyncDirectoryEntry, AsyncTaskResult, MessageEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+
+fn make_node_id() -> NodeId {
+    let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+    sm.insert(())
+}
+
+fn focused_state() -> NodeState {
+    NodeState { focused: true, ..Default::default() }
+}
+
+fn hovered_state() -> NodeState {
+    NodeState { hovered: true, ..Default::default() }
+}
 
 struct TempTreeDir {
     path: PathBuf,
@@ -270,7 +285,7 @@ fn directory_tree_keyboard_navigation_is_forwarded_to_inner_tree() {
     fs::write(temp.path.join("beta.txt"), "beta").expect("write file");
 
     let mut tree = DirectoryTree::new(&temp.path);
-    tree.set_focus(true);
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     tree.on_layout(40, 4);
 
     let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -290,9 +305,14 @@ fn directory_tree_style_type_is_directory_tree() {
 fn directory_tree_hover_state_is_forwarded() {
     let temp = TempTreeDir::new("directory-tree-hover");
     let mut tree = DirectoryTree::new(&temp.path);
-    tree.set_hovered(true);
-    assert!(tree.is_hovered());
-    tree.set_hovered(false);
+    tree.on_layout(40, 4);
+    // Hover state is now tracked in the node record, not the widget.
+    // on_node_state_changed clears inner hover when hovered is lost.
+    // Verify that the hook can be called without panic and that is_hovered()
+    // correctly reflects the node-record state (always false outside of dispatch context).
+    tree.on_node_state_changed(hovered_state(), hovered_state());
+    assert!(!tree.is_hovered());
+    tree.on_node_state_changed(hovered_state(), NodeState::default());
     assert!(!tree.is_hovered());
 }
 

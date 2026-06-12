@@ -862,6 +862,13 @@ impl Widget for ScrollBar {
         self.mouse_over = hovered;
     }
 
+    fn style_id(&self) -> Option<&str> {
+        self.seed
+            .css_id
+            .as_deref()
+            .or_else(|| self.seed.styles.style_id.as_deref())
+    }
+
     fn styles(&self) -> Option<&WidgetStyles> {
         Some(&self.seed.styles)
     }
