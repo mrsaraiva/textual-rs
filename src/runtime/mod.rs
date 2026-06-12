@@ -3786,11 +3786,23 @@ mod tests {
         if let Some(tree) = app.widget_tree.as_mut() {
             tree.set_focus_state(second, true);
         }
-        let only_second = app
-            .query("Button")
-            .expect("query")
-            .results_where(&app, |widget| widget.has_focus());
-        assert_eq!(only_second.only_one(), Ok(second));
+        // After RA-2: focus state lives in the tree node record, not the widget.
+        // results_where with has_focus() would always return false for migrated widgets.
+        // Instead, check the tree node_state directly.
+        {
+            let button_query = app.query("Button").expect("query");
+            let button_ids: Vec<NodeId> = button_query.ids().to_vec();
+            let focused: Vec<NodeId> = button_ids
+                .into_iter()
+                .filter(|&id| {
+                    app.widget_tree
+                        .as_ref()
+                        .is_some_and(|t| t.node_state(id).focused)
+                })
+                .collect();
+            assert_eq!(focused.len(), 1);
+            assert_eq!(focused[0], second);
+        }
 
         app.query_mut("Button")
             .expect("query mut")
@@ -3841,8 +3853,8 @@ mod tests {
         assert!(!tree.is_displayed(second));
         assert_eq!(tree.visibility(first), Visibility::Hidden);
         assert_eq!(tree.visibility(second), Visibility::Hidden);
-        assert!(first_node.widget.has_focus());
-        assert!(!second_node.widget.has_focus());
+        assert!(tree.node_state(first).focused);
+        assert!(!tree.node_state(second).focused);
         assert!(!app.clear_on_next_render);
         assert_eq!(app.pending_query_refresh_nodes.len(), 2);
         assert!(app.pending_query_refresh_nodes.contains(&first));
@@ -4380,8 +4392,14 @@ mod tests {
         assert_eq!(buttons.len(), 2);
         let first = buttons.ids()[0];
         let second = buttons.ids()[1];
-        assert_eq!(app.with_widget_mut(first, |w| w.has_focus()), Some(true));
-        assert_eq!(app.with_widget_mut(second, |w| w.has_focus()), Some(false));
+        assert_eq!(
+            app.active_widget_tree().map(|t| t.node_state(first).focused),
+            Some(true)
+        );
+        assert_eq!(
+            app.active_widget_tree().map(|t| t.node_state(second).focused),
+            Some(false)
+        );
     }
 
     // -----------------------------------------------------------------------

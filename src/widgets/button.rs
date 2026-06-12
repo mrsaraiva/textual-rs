@@ -11,8 +11,8 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 use crate::action::ParsedAction;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
-    BindingDecl, Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints,
+    BindingDecl, NodeSeed, Widget,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,18 +33,12 @@ pub struct Button {
     /// Optional action string dispatched on press instead of `ButtonPressed`.
     /// Mirrors Python Textual's `Button(action=...)` parameter.
     action: Option<String>,
-    focused: bool,
-    hovered: bool,
     pressed: PressedState,
     variant: ButtonVariant,
     disabled: bool,
     flat: bool,
     compact: bool,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    active_classes: Vec<String>,
-    focused_active_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -62,14 +56,12 @@ impl std::fmt::Debug for Button {
             .field("label", &self.label)
             .field("content", &self.content.is_some())
             .field("action", &self.action)
-            .field("focused", &self.focused)
-            .field("hovered", &self.hovered)
             .field("pressed", &(self.pressed != PressedState::None))
             .field("variant", &self.variant)
             .field("disabled", &self.disabled)
             .field("flat", &self.flat)
             .field("compact", &self.compact)
-            .field("classes", &self.classes)
+            .field("classes", &self.seed.classes)
             .finish()
     }
 }
@@ -90,18 +82,12 @@ impl Button {
             label: label.into(),
             content: None,
             action: None,
-            focused: false,
-            hovered: false,
             pressed: PressedState::None,
             variant: ButtonVariant::Default,
             disabled: false,
             flat: false,
             compact: false,
-            classes: Vec::new(),
-            focused_classes: Vec::new(),
-            active_classes: Vec::new(),
-            focused_active_classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
         .rebuild_classes()
     }
@@ -151,7 +137,9 @@ impl Button {
     /// The id is included in `ButtonPressed.button_id`, mirroring Python's
     /// `Button.Pressed.button.id` semantics.
     pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.styles.set_style_id(id.into());
+        let id = id.into();
+        self.seed.css_id = Some(id.clone());
+        self.seed.styles.style_id = Some(id);
         self
     }
 
@@ -311,13 +299,9 @@ impl Button {
     }
 
     pub fn describe(&self) -> String {
-        let mut classes = self.classes.clone();
-        let is_active = match self.pressed {
-            PressedState::None => false,
-            PressedState::Mouse => self.hovered,
-            _ => true,
-        };
-        if is_active {
+        let mut classes = self.seed.classes.clone();
+        // Include -active when the button is in a pressed state.
+        if self.pressed != PressedState::None {
             classes.push("-active".to_string());
         }
         let class_str = classes.join(" ");
@@ -361,6 +345,9 @@ impl Button {
     fn rebuild_classes_in_place(&mut self) {
         // Mirror Textual's class naming conventions where practical, but keep our legacy
         // class names around so existing demos keep working.
+        // Note: focus, hover, and active state classes are NOT baked in here.
+        // `:focus` is matched via NodeState by the CSS resolver.
+        // `-active` is added/removed dynamically via ctx.add_class/ctx.remove_class.
         let mut classes = vec!["button".to_string()];
         if self.flat {
             classes.push("flat".to_string());
@@ -393,16 +380,7 @@ impl Button {
         if self.disabled {
             classes.push("disabled".to_string());
         }
-        let mut focused_classes = classes.clone();
-        focused_classes.push("focused".to_string());
-        let mut active_classes = classes.clone();
-        active_classes.push("-active".to_string());
-        let mut focused_active_classes = focused_classes.clone();
-        focused_active_classes.push("-active".to_string());
-        self.classes = classes;
-        self.focused_classes = focused_classes;
-        self.active_classes = active_classes;
-        self.focused_active_classes = focused_active_classes;
+        self.seed.classes = classes;
     }
 }
 
@@ -457,10 +435,6 @@ impl Widget for Button {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
@@ -477,28 +451,10 @@ impl Widget for Button {
         true
     }
 
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        if self.hovered != hovered {
-            debug_input(&format!(
-                "[hover][button] label=\"{}\" hovered {} -> {}",
-                self.label, self.hovered, hovered
-            ));
-            self.hovered = hovered;
-        }
-    }
-
     fn is_active(&self) -> bool {
         match self.pressed {
             PressedState::None => false,
-            PressedState::Mouse => self.hovered,
+            PressedState::Mouse => self.node_state().hovered,
             _ => true,
         }
     }
@@ -516,8 +472,8 @@ impl Widget for Button {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 // Enter active visual state immediately on targeted press even if
                 // hover-move events haven't run yet in this frame.
-                self.hovered = true;
                 self.pressed = PressedState::Mouse;
+                ctx.add_class("-active");
                 debug_input(&format!(
                     "[button] mouse id={} label=\"{}\"",
                     0u64, self.label
@@ -542,11 +498,13 @@ impl Widget for Button {
                         ));
                     }
                     self.pressed = PressedState::None;
+                    ctx.remove_class("-active");
                     ctx.request_repaint();
                 }
             }
-            Event::Action(Action::Toggle) if self.focused => {
+            Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.pressed = PressedState::KeyboardPending;
+                ctx.add_class("-active");
                 debug_message(&format!(
                     "[button] emit action_toggle sender={} label=\"{}\"",
                     0u64, self.label
@@ -558,9 +516,10 @@ impl Widget for Button {
                 ));
                 ctx.set_handled();
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.pressed = PressedState::KeyboardPending;
+                    ctx.add_class("-active");
                     debug_message(&format!(
                         "[button] emit key sender={} label=\"{}\" code={:?}",
                         0u64, self.label, key.code
@@ -618,14 +577,15 @@ impl Widget for Button {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.hovered || self.focused || self.is_active() {
+        let state = self.node_state();
+        if state.hovered || state.focused || self.is_active() {
             let meta = crate::css::selector_meta_generic(self);
             let resolved = crate::css::resolve_style(self, &meta);
             debug_input(&format!(
                 "[hover][button-style] label=\"{}\" hovered={} focused={} active={} bg={:?} fg={:?} border_top={:?} border_bottom={:?} tint={:?}",
                 self.label,
-                self.hovered,
-                self.focused,
+                state.hovered,
+                state.focused,
                 self.is_active(),
                 resolved.bg,
                 resolved.fg,
@@ -669,28 +629,23 @@ impl Widget for Button {
     }
 
     fn style_classes(&self) -> &[String] {
-        let active = self.is_active();
-        if self.focused {
-            if active {
-                &self.focused_active_classes
-            } else {
-                &self.focused_classes
-            }
-        } else if active {
-            &self.active_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn styles(&self) -> Option<&super::WidgetStyles> {
+        Some(&self.seed.styles)
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn styles_mut(&mut self) -> Option<&mut super::WidgetStyles> {
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        // Restore classes so style_classes() stays accurate for post-mount rendering.
+        self.rebuild_classes_in_place();
+        seed
     }
 }
 
@@ -704,6 +659,7 @@ impl Renderable for Button {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use slotmap::SlotMap;
 
@@ -712,10 +668,14 @@ mod tests {
         sm.insert(())
     }
 
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
+
     #[test]
     fn enter_posts_button_pressed_message() {
         let mut button = Button::new("Run");
-        button.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
         button.on_event(
@@ -741,7 +701,7 @@ mod tests {
     #[test]
     fn execute_action_handles_press() {
         let mut button = Button::new("Run");
-        button.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,
@@ -764,7 +724,7 @@ mod tests {
     #[test]
     fn action_suppresses_button_pressed_on_enter() {
         let mut button = Button::new("Quit").with_action("app.quit");
-        button.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
         button.on_event(
@@ -792,7 +752,7 @@ mod tests {
     #[test]
     fn action_suppresses_button_pressed_on_execute_action() {
         let mut button = Button::new("Quit").with_action("app.quit");
-        button.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,
@@ -817,7 +777,7 @@ mod tests {
     #[test]
     fn no_action_posts_button_pressed() {
         let mut button = Button::new("Run");
-        button.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
         button.on_event(
@@ -846,12 +806,15 @@ mod tests {
 
     #[test]
     fn mouse_down_enters_active_state_without_prior_hover() {
+        use crate::event::ClassOp;
         let mut button = Button::new("Run");
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
 
         button.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
-                target: NodeId::default(),
+                target: id,
                 screen_x: 1,
                 screen_y: 1,
                 x: 0,
@@ -861,10 +824,11 @@ mod tests {
         );
 
         assert!(button.pressed(), "mouse down should set pressed state");
-        assert!(button.is_hovered(), "mouse down should set hovered state");
+        // After RA-2, active state is signalled via ctx.add_class rather than a widget field.
+        let ops = ctx.take_class_ops();
         assert!(
-            button.is_active(),
-            "mouse down should produce active visual state immediately"
+            ops.iter().any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-active")),
+            "mouse down should queue -active class add"
         );
     }
 
@@ -1015,7 +979,7 @@ mod tests {
         assert_eq!(changes[0].field_name, "variant");
         // Dispatch triggers watch_variant → rebuild_classes_in_place
         button.reactive_dispatch(&changes, &mut ctx);
-        assert!(button.classes.contains(&"primary".to_string()));
+        assert!(button.seed.classes.contains(&"primary".to_string()));
     }
 
     #[test]
@@ -1027,14 +991,14 @@ mod tests {
         assert!(ctx.has_changes());
         let changes = ctx.take_changes();
         button.reactive_dispatch(&changes, &mut ctx);
-        assert!(button.classes.contains(&"disabled".to_string()));
+        assert!(button.seed.classes.contains(&"disabled".to_string()));
     }
 
     #[test]
     fn compact_builder_adds_textual_compact_class() {
         let button = Button::new("X").compact(true);
         assert!(
-            button.classes.contains(&"-textual-compact".to_string()),
+            button.seed.classes.contains(&"-textual-compact".to_string()),
             "compact(true) should add -textual-compact class"
         );
     }
@@ -1043,7 +1007,7 @@ mod tests {
     fn compact_false_has_no_textual_compact_class() {
         let button = Button::new("X");
         assert!(
-            !button.classes.contains(&"-textual-compact".to_string()),
+            !button.seed.classes.contains(&"-textual-compact".to_string()),
             "default button should not have -textual-compact class"
         );
     }
@@ -1058,7 +1022,7 @@ mod tests {
         let changes = ctx.take_changes();
         assert_eq!(changes[0].field_name, "compact");
         button.reactive_dispatch(&changes, &mut ctx);
-        assert!(button.classes.contains(&"-textual-compact".to_string()));
+        assert!(button.seed.classes.contains(&"-textual-compact".to_string()));
     }
 
     #[test]
@@ -1070,7 +1034,7 @@ mod tests {
         assert!(ctx.has_changes());
         let changes = ctx.take_changes();
         button.reactive_dispatch(&changes, &mut ctx);
-        assert!(button.classes.contains(&"flat".to_string()));
-        assert!(button.classes.contains(&"-style-flat".to_string()));
+        assert!(button.seed.classes.contains(&"flat".to_string()));
+        assert!(button.seed.classes.contains(&"-style-flat".to_string()));
     }
 }
