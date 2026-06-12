@@ -489,7 +489,7 @@ Detailed execution plan, evidence, acceptance criteria, and success metric live 
 
 | Status | Step | Notes |
 |--------|------|-------|
-| In progress | RA-0 Verification gate | Blocking real-PTY parity harness must land first; no RA phase may be marked Done without harness + test + LOC-metric evidence |
+| Done | RA-0 Verification gate | Harness + blocking CI landed (`dfc566e`, `25e58e9`); verified 8/8 green. Gate rule persists: no RA phase marked Done without harness + test + LOC-metric evidence |
 | Pending | RA-1 Open messages | Trait-object-first message dispatch (`TypeId`); the one hard breaking change — land before 1.0 |
 | Pending | RA-2 Node-record split | Arena owns id/classes/styles/geometry/state; `Widget` trait shrinks to behavior |
 | Pending | RA-3 Signals-first state | Promote `#[derive(Reactive)]`/`Signal<T>` to primary model; rewrite shared examples |
@@ -531,13 +531,14 @@ integration are explicitly out of scope (unchanged).
 - **Phase 9.7 modularization**: runtime, containers, default CSS, and selector engine all decomposed. Landed.
 
 ### Open Items
-- **Real-PTY parity harness (blocking CI)** — the 2026-06-12 audit found
-  real-terminal regressions invisible to the (fully green) test suite: missing
+- **Example regressions tracked as parity-harness xfails** — the 2026-06-12 audit
+  found real-terminal regressions invisible to the (fully green) test suite: missing
   border types (`round`/`double`/`dashed`/`ascii`/`panel`/`thick`/`wide`/`inner`/`blank`
   absent from `parse_border_edge`), `code_browser` DirectoryTree never rendering,
   `json_tree` app-level bindings dead, `dictionary` results container missing.
-  Harness work started (first output: footer `▏` separator parity fix, `431e918`);
-  the example regressions above remain open.
+  The blocking real-PTY parity harness landed (`431e918`, `dfc566e`, `25e58e9`;
+  see `tests/pty_parity.rs`); these regressions remain open as its strict xfail
+  manifest entries — fixing one without promoting it to a pass case fails CI.
 - **Phase 10 API re-architecture (`RA-0`..`RA-5`)** — see Phase 10 table and
   `docs/devel/REARCHITECTURE_PLAN.md`.
 
