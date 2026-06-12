@@ -476,6 +476,32 @@ Reference plan:
 
 ---
 
+## Phase 10: API re-architecture (RA track)
+
+**Goal:** remove the measured Rust-vs-Textual API friction (2.3–3.2× example LOC vs
+Python; per-widget DOM boilerplate; closure-scoped mutation as primary path;
+closed-world message enum; inheritance-shaped specialization) by changing where
+state lives — framework-owned DOM node record, signals-first state, open
+`TypeId`-dispatched messages, typed handles, composition-based specialization.
+
+Detailed execution plan, evidence, acceptance criteria, and success metric live in
+`docs/devel/REARCHITECTURE_PLAN.md` (source of truth, `RA-0`..`RA-5`).
+
+| Status | Step | Notes |
+|--------|------|-------|
+| In progress | RA-0 Verification gate | Blocking real-PTY parity harness must land first; no RA phase may be marked Done without harness + test + LOC-metric evidence |
+| Pending | RA-1 Open messages | Trait-object-first message dispatch (`TypeId`); the one hard breaking change — land before 1.0 |
+| Pending | RA-2 Node-record split | Arena owns id/classes/styles/geometry/state; `Widget` trait shrinks to behavior |
+| Pending | RA-3 Signals-first state | Promote `#[derive(Reactive)]`/`Signal<T>` to primary model; rewrite shared examples |
+| Pending | RA-4 Typed handles | `Handle<W>.update(...)` for residual direct access |
+| Pending | RA-5 Composition-based specialization | Containment + hooks replace inheritance emulation |
+
+Acceptance target: mean example LOC ratio vs Python drops from 2.7× to ≤1.5× with
+no parity-harness regressions. CSS engine, layout, compositor, and rich-rs
+integration are explicitly out of scope (unchanged).
+
+---
+
 ## Definition of Done (v0.1) — Achieved
 
 - [x] A stable full-screen app loop (alt-screen + diff) with no flicker/garble.
@@ -505,7 +531,15 @@ Reference plan:
 - **Phase 9.7 modularization**: runtime, containers, default CSS, and selector engine all decomposed. Landed.
 
 ### Open Items
-None. All previously tracked open items are resolved.
+- **Real-PTY parity harness (blocking CI)** — the 2026-06-12 audit found
+  real-terminal regressions invisible to the (fully green) test suite: missing
+  border types (`round`/`double`/`dashed`/`ascii`/`panel`/`thick`/`wide`/`inner`/`blank`
+  absent from `parse_border_edge`), `code_browser` DirectoryTree never rendering,
+  `json_tree` app-level bindings dead, `dictionary` results container missing.
+  Harness work started (first output: footer `▏` separator parity fix, `431e918`);
+  the example regressions above remain open.
+- **Phase 10 API re-architecture (`RA-0`..`RA-5`)** — see Phase 10 table and
+  `docs/devel/REARCHITECTURE_PLAN.md`.
 
 ### Doc Discipline
 - After each merged stream, update `ROADMAP.md` and the relevant source-of-truth docs in the same batch to prevent drift.
