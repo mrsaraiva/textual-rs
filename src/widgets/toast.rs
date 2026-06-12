@@ -89,7 +89,7 @@ impl Toast {
             return;
         }
         self.dismissed = true;
-        ctx.post_message(Message::ToastDismissed(ToastDismissed));
+        ctx.post_message(ToastDismissed);
         ctx.request_repaint();
         ctx.set_handled();
     }

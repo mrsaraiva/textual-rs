@@ -377,10 +377,10 @@ impl KeyPanel {
     }
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::KeyPanelScrolled(KeyPanelScrolled {
+        ctx.post_message(KeyPanelScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
-        }));
+        });
     }
 
     pub fn scroll_step(mut self, step: usize) -> Self {
@@ -465,9 +465,9 @@ impl Widget for KeyPanel {
             let previous = self.table.bindings.clone();
             self.set_binding_hints(bindings);
             if self.table.bindings != previous {
-                ctx.post_message(Message::KeyPanelBindingsUpdated(KeyPanelBindingsUpdated {
+                ctx.post_message(KeyPanelBindingsUpdated {
                     count: self.table.bindings.len(),
-                }));
+                });
                 ctx.request_repaint();
             }
             return;
@@ -608,10 +608,9 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::KeyPanelBindingsUpdated(KeyPanelBindingsUpdated { count: 1 })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<KeyPanelBindingsUpdated>()
+            .map_or(false, |k| k.count == 1)));
     }
 
     #[test]
@@ -656,11 +655,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::KeyPanelScrolled(..)))
-        );
+        assert!(messages.iter().any(|m| m.is::<KeyPanelScrolled>()));
     }
 
     #[test]

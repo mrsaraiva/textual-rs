@@ -74,11 +74,7 @@ fn panel_forwards_layout_and_messages() {
     assert_eq!(handles.last_width.load(Ordering::Relaxed), 16);
     assert_eq!(handles.last_height.load(Ordering::Relaxed), 6);
 
-    let message = MessageEvent {
-        sender: NodeId::default(),
-        message: Message::ClearRequested(ClearRequested),
-        control: None,
-    };
+    let message = MessageEvent::new(NodeId::default(), ClearRequested);
     let mut ctx = EventCtx::default();
     panel.on_message(&message, &mut ctx);
     assert_eq!(handles.message_calls.load(Ordering::Relaxed), 1);
@@ -96,11 +92,7 @@ fn frame_forwards_layout_messages_and_scroll() {
     assert_eq!(handles.last_width.load(Ordering::Relaxed), 16);
     assert_eq!(handles.last_height.load(Ordering::Relaxed), 6);
 
-    let message = MessageEvent {
-        sender: NodeId::default(),
-        message: Message::ClearRequested(ClearRequested),
-        control: None,
-    };
+    let message = MessageEvent::new(NodeId::default(), ClearRequested);
     let mut ctx = EventCtx::default();
     frame.on_message(&message, &mut ctx);
     assert_eq!(handles.message_calls.load(Ordering::Relaxed), 1);

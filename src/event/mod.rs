@@ -1490,7 +1490,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         ctx.set_node_id(sender_id);
 
-        ctx.post_message(Message::ClearRequested(crate::message::ClearRequested));
+        ctx.post_message(crate::message::ClearRequested);
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);

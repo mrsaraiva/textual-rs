@@ -102,9 +102,7 @@ impl Link {
             if let Err(err) = open::that(&self.url) {
                 eprintln!("Link: failed to open URL {:?}: {}", self.url, err);
             }
-            ctx.post_message(Message::LinkClicked(LinkClicked {
-                url: self.url.clone(),
-            }));
+            ctx.post_message(LinkClicked { url: self.url.clone() });
         }
         ctx.request_repaint();
         ctx.set_handled();
@@ -438,10 +436,8 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        match &messages[0].message {
-            Message::LinkClicked(LinkClicked { url }) => assert_eq!(url, "https://example.com"),
-            other => panic!("expected LinkClicked, got {:?}", other),
-        }
+        assert!(messages[0].is::<LinkClicked>());
+        assert_eq!(messages[0].downcast_ref::<LinkClicked>().unwrap().url, "https://example.com");
     }
 
     #[test]
@@ -470,10 +466,8 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        match &messages[0].message {
-            Message::LinkClicked(LinkClicked { url }) => assert_eq!(url, "https://example.com"),
-            other => panic!("expected LinkClicked, got {:?}", other),
-        }
+        assert!(messages[0].is::<LinkClicked>());
+        assert_eq!(messages[0].downcast_ref::<LinkClicked>().unwrap().url, "https://example.com");
     }
 
     #[test]

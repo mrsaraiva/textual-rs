@@ -242,11 +242,9 @@ impl Widget for Placeholder {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.cycle_variant();
-                ctx.post_message(Message::PlaceholderVariantChanged(
-                    PlaceholderVariantChanged {
-                        variant: self.variant.message_name().to_string(),
-                    },
-                ));
+                ctx.post_message(PlaceholderVariantChanged {
+                    variant: self.variant.message_name().to_string(),
+                });
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -479,10 +477,11 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::PlaceholderVariantChanged(PlaceholderVariantChanged { ref variant }) if variant == "size"
-        ));
+        assert!(messages[0].is::<PlaceholderVariantChanged>());
+        assert_eq!(
+            messages[0].downcast_ref::<PlaceholderVariantChanged>().unwrap().variant,
+            "size"
+        );
     }
 
     #[test]

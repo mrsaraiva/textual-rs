@@ -509,10 +509,10 @@ impl RichLog {
     }
 
     fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::RichLogScrolled(RichLogScrolled {
+        ctx.post_message(RichLogScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
-        }));
+        });
     }
 
     fn physical_lines(
@@ -953,11 +953,7 @@ mod tests {
         let mut ctx = EventCtx::default();
         log.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::RichLogScrolled(..)))
-        );
+        assert!(messages.iter().any(|m| m.is::<RichLogScrolled>()));
     }
 
     #[test]

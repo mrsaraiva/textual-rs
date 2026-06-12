@@ -289,9 +289,7 @@ impl Collapsible {
     fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
         self.collapsed = !self.collapsed;
         self.title_widget.set_collapsed(self.collapsed);
-        ctx.post_message(Message::CollapsibleToggled(CollapsibleToggled {
-            collapsed: self.collapsed,
-        }));
+        ctx.post_message(CollapsibleToggled { collapsed: self.collapsed });
         ctx.request_repaint();
         ctx.set_handled();
     }
