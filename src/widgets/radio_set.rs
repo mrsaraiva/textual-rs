@@ -5,10 +5,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
+    Widget, WidgetStyles,
 };
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -211,10 +211,7 @@ impl RadioSet {
         self.cursor.set_selected(Some(index));
 
         let button_id = self.node_id();
-        ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
-            index,
-            button_id,
-        }));
+        ctx.post_message(RadioSetChanged { index, button_id });
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -322,14 +319,15 @@ impl Widget for RadioSet {
         // Intercept RadioButtonChanged messages from child buttons.
         // This handles the case where a child button is toggled directly
         // (e.g. via its own event handler if it ever receives one).
-        if let Message::RadioButtonChanged(RadioButtonChanged { value }) = &message.message {
+        if let Some(rbc) = message.downcast_ref::<RadioButtonChanged>() {
+            let value = rbc.value;
             // Find which button sent this message.
             if let Some(index) = self
                 .buttons
                 .iter()
                 .position(|_b| message.sender == self.node_id())
             {
-                if *value {
+                if value {
                     // A button was turned on — enforce mutual exclusion.
                     if let Some(prev) = self.cursor.selected() {
                         if prev != index {
@@ -342,10 +340,7 @@ impl Widget for RadioSet {
                     self.cursor.set_highlighted(Some(index));
 
                     let button_id = self.node_id();
-                    ctx.post_message(Message::RadioSetChanged(RadioSetChanged {
-                        index,
-                        button_id,
-                    }));
+                    ctx.post_message(RadioSetChanged { index, button_id });
                     ctx.request_repaint();
                 } else {
                     // A button was turned off — in a radio set, prevent deselection.
@@ -535,10 +530,9 @@ mod tests {
         set.on_event(&Event::Key(space), &mut ctx2);
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::RadioSetChanged(RadioSetChanged { index: 1, .. })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<RadioSetChanged>()
+            .is_some_and(|r| r.index == 1)));
     }
 
     #[test]

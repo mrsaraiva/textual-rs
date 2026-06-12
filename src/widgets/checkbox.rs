@@ -7,15 +7,15 @@ use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
 use crate::reactive::{
-    ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, RuntimeReactiveEntry,
-    enqueue_runtime_reactive_entry,
+    enqueue_runtime_reactive_entry, ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget,
+    RuntimeReactiveEntry,
 };
 
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    BindingDecl, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -86,9 +86,9 @@ impl Checkbox {
     // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::CheckboxChanged(CheckboxChanged {
+        ctx.post_message(CheckboxChanged {
             checked: self.checked,
-        }));
+        });
     }
 
     fn rebuild_classes_in_place(&mut self) {
@@ -314,10 +314,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         checkbox.on_event(&Event::Key(key), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::CheckboxChanged(CheckboxChanged { checked: true })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<CheckboxChanged>()
+            .is_some_and(|c| c.checked)));
     }
 
     #[test]
@@ -342,10 +341,9 @@ mod tests {
         assert!(checkbox.execute_action(&action, &mut ctx));
         assert!(checkbox.checked());
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::CheckboxChanged(CheckboxChanged { checked: true })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<CheckboxChanged>()
+            .is_some_and(|c| c.checked)));
     }
 
     // ── Reactive field tests ────────────────────────────────────────────

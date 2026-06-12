@@ -11,8 +11,8 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    BindingDecl, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -348,10 +348,10 @@ impl Button {
                 },
             ));
         } else {
-            ctx.post_message(Message::ButtonPressed(ButtonPressed {
+            ctx.post_message(ButtonPressed {
                 description: self.describe(),
                 button_id: self.style_id().map(str::to_string),
-            }));
+            });
         }
     }
 
@@ -729,11 +729,7 @@ mod tests {
         );
 
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed(..)))
-        );
+        assert!(messages.iter().any(|m| m.is::<ButtonPressed>()));
     }
 
     #[test]
@@ -756,11 +752,7 @@ mod tests {
         };
         assert!(button.execute_action(&action, &mut ctx));
         let messages = ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed(..)))
-        );
+        assert!(messages.iter().any(|m| m.is::<ButtonPressed>()));
     }
 
     // ── WP-18: Button action parameter ──────────────────────────────────
@@ -788,9 +780,7 @@ mod tests {
         let messages = ctx.take_messages();
         // ButtonPressed should NOT be posted when action is set.
         assert!(
-            !messages
-                .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
+            !messages.iter().any(|m| m.is::<ButtonPressed>()),
             "ButtonPressed should be suppressed when action is set"
         );
         assert!(
@@ -815,9 +805,7 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert!(
-            !messages
-                .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
+            !messages.iter().any(|m| m.is::<ButtonPressed>()),
             "ButtonPressed should be suppressed when action is set"
         );
         assert!(
@@ -844,9 +832,7 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert!(
-            messages
-                .iter()
-                .any(|m| matches!(m.message, Message::ButtonPressed(..))),
+            messages.iter().any(|m| m.is::<ButtonPressed>()),
             "ButtonPressed should be posted when no action is set"
         );
     }
@@ -913,9 +899,10 @@ mod tests {
         let description = ctx
             .take_messages()
             .into_iter()
-            .find_map(|event| match event.message {
-                Message::ButtonPressed(payload) => Some(payload.description),
-                _ => None,
+            .find_map(|event| {
+                event
+                    .downcast_ref::<ButtonPressed>()
+                    .map(|p| p.description.clone())
             })
             .expect("mouse click should emit ButtonPressed");
 

@@ -6,8 +6,8 @@ use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Widget, WidgetStyles,
 };
 
 /// The visual width of the switch slider track (in cells).
@@ -118,7 +118,7 @@ impl Switch {
     // ── Internal helpers ─────────────────────────────────────────────────
 
     fn emit_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(Message::SwitchChanged(SwitchChanged { value: self.value }));
+        ctx.post_message(SwitchChanged { value: self.value });
     }
 
     /// Called after an interactive toggle (from event handler).
@@ -416,10 +416,9 @@ mod tests {
         assert!(widget.value());
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::SwitchChanged(SwitchChanged { value: true })
-        )));
+        assert!(messages
+            .iter()
+            .any(|m| m.downcast_ref::<SwitchChanged>().is_some_and(|s| s.value)));
     }
 
     #[test]

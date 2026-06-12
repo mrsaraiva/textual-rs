@@ -34,14 +34,13 @@ fn welcome_re_emits_button_press_from_widget_sender() {
 
     let mut ctx = EventCtx::default();
     welcome.on_message(
-        &MessageEvent {
-            sender: welcome.close_button_id(),
-            message: Message::ButtonPressed(ButtonPressed {
+        &MessageEvent::new(
+            welcome.close_button_id(),
+            ButtonPressed {
                 description: "Button(classes='button', variant='success')".to_string(),
                 button_id: None,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut ctx,
     );
     assert!(ctx.handled());

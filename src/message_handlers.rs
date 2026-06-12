@@ -89,15 +89,11 @@ impl<A> MessageHandlers<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{ButtonPressed, CheckboxChanged, Message};
+    use crate::message::{ButtonPressed, CheckboxChanged};
     use crate::node_id::node_id_from_ffi;
 
-    fn make_event(msg: Message) -> MessageEvent {
-        MessageEvent {
-            sender: node_id_from_ffi(1),
-            message: msg,
-            control: None,
-        }
+    fn make_event<M: Into<crate::message::Message>>(msg: M) -> MessageEvent {
+        MessageEvent::new(node_id_from_ffi(1), msg)
     }
 
     struct State {
@@ -124,10 +120,10 @@ mod tests {
         });
 
         let mut state = State::new();
-        let event = make_event(Message::ButtonPressed(ButtonPressed {
+        let event = make_event(ButtonPressed {
             description: "ok".into(),
             button_id: None,
-        }));
+        });
         let mut ctx = EventCtx::default();
         let ran = handlers.dispatch(&mut state, &event, &mut ctx);
         assert!(ran);
@@ -142,7 +138,7 @@ mod tests {
         });
 
         let mut state = State::new();
-        let event = make_event(Message::CheckboxChanged(CheckboxChanged { checked: true }));
+        let event = make_event(CheckboxChanged { checked: true });
         let mut ctx = EventCtx::default();
         let ran = handlers.dispatch(&mut state, &event, &mut ctx);
         assert!(!ran);
@@ -160,10 +156,10 @@ mod tests {
         });
 
         let mut state = State::new();
-        let event = make_event(Message::ButtonPressed(ButtonPressed {
+        let event = make_event(ButtonPressed {
             description: "ok".into(),
             button_id: None,
-        }));
+        });
         let mut ctx = EventCtx::default();
         handlers.dispatch(&mut state, &event, &mut ctx);
         // Both ran in registration order: 1 then +10 = 11.
@@ -179,14 +175,13 @@ mod tests {
 
         let mut state = State::new();
         let sender = node_id_from_ffi(42);
-        let event = MessageEvent {
+        let event = MessageEvent::new(
             sender,
-            message: Message::ButtonPressed(ButtonPressed {
+            ButtonPressed {
                 description: "hi".into(),
                 button_id: None,
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = EventCtx::default();
         handlers.dispatch(&mut state, &event, &mut ctx);
         assert_eq!(state.last_mctx_sender, Some(sender));
@@ -200,10 +195,10 @@ mod tests {
         });
 
         let mut state = State::new();
-        let event = make_event(Message::ButtonPressed(ButtonPressed {
+        let event = make_event(ButtonPressed {
             description: "x".into(),
             button_id: None,
-        }));
+        });
         let mut ctx = EventCtx::default();
         let ran = handlers.dispatch(&mut state, &event, &mut ctx);
         assert!(!ran);

@@ -7,8 +7,8 @@ use crate::render::FrameBuffer;
 use crate::node_id::NodeId;
 
 use super::{
-    Button, ButtonVariant, Markdown, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
+    Button, ButtonVariant, Markdown, Widget, WidgetStyles,
 };
 
 const WELCOME_MD: &str = r#"# Welcome!
@@ -206,14 +206,12 @@ impl Widget for Welcome {
             return;
         }
 
-        if let Message::ButtonPressed(..) = &message.message {
-            ctx.post_message(Message::ButtonPressed(ButtonPressed {
+        if message.is::<ButtonPressed>() {
+            ctx.post_message(ButtonPressed {
                 description: "Welcome.close".to_string(),
                 button_id: None,
-            }));
-            ctx.post_message(Message::OverlayDismissRequested(OverlayDismissRequested {
-                overlay: None,
-            }));
+            });
+            ctx.post_message(OverlayDismissRequested { overlay: None });
             ctx.set_handled();
         }
     }
@@ -330,32 +328,27 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         welcome.on_message(
-            &MessageEvent {
-                sender: welcome.close_button_id(),
-                message: Message::ButtonPressed(ButtonPressed {
+            &MessageEvent::new(
+                welcome.close_button_id(),
+                ButtonPressed {
                     description: "Button(classes='button', variant='success')".to_string(),
                     button_id: None,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
         assert!(emitted.iter().any(|event| {
-            matches!(
-                event.message,
-                Message::ButtonPressed(ButtonPressed {
-                    ref description, ..
-                }) if description == "Welcome.close"
-            )
+            event
+                .downcast_ref::<ButtonPressed>()
+                .is_some_and(|bp| bp.description == "Welcome.close")
         }));
         assert!(emitted.iter().any(|event| {
-            matches!(
-                event.message,
-                Message::OverlayDismissRequested(OverlayDismissRequested { overlay: None })
-            )
+            event
+                .downcast_ref::<OverlayDismissRequested>()
+                .is_some_and(|odr| odr.overlay.is_none())
         }));
     }
 }

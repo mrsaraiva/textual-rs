@@ -896,7 +896,7 @@ mod message_tests {
             self.child.on_event(event, ctx);
         }
         fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::ButtonPressed(..)) {
+            if message.is::<crate::message::ButtonPressed>() {
                 self.seen += 1;
                 ctx.set_handled();
             }
@@ -1503,7 +1503,7 @@ mod envelope_tests {
         }
 
         fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::ButtonPressed(..)) {
+            if message.is::<crate::message::ButtonPressed>() {
                 self.count.fetch_add(1, Ordering::Relaxed);
                 if self.stop_on_match {
                     ctx.set_handled();
@@ -1512,13 +1512,9 @@ mod envelope_tests {
         }
     }
 
-    /// Helper: build a MessageEvent from a sender FFI id and a Message.
-    fn msg_event(sender_ffi: u64, message: Message) -> MessageEvent {
-        MessageEvent {
-            sender: node_id_from_ffi(sender_ffi),
-            message,
-            control: None,
-        }
+    /// Helper: build a MessageEvent from a sender FFI id and a typed message.
+    fn msg_event<M: Into<Message>>(sender_ffi: u64, message: M) -> MessageEvent {
+        MessageEvent::new(node_id_from_ffi(sender_ffi), message)
     }
 
     // =====================================================================
@@ -1537,14 +1533,13 @@ mod envelope_tests {
         let mid_id = tree.mount(root_id, Box::new(MessageCounter::new(mid_count.clone())));
         let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
 
-        let messages = vec![MessageEvent {
-            sender: leaf_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+        let messages = vec![MessageEvent::new(
+            leaf_id,
+            crate::message::ButtonPressed {
                 description: "test".into(),
                 button_id: None,
-            }),
-            control: None,
-        }];
+            },
+        )];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
         // All three nodes on the bubble path should see the message.
@@ -1579,14 +1574,13 @@ mod envelope_tests {
         );
         let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
 
-        let messages = vec![MessageEvent {
-            sender: leaf_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+        let messages = vec![MessageEvent::new(
+            leaf_id,
+            crate::message::ButtonPressed {
                 description: "stop".into(),
                 button_id: None,
-            }),
-            control: None,
-        }];
+            },
+        )];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
         assert!(outcome.handled, "mid should have handled it");
@@ -1613,10 +1607,10 @@ mod envelope_tests {
 
         let messages = vec![msg_event(
             99999,
-            Message::ButtonPressed(crate::message::ButtonPressed {
+            crate::message::ButtonPressed {
                 description: "ghost".into(),
                 button_id: None,
-            }),
+            },
         )];
 
         dispatch_message_queue_tree(&mut tree, messages);
@@ -1635,14 +1629,13 @@ mod envelope_tests {
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(Label::new("x")));
 
-        let messages = vec![MessageEvent {
-            sender: root_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+        let messages = vec![MessageEvent::new(
+            root_id,
+            crate::message::ButtonPressed {
                 description: "dp".into(),
                 button_id: None,
-            }),
-            control: None,
-        }];
+            },
+        )];
 
         let outcome = dispatch_message_queue_tree(&mut tree, messages);
         assert!(
@@ -1700,22 +1693,20 @@ mod envelope_tests {
         let mut queue: VecDeque<MessageEnvelope> = VecDeque::new();
 
         // Two ButtonPressed — not replaceable by default.
-        let env1 = MessageEnvelope::new(MessageEvent {
+        let env1 = MessageEnvelope::new(MessageEvent::new(
             sender,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+            crate::message::ButtonPressed {
                 description: "first".into(),
                 button_id: None,
-            }),
-            control: None,
-        });
-        let env2 = MessageEnvelope::new(MessageEvent {
+            },
+        ));
+        let env2 = MessageEnvelope::new(MessageEvent::new(
             sender,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+            crate::message::ButtonPressed {
                 description: "second".into(),
                 button_id: None,
-            }),
-            control: None,
-        });
+            },
+        ));
 
         queue.push_back(env1);
         queue.push_back(env2);
@@ -1782,14 +1773,13 @@ mod envelope_tests {
         env1.set_replaceable(true);
 
         // Non-replaceable ButtonPressed
-        let env2 = MessageEnvelope::new(MessageEvent {
+        let env2 = MessageEnvelope::new(MessageEvent::new(
             sender,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+            crate::message::ButtonPressed {
                 description: "click".into(),
                 button_id: None,
-            }),
-            control: None,
-        });
+            },
+        ));
 
         // Replaceable InputChanged #2
         let mut env3 = MessageEnvelope::new(MessageEvent {
@@ -1810,7 +1800,7 @@ mod envelope_tests {
         // Two InputChanged coalesce to one, ButtonPressed survives.
         assert_eq!(queue.len(), 2, "InputChanged pair → 1, ButtonPressed → 1");
         // First remaining should be ButtonPressed (index 0 InputChanged was removed).
-        assert!(matches!(queue[0].message(), Message::ButtonPressed(..)));
+        assert!(queue[0].is::<crate::message::ButtonPressed>());
         // Second should be the latest InputChanged.
         match queue[1].message() {
             Message::InputChanged(crate::message::InputChanged { value, .. }) => {
@@ -1914,14 +1904,14 @@ mod envelope_tests {
         );
         // Non-replaceable variants.
         assert!(
-            !Message::ButtonPressed(crate::message::ButtonPressed {
+            !crate::message::ButtonPressed {
                 description: "x".into(),
                 button_id: None,
-            })
-            .can_replace(&Message::ButtonPressed(crate::message::ButtonPressed {
+            }
+            .can_replace(&crate::message::ButtonPressed {
                 description: "y".into(),
                 button_id: None,
-            }))
+            })
         );
         assert!(
             !Message::InputSubmitted(crate::message::InputSubmitted { value: "x".into() })
@@ -1951,14 +1941,13 @@ mod envelope_tests {
         let mut tree = WidgetTree::new();
         let _root_id = tree.set_root(Box::new(Label::new("x")));
 
-        let messages = vec![MessageEvent {
+        let messages = vec![MessageEvent::new(
             sender,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+            crate::message::ButtonPressed {
                 description: "ctrl".into(),
                 button_id: None,
-            }),
-            control: None,
-        }];
+            },
+        )];
 
         // Build the envelope the same way dispatch does and verify control.
         let env = MessageEnvelope::new(messages[0].clone());
@@ -1981,14 +1970,13 @@ mod envelope_tests {
         let mid_id = tree.mount(root_id, Box::new(MessageCounter::new(mid_count.clone())));
         let leaf_id = tree.mount(mid_id, Box::new(MessageCounter::new(leaf_count.clone())));
 
-        let evt = MessageEvent {
-            sender: leaf_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+        let evt = MessageEvent::new(
+            leaf_id,
+            crate::message::ButtonPressed {
                 description: "bubble".into(),
                 button_id: None,
-            }),
-            control: None,
-        };
+            },
+        );
         let mut env = MessageEnvelope::new(evt.clone());
         // Control should be the leaf (sender) before and after dispatch.
         assert_eq!(env.control(), Some(leaf_id));
@@ -2108,7 +2096,7 @@ mod envelope_tests {
         }
 
         fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::ButtonPressed(..)) {
+            if message.is::<crate::message::ButtonPressed>() {
                 self.captured.lock().unwrap().push(message.control);
                 ctx.set_handled();
             }
@@ -2125,14 +2113,13 @@ mod envelope_tests {
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(ControlCapture::new(captured.clone())));
 
-        let messages = vec![MessageEvent {
-            sender: root_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
+        let messages = vec![MessageEvent::new(
+            root_id,
+            crate::message::ButtonPressed {
                 description: "test".into(),
                 button_id: None,
-            }),
-            control: None, // None — envelope should promote to Some(root_id)
-        }];
+            },
+        )];
 
         dispatch_message_queue_tree(&mut tree, messages);
 
@@ -2155,14 +2142,16 @@ mod envelope_tests {
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(ControlCapture::new(captured.clone())));
 
-        let messages = vec![MessageEvent {
-            sender: root_id,
-            message: Message::ButtonPressed(crate::message::ButtonPressed {
-                description: "explicit".into(),
-                button_id: None,
-            }),
-            control: Some(explicit_control),
-        }];
+        let messages = vec![
+            MessageEvent::new(
+                root_id,
+                crate::message::ButtonPressed {
+                    description: "explicit".into(),
+                    button_id: None,
+                },
+            )
+            .with_control(explicit_control),
+        ];
 
         dispatch_message_queue_tree(&mut tree, messages);
 

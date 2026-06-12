@@ -979,13 +979,21 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         if ctx.handled() {
             return;
         }
+        if let Some(m) = message.downcast_ref::<crate::message::ButtonPressed>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_button_pressed(&m.description, ctx);
+            return;
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::CheckboxChanged>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_checkbox_changed(m.checked, ctx);
+            return;
+        }
         match &message.message {
-            Message::ButtonPressed(crate::message::ButtonPressed { description, .. }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_button_pressed(description, ctx);
-            }
             Message::InputChanged(crate::message::InputChanged { value, validation }) => {
                 self.app
                     .lock()
@@ -1003,12 +1011,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .on_text_area_changed(value, ctx);
-            }
-            Message::CheckboxChanged(crate::message::CheckboxChanged { checked }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_checkbox_changed(*checked, ctx);
             }
             _ => {}
         }
@@ -1582,41 +1584,36 @@ mod tests {
         }));
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
 
-        let mut messages = vec![
-            Message::ButtonPressed(crate::message::ButtonPressed {
+        let typed_events = vec![
+            MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
                 description: "ok".to_string(),
                 button_id: None,
             }),
-            Message::InputChanged(crate::message::InputChanged {
+            MessageEvent::new(NodeId::default(), crate::message::InputChanged {
                 value: "42".to_string(),
                 validation: ValidationResult::success(),
             }),
-            Message::InputSubmitted(crate::message::InputSubmitted {
+            MessageEvent::new(NodeId::default(), crate::message::InputSubmitted {
                 value: "submit".to_string(),
             }),
-            Message::TextAreaChanged(crate::message::TextAreaChanged {
+            MessageEvent::new(NodeId::default(), crate::message::TextAreaChanged {
                 value: "textarea".to_string(),
             }),
-            Message::CheckboxChanged(crate::message::CheckboxChanged { checked: true }),
-            Message::from(crate::message::ListViewSelectionChanged {
+            MessageEvent::new(NodeId::default(), crate::message::CheckboxChanged {
+                checked: true,
+            }),
+            MessageEvent::new(NodeId::default(), crate::message::ListViewSelectionChanged {
                 index: 2,
                 item: "gamma".to_string(),
             }),
-            Message::from(crate::message::ListViewItemActivated {
+            MessageEvent::new(NodeId::default(), crate::message::ListViewItemActivated {
                 index: 3,
                 item: "delta".to_string(),
             }),
         ];
-        for message in messages.drain(..) {
+        for event in typed_events {
             let mut ctx = EventCtx::default();
-            adapter.on_message(
-                &MessageEvent {
-                    sender: NodeId::default(),
-                    message,
-                    control: None,
-                },
-                &mut ctx,
-            );
+            adapter.on_message(&event, &mut ctx);
         }
         // TabActivated (converted to open struct form)
         {
@@ -2608,14 +2605,10 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
         let mut ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ButtonPressed(crate::message::ButtonPressed {
-                    description: "test".to_string(),
-                    button_id: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
+                description: "test".to_string(),
+                button_id: None,
+            }),
             &mut ctx,
         );
         let guard = app.lock().unwrap();
@@ -2629,14 +2622,10 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
         let mut ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ButtonPressed(crate::message::ButtonPressed {
-                    description: "test".to_string(),
-                    button_id: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
+                description: "test".to_string(),
+                button_id: None,
+            }),
             &mut ctx,
         );
         let guard = app.lock().unwrap();
