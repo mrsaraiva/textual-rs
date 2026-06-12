@@ -1224,7 +1224,7 @@ impl CommandPalette {
                 Self::CLOSED_PANEL_Y
             };
             self.animate_panel_y(start_y, target_y, ctx);
-            ctx.post_message(Message::CommandPaletteOpened(CommandPaletteOpened));
+            ctx.post_message(CommandPaletteOpened);
         } else {
             for provider in &mut self.providers {
                 provider.shutdown();
@@ -1241,7 +1241,7 @@ impl CommandPalette {
                 }
             }
             if was_open {
-                ctx.post_message(Message::CommandPaletteClosed(CommandPaletteClosed));
+                ctx.post_message(CommandPaletteClosed);
             }
         }
         ctx.request_repaint();
@@ -1254,12 +1254,10 @@ impl CommandPalette {
         }
         let selected = self.list.selected().min(self.provider_results.len() - 1);
         let result = &self.provider_results[selected];
-        ctx.post_message(Message::CommandPaletteCommandSelected(
-            CommandPaletteCommandSelected {
-                id: result.id.clone(),
-                title: result.title.clone(),
-            },
-        ));
+        ctx.post_message(CommandPaletteCommandSelected {
+            id: result.id.clone(),
+            title: result.title.clone(),
+        });
         match result.id.as_str() {
             "quit" => ctx.request_stop(),
             "keys" => {
@@ -2003,8 +2001,8 @@ impl Widget for CommandPalette {
             self.help_panel_visible = false;
             self.set_key_panel_visible(false, ctx);
         }
-        if let Message::CommandPaletteSetCommands(CommandPaletteSetCommands { commands }) =
-            &message.message
+        if let Some(CommandPaletteSetCommands { commands }) =
+            message.downcast_ref::<CommandPaletteSetCommands>()
         {
             let next = commands
                 .iter()
@@ -2290,11 +2288,7 @@ mod tests {
         palette.on_event(&Event::Key(key), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteCommandSelected(..)))
-        );
+        assert!(messages.iter().any(|event| event.is::<CommandPaletteCommandSelected>()));
         assert!(!palette.is_open());
     }
 
@@ -2361,16 +2355,9 @@ mod tests {
                 .any(|event| matches!(event.message, Message::AppShowHelpPanel(_)))
         );
         assert!(messages.iter().any(|event| {
-            matches!(
-                event.message,
-                Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected { ref id, .. }) if id == "keys"
-            )
+            event.downcast_ref::<CommandPaletteCommandSelected>().is_some_and(|m| m.id == "keys")
         }));
-        assert!(
-            messages
-                .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteClosed(_)))
-        );
+        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
         assert!(!palette.is_open());
     }
 
@@ -2393,14 +2380,11 @@ mod tests {
         assert!(execute_ctx.stop_requested());
         let messages = execute_ctx.take_messages();
         let selected_idx = messages.iter().position(|event| {
-            matches!(
-                event.message,
-                Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected { ref id, .. }) if id == "quit"
-            )
+            event.downcast_ref::<CommandPaletteCommandSelected>().is_some_and(|m| m.id == "quit")
         });
         let close_idx = messages
             .iter()
-            .position(|event| matches!(event.message, Message::CommandPaletteClosed(_)));
+            .position(|event| event.is::<CommandPaletteClosed>());
         assert!(selected_idx.is_some());
         assert!(close_idx.is_some());
         assert!(selected_idx < close_idx);
@@ -2430,17 +2414,16 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
         palette.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteSetCommands(CommandPaletteSetCommands {
+            &MessageEvent::new(
+                NodeId::default(),
+                CommandPaletteSetCommands {
                     commands: vec![CommandPaletteCommand {
                         id: "deploy".to_string(),
                         title: "Deploy".to_string(),
                         help: "Ship current build".to_string(),
                     }],
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
         assert!(ctx.handled());
@@ -2623,11 +2606,7 @@ mod tests {
         );
         assert!(!palette.is_open());
         let messages = transition_ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteClosed(_)))
-        );
+        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
     }
 
     #[test]
@@ -2641,11 +2620,7 @@ mod tests {
         palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
         assert!(!palette.is_open());
         let messages = focus_ctx.take_messages();
-        assert!(
-            messages
-                .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteClosed(_)))
-        );
+        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
     }
 
     #[test]
@@ -2671,10 +2646,10 @@ mod tests {
         let messages = execute_ctx.take_messages();
         let selected_idx = messages
             .iter()
-            .position(|event| matches!(event.message, Message::CommandPaletteCommandSelected(..)));
+            .position(|event| event.is::<CommandPaletteCommandSelected>());
         let close_idx = messages
             .iter()
-            .position(|event| matches!(event.message, Message::CommandPaletteClosed(_)));
+            .position(|event| event.is::<CommandPaletteClosed>());
 
         assert!(selected_idx.is_some());
         assert!(close_idx.is_some());
@@ -2755,12 +2730,7 @@ mod tests {
         assert!(click_ctx.handled());
         assert!(!palette.is_open());
         let messages = click_ctx.take_messages();
-        assert!(messages.iter().any(|event| {
-            matches!(
-                event.message,
-                Message::CommandPaletteCommandSelected(CommandPaletteCommandSelected { .. })
-            )
-        }));
+        assert!(messages.iter().any(|event| event.is::<CommandPaletteCommandSelected>()));
     }
 
     #[test]

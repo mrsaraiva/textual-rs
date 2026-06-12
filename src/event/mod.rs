@@ -720,21 +720,15 @@ impl EventCtx {
     }
 
     pub fn open_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteOpened(
-            crate::message::CommandPaletteOpened,
-        ));
+        self.post_message(crate::message::CommandPaletteOpened);
     }
 
     pub fn close_command_palette(&mut self) {
-        self.post_message(Message::CommandPaletteClosed(
-            crate::message::CommandPaletteClosed,
-        ));
+        self.post_message(crate::message::CommandPaletteClosed);
     }
 
     pub fn set_command_palette_commands(&mut self, commands: Vec<CommandPaletteCommand>) {
-        self.post_message(Message::CommandPaletteSetCommands(
-            crate::message::CommandPaletteSetCommands { commands },
-        ));
+        self.post_message(crate::message::CommandPaletteSetCommands { commands });
     }
 
     pub fn select_command_palette_command(
@@ -742,12 +736,10 @@ impl EventCtx {
         id: impl Into<String>,
         title: impl Into<String>,
     ) {
-        self.post_message(Message::CommandPaletteCommandSelected(
-            crate::message::CommandPaletteCommandSelected {
-                id: id.into(),
-                title: title.into(),
-            },
-        ));
+        self.post_message(crate::message::CommandPaletteCommandSelected {
+            id: id.into(),
+            title: title.into(),
+        });
     }
 
     pub fn request_animation(&mut self, request: AnimationRequest) {
@@ -1083,23 +1075,14 @@ mod tests {
             messages[3].message,
             Message::OverlayDismissRequested(crate::message::OverlayDismissRequested { overlay: Some(target) }) if target == overlay_id
         ));
-        assert!(matches!(
-            messages[4].message,
-            Message::CommandPaletteOpened(_)
-        ));
-        assert!(matches!(
-            &messages[5].message,
-            Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands { commands })
-                if commands.len() == 1 && commands[0].id == "open"
-        ));
-        assert!(matches!(
-            &messages[6].message,
-            Message::CommandPaletteCommandSelected(crate::message::CommandPaletteCommandSelected { id, title }) if id == "open" && title == "Open"
-        ));
-        assert!(matches!(
-            messages[7].message,
-            Message::CommandPaletteClosed(_)
-        ));
+        assert!(messages[4].is::<crate::message::CommandPaletteOpened>());
+        assert!(messages[5]
+            .downcast_ref::<crate::message::CommandPaletteSetCommands>()
+            .is_some_and(|m| m.commands.len() == 1 && m.commands[0].id == "open"));
+        assert!(messages[6]
+            .downcast_ref::<crate::message::CommandPaletteCommandSelected>()
+            .is_some_and(|m| m.id == "open" && m.title == "Open"));
+        assert!(messages[7].is::<crate::message::CommandPaletteClosed>());
     }
 
     // ── New event struct construction tests ──────────────────────────

@@ -421,9 +421,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             }
         }
         if !commands.is_empty() {
-            ctx.post_message(Message::CommandPaletteSetCommands(
-                crate::message::CommandPaletteSetCommands { commands },
-            ));
+            ctx.post_message(crate::message::CommandPaletteSetCommands { commands });
         }
     }
 
@@ -923,41 +921,39 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         if ctx.handled() {
             return;
         }
+        if message.is::<crate::message::CommandPaletteOpened>() {
+            self.command_palette_visible = true;
+            self.initialize_command_palette_providers(ctx);
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_command_palette_opened(ctx);
+            if ctx.handled() {
+                return;
+            }
+        } else if message.is::<crate::message::CommandPaletteClosed>() {
+            self.command_palette_visible = false;
+            self.shutdown_command_palette_providers(ctx);
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_command_palette_closed(ctx);
+            if ctx.handled() {
+                return;
+            }
+        } else if let Some(m) = message.downcast_ref::<crate::message::CommandPaletteCommandSelected>() {
+            let id = m.id.clone();
+            let title = m.title.clone();
+            self.handle_command_palette_selection(&id, ctx);
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_command_palette_command_selected(&id, &title, ctx);
+            if ctx.handled() {
+                return;
+            }
+        }
         match &message.message {
-            Message::CommandPaletteOpened(_) => {
-                self.command_palette_visible = true;
-                self.initialize_command_palette_providers(ctx);
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_command_palette_opened(ctx);
-                if ctx.handled() {
-                    return;
-                }
-            }
-            Message::CommandPaletteClosed(_) => {
-                self.command_palette_visible = false;
-                self.shutdown_command_palette_providers(ctx);
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_command_palette_closed(ctx);
-                if ctx.handled() {
-                    return;
-                }
-            }
-            Message::CommandPaletteCommandSelected(
-                crate::message::CommandPaletteCommandSelected { id, title },
-            ) => {
-                self.handle_command_palette_selection(id, ctx);
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_command_palette_command_selected(id, title, ctx);
-                if ctx.handled() {
-                    return;
-                }
-            }
             Message::AppShowHelpPanel(_) => {
                 self.help_panel_visible = true;
                 if self.command_palette_visible {
@@ -1413,44 +1409,29 @@ mod tests {
 
         let mut open_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteOpened),
             &mut open_ctx,
         );
         assert_eq!(state.startup_count.load(Ordering::SeqCst), 1);
         let open_messages = open_ctx.take_messages();
-        assert!(
-            open_messages
-                .iter()
-                .any(|event| matches!(event.message, Message::CommandPaletteSetCommands(..)))
-        );
+        assert!(open_messages.iter().any(|event| event.is::<crate::message::CommandPaletteSetCommands>()));
 
         let mut select_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteCommandSelected(
-                    crate::message::CommandPaletteCommandSelected {
-                        id: "deploy".to_string(),
-                        title: "Deploy".to_string(),
-                    },
-                ),
-                control: None,
-            },
+            &MessageEvent::new(
+                NodeId::default(),
+                crate::message::CommandPaletteCommandSelected {
+                    id: "deploy".to_string(),
+                    title: "Deploy".to_string(),
+                },
+            ),
             &mut select_ctx,
         );
         assert_eq!(state.selected_count.load(Ordering::SeqCst), 1);
 
         let mut close_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteClosed),
             &mut close_ctx,
         );
         assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 1);
@@ -1471,38 +1452,22 @@ mod tests {
 
         let mut first_open_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteOpened),
             &mut first_open_ctx,
         );
         let mut first_close_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteClosed),
             &mut first_close_ctx,
         );
         let mut second_open_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteOpened),
             &mut second_open_ctx,
         );
         let mut second_close_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteClosed(crate::message::CommandPaletteClosed),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteClosed),
             &mut second_close_ctx,
         );
 
@@ -1525,22 +1490,16 @@ mod tests {
 
         let mut open_ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteOpened),
             &mut open_ctx,
         );
 
         let open_messages = open_ctx.take_messages();
         let open_commands = open_messages
             .iter()
-            .find_map(|event| match &event.message {
-                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
-                    commands,
-                }) => Some(commands.clone()),
-                _ => None,
+            .find_map(|event| {
+                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                    .map(|m| m.commands.clone())
             })
             .expect("open should publish command palette commands");
         let keys_help = open_commands
@@ -1570,11 +1529,9 @@ mod tests {
         let show_messages = show_ctx.take_messages();
         let show_commands = show_messages
             .iter()
-            .find_map(|event| match &event.message {
-                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
-                    commands,
-                }) => Some(commands.clone()),
-                _ => None,
+            .find_map(|event| {
+                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                    .map(|m| m.commands.clone())
             })
             .expect("show-help should republish command palette commands while open");
         let keys_help = show_commands
@@ -1596,11 +1553,9 @@ mod tests {
         let hide_messages = hide_ctx.take_messages();
         let hide_commands = hide_messages
             .iter()
-            .find_map(|event| match &event.message {
-                Message::CommandPaletteSetCommands(crate::message::CommandPaletteSetCommands {
-                    commands,
-                }) => Some(commands.clone()),
-                _ => None,
+            .find_map(|event| {
+                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                    .map(|m| m.commands.clone())
             })
             .expect("hide-help should republish command palette commands while open");
         let keys_help = hide_commands
@@ -1761,11 +1716,8 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent {
-                sender: node_id_from_ffi(42),
-                message: Message::CommandPaletteOpened(crate::message::CommandPaletteOpened),
-                control: Some(node_id_from_ffi(42)),
-            },
+            &MessageEvent::new(node_id_from_ffi(42), crate::message::CommandPaletteOpened)
+                .with_control(node_id_from_ffi(42)),
             &mut ctx,
         );
         assert_eq!(
