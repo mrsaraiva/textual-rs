@@ -58,7 +58,7 @@ impl TextualApp for MarkdownApp {
                         viewer.register_content(path.clone(), content);
                         viewer.go(path.clone());
                     });
-                ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+                ctx.post_message(NavigatorUpdated);
             }
         } else {
             let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
@@ -89,7 +89,7 @@ impl TextualApp for MarkdownApp {
                     })
                     .unwrap_or(false);
                 if navigated {
-                    ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+                    ctx.post_message(NavigatorUpdated);
                 }
                 ctx.set_handled();
                 ctx.request_repaint();
@@ -101,7 +101,7 @@ impl TextualApp for MarkdownApp {
                     })
                     .unwrap_or(false);
                 if navigated {
-                    ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+                    ctx.post_message(NavigatorUpdated);
                 }
                 ctx.set_handled();
                 ctx.request_repaint();
@@ -111,7 +111,7 @@ impl TextualApp for MarkdownApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::NavigatorUpdated(NavigatorUpdated) = &message.message {
+        if message.is::<NavigatorUpdated>() {
             self.update_navigator_state(app);
             app.refresh_bindings();
             ctx.request_repaint();

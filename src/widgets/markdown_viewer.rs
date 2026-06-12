@@ -259,12 +259,9 @@ impl Widget for MarkdownTableOfContents {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
-            headings,
-        }) = &message.message
-        {
+        if let Some(m) = message.downcast_ref::<MarkdownTableOfContentsUpdated>() {
             if let Ok(mut shared) = self.shared_headings.write() {
-                *shared = headings.clone();
+                *shared = m.headings.clone();
             }
             // TOC width is content-driven (`width: auto` with dock). Heading changes
             // must invalidate layout so the sidebar width can be recomputed.
@@ -273,17 +270,13 @@ impl Widget for MarkdownTableOfContents {
             return;
         }
 
-        if let Message::TreeNodeActivated(TreeNodeActivated {
-            data: Some(block_id),
-            ..
-        }) = &message.message
-        {
-            ctx.post_message(Message::MarkdownTableOfContentsSelected(
-                MarkdownTableOfContentsSelected {
+        if let Some(m) = message.downcast_ref::<TreeNodeActivated>() {
+            if let Some(block_id) = &m.data {
+                ctx.post_message(MarkdownTableOfContentsSelected {
                     block_id: block_id.clone(),
-                },
-            ));
-            ctx.set_handled();
+                });
+                ctx.set_handled();
+            }
         }
     }
 }
@@ -617,9 +610,7 @@ impl MarkdownViewer {
             .ok()
             .map(|h| h.clone())
             .unwrap_or_default();
-        ctx.post_message(Message::MarkdownTableOfContentsUpdated(
-            MarkdownTableOfContentsUpdated { headings },
-        ));
+        ctx.post_message(MarkdownTableOfContentsUpdated { headings });
         self.toc_dirty = false;
     }
 
@@ -770,12 +761,9 @@ impl Widget for MarkdownViewer {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         self.flush_toc_message(ctx);
-        if let Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
-            headings,
-        }) = &message.message
-        {
+        if let Some(m) = message.downcast_ref::<MarkdownTableOfContentsUpdated>() {
             if let Ok(mut shared_headings) = self.shared_headings.write() {
-                *shared_headings = headings.clone();
+                *shared_headings = m.headings.clone();
             }
             // MarkdownViewer docks TOC with `width:auto`; heading updates must trigger
             // a relayout so the dock width tracks the rebuilt TOC tree width.
@@ -785,11 +773,9 @@ impl Widget for MarkdownViewer {
             return;
         }
         // Handle TOC heading selection: scroll to the heading in the document.
-        if let Message::MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected {
-            block_id,
-        }) = &message.message
-        {
-            let target_line = self.heading_line_offset(block_id);
+        if let Some(m) = message.downcast_ref::<MarkdownTableOfContentsSelected>() {
+            let block_id = m.block_id.clone();
+            let target_line = self.heading_line_offset(&block_id);
             // Python `scroll_to_widget(..., top=True)` defaults to a fixed 0.2s
             // duration when no explicit speed/duration is provided.
             let scroll_duration = Some(Duration::from_millis(200));
@@ -818,7 +804,7 @@ impl Widget for MarkdownViewer {
             && let Some(href) = action.arguments.first()
             && self.follow_link(href)
         {
-            ctx.post_message(Message::NavigatorUpdated(NavigatorUpdated));
+            ctx.post_message(NavigatorUpdated);
             ctx.request_layout_invalidation();
             ctx.request_repaint();
             return true;
@@ -1132,7 +1118,7 @@ mod tests {
         assert!(
             ctx.take_messages()
                 .into_iter()
-                .any(|msg| matches!(msg.message, Message::NavigatorUpdated(_))),
+                .any(|msg| msg.is::<NavigatorUpdated>()),
             "link navigation should emit NavigatorUpdated"
         );
     }
@@ -1247,12 +1233,9 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert!(
-            messages.iter().any(|m| matches!(
-                &m.message,
-                Message::MarkdownTableOfContentsSelected(
-                    MarkdownTableOfContentsSelected { block_id }
-                ) if block_id == "chapter"
-            )),
+            messages.iter().any(|m| m
+                .downcast_ref::<MarkdownTableOfContentsSelected>()
+                .map_or(false, |s| s.block_id == "chapter")),
             "TOC should post MarkdownTableOfContentsSelected with block_id"
         );
     }
@@ -1261,16 +1244,15 @@ mod tests {
     fn toc_on_message_updated_requests_layout_invalidation() {
         let mut toc =
             MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            MarkdownTableOfContentsUpdated {
                 headings: vec![
                     (1, "Chapter".to_string(), "chapter".to_string()),
                     (2, "Section".to_string(), "section".to_string()),
                 ],
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = crate::event::EventCtx::default();
         toc.on_message(&msg, &mut ctx);
         assert!(
@@ -1318,9 +1300,9 @@ mod tests {
     #[test]
     fn viewer_toc_update_requests_layout_invalidation() {
         let mut viewer = MarkdownViewer::new("# Chapter");
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::MarkdownTableOfContentsUpdated(MarkdownTableOfContentsUpdated {
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            MarkdownTableOfContentsUpdated {
                 headings: vec![
                     (1, "Chapter".to_string(), "chapter".to_string()),
                     (2, "Section".to_string(), "section".to_string()),
@@ -1330,9 +1312,8 @@ mod tests {
                         "litany-against-fear".to_string(),
                     ),
                 ],
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = crate::event::EventCtx::default();
         viewer.on_message(&msg, &mut ctx);
         assert!(
@@ -1347,13 +1328,10 @@ mod tests {
         // Ensure heading offsets are initialized from current content/layout assumptions.
         viewer.on_layout(80, 24);
 
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::MarkdownTableOfContentsSelected(MarkdownTableOfContentsSelected {
-                block_id: "second".to_string(),
-            }),
-            control: None,
-        };
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            MarkdownTableOfContentsSelected { block_id: "second".to_string() },
+        );
         let mut ctx = crate::event::EventCtx::default();
         viewer.on_message(&msg, &mut ctx);
         assert!(ctx.handled());
