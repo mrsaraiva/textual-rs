@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA1 Step 1: Promote UserMessage to open Msg trait)
+
+- **BREAKING(message): `UserMessage` trait removed; replaced by `Msg` (will be renamed `Message` at Step 19)**
+  - `pub trait Msg: Any + Send + Sync + Debug + 'static` is the new open message trait;
+    every payload struct (built-in or third-party) implements it.
+  - `impl_message!(T)` / `impl_message!(T, replaceable)` macro exported from `textual`
+    for implementing `Msg` on any `Clone + Debug + Send + Sync` struct.
+  - All 109 built-in payload structs now implement `Msg`; replaceable arm used for the 11
+    coalescing types (`InputChanged`, `TextAreaChanged`, `TextAreaSelectionChanged`,
+    `DataTableCursorMoved`, `DataTableCellHighlighted`, `DataTableRowHighlighted`,
+    `DataTableColumnHighlighted`, `TreeNodeHighlighted`, `OptionHighlighted`,
+    `KeyPanelScrolled`, `RichLogScrolled`).
+  - `Message::can_replace` now delegates to the `Msg` trait (single source of truth).
+  - `Message::Custom` changed from `Box<dyn UserMessage>` to `Box<dyn Msg>`.
+  - Migration shims added: `MessageEvent::{new, with_control, downcast_ref, is, payload_type_id}`;
+    `MessageEnvelope::{downcast_ref, is}`; `Message::{payload_any, payload_msg}` (pub(crate)).
+  - `EventCtx::post_message` and `WidgetCtx::post_message` are now generic `M: Into<Message>`.
+  - `NavigatorUpdated` added to `impl_message_from!` invocation (was previously missing).
+
 ### 2026-06-12 (SPEC-P1: Complete CSS border-type table + five_by_five parity)
 
 - **feat(style): extend `BorderType` with 10 new variants**
