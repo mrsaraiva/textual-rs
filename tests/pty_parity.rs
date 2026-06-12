@@ -80,10 +80,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "GameCell `border: round` is dropped (round border type unsupported \
-             in parse_border_edge); header copy/stat format also diverges",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "json_tree_initial",
@@ -92,10 +89,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "Footer shows Tree widget bindings instead of app-level bindings; \
-             root expand glyph and app title diverge",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "json_tree_add_node",
@@ -104,7 +98,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "a",
         golden_replacements: &[],
-        status: Status::XFail("app-level `a` (add node) binding does not fire"),
+        status: Status::Pass,
     },
     Case {
         name: "dictionary_initial",

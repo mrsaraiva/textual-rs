@@ -7,6 +7,82 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-P1: Complete CSS border-type table + five_by_five parity)
+
+- **feat(style): extend `BorderType` with 10 new variants**
+  - Added `Ascii`, `Blank`, `Dashed`, `Double`, `Inner`, `Panel`, `Round`, `Tab`,
+    `Thick`, `Wide` — completing the full Python Textual border-type vocabulary.
+  - Added `BorderType::from_name(name: &str) -> Option<Self>` for CSS parsing.
+
+- **feat(widgets/helpers): table-driven border glyphs + title-flip**
+  - `border_chars` made `pub(crate)` with glyph tables for all 10 new types.
+  - Added `border_title_flip(edge_type) -> (bool, bool)`: panel/tab borders swap
+    fg/bg for title text (matching Python `BORDER_TITLE_FLIP`).
+  - `overlay_border_text` gains a `flip` parameter wired through both title
+    and subtitle call sites.
+
+- **refactor(runtime/render): table-driven outline characters**
+  - `outline_char_horizontal` / `outline_char_vertical` now look up glyphs via
+    `border_chars` instead of hardcoding a fixed character set; all outline types
+    (including the 10 new ones) now produce correct outline characters.
+
+- **fix(css/parser): unified border value parser**
+  - Replaced `parse_border_edge` / `parse_border_shorthand` with a unified
+    `parse_border_value` that accepts tokens in any order (type, color, alpha%),
+    handles all Python Textual border type names, treats `none`/`hidden` as
+    `BorderEdge::None`, and logs a debug warning + drops invalid declarations.
+  - `CommandList { border-top: blank; border-bottom: hkey black }` from default
+    CSS now parses correctly (no longer silently dropped).
+
+- **fix(widgets/command_palette): geometry accounts for CommandList border overhead**
+  - `palette_geometry` now computes `list_border_overhead` from the resolved
+    CommandList style so `desired_results_height` always fits all entries even
+    when the CommandList carries blank-top + hkey-bottom borders.
+
+- **feat(examples/five_by_five): reconcile GameHeader with Python three-label layout**
+  - `GameHeader` recomposed as `Horizontal` + three `Label` children
+    (`#app-title` 60% / `#moves` 20% / `#progress` 20%) matching Python
+    `five_by_five.py:84-93` + `five_by_five.tcss:23-33`.
+  - Title constant changed to `"5x5 -- A little annoying puzzle"` (ASCII `--`).
+  - `sync_all` / `sync_cells` updated to query `#moves` / `#progress` Labels.
+  - Footer binding text corrected: "Toggle Dark Mode".
+  - `WinnerMessage` CSS gains `border: round` (Python tcss `:73`).
+
+- **parity: promote `five_by_five_initial` to `Pass`**
+  - All GameCell borders now render with round glyphs; header layout matches
+    Python's three-label 60/20/20 split; PTY parity test promoted from XFail.
+
+### 2026-06-12 (SPEC-P2: Tree navigation bindings, app-level custom action dispatch, TreeNode default state)
+
+- **fix(Tree): hide all navigation bindings from Footer (Python `show=False` parity)**
+  - All 15 `Tree::bindings()` declarations now carry `.hidden()`, matching Python
+    where every `Tree` BINDING has `show=False`.  Focused Tree no longer floods
+    the Footer with navigation keys, allowing app-level bindings to appear.
+
+- **fix(Tree): `TreeNode::new()` starts collapsed (`expanded: false`)**
+  - New nodes default to `expanded: false`, matching Python Textual's collapsed
+    default.  Callers that need a pre-expanded node must set `.expanded(true)`
+    explicitly.  All internal tests and examples updated accordingly.
+
+- **feat(TextualApp): add `title()` hook + propagation to Header**
+  - New `TextualApp::title()` method (default: `"textual-rs"`) lets apps declare
+    their display title without imperative `set_title` calls.  The runtime reads
+    this once at mount time and pushes a `ScreenTitleChanged` message so the
+    `Header` widget always shows the correct app title.
+
+- **feat(runtime): add `on_app_unhandled_action` / `on_app_action_str` fallback**
+  - New `Widget::on_app_unhandled_action` trait method called by the event loop
+    when a declarative binding's action string is not in any node's
+    `action_registry()`.  `TextualAppAdapter` overrides it to call the new
+    `TextualApp::on_app_action_str` hook, closing the gap where app-declared
+    custom actions (e.g. "add", "clear") were silently dropped.
+
+- **feat(json_tree): rewrite to declarative-binding action dispatch**
+  - Removed `on_key_with_app`; added `title()` override ("TreeApp") and
+    `on_app_action_str` handler for "add"/"clear"/"toggle_root".
+
+- **parity: promote `json_tree_initial` and `json_tree_add_node` to `Pass`**
+
 ### 2026-06-12 (Real-PTY parity harness, blocking CI gate)
 
 - **test(parity): add real-PTY parity harness (`tests/pty_parity.rs`)**

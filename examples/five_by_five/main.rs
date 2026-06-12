@@ -22,6 +22,13 @@ use textual::prelude::*;
 
 const SIZE: usize = 5;
 const MIN_MOVES: usize = 14;
+const APP_TITLE: &str = "5x5 -- A little annoying puzzle"; // Python TITLE, five_by_five.py:314
+fn moves_text(moves: usize) -> String {
+    format!("Moves: {moves}") // Python watch_moves, five_by_five.py:101
+}
+fn progress_text(filled: usize) -> String {
+    format!("Filled: {filled}") // Python watch_filled, five_by_five.py:109
+}
 
 const HELP_TEXT: &str = r#"# 5x5
 
@@ -54,6 +61,18 @@ GameHeader {
     height: 1;
     dock: top;
     width: 100%;
+}
+
+GameHeader #app-title {
+    width: 60%;
+}
+
+GameHeader #moves {
+    width: 20%;
+}
+
+GameHeader #progress {
+    width: 20%;
 }
 
 #game-grid {
@@ -95,6 +114,7 @@ WinnerMessage {
     color: $text;
     padding: 1;
     text-align: center;
+    border: round;
 }
 
 HelpRoot {
@@ -303,12 +323,13 @@ impl Renderable for GameCell {
 
 // ---------------------------------------------------------------------------
 // GameHeader — title + moves + filled counts
-// (Python: reactive labels in Horizontal; Rust: single rendered line)
+// (Python: reactive labels in Horizontal, five_by_five.py:84-93)
 // ---------------------------------------------------------------------------
 
 pub struct GameHeader {
     moves: usize,
     filled: usize,
+    children_extracted: bool,
     styles: WidgetStyles,
 }
 
@@ -317,16 +338,9 @@ impl GameHeader {
         Self {
             moves,
             filled,
+            children_extracted: false,
             styles: WidgetStyles::default(),
         }
-    }
-
-    pub fn set_moves(&mut self, moves: usize) {
-        self.moves = moves;
-    }
-
-    pub fn set_filled(&mut self, filled: usize) {
-        self.filled = filled;
     }
 }
 
@@ -336,13 +350,21 @@ impl Widget for GameHeader {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let text = format!(
-            "5x5 — A little annoying puzzle    Moves: {}    Filled: {}/{}",
-            self.moves,
-            self.filled,
-            SIZE * SIZE,
-        );
-        Widget::render(&Label::new(text), console, options)
+        // Chrome/background only; labels are composed children.
+        Widget::render(&Label::new(""), console, options)
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        vec![Box::new(
+            Horizontal::new()
+                .with_child(Label::new(APP_TITLE).with_id("app-title"))
+                .with_child(Label::new(moves_text(self.moves)).with_id("moves"))
+                .with_child(Label::new(progress_text(self.filled)).with_id("progress")),
+        )]
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -537,10 +559,8 @@ impl FiveByFiveApp {
         }
         let moves = self.state.moves;
         let filled = self.state.filled_count();
-        let _ = app.with_query_one_mut_as::<GameHeader, _>("GameHeader", |h| {
-            h.set_moves(moves);
-            h.set_filled(filled);
-        });
+        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
+        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
         let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
     }
 
@@ -555,10 +575,8 @@ impl FiveByFiveApp {
         }
         let moves = self.state.moves;
         let filled = self.state.filled_count();
-        let _ = app.with_query_one_mut_as::<GameHeader, _>("GameHeader", |h| {
-            h.set_moves(moves);
-            h.set_filled(filled);
-        });
+        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
+        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
     }
 
     /// Update cursor display (clear old, set new).
@@ -588,7 +606,7 @@ impl TextualApp for FiveByFiveApp {
             BindingDecl::new("n", "new_game", "New Game"),
             BindingDecl::new("?", "app.push_screen('help')", "Help"),
             BindingDecl::new("q", "app.quit", "Quit"),
-            BindingDecl::new("ctrl+d", "app.toggle_dark", "Toggle Dark"),
+            BindingDecl::new("ctrl+d", "app.toggle_dark", "Toggle Dark Mode"),
         ]
     }
 
@@ -780,14 +798,9 @@ mod tests {
     }
 
     #[test]
-    fn game_header_updates() {
-        let mut header = GameHeader::new(0, 5);
-        assert_eq!(header.moves, 0);
-        assert_eq!(header.filled, 5);
-
-        header.set_moves(3);
-        header.set_filled(10);
-        assert_eq!(header.moves, 3);
-        assert_eq!(header.filled, 10);
+    fn game_header_label_texts() {
+        assert_eq!(APP_TITLE, "5x5 -- A little annoying puzzle");
+        assert_eq!(moves_text(0), "Moves: 0");
+        assert_eq!(progress_text(5), "Filled: 5");
     }
 }

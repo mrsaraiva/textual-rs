@@ -24,6 +24,10 @@ impl JsonTreeApp {
 }
 
 impl TextualApp for JsonTreeApp {
+    fn title(&self) -> &'static str {
+        "TreeApp"
+    }
+
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
             BindingDecl::new("a", "add", "Add node"),
@@ -44,9 +48,9 @@ impl TextualApp for JsonTreeApp {
         self.json_data = serde_json::from_str(FOOD_JSON).ok();
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
-        match key.name() {
-            "a" => {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+        match action {
+            "add" => {
                 // Python: json_node = tree.root.add("JSON")
                 //         self.add_json(json_node, self.json_data)
                 //         tree.root.expand()
@@ -63,7 +67,7 @@ impl TextualApp for JsonTreeApp {
                 ctx.set_handled();
                 ctx.request_repaint();
             }
-            "c" => {
+            "clear" => {
                 // Python: tree.clear() — preserves root, clears children.
                 let _ = app.with_query_one_mut_as::<Tree, _>("Tree", |tree| {
                     tree.clear();
@@ -71,7 +75,7 @@ impl TextualApp for JsonTreeApp {
                 ctx.set_handled();
                 ctx.request_repaint();
             }
-            "t" => {
+            "toggle_root" => {
                 // Python: tree.show_root = not tree.show_root
                 let _ = app.with_query_one_mut_as::<Tree, _>("Tree", |tree| {
                     tree.toggle_show_root();
