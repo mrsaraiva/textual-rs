@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (Real-PTY parity harness, blocking CI gate)
+
+- **test(parity): add real-PTY parity harness (`tests/pty_parity.rs`)**
+  - Runs example binaries in a genuine pseudo-terminal (`portable-pty` +
+    `vt100` dev-deps), drives them with key input, and compares captured
+    screens against golden files generated from **Python Textual**
+    (`tests/pty_parity/golden/`, regenerated only via
+    `tools/parity/gen-python-goldens.sh` — no bless-from-Rust mechanism).
+  - 7 cases across the 5 shared examples (markdown, five_by_five, json_tree,
+    dictionary, code_browser), including keypress scenarios.
+  - Strict xfail manifest: known parity gaps are declared with reasons;
+    a regression in a passing case fails CI, and a silently-fixed xfail also
+    fails (XPASS) until explicitly promoted to `Pass`.
+  - Current state: both markdown cases pass (pixel parity with Python);
+    five_by_five/json_tree/dictionary/code_browser gaps are tracked as xfail.
+  - Deterministic fixture dir for code_browser under
+    `tests/pty_parity/fixtures/`.
+
+- **ci: make the PTY parity harness a blocking gate**
+  - New `.github/workflows/ci.yml` (push/PR): blocking `pty-parity` job plus
+    the existing full test suite as non-blocking (headless-TTY limitation).
+  - `release.yml`: `publish` now requires the blocking `pty-parity` job.
+
 ### 2026-06-12 (Footer command-palette separator parity)
 
 - **fix(widgets/footer): use `▏` (vkey left edge) for the command-palette separator**

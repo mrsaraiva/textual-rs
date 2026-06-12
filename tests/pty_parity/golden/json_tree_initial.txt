@@ -1,0 +1,30 @@
+ ⭘                                                     TreeApp
+▶ Root
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ a Add node  c Clear  t Toggle root                                                                         ▏^p palette

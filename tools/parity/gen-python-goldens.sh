@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Generate golden screens for the real-PTY parity harness (tests/pty_parity.rs)
+# from PYTHON Textual. The goldens define parity; they must never be regenerated
+# from Rust output.
+#
+# Requirements:
+#   - tmux
+#   - a Python interpreter with `textual` (and `httpx` for the dictionary case)
+#     installed, ideally from the local ../textual checkout:
+#       uv venv /tmp/textual-venv
+#       VIRTUAL_ENV=/tmp/textual-venv uv pip install -e ../textual httpx
+#   - the Python Textual examples directory (default: ../textual/examples)
+#
+# Usage:
+#   PYTHON=/tmp/textual-venv/bin/python tools/parity/gen-python-goldens.sh [case ...]
+#
+# Case definitions here MUST stay in sync with the manifest in tests/pty_parity.rs.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-/tmp/textual-venv/bin/python}"
+PY_EXAMPLES="${TEXTUAL_PY_EXAMPLES:-$REPO_ROOT/../textual/examples}"
+GOLDEN_DIR="$REPO_ROOT/tests/pty_parity/golden"
+FIXTURE_DIR="$REPO_ROOT/tests/pty_parity/fixtures/sample_dir"
+SOCKET="parity-golden-$$"
+COLS=120
+ROWS=30
+
+[ -x "$PYTHON" ] || { echo "error: PYTHON=$PYTHON is not executable" >&2; exit 1; }
+"$PYTHON" -c 'import textual' || { echo "error: textual not importable from $PYTHON" >&2; exit 1; }
+[ -d "$PY_EXAMPLES" ] || { echo "error: Python examples dir not found: $PY_EXAMPLES" >&2; exit 1; }
+mkdir -p "$GOLDEN_DIR"
+
+tmx() { tmux -L "$SOCKET" "$@"; }
+cleanup() { tmx kill-server 2>/dev/null || true; }
+trap cleanup EXIT
+
+# capture_stable <session> -> stdout (waits until two consecutive captures match)
+capture_stable() {
+    local session="$1" prev="" cur="" tries=0
+    while [ $tries -lt 40 ]; do
+        cur="$(tmx capture-pane -t "$session" -p)"
+        if [ -n "$cur" ] && [ "$cur" = "$prev" ]; then
+            printf '%s\n' "$cur"
+            return 0
+        fi
+        prev="$cur"
+        tries=$((tries + 1))
+        sleep 0.25
+    done
+    echo "error: screen for $session did not stabilize" >&2
+    return 1
+}
+
+# run_case <name> <cwd> <keys> <script...>
+run_case() {
+    local name="$1" workdir="$2" keys="$3"
+    shift 3
+    local session="g_$name"
+    echo "==> $name"
+    tmx kill-session -t "$session" 2>/dev/null || true
+    tmx new-session -d -s "$session" -x "$COLS" -y "$ROWS" \
+        "cd '$workdir' && '$PYTHON' $*"
+    capture_stable "$session" >/dev/null
+    if [ -n "$keys" ]; then
+        tmx send-keys -t "$session" "$keys"
+        sleep 0.5
+        capture_stable "$session" >/dev/null
+    fi
+    tmx capture-pane -t "$session" -p | sed -e 's/[[:space:]]*$//' \
+        > "$GOLDEN_DIR/$name.txt"
+    tmx kill-session -t "$session" 2>/dev/null || true
+    echo "    wrote golden/$name.txt"
+}
+
+want() {
+    [ $# -eq 0 ] && return 0
+    local c
+    for c in "$@"; do [ "$c" = "$CASE" ] && return 0; done
+    return 1
+}
+
+CASE=markdown_initial      && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "markdown.py"
+CASE=markdown_toc_toggle   && want "$@" && run_case "$CASE" "$PY_EXAMPLES" "t" "markdown.py"
+CASE=five_by_five_initial  && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "five_by_five.py"
+CASE=json_tree_initial     && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "json_tree.py"
+CASE=json_tree_add_node    && want "$@" && run_case "$CASE" "$PY_EXAMPLES" "a" "json_tree.py"
+CASE=dictionary_initial    && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "dictionary.py"
+CASE=code_browser_initial  && want "$@" && run_case "$CASE" "$FIXTURE_DIR" ""  "$PY_EXAMPLES/code_browser.py" "./"
+
+echo "done."
