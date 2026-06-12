@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA2 Step 5c: Remove identity/style/state plumbing from toggle/form widgets)
+
+- **refactor(widgets): toggle/form widget families migrated to node-record identity/style/state**
+  - `checkbox`, `switch`, `radio_button`, `radio_set`, `option_list`, `select`,
+    `selection_list`: remove per-widget `focused`, `hovered`, `classes`,
+    `focused_classes`, and `styles` fields; replace with `seed: NodeSeed`.
+  - All `has_focus()` / `set_focus()` / `is_hovered()` / `set_hovered()` overrides
+    removed (default Widget impls now suffice); focus/hover/class state read from
+    `self.node_state()` (dispatch context) and CSS `:focus`/`:hover` pseudo-classes.
+  - `RadioButton` retains `set_focus`/`has_focus`/`is_hovered`/`set_hovered` forwarding
+    to `BinaryToggleState` to preserve keyboard routing during the dual-write phase.
+  - `take_node_seed` implemented on all migrated widgets with the style-preserving
+    clone-back pattern so post-mount `styles()`/`content_width()` remain accurate.
+  - Unit tests updated to use `set_dispatch_recipient` instead of `widget.set_focus(true)`
+    for keyboard routing in isolated test contexts.
+
 ### 2026-06-12 (SPEC-RA1 Step 20: Public dispatch_message_queue_tree + acceptance tests)
 
 - **feat(runtime): `dispatch_message_queue_tree` is now `pub`**

@@ -6,8 +6,8 @@ use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
-    Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints,
+    NodeSeed, Widget, WidgetStyles,
 };
 
 /// The visual width of the switch slider track (in cells).
@@ -23,8 +23,6 @@ const ANIMATION_TICKS: u64 = 18;
 #[derive(Debug, Clone)]
 pub struct Switch {
     value: bool,
-    focused: bool,
-    hovered: bool,
     pressed: bool,
     disabled: bool,
     /// Animated slider position: 0.0 = off (left), 1.0 = on (right).
@@ -35,9 +33,7 @@ pub struct Switch {
     anim_start_tick: Option<u64>,
     /// Position at start of animation.
     anim_start_pos: f32,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Switch {
@@ -45,17 +41,13 @@ impl Switch {
         let pos = if value { 1.0 } else { 0.0 };
         Self {
             value,
-            focused: false,
-            hovered: false,
             pressed: false,
             disabled: false,
             slider_pos: pos,
             slider_target: pos,
             anim_start_tick: None,
             anim_start_pos: pos,
-            classes: Vec::new(),
-            focused_classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
         .rebuild_classes()
     }
@@ -147,10 +139,7 @@ impl Switch {
         if self.disabled {
             classes.push("disabled".to_string());
         }
-        let mut focused_classes = classes.clone();
-        focused_classes.push("focused".to_string());
-        self.classes = classes;
-        self.focused_classes = focused_classes;
+        self.seed.classes = classes;
     }
 
     /// Test helper for verifying animation correctness.
@@ -183,14 +172,6 @@ impl Widget for Switch {
         !self.disabled
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
@@ -199,16 +180,8 @@ impl Widget for Switch {
         self.disabled = disabled;
     }
 
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-    }
-
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.pressed && self.node_state().hovered
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -250,14 +223,14 @@ impl Widget for Switch {
                     ctx.request_repaint();
                 }
             }
-            Event::Action(Action::Toggle) if self.focused => {
+            Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.value = !self.value;
                 self.on_toggled();
                 self.emit_changed(ctx);
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.value = !self.value;
                     self.on_toggled();
@@ -363,13 +336,7 @@ impl Widget for Switch {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -377,11 +344,17 @@ impl Widget for Switch {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -397,6 +370,8 @@ mod tests {
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use slotmap::SlotMap;
 
@@ -405,10 +380,15 @@ mod tests {
         sm.insert(())
     }
 
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
+
     #[test]
     fn switch_space_toggles_and_emits_message() {
         let mut widget = Switch::new(false);
-        widget.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -424,7 +404,6 @@ mod tests {
     #[test]
     fn switch_disabled_ignores_input() {
         let mut widget = Switch::new(false).disabled(true);
-        widget.set_focus(true);
         let mut ctx = EventCtx::default();
         widget.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -443,7 +422,8 @@ mod tests {
     #[test]
     fn switch_animation_progresses_on_tick() {
         let mut widget = Switch::new(false);
-        widget.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));

@@ -8,8 +8,8 @@ use crate::message::*;
 pub(crate) mod toggle_option;
 
 use super::{
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
-    Widget, WidgetStyles,
+    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
+    NodeSeed, Widget, WidgetStyles,
 };
 use toggle_option::OptionCursorState;
 pub use toggle_option::{OptionId, OptionItem};
@@ -24,32 +24,26 @@ pub struct OptionList {
     cursor: OptionCursorState,
     disabled: bool,
     offset: usize,
-    focused: bool,
-    hovered: bool,
     hovered_index: Option<usize>,
     viewport_height: usize,
     scroll_step: usize,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl OptionList {
     /// Create an empty `OptionList`.
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["option-list".to_string()];
         Self {
             items: Vec::new(),
             cursor: OptionCursorState::default(),
             disabled: false,
             offset: 0,
-            focused: false,
-            hovered: false,
             hovered_index: None,
             viewport_height: 1,
             scroll_step: 1,
-            classes: vec!["option-list".to_string()],
-            focused_classes: vec!["option-list".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -70,9 +64,6 @@ impl OptionList {
     /// Builder: set disabled state for the entire list.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
-        if disabled {
-            self.focused = false;
-        }
         self
     }
 
@@ -380,24 +371,11 @@ impl Widget for OptionList {
         !self.disabled
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused && !self.disabled;
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
 
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
         if !hovered {
             self.hovered_index = None;
         }
@@ -421,7 +399,7 @@ impl Widget for OptionList {
                     ctx.set_handled();
                 }
             }
-            Event::Action(action) if self.focused => match action {
+            Event::Action(action) if self.node_state().focused => match action {
                 Action::ScrollUp => {
                     self.move_highlight(-1, ctx);
                     ctx.set_handled();
@@ -452,7 +430,7 @@ impl Widget for OptionList {
                 }
                 _ => {}
             },
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Up => {
                     self.move_highlight(-1, ctx);
                     ctx.set_handled();
@@ -500,8 +478,7 @@ impl Widget for OptionList {
                 _ => {}
             },
             Event::AppFocus(false) => {
-                if self.hovered || self.hovered_index.is_some() {
-                    self.hovered = false;
+                if self.node_state().hovered || self.hovered_index.is_some() {
                     self.hovered_index = None;
                     ctx.request_repaint();
                 }
@@ -544,7 +521,6 @@ impl Widget for OptionList {
     }
 
     fn on_unmount(&mut self) {
-        self.hovered = false;
         self.hovered_index = None;
     }
 
@@ -598,7 +574,7 @@ impl Widget for OptionList {
                         if *disabled {
                             classes.push("-disabled");
                         }
-                        if highlighted && self.focused {
+                        if highlighted && self.node_state().focused {
                             classes.push("-focus");
                         }
                         let style = crate::css::resolve_component_style(self, &classes)
@@ -666,13 +642,7 @@ impl Widget for OptionList {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -680,11 +650,17 @@ impl Widget for OptionList {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -698,6 +674,18 @@ impl Renderable for OptionList {
 mod tests {
     use super::*;
     use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
 
     #[test]
     fn option_list_navigation_skips_separators() {
@@ -707,7 +695,8 @@ mod tests {
             OptionItem::new("Beta"),
         ];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         list.on_layout(40, 10);
 
         assert_eq!(list.highlighted(), Some(0));
@@ -726,7 +715,6 @@ mod tests {
             OptionItem::new("Charlie"),
         ];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         assert_eq!(list.highlighted(), Some(0));
@@ -745,7 +733,6 @@ mod tests {
             OptionItem::new("Last"),
         ];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         // End goes to last selectable
@@ -766,7 +753,6 @@ mod tests {
     fn option_list_confirm_emits_selected() {
         let items = vec![OptionItem::new("Only")];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
@@ -781,7 +767,6 @@ mod tests {
     fn option_list_mouse_click_emits_highlighted_before_selected() {
         let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
@@ -837,7 +822,6 @@ mod tests {
         ];
         let mut list = OptionList::with_items(items);
         list.cursor.set_highlighted(None);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
@@ -854,9 +838,10 @@ mod tests {
         ];
         let mut list = OptionList::with_items(items);
         list.cursor.set_highlighted(None);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
             KeyCode::PageDown,
             crossterm::event::KeyModifiers::NONE,
@@ -871,10 +856,11 @@ mod tests {
     fn option_list_disabled_ignores_input() {
         let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
         let mut list = OptionList::with_items(items).disabled(true);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let before = list.highlighted();
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
             KeyCode::Down,
             crossterm::event::KeyModifiers::NONE,
@@ -891,13 +877,12 @@ mod tests {
     fn app_focus_loss_clears_hover_state() {
         let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
         let mut list = OptionList::with_items(items);
-        list.set_hovered(true);
+        // on_mouse_move sets hovered_index; AppFocus(false) should clear it.
         assert!(list.on_mouse_move(0, 0));
 
         let mut ctx = EventCtx::default();
         list.on_event(&Event::AppFocus(false), &mut ctx);
 
-        assert!(!list.is_hovered());
         assert!(list.hovered_index.is_none());
         assert!(ctx.repaint_requested());
     }
@@ -1007,23 +992,14 @@ mod tests {
 
     // ── P1-14 dispatch-context regression tests ─────────────────────────
 
-    fn make_node_id() -> NodeId {
-        use slotmap::SlotMap;
-        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
-        sm.insert(())
-    }
-
     #[test]
     fn mouse_click_with_dispatch_context_is_handled() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-
         let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         list.on_event(
@@ -1041,18 +1017,16 @@ mod tests {
 
     #[test]
     fn mouse_click_with_wrong_target_is_ignored() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
         use slotmap::SlotMap;
 
         let items = vec![OptionItem::new("Alpha"), OptionItem::new("Beta")];
         let mut list = OptionList::with_items(items);
-        list.set_focus(true);
         list.on_layout(40, 10);
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         list.on_event(

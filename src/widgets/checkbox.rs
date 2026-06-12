@@ -14,35 +14,29 @@ use crate::reactive::{
 use crate::action::ParsedAction;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
-    BindingDecl, Widget, WidgetStyles,
+    helpers::fixed_height_from_constraints,
+    BindingDecl, NodeSeed, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
     label: String,
     checked: bool,
-    focused: bool,
-    hovered: bool,
     pressed: bool,
     disabled: bool,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Checkbox {
     pub fn new(label: impl Into<String>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("checkbox".to_string());
         Self {
             label: label.into(),
             checked: false,
-            focused: false,
-            hovered: false,
             pressed: false,
             disabled: false,
-            classes: vec!["checkbox".to_string()],
-            focused_classes: vec!["checkbox".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -99,10 +93,7 @@ impl Checkbox {
         if self.disabled {
             classes.push("disabled".to_string());
         }
-        let mut focused_classes = classes.clone();
-        focused_classes.push("focused".to_string());
-        self.classes = classes;
-        self.focused_classes = focused_classes;
+        self.seed.classes = classes;
     }
 
     fn toggle_reactive(&mut self, ctx: &mut EventCtx) {
@@ -147,14 +138,6 @@ impl Widget for Checkbox {
         !self.disabled
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
@@ -163,16 +146,8 @@ impl Widget for Checkbox {
         self.disabled = disabled;
     }
 
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-    }
-
     fn is_active(&self) -> bool {
-        self.pressed && self.hovered
+        self.pressed && self.node_state().hovered
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -240,11 +215,11 @@ impl Widget for Checkbox {
                     ctx.request_repaint();
                 }
             }
-            Event::Action(Action::Toggle) if self.focused => {
+            Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.toggle_reactive(ctx);
                 ctx.set_handled();
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.toggle_reactive(ctx);
                     ctx.set_handled();
@@ -269,21 +244,21 @@ impl Widget for Checkbox {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -297,6 +272,8 @@ impl Renderable for Checkbox {
 mod tests {
     use super::*;
     use crate::keys::KeyEventData;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use slotmap::SlotMap;
 
@@ -305,10 +282,15 @@ mod tests {
         sm.insert(())
     }
 
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
+
     #[test]
     fn checkbox_emits_message_on_toggle() {
         let mut checkbox = Checkbox::new("Remember");
-        checkbox.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
@@ -330,7 +312,6 @@ mod tests {
     #[test]
     fn execute_action_handles_toggle() {
         let mut checkbox = Checkbox::new("Remember");
-        checkbox.set_focus(true);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,
@@ -378,7 +359,7 @@ mod tests {
         let changes = ctx.take_changes();
         checkbox.reactive_dispatch(&changes, &mut ctx);
         // watch_checked rebuilds classes — verify -on class
-        assert!(checkbox.classes.contains(&"-on".to_string()));
+        assert!(checkbox.seed.classes.contains(&"-on".to_string()));
     }
 
     // ── compose / take_composed_children tests ──────────────────────────

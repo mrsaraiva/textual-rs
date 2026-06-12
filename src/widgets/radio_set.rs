@@ -5,10 +5,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
     option_list::toggle_option::OptionCursorState,
     radio_button::RadioButton,
-    Widget, WidgetStyles,
+    NodeSeed, Widget, WidgetStyles,
 };
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -24,27 +24,21 @@ pub struct RadioSet {
     buttons: Vec<RadioButton>,
     cursor: OptionCursorState,
     disabled: bool,
-    focused: bool,
-    hovered: bool,
     hovered_index: Option<usize>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl RadioSet {
     /// Create a new empty RadioSet.
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["radio-set".to_string()];
         Self {
             buttons: Vec::new(),
             cursor: OptionCursorState::default(),
             disabled: false,
-            focused: false,
-            hovered: false,
             hovered_index: None,
-            classes: vec!["radio-set".to_string()],
-            focused_classes: vec!["radio-set".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -61,9 +55,6 @@ impl RadioSet {
     /// Builder: set disabled state for the entire set.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
-        if disabled {
-            self.focused = false;
-        }
         self
     }
 
@@ -251,32 +242,15 @@ impl Widget for RadioSet {
         !self.disabled && self.has_enabled_button()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused && !self.disabled;
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
 
     fn set_disabled_state(&mut self, disabled: bool) {
         self.disabled = disabled;
-        if disabled {
-            self.focused = false;
-            self.hovered = false;
-        }
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
     }
 
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
         if !hovered {
             self.hovered_index = None;
         }
@@ -295,7 +269,7 @@ impl Widget for RadioSet {
                     self.toggle_selected(ctx);
                 }
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Up | KeyCode::Left => {
                     self.move_selection(-1);
                     ctx.request_repaint();
@@ -404,7 +378,7 @@ impl Widget for RadioSet {
                     glyph_classes.push("-on");
                     label_classes.push("-on");
                 }
-                if is_selected && self.focused {
+                if is_selected && self.node_state().focused {
                     glyph_classes.push("-focus");
                     label_classes.push("-focus");
                 }
@@ -478,13 +452,7 @@ impl Widget for RadioSet {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -492,11 +460,17 @@ impl Widget for RadioSet {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -513,12 +487,25 @@ mod tests {
     use super::*;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
 
     #[test]
     fn radio_set_space_changes_selection_and_emits_message() {
         let mut set = RadioSet::from_labels(&["A", "B", "C"]);
-        set.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx1 = EventCtx::default();
         set.on_event(&Event::Key(down), &mut ctx1);
@@ -538,7 +525,8 @@ mod tests {
     #[test]
     fn radio_set_cannot_deselect_active_button() {
         let mut set = RadioSet::new().with_button(RadioButton::new("A").with_value(true));
-        set.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let space =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
@@ -553,7 +541,8 @@ mod tests {
             .with_button(RadioButton::new("B"))
             .with_button(RadioButton::new("C").disabled(true))
             .with_button(RadioButton::new("D"));
-        set.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         assert_eq!(set.selected_index(), 1);
 
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
@@ -567,7 +556,6 @@ mod tests {
         let mut set = RadioSet::new()
             .with_button(RadioButton::new("A"))
             .with_button(RadioButton::new("B").disabled(true));
-        set.set_focus(true);
 
         let mut ctx = EventCtx::default();
         set.on_event(
@@ -588,7 +576,8 @@ mod tests {
     #[test]
     fn radio_set_disabled_ignores_input() {
         let mut set = RadioSet::from_labels(&["A", "B"]).disabled(true);
-        set.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
         set.on_event(&Event::Key(down), &mut ctx);
@@ -629,21 +618,12 @@ mod tests {
 
     // ── P1-14 dispatch-context regression tests ─────────────────────────
 
-    fn make_node_id() -> NodeId {
-        use slotmap::SlotMap;
-        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
-        sm.insert(())
-    }
-
     #[test]
     fn mouse_click_with_dispatch_context_is_handled() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-
         let mut set = RadioSet::from_labels(&["A", "B"]);
-        set.set_focus(true);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         set.on_event(
@@ -662,16 +642,14 @@ mod tests {
 
     #[test]
     fn mouse_click_with_wrong_target_is_ignored() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
         use slotmap::SlotMap;
 
         let mut set = RadioSet::from_labels(&["A", "B"]);
-        set.set_focus(true);
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         set.on_event(

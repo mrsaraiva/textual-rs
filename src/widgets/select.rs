@@ -5,12 +5,12 @@ use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
-use super::helpers::{adjust_line_length_no_bg, empty_classes};
+use super::helpers::adjust_line_length_no_bg;
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
 use crate::action::ParsedAction;
 
-use super::{BindingDecl, Widget, WidgetStyles};
+use super::{BindingDecl, NodeSeed, Widget, WidgetStyles};
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -34,8 +34,6 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     allow_blank: bool,
     open: bool,
     list: OptionList,
-    focused: bool,
-    hovered: bool,
     viewport_width: usize,
     viewport_height: usize,
     /// Current tick counter (updated via on_tick).
@@ -44,11 +42,7 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     search_buffer: String,
     /// Tick when last search character was typed (for timeout reset).
     search_last_tick: u64,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    expanded_classes: Vec<String>,
-    focused_expanded_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
@@ -72,6 +66,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             list.set_highlighted(0);
         }
 
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["select".to_string()];
         Self {
             options,
             cursor,
@@ -80,22 +76,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             allow_blank: false,
             open: false,
             list,
-            focused: false,
-            hovered: false,
             viewport_width: 20,
             viewport_height: 10,
             current_tick: 0,
             search_buffer: String::new(),
             search_last_tick: 0,
-            classes: vec!["select".to_string()],
-            focused_classes: vec!["select".to_string(), "focused".to_string()],
-            expanded_classes: vec!["select".to_string(), "-expanded".to_string()],
-            focused_expanded_classes: vec![
-                "select".to_string(),
-                "focused".to_string(),
-                "-expanded".to_string(),
-            ],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -225,7 +211,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         if disabled {
-            self.focused = false;
             self.open = false;
             self.list.set_focus(false);
         }
@@ -329,10 +314,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     fn render_closed(&self, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut classes = vec!["select--current-value"];
-        if self.focused {
+        if self.node_state().focused {
             classes.push("-focus");
         }
-        if self.hovered {
+        if self.node_state().hovered {
             classes.push("-hover");
         }
         let label_style = crate::css::resolve_component_style(self, &classes)
@@ -410,17 +395,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.focused = focused && !self.disabled;
         if !focused && self.open {
             // Close dropdown when focus is lost.
             self.open = false;
             self.list.set_focus(false);
             self.search_buffer.clear();
         }
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
     }
 
     fn is_disabled(&self) -> bool {
@@ -433,14 +413,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             self.open = false;
             self.search_buffer.clear();
         }
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -588,7 +560,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         } else {
             // Closed state: open on Enter/Space/click.
             match event {
-                Event::Key(key) if self.focused => match key.code {
+                Event::Key(key) if self.node_state().focused => match key.code {
                     KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Down | KeyCode::Up => {
                         self.set_open(true, ctx);
                         ctx.set_handled();
@@ -744,18 +716,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn style_classes(&self) -> &[String] {
-        match (self.focused, self.open) {
-            (true, true) => &self.focused_expanded_classes,
-            (true, false) => &self.focused_classes,
-            (false, true) => &self.expanded_classes,
-            (false, false) => {
-                if self.classes.is_empty() {
-                    empty_classes()
-                } else {
-                    &self.classes
-                }
-            }
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -763,11 +724,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     // NOTE: Select intentionally does NOT implement visit_children_mut.
@@ -807,11 +774,17 @@ mod tests {
     use crate::node_id::node_id_from_ffi;
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+    use crate::widgets::NodeState;
     use slotmap::SlotMap;
 
     fn make_node_id() -> NodeId {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
     }
 
     /// Derive a test-only NodeId from a widget's pointer address.
@@ -863,7 +836,8 @@ mod tests {
     #[test]
     fn select_opens_on_enter() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -876,7 +850,8 @@ mod tests {
     #[test]
     fn select_closes_on_escape() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -895,7 +870,8 @@ mod tests {
     #[test]
     fn select_enter_selects_highlighted_option() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -934,7 +910,8 @@ mod tests {
     #[test]
     fn select_mouse_click_inside_dropdown_selects_item() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         let open_key =
@@ -997,7 +974,8 @@ mod tests {
         let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&3, &mut ctx);
         sel.clear();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -1016,7 +994,8 @@ mod tests {
         );
         sel.list
             .set_items(vec![OptionItem::new("Alpha"), OptionItem::disabled("Beta")]);
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -1044,7 +1023,6 @@ mod tests {
     #[test]
     fn select_disabled_ignores_open_input() {
         let mut sel = make_select().disabled(true);
-        sel.set_focus(true);
         sel.on_layout(30, 20);
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -1072,7 +1050,8 @@ mod tests {
     #[test]
     fn select_type_to_search_highlights_matching_option() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -1104,7 +1083,8 @@ mod tests {
             ],
             "Pick one...",
         );
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -1141,7 +1121,8 @@ mod tests {
     #[test]
     fn select_type_to_search_resets_on_timeout() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -1191,7 +1172,8 @@ mod tests {
         let mut rctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&2, &mut rctx); // Beta
         assert_eq!(sel.value(), Some(&2));
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -1213,7 +1195,8 @@ mod tests {
         let mut sel = make_select();
         let mut rctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&2, &mut rctx); // Beta
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -1309,7 +1292,8 @@ mod tests {
     #[test]
     fn compose_stable_across_state_changes() {
         let mut sel = make_select();
-        sel.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         sel.on_layout(30, 20);
 
         // Open the dropdown
@@ -1327,7 +1311,6 @@ mod tests {
     fn execute_action_handles_show_overlay() {
         use crate::action::ParsedAction;
         let mut sel = make_select();
-        sel.set_focus(true);
         sel.on_layout(20, 10);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
@@ -1344,14 +1327,11 @@ mod tests {
 
     #[test]
     fn mouse_click_with_dispatch_context_opens_select() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-
         let mut sel = make_select();
-        sel.set_focus(true);
         sel.on_layout(30, 20);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         sel.on_event(
@@ -1370,17 +1350,15 @@ mod tests {
 
     #[test]
     fn mouse_click_with_wrong_target_closes_open_select() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
         use slotmap::SlotMap;
 
         let mut sel = make_select();
-        sel.set_focus(true);
         sel.on_layout(30, 20);
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(my_id, focused_state());
 
         // Open via keyboard first.
         let open_key =

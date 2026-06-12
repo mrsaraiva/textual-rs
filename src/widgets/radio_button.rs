@@ -4,9 +4,9 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
+    helpers::fixed_height_from_constraints,
     option_list::toggle_option::BinaryToggleState,
-    Widget, WidgetStyles,
+    NodeSeed, Widget, WidgetStyles,
 };
 
 /// A radio button widget that represents a boolean on/off value.
@@ -21,24 +21,18 @@ use super::{
 pub struct RadioButton {
     label: String,
     state: BinaryToggleState,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl RadioButton {
     pub fn new(label: impl Into<String>) -> Self {
         let label = label.into();
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["radio-button".to_string(), "-off".to_string()];
         Self {
             label,
             state: BinaryToggleState::new(false),
-            classes: vec!["radio-button".to_string(), "-off".to_string()],
-            focused_classes: vec![
-                "radio-button".to_string(),
-                "-off".to_string(),
-                "focused".to_string(),
-            ],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -98,12 +92,7 @@ impl RadioButton {
 
     fn rebuild_classes(&mut self) {
         let on_off = if self.state.value() { "-on" } else { "-off" };
-        self.classes = vec!["radio-button".to_string(), on_off.to_string()];
-        self.focused_classes = vec![
-            "radio-button".to_string(),
-            on_off.to_string(),
-            "focused".to_string(),
-        ];
+        self.seed.classes = vec!["radio-button".to_string(), on_off.to_string()];
     }
 }
 
@@ -227,13 +216,7 @@ impl Widget for RadioButton {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.state.focused() {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -241,11 +224,17 @@ impl Widget for RadioButton {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -264,6 +253,7 @@ mod tests {
     #[test]
     fn radio_button_toggle_emits_message() {
         let mut button = RadioButton::new("A");
+        // BinaryToggleState uses its own focused field for keyboard routing.
         button.set_focus(true);
         let mut ctx = EventCtx::default();
         let key =

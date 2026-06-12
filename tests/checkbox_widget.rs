@@ -3,6 +3,12 @@ use rich_rs::Console;
 use textual::event::{MouseDownEvent, MouseUpEvent};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+use textual::widgets::NodeState;
+
+fn focused_state() -> NodeState {
+    NodeState { focused: true, ..Default::default() }
+}
 
 #[test]
 fn checkbox_toggles_from_keyboard_and_emits_message() {
@@ -13,7 +19,8 @@ fn checkbox_toggles_from_keyboard_and_emits_message() {
     options.max_height = 1;
 
     let mut checkbox = Checkbox::new("remember me");
-    checkbox.set_focus(true);
+    let id = NodeId::default();
+    let _guard = set_dispatch_recipient(id, focused_state());
 
     let key =
         KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
@@ -30,8 +37,7 @@ fn checkbox_toggles_from_keyboard_and_emits_message() {
 fn checkbox_click_activates_only_on_mouse_up_over_target() {
     let mut checkbox = Checkbox::new("remember me");
     let id = NodeId::default();
-    checkbox.set_focus(true);
-    checkbox.set_hovered(true);
+    let _guard = set_dispatch_recipient(id, NodeState { hovered: true, ..Default::default() });
 
     let mut ctx = EventCtx::default();
     checkbox.on_event(
@@ -65,7 +71,8 @@ fn checkbox_click_activates_only_on_mouse_up_over_target() {
 #[test]
 fn checkbox_disabled_ignores_input() {
     let mut checkbox = Checkbox::new("remember me").disabled(true);
-    checkbox.set_focus(true);
+    let id = NodeId::default();
+    let _guard = set_dispatch_recipient(id, focused_state());
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
     checkbox.on_event(&Event::Key(key), &mut ctx);

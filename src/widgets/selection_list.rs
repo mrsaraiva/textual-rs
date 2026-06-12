@@ -6,8 +6,8 @@ use crate::message::*;
 
 use super::option_list::{OptionItem, OptionList};
 use super::{
-    helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
-    Widget, WidgetStyles,
+    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
+    NodeSeed, Widget, WidgetStyles,
 };
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
@@ -85,13 +85,9 @@ pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
     values: Vec<T>,
     /// Per-index selection state.
     selected_set: Vec<bool>,
-    focused: bool,
-    hovered: bool,
     hovered_index: Option<usize>,
     border_title_text: Option<String>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Default for SelectionList<T> {
@@ -103,18 +99,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Default for SelectionList<T> 
 impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     /// Create an empty `SelectionList`.
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes = vec!["selection-list".to_string()];
         Self {
             inner: OptionList::new(),
             disabled: false,
             values: Vec::new(),
             selected_set: Vec::new(),
-            focused: false,
-            hovered: false,
             hovered_index: None,
             border_title_text: None,
-            classes: vec!["selection-list".to_string()],
-            focused_classes: vec!["selection-list".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -151,9 +145,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     /// Builder: set disabled state for the entire list.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
-        if disabled {
-            self.focused = false;
-        }
         self
     }
 
@@ -312,25 +303,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         !self.disabled
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused && !self.disabled;
-        self.inner.set_focus(self.focused);
-    }
-
     fn is_disabled(&self) -> bool {
         self.disabled
     }
 
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
     fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
         self.inner.set_hovered(hovered);
         if !hovered {
             self.hovered_index = None;
@@ -360,7 +337,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     ctx.set_handled();
                 }
             }
-            Event::Action(Action::Toggle) if self.focused => {
+            Event::Action(Action::Toggle) if self.node_state().focused => {
                 if let Some(index) = self.inner.highlighted() {
                     if self.item_is_selectable(index) {
                         self.toggle(index, ctx);
@@ -368,7 +345,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     }
                 }
             }
-            Event::Key(key) if self.focused => match key.code {
+            Event::Key(key) if self.node_state().focused => match key.code {
                 KeyCode::Char(' ') | KeyCode::Enter => {
                     if let Some(index) = self.inner.highlighted() {
                         if self.item_is_selectable(index) {
@@ -394,7 +371,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                 | Action::ScrollDown
                 | Action::ScrollPageUp
                 | Action::ScrollPageDown,
-            ) if self.focused => {
+            ) if self.node_state().focused => {
                 self.inner.on_event(event, ctx);
             }
             _ => {}
@@ -468,7 +445,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                         if *disabled {
                             opt_classes.push("-disabled");
                         }
-                        if highlighted && self.focused {
+                        if highlighted && self.node_state().focused {
                             opt_classes.push("-focus");
                         }
                         let opt_style = crate::css::resolve_component_style(self, &opt_classes)
@@ -552,13 +529,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn style_type(&self) -> &'static str {
@@ -566,11 +537,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
@@ -711,7 +688,6 @@ mod tests {
             Selection::new("B", "b".to_string()),
         ])
         .disabled(true);
-        list.set_focus(true);
 
         let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
             KeyCode::Char(' '),
@@ -758,7 +734,6 @@ mod tests {
             Selection::disabled("A", "a".to_string()),
             Selection::new("B", "b".to_string()),
         ]);
-        list.set_focus(true);
         list.on_layout(40, 5);
 
         let mut ctx = EventCtx::default();
@@ -809,7 +784,6 @@ mod tests {
             Selection::new("A", "a".to_string()),
             Selection::new("B", "b".to_string()),
         ]);
-        list.set_focus(true);
         list.on_layout(40, 5);
 
         let id = make_node_id();
@@ -839,7 +813,6 @@ mod tests {
             Selection::new("A", "a".to_string()),
             Selection::new("B", "b".to_string()),
         ]);
-        list.set_focus(true);
         list.on_layout(40, 5);
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
