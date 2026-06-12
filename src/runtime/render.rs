@@ -1,7 +1,7 @@
 use crate::css::{
-    AppRuntimePseudos, StyleSheet, begin_style_render_pass, pop_style_context, push_style_context,
-    resolve_style, selector_meta_generic, selector_meta_generic_with_classes, set_app_active,
-    set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
+    AppRuntimePseudos, StyleSheet, begin_style_render_pass, node_selector_meta,
+    node_selector_meta_from_node, pop_style_context, push_style_context, resolve_node_style,
+    set_app_active, set_app_runtime_pseudos, set_style_context, take_layout_affected_style_changes,
 };
 use crate::debug::{debug_layout, debug_render};
 use crate::node_id::{NodeId, node_id_to_ffi};
@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use super::App;
+use super::dispatch_ctx::set_dispatch_recipient;
 use super::types::{
     HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS, TOAST_SIDE_MARGIN,
     resize_trace_enabled,
@@ -392,16 +393,16 @@ impl App {
         let Some(root_id) = entry.widget_tree.root() else {
             return false;
         };
-        let Some(root) = entry.widget_tree.get(root_id) else {
+        // Verify the root node exists before resolving its style.
+        if entry.widget_tree.get(root_id).is_none() {
             return false;
-        };
+        }
 
         let sheet = self.stylesheet_for_layer(entry.stylesheet.as_ref());
         let _guard = set_style_context(sheet);
         begin_style_render_pass();
-        let meta =
-            selector_meta_generic_with_classes(root.widget.as_ref(), root.classes.iter().cloned());
-        let resolved = resolve_style(root.widget.as_ref(), &meta);
+        let meta = node_selector_meta(&entry.widget_tree, root_id);
+        let resolved = resolve_node_style(&entry.widget_tree, root_id, &meta);
         resolved.bg.is_some_and(|bg| bg.a == u8::MAX)
     }
 
@@ -496,6 +497,7 @@ impl App {
     /// [`apply_layout_info_tree`] path when the arena tree is available.
     pub(super) fn apply_layout_info(&self, root: &mut dyn Widget, hit_test: &HitTestMap) {
         if let Some(rect) = hit_test.rect(NodeId::default()) {
+            // Legacy (non-tree) root path: use widget-based meta.
             let meta = crate::css::selector_meta_generic(root);
             let resolved = crate::css::resolve_style(root, &meta);
             let line_pad = resolved.line_pad.unwrap_or(0) as usize;
@@ -690,9 +692,10 @@ fn render_tree_node(
     let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
 
     // Resolve style early — needed for outline, hatch, overlay, and children.
-    let meta =
-        selector_meta_generic_with_classes(node.widget.as_ref(), node.classes.iter().cloned());
-    let resolved = resolve_style(node.widget.as_ref(), &meta);
+    // Use node-record-based meta (reads css_id, node.state, node.classes from
+    // the arena) so layout and render are consistent (§T-7, step 3a).
+    let meta = node_selector_meta_from_node(node, node_id);
+    let resolved = resolve_node_style(tree, node_id, &meta);
 
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
@@ -711,9 +714,37 @@ fn render_tree_node(
         opts.max_width = w;
         opts.max_height = h;
 
-        // render_styled_dyn_obj handles CSS resolution, border composition,
-        // segment tagging with the real arena NodeId, and style stack
-        // push/pop for this node's own content rendering.
+        // Build the debug label from the node record (css_id, classes).
+        let debug_label = {
+            let id_part = node
+                .css_id
+                .as_deref()
+                .or_else(|| node.widget.style_id())
+                .map(|id| format!("#{id}"))
+                .unwrap_or_default();
+            let class_parts: Vec<String> = {
+                let mut classes: Vec<String> = node.widget.style_classes().to_vec();
+                for c in &node.classes {
+                    if !classes.iter().any(|existing| existing == c) {
+                        classes.push(c.clone());
+                    }
+                }
+                classes.iter().map(|c| format!(".{c}")).collect()
+            };
+            format!(
+                "{}{}{}",
+                node.widget.style_type(),
+                id_part,
+                class_parts.join("")
+            )
+        };
+
+        // Set dispatch context so node_state()/node_id() work during render
+        // (§T-6, step 3a): widgets can call self.node_state() inside render().
+        let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
+
+        // render_widget_with_meta handles CSS composition, border rendering,
+        // segment tagging with the real arena NodeId, and style stack push/pop.
         let segments = crate::widgets::render_widget_with_meta(
             node.widget.as_ref(),
             console,
@@ -722,20 +753,7 @@ fn render_tree_node(
             node_id,
             &meta,
             &resolved,
-            &format!(
-                "{}{}{}",
-                node.widget.style_type(),
-                node.widget
-                    .style_id()
-                    .map(|id| format!("#{id}"))
-                    .unwrap_or_default(),
-                node.widget
-                    .style_classes()
-                    .iter()
-                    .map(|class| format!(".{class}"))
-                    .collect::<Vec<_>>()
-                    .join("")
-            ),
+            &debug_label,
         );
         if node.widget.preserve_underlay() && !segments.is_empty() {
             if let Some(bg) = resolved.bg {
@@ -863,14 +881,11 @@ fn render_tree_node(
             apply_overlay_compositing(frame, overlay, dest_x, dest_y, w, h, ctx.clip, underlay);
         }
     }
-    // Clone keyline before push_style_context takes ownership of resolved.
-    let inline_style = node.widget.style();
-    let node_keyline = resolved
-        .keyline
-        .or_else(|| inline_style.clone().and_then(|s| s.keyline));
-    let node_layout = resolved
-        .layout
-        .or_else(|| inline_style.and_then(|s| s.layout));
+    // Clone keyline/layout before push_style_context takes ownership of resolved.
+    // These are already folded into `resolved` via resolve_node_style, so no
+    // separate inline-style read is needed.
+    let node_keyline = resolved.keyline.clone();
+    let node_layout = resolved.layout;
     push_style_context(meta, resolved);
 
     let unclipped_child_ctx = ctx;
@@ -984,8 +999,10 @@ fn render_app_root_tree_layer(
         return;
     };
 
-    let root_meta = selector_meta_generic(root_widget);
-    let root_resolved = resolve_style(root_widget, &root_meta);
+    // NOTE: tree.root() is a TreeStubWidget. Use the real root_widget for
+    // style resolution so root inline styles propagate to children.
+    let root_meta = crate::css::selector_meta_generic(root_widget);
+    let root_resolved = crate::css::resolve_style(root_widget, &root_meta);
     push_style_context(root_meta, root_resolved);
 
     let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
@@ -1062,11 +1079,8 @@ fn render_screen_tree_layer(
     let Some(root_node) = tree.get(root_id) else {
         return;
     };
-    let root_meta = selector_meta_generic_with_classes(
-        root_node.widget.as_ref(),
-        root_node.classes.iter().cloned(),
-    );
-    let root_resolved = resolve_style(root_node.widget.as_ref(), &root_meta);
+    let root_meta = node_selector_meta(tree, root_id);
+    let root_resolved = resolve_node_style(tree, root_id, &root_meta);
     let root_rect = root_node.layout_rect;
     let root_scroll = root_node.widget.scroll_offset_f32();
     let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
@@ -1229,8 +1243,10 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };
+    // Read css_id from node record (canonical in dual-write phase).
+    let css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
     matches!(
-        node.widget.style_id(),
+        css_id,
         Some(
             APP_ROOT_VSCROLLBAR_ID
                 | APP_ROOT_HSCROLLBAR_ID
@@ -2109,9 +2125,12 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
     }
 
     // Walk tree children and render each at its layout_rect.
+    // NOTE: root is the real root widget; tree.root() holds a TreeStubWidget.
+    // Use the real root widget for style resolution so inline styles on the
+    // root are correctly applied to the style stack for children.
     if let Some(root_id) = tree.root() {
-        let root_meta = selector_meta_generic(root);
-        let root_resolved = resolve_style(root, &root_meta);
+        let root_meta = crate::css::selector_meta_generic(root);
+        let root_resolved = crate::css::resolve_style(root, &root_meta);
         push_style_context(root_meta, root_resolved);
 
         let child_ids: Vec<NodeId> = tree.children(root_id).to_vec();
@@ -2224,7 +2243,9 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
         let Some(child) = tree.get(child_id) else {
             continue;
         };
-        match child.widget.style_id() {
+        // Read css_id from node record (canonical in dual-write phase).
+        let css_id = child.css_id.as_deref().or_else(|| child.widget.style_id());
+        match css_id {
             Some(APP_ROOT_VSCROLLBAR_ID | SCROLL_VIEW_VSCROLLBAR_ID) => {
                 children.vertical = Some(child_id)
             }
@@ -2326,13 +2347,11 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
-            let meta = selector_meta_generic_with_classes(
-                node.widget.as_ref(),
-                node.classes.iter().cloned(),
-            );
-            let style = resolve_style(node.widget.as_ref(), &meta);
+            let content_rect = node.content_rect;
             let (offset_x, offset_y) = node.widget.scroll_offset_f32();
-            (node.content_rect, style, offset_x, offset_y)
+            let meta = node_selector_meta(tree, node_id);
+            let style = resolve_node_style(tree, node_id, &meta);
+            (content_rect, style, offset_x, offset_y)
         };
         let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
         let content_h = content_rect.y1.saturating_sub(content_rect.y0).max(1) as usize;
@@ -2732,13 +2751,10 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         regular
     };
 
-    // Resolve the parent's `layers` declaration.
-    let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|node| {
-        let meta = crate::css::selector_meta_generic_with_classes(
-            node.widget.as_ref(),
-            node.classes.iter().cloned(),
-        );
-        let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
+    // Resolve the parent's `layers` declaration using node-record-based meta.
+    let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|_node| {
+        let meta = node_selector_meta(tree, parent);
+        let style = resolve_node_style(tree, parent, &meta);
         style.layers
     });
 
@@ -2748,16 +2764,13 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         // No layers declaration — keep DOM order except modal command palette priority.
     };
 
-    // Resolve each child's `layer` property.
+    // Resolve each child's `layer` property using node-record-based meta.
     let child_layers: Vec<Option<String>> = children
         .iter()
         .map(|&child| {
-            tree.get(child).and_then(|node| {
-                let meta = crate::css::selector_meta_generic_with_classes(
-                    node.widget.as_ref(),
-                    node.classes.iter().cloned(),
-                );
-                let style = crate::css::resolve_style(node.widget.as_ref(), &meta);
+            tree.get(child).and_then(|_node| {
+                let meta = node_selector_meta(tree, child);
+                let style = resolve_node_style(tree, child, &meta);
                 style.layer
             })
         })

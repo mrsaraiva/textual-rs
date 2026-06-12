@@ -1,6 +1,6 @@
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::style::{Display, Style, Visibility};
-use crate::widget_tree::WidgetTree;
+use crate::widget_tree::{WidgetNode, WidgetTree};
 use crate::widgets::Widget;
 
 use super::ast::{SelectorMeta, SelectorStates, StyleSheet};
@@ -157,6 +157,136 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             ..SelectorStates::default()
         },
     }
+}
+
+/// Canonical selector meta for an arena node (§T-7).
+///
+/// Reads type identity from the widget, id from `node.css_id`, classes from
+/// `node.classes` (merging `widget.style_classes()` during the dual-write
+/// phase), and interaction states from `node.state` plus `widget.is_active()`
+/// and `widget.can_focus()`.
+///
+/// # Panics
+/// Panics if `node_id` is not present in `tree`. All callers in render/layout/
+/// hit-test hot-paths already guard with `let Some(n) = tree.get(node_id)` before
+/// calling this; the panic is acceptable for absent nodes (would be a logic bug).
+pub(crate) fn node_selector_meta(tree: &WidgetTree, node_id: NodeId) -> SelectorMeta {
+    let node = tree
+        .get(node_id)
+        .expect("node_selector_meta called with absent node_id");
+    node_selector_meta_from_node(node, node_id)
+}
+
+/// Build `SelectorMeta` directly from a `WidgetNode` reference.
+///
+/// Separated from `node_selector_meta` so `apply_display_visibility_to_tree`
+/// (which already holds the node reference) can call this without re-borrowing
+/// the arena.
+pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -> SelectorMeta {
+    let pseudos = app_runtime_pseudos();
+    // id: prefer node record canonical value; fall back to widget legacy during dual-write.
+    let id = node
+        .css_id
+        .as_deref()
+        .or_else(|| node.widget.style_id())
+        .map(str::to_string);
+    // Merge widget-level classes (state-dependent, e.g. Button) with tree-level classes.
+    let mut classes: Vec<String> = node.widget.style_classes().to_vec();
+    for c in &node.classes {
+        if !classes.iter().any(|existing| existing == c) {
+            classes.push(c.clone());
+        }
+    }
+    let state = node.state;
+    let is_screen = node.widget.style_type() == "Screen"
+        || node
+            .widget
+            .style_type_aliases()
+            .iter()
+            .any(|alias| *alias == "Screen");
+    // Dual-write phase: merge node.state with legacy widget getters to handle
+    // callers that bypass tree.set_focus_state() and write directly to the widget.
+    let focused_flag = state.focused || node.widget.has_focus();
+    let focused = (focused_flag || is_screen) && app_is_active();
+    SelectorMeta {
+        type_name: node.widget.style_type().to_string(),
+        type_aliases: node
+            .widget
+            .style_type_aliases()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        id,
+        classes,
+        states: SelectorStates {
+            // Dual-write phase: merge node.state with legacy widget getters.
+            disabled: state.disabled || node.widget.is_disabled(),
+            focused,
+            hovered: state.hovered || node.widget.is_hovered(),
+            active: node.widget.is_active(),
+            dark: pseudos.dark,
+            inline: pseudos.inline,
+            ansi: pseudos.ansi,
+            nocolor: pseudos.nocolor,
+            can_focus: node.widget.can_focus(),
+            focus_within: is_focus_within(node_id),
+            ..Default::default()
+        },
+    }
+}
+
+/// Canonical resolved style for an arena node (§T-7).
+///
+/// Cache keyed by the real `NodeId`. Combines stylesheet + `widget.style()`
+/// contribution + node inline styles (node wins), then inherits from parent.
+pub(crate) fn resolve_node_style(
+    tree: &WidgetTree,
+    node_id: NodeId,
+    meta: &SelectorMeta,
+) -> Style {
+    let node = tree
+        .get(node_id)
+        .expect("resolve_node_style called with absent node_id");
+    // Inline style: node record wins over widget behavior contribution.
+    let node_inline = if node.styles.style != Default::default() {
+        Some(node.styles.style.clone())
+    } else {
+        node.widget.style()
+    };
+    let key = super::context::ComputedStyleKey {
+        meta: meta.clone(),
+        ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),
+        parent_style: STYLE_STACK.with(|stack| stack.borrow().last().cloned()),
+        inline_style: node_inline.clone(),
+    };
+    if let Some(cached) =
+        COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(node_id, &key))
+    {
+        return cached;
+    }
+    let sheet_style = STYLE_CONTEXT
+        .with(|ctx| {
+            ctx.borrow()
+                .as_ref()
+                .map(|sheet| sheet.style_for_meta(meta))
+        })
+        .unwrap_or_default();
+    let mut style = sheet_style;
+    if let Some(inline) = node_inline {
+        style = style.combine(&inline);
+    }
+    if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().cloned()) {
+        style = style.inherit_from(&parent);
+    }
+    let layout_affected_changed = COMPUTED_STYLE_CACHE
+        .with(|cache| cache.borrow().prior_resolved(node_id))
+        .is_some_and(|prior| !layout_fields_equal(&prior, &style));
+    COMPUTED_STYLE_CACHE.with(|cache| {
+        cache
+            .borrow_mut()
+            .store(node_id, key, style.clone(), layout_affected_changed)
+    });
+    style
 }
 
 pub(crate) fn current_parent_style() -> Option<Style> {
