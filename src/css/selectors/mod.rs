@@ -24,7 +24,7 @@ pub(crate) use resolver::{
     current_parent_style, node_selector_meta, node_selector_meta_from_node, pop_style_context,
     push_style_context, resolve_component_style, resolve_node_style, resolve_style,
     resolve_style_for_meta, selector_meta_component, selector_meta_generic,
-    selector_meta_generic_with_classes, take_layout_affected_style_changes, with_style_stack,
+    take_layout_affected_style_changes, with_style_stack,
 };
 pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
 

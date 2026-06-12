@@ -3162,12 +3162,8 @@ mod tests {
         }
 
         let resolved_bg = {
-            let node = tree.get(palette_id).expect("palette node should exist");
-            let meta = crate::css::selector_meta_generic_with_classes(
-                node.widget.as_ref(),
-                node.classes.iter().cloned(),
-            );
-            let resolved = crate::css::resolve_style(node.widget.as_ref(), &meta);
+            let meta = crate::css::node_selector_meta(&tree, palette_id);
+            let resolved = crate::css::resolve_node_style(&tree, palette_id, &meta);
             resolved.bg
         };
         let bg = resolved_bg.expect("CommandPalette must resolve a background color");

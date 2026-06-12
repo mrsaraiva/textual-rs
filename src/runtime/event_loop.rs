@@ -1024,6 +1024,48 @@ fn snapshot_for(
     }
 }
 
+/// Node-record-based variant of [`snapshot_for`] for tree-mode paths.
+///
+/// Reads css_id, classes, and interaction state from the `WidgetNode` record
+/// (dual-write phase: merges node.state.* with legacy widget getters).
+fn snapshot_for_node(
+    node: &crate::widget_tree::WidgetNode,
+    _node_id: NodeId,
+    app_active: bool,
+    app_pseudos: AppRuntimePseudos,
+) -> SelectorSnapshot {
+    let widget = node.widget.as_ref();
+    let is_screen = widget.style_type() == "Screen"
+        || widget
+            .style_type_aliases()
+            .iter()
+            .any(|alias| *alias == "Screen");
+    // Dual-write: prefer node record but fall back to legacy widget getters.
+    let style_id = node
+        .css_id
+        .clone()
+        .or_else(|| widget.style_id().map(str::to_string));
+    let mut classes: Vec<String> = widget.style_classes().to_vec();
+    for c in &node.classes {
+        if !classes.iter().any(|existing| existing == c) {
+            classes.push(c.clone());
+        }
+    }
+    let focused_flag = node.state.focused || widget.has_focus();
+    SelectorSnapshot {
+        type_name: widget.style_type().to_string(),
+        style_id,
+        classes,
+        disabled: node.state.disabled || widget.is_disabled(),
+        focused: (focused_flag || is_screen) && app_active,
+        hovered: node.state.hovered || widget.is_hovered(),
+        active: widget.is_active(),
+        inline: app_pseudos.inline,
+        ansi: app_pseudos.ansi,
+        nocolor: app_pseudos.nocolor,
+    }
+}
+
 fn selector_matches_snapshot(
     selector: &crate::css::StyleSelector,
     meta: &SelectorSnapshot,
@@ -1180,7 +1222,7 @@ fn collect_stylesheet_affected_widgets_tree(
         let Some(node) = tree.get(node_id) else {
             return;
         };
-        let current = snapshot_for(node.widget.as_ref(), node_id, app_active, app_pseudos);
+        let current = snapshot_for_node(node, node_id, app_active, app_pseudos);
         if rules
             .iter()
             .any(|rule| rule_matches_snapshot_chain(rule, &current, ancestors))
@@ -1684,7 +1726,9 @@ impl App {
                     };
                     let depth = tree.ancestors(node_id).len();
                     let widget = node.widget.as_ref();
-                    let is_focused = widget.has_focus() && self.app_active;
+                    // Dual-write: prefer node.state.focused over legacy widget getter.
+                    let is_focused =
+                        (node.state.focused || widget.has_focus()) && self.app_active;
 
                     // Layout rect from hit-test map.
                     let layout_rect = self.hit_test.rect(node_id);
@@ -1702,8 +1746,11 @@ impl App {
                         format!("{},{},{},{}", cr.x0, cr.y0, cr.x1, cr.y1)
                     };
 
-                    let style_id = widget
-                        .style_id()
+                    // Dual-write: prefer node.css_id over legacy widget getter.
+                    let style_id = node
+                        .css_id
+                        .as_deref()
+                        .or_else(|| widget.style_id())
                         .map(sanitize_snapshot_field)
                         .unwrap_or_else(|| "-".to_string());
 
@@ -1751,7 +1798,8 @@ impl App {
                         bool_flag(is_focused),
                         bool_flag(self.hovered == Some(node_id)),
                         bool_flag(widget.is_active()),
-                        bool_flag(widget.is_disabled()),
+                        // Dual-write: prefer node.state.disabled.
+                        bool_flag(node.state.disabled || widget.is_disabled()),
                         layout_rect_field,
                         content_rect_field,
                         bool_flag(node.display),
@@ -4064,17 +4112,11 @@ impl App {
         if let Some(tree) = self.active_widget_tree() {
             if let Some(root_id) = tree.root() {
                 for node_id in tree.walk_depth_first(root_id) {
-                    let Some(node) = tree.get(node_id) else {
+                    if tree.get(node_id).is_none() {
                         continue;
-                    };
-                    let meta = crate::css::selector_meta_generic_with_classes(
-                        node.widget.as_ref(),
-                        node.classes.iter().cloned(),
-                    );
-                    out.insert(
-                        node_id,
-                        crate::css::resolve_style(node.widget.as_ref(), &meta),
-                    );
+                    }
+                    let meta = crate::css::node_selector_meta(tree, node_id);
+                    out.insert(node_id, crate::css::resolve_node_style(tree, node_id, &meta));
                 }
             }
             return out;
