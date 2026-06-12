@@ -7,8 +7,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::renderables::Styled;
 
-use super::helpers::{empty_classes, fixed_height_from_constraints};
-use super::{Widget, WidgetStyles};
+use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 fn set_class_flag(classes: &mut Vec<String>, class: &str, enabled: bool) {
@@ -75,7 +74,7 @@ pub struct FooterKey {
     disabled: bool,
     parent_bg: crate::style::Color,
     classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl FooterKey {
@@ -89,7 +88,7 @@ impl FooterKey {
             parent_bg: crate::style::parse_color_like("$background")
                 .unwrap_or(crate::style::Color::rgb(0, 0, 0)),
             classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -217,23 +216,15 @@ impl Widget for FooterKey {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        &self.classes
     }
 
     fn is_hovered(&self) -> bool {
         self.hovered
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -246,16 +237,14 @@ impl Renderable for FooterKey {
 #[derive(Debug, Clone)]
 pub struct FooterLabel {
     text: String,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl FooterLabel {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -274,20 +263,8 @@ impl Widget for FooterLabel {
         self.render_segments()
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -305,8 +282,7 @@ pub struct Footer {
     layout_width: usize,
     app_focused: bool,
     deferred_bindings: Option<Vec<FooterBinding>>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Footer {
@@ -318,8 +294,7 @@ impl Footer {
             layout_width: 1,
             app_focused: true,
             deferred_bindings: None,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -338,7 +313,7 @@ impl Footer {
 
     pub fn compact(mut self, compact: bool) -> Self {
         self.compact = compact;
-        set_class_flag(&mut self.classes, "-compact", compact);
+        set_class_flag(&mut self.seed.classes, "-compact", compact);
         self
     }
 
@@ -357,7 +332,11 @@ impl Footer {
         if self.compact != value {
             let old = self.compact;
             self.compact = value;
-            set_class_flag(&mut self.classes, "-compact", value);
+            if value {
+                ctx.add_class("-compact");
+            } else {
+                ctx.remove_class("-compact");
+            }
             ctx.record_change(
                 "compact",
                 ReactiveFlags::reactive_layout(),
@@ -370,8 +349,7 @@ impl Footer {
     // ── Watchers ─────────────────────────────────────────────────────────
 
     fn watch_compact(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
-        // Layout invalidation is handled by ReactiveFlags::reactive_layout().
-        set_class_flag(&mut self.classes, "-compact", self.compact);
+        // Class op is queued in set_compact; layout invalidation via ReactiveFlags.
     }
 
     fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
@@ -836,7 +814,7 @@ impl Widget for Footer {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        Some(1)
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -899,8 +877,12 @@ impl Widget for Footer {
         false
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::core::NodeState,
+        new: crate::widgets::core::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_item = None;
         }
     }
@@ -925,20 +907,8 @@ impl Widget for Footer {
         self.hovered_item = None;
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

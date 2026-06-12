@@ -17,10 +17,7 @@ use crate::style::{Dock, TransitionTiming};
 
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use super::{
-    BindingDecl, Container, Horizontal, Vertical, Widget, WidgetStyles,
-    helpers::{empty_classes, fixed_height_from_constraints},
-};
+use super::{BindingDecl, Container, Horizontal, NodeSeed, Vertical, Widget};
 
 #[derive(Debug, Clone)]
 pub struct Tab {
@@ -28,7 +25,6 @@ pub struct Tab {
     label: String,
     disabled: bool,
     classes: Vec<String>,
-    styles: WidgetStyles,
     hovered: bool,
 }
 
@@ -39,7 +35,6 @@ impl Tab {
             label: label.into(),
             disabled: false,
             classes: Vec::new(),
-            styles: WidgetStyles::default(),
             hovered: false,
         }
     }
@@ -101,17 +96,11 @@ impl Widget for Tab {
     }
 
     fn style_id(&self) -> Option<&str> {
-        self.id
-            .as_deref()
-            .or_else(|| self.styles.style_id.as_deref())
+        self.id.as_deref()
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.classes
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -126,14 +115,6 @@ impl Widget for Tab {
                 .saturating_add(pad_lr)
                 .max(1),
         )
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -186,14 +167,14 @@ pub(crate) struct UnderlineState {
 #[derive(Clone)]
 pub struct Underline {
     state: Arc<Mutex<UnderlineState>>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Underline {
     pub fn new(state: Arc<Mutex<UnderlineState>>) -> Self {
         Self {
             state,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 }
@@ -203,12 +184,8 @@ impl Widget for Underline {
         "Underline"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -253,9 +230,11 @@ pub struct Tabs {
     layout_width: usize,
     last_size: Option<(u16, u16)>,
     underline: Arc<Mutex<UnderlineState>>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
+    /// The auto-generated CSS id for this Tabs instance (e.g. `__tabs-3`).
+    /// Kept as a dedicated field so it remains accessible after `take_node_seed()` consumes the seed.
+    scope_id: String,
+    dock: Option<crate::style::Dock>,
     pending_messages: Arc<Mutex<Vec<Box<dyn Message>>>>,
     /// True after the first event dispatch (widget is live in the tree).
     /// Used to gate runtime-only messages from `add_tab`.
@@ -269,11 +248,11 @@ impl Tabs {
     const UNDERLINE_ANIMATION_DELAY: Duration = Duration::ZERO;
 
     pub fn new() -> Self {
-        let mut styles = WidgetStyles::default();
-        styles.style_id = Some(format!(
-            "__tabs-{}",
-            NEXT_TABS_SCOPE_ID.fetch_add(1, Ordering::Relaxed)
-        ));
+        let n = NEXT_TABS_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
+        let auto_id = format!("__tabs-{n}");
+        let mut seed = NodeSeed::default();
+        seed.css_id = Some(auto_id.clone());
+        seed.styles.style_id = Some(auto_id.clone());
         Self {
             state: Arc::new(Mutex::new(TabsState {
                 tabs: Vec::new(),
@@ -289,9 +268,9 @@ impl Tabs {
                 highlight_end: 0.0,
                 show_highlight: true,
             })),
-            classes: Vec::new(),
-            focused_classes: Vec::new(),
-            styles,
+            seed,
+            scope_id: auto_id,
+            dock: None,
             pending_messages: Arc::new(Mutex::new(Vec::new())),
             live: false,
         }
@@ -354,7 +333,7 @@ impl Tabs {
     }
 
     pub fn set_dock(&mut self, dock: Dock) {
-        self.styles.style.dock = Some(dock);
+        self.dock = Some(dock);
     }
 
     pub fn active(&self) -> Option<String> {
@@ -1105,6 +1084,22 @@ impl Widget for Tabs {
         self.sync_underline_to_active();
     }
 
+    fn style_id(&self) -> Option<&str> {
+        Some(self.scope_id.as_str())
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+
+    fn style(&self) -> Option<crate::style::Style> {
+        self.dock.map(|dock| {
+            let mut s = crate::style::Style::default();
+            s.dock = Some(dock);
+            s
+        })
+    }
+
     fn on_unmount(&mut self) {
         self.focused = false;
         self.hovered = false;
@@ -1292,28 +1287,18 @@ impl Widget for Tabs {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         Some(2)
     }
 
     fn style_classes(&self) -> &[String] {
+        use std::sync::OnceLock;
+        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
+        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
         if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
+            C_FOCUSED.get_or_init(|| vec!["focused".to_string()])
         } else {
-            &self.classes
+            C_BASE.get_or_init(Vec::new)
         }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
     }
 }
 
@@ -1349,9 +1334,9 @@ impl Clone for Tabs {
             layout_width: 1,
             last_size: None,
             underline: self.underline.clone(),
-            classes: self.classes.clone(),
-            focused_classes: self.focused_classes.clone(),
-            styles: self.styles.clone(),
+            seed: self.seed.clone(),
+            scope_id: self.scope_id.clone(),
+            dock: self.dock,
             pending_messages: self.pending_messages.clone(),
             live: self.live,
         }

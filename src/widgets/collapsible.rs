@@ -7,10 +7,10 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    Widget, WidgetStyles,
+    NodeSeed, Widget,
     helpers::{
-        adjust_line_length_no_bg, clamp_with_constraints, constraints_from_style, empty_classes,
-        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
+        adjust_line_length_no_bg, clamp_with_constraints, constraints_from_style,
+        margin_from_style, merge_constraints, pad_lines_to_width,
     },
 };
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -29,8 +29,7 @@ pub struct CollapsibleTitle {
     focused: bool,
     hovered: bool,
     pressed: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl CollapsibleTitle {
@@ -40,6 +39,8 @@ impl CollapsibleTitle {
         expanded_symbol: impl Into<String>,
         collapsed: bool,
     ) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("collapsible--title".to_string());
         Self {
             title: title.into(),
             collapsed_symbol: collapsed_symbol.into(),
@@ -48,8 +49,7 @@ impl CollapsibleTitle {
             focused: false,
             hovered: false,
             pressed: false,
-            classes: vec!["collapsible--title".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -153,19 +153,11 @@ impl Widget for CollapsibleTitle {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -183,31 +175,21 @@ pub struct Collapsible {
     focused: bool,
     hovered: bool,
     children: Vec<Box<dyn Widget>>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    collapsed_classes: Vec<String>,
-    focused_collapsed_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Collapsible {
     pub fn new(title: impl Into<String>) -> Self {
         let title_str = title.into();
+        let mut seed = NodeSeed::default();
+        seed.classes.push("collapsible".to_string());
         Self {
             title_widget: CollapsibleTitle::new(title_str, "\u{25b6}", "\u{25bc}", true),
             collapsed: true,
             focused: false,
             hovered: false,
             children: Vec::new(),
-            classes: vec!["collapsible".to_string()],
-            focused_classes: vec!["collapsible".to_string(), "focused".to_string()],
-            collapsed_classes: vec!["collapsible".to_string(), "-collapsed".to_string()],
-            focused_collapsed_classes: vec![
-                "collapsible".to_string(),
-                "focused".to_string(),
-                "-collapsed".to_string(),
-            ],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -537,9 +519,6 @@ impl Widget for Collapsible {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         if self.collapsed {
             return Some(1);
         }
@@ -562,26 +541,38 @@ impl Widget for Collapsible {
     }
 
     fn style_classes(&self) -> &[String] {
+        use std::sync::OnceLock;
+        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
+        static C_COLLAPSED: OnceLock<Vec<String>> = OnceLock::new();
+        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
+        static C_FOCUSED_COLLAPSED: OnceLock<Vec<String>> = OnceLock::new();
         match (self.focused, self.collapsed) {
-            (true, true) => &self.focused_collapsed_classes,
-            (true, false) => &self.focused_classes,
-            (false, true) => &self.collapsed_classes,
-            (false, false) => {
-                if self.classes.is_empty() {
-                    empty_classes()
-                } else {
-                    &self.classes
-                }
+            (false, false) => C_BASE.get_or_init(|| vec!["collapsible".to_string()]),
+            (false, true) => C_COLLAPSED
+                .get_or_init(|| vec!["collapsible".to_string(), "-collapsed".to_string()]),
+            (true, false) => {
+                C_FOCUSED.get_or_init(|| vec!["collapsible".to_string(), "focused".to_string()])
             }
+            (true, true) => C_FOCUSED_COLLAPSED.get_or_init(|| {
+                vec![
+                    "collapsible".to_string(),
+                    "focused".to_string(),
+                    "-collapsed".to_string(),
+                ]
+            }),
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn styles(&self) -> Option<&crate::widgets::WidgetStyles> {
+        Some(&self.seed.styles)
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn styles_mut(&mut self) -> Option<&mut crate::widgets::WidgetStyles> {
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

@@ -4,7 +4,7 @@ use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::{TabActivated, TabsCleared};
 use crate::reactive::ReactiveCtx;
 use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
-use crate::widgets::{Container, Widget, WidgetStyles, helpers::empty_classes};
+use crate::widgets::{Container, NodeSeed, Widget};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +30,10 @@ impl Widget for ContentTabs {
         Widget::render(&self.inner, console, options)
     }
 
+    fn style_id(&self) -> Option<&str> {
+        self.inner.style_id()
+    }
+
     delegate_widget_method!(
         inner,
         [
@@ -47,8 +51,6 @@ impl Widget for ContentTabs {
             on_event,
             on_message,
             layout_height,
-            styles,
-            styles_mut,
             style_classes,
             is_hovered,
             set_hovered,
@@ -70,7 +72,7 @@ pub struct TabPane {
     title: String,
     pane_id: Option<String>,
     inner: Container,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     children_extracted: bool,
     disabled: bool,
     hidden: bool,
@@ -84,7 +86,7 @@ impl TabPane {
             title: title.into(),
             pane_id: None,
             inner,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             children_extracted: false,
             disabled: false,
             hidden: false,
@@ -99,7 +101,8 @@ impl TabPane {
     pub fn id(mut self, pane_id: impl Into<String>) -> Self {
         let id = pane_id.into();
         self.pane_id = Some(id.clone());
-        self.styles.style_id = Some(id);
+        self.seed.css_id = Some(id.clone());
+        self.seed.styles.style_id = Some(id);
         self
     }
 
@@ -126,7 +129,8 @@ impl TabPane {
     fn assign_id(&mut self, id: String) {
         if self.pane_id.is_none() {
             self.pane_id = Some(id.clone());
-            self.styles.style_id = Some(id);
+            self.seed.css_id = Some(id.clone());
+            self.seed.styles.style_id = Some(id);
         }
     }
 }
@@ -208,12 +212,12 @@ impl Widget for TabPane {
         self.disabled = disabled;
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn style_id(&self) -> Option<&str> {
+        self.seed.styles.style_id.as_deref()
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -231,9 +235,7 @@ pub struct TabbedContent {
     initial: Option<String>,
     focused: bool,
     hovered: bool,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     children_extracted: AtomicBool,
     tabs_handle: Mutex<Option<Tabs>>,
 }
@@ -242,6 +244,8 @@ impl TabbedContent {
     const CONTENT_TAB_PREFIX: &'static str = "--content-tab-";
 
     pub fn new() -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("tabbed-content".to_string());
         Self {
             panes: Mutex::new(Vec::new()),
             pane_meta: Mutex::new(Vec::new()),
@@ -250,9 +254,7 @@ impl TabbedContent {
             initial: None,
             focused: false,
             hovered: false,
-            classes: vec!["tabbed-content".to_string()],
-            focused_classes: vec!["tabbed-content".to_string(), "focused".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
             children_extracted: AtomicBool::new(false),
             tabs_handle: Mutex::new(None),
         }
@@ -772,21 +774,18 @@ impl Widget for TabbedContent {
     }
 
     fn style_classes(&self) -> &[String] {
+        use std::sync::OnceLock;
+        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
+        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
         if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
+            C_FOCUSED.get_or_init(|| vec!["tabbed-content".to_string(), "focused".to_string()])
         } else {
-            &self.classes
+            C_BASE.get_or_init(|| vec!["tabbed-content".to_string()])
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

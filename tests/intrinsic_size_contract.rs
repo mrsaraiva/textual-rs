@@ -63,6 +63,24 @@ fn measure_child_width(child: Box<dyn Widget>) -> u16 {
     w
 }
 
+/// Variant that applies inline styles via `tree.update_styles()` after mounting,
+/// for widgets that no longer expose `styles_mut()` (migrated to `NodeSeed`).
+fn measure_child_width_with_tree_style(child: Box<dyn Widget>, horizontal: u16) -> u16 {
+    let mut tree = WidgetTree::new();
+    let root = tree.set_root(Box::new(Container::new()));
+    let child_id = tree.mount(root, child);
+    tree.update_styles(child_id, |styles| {
+        styles.style = Style::new()
+            .width(Scalar::Auto)
+            .height(Scalar::Auto)
+            .border(false)
+            .padding(Spacing::new(0, horizontal, 0, horizontal));
+    });
+    resolve_layout(&mut tree, root, Region::new(0, 0, 120, 24), (120, 24));
+    let (w, _h) = layout_rect_wh(&tree, child_id);
+    w
+}
+
 fn set_inline_border_box_padding(widget: &mut dyn Widget, horizontal: u16) {
     let styles = widget
         .styles_mut()
@@ -407,13 +425,8 @@ fn list_view_width_tracks_padding_delta() {
 
 #[test]
 fn collapsible_width_tracks_padding_delta() {
-    let mut compact = Box::new(Collapsible::new("Section"));
-    set_inline_border_box_padding(compact.as_mut(), 0);
-    let compact_w = measure_child_width(compact);
-
-    let mut padded = Box::new(Collapsible::new("Section"));
-    set_inline_border_box_padding(padded.as_mut(), 2);
-    let padded_w = measure_child_width(padded);
+    let compact_w = measure_child_width_with_tree_style(Box::new(Collapsible::new("Section")), 0);
+    let padded_w = measure_child_width_with_tree_style(Box::new(Collapsible::new("Section")), 2);
 
     assert_eq!(
         padded_w.saturating_sub(compact_w),
@@ -430,9 +443,7 @@ fn content_switcher_width_tracks_padding_delta() {
         Some("pane-a"),
         true,
     );
-    let mut compact = Box::new(compact_switcher);
-    set_inline_border_box_padding(compact.as_mut(), 0);
-    let compact_w = measure_child_width(compact);
+    let compact_w = measure_child_width_with_tree_style(Box::new(compact_switcher), 0);
 
     let mut padded_switcher = ContentSwitcher::new();
     padded_switcher.add_content(
@@ -440,9 +451,7 @@ fn content_switcher_width_tracks_padding_delta() {
         Some("pane-a"),
         true,
     );
-    let mut padded = Box::new(padded_switcher);
-    set_inline_border_box_padding(padded.as_mut(), 2);
-    let padded_w = measure_child_width(padded);
+    let padded_w = measure_child_width_with_tree_style(Box::new(padded_switcher), 2);
 
     assert_eq!(
         padded_w.saturating_sub(compact_w),

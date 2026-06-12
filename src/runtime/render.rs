@@ -3106,7 +3106,6 @@ mod tests {
     #[test]
     fn command_palette_tree_open_tints_underlay_but_not_panel_surface() {
         use crate::event::{Action, Event, EventCtx};
-        use crate::style::{Position, Scalar};
         use crate::widget_tree::WidgetTree;
         use crate::widgets::{AppRoot, CommandPalette, Spacer};
         use rich_rs::{Segment, Segments, SimpleColor, Style};
@@ -3144,13 +3143,9 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         tree.mount(root, Box::new(StyledUnderlay));
 
-        let mut palette =
-            CommandPalette::new(Spacer::new(1)).with_tree_wrapped_child_visible(false);
-        if let Some(styles) = palette.styles_mut() {
-            styles.style.position = Some(Position::Absolute);
-            styles.style.width = Some(Scalar::Percent(100.0));
-            styles.style.height = Some(Scalar::Percent(100.0));
-        }
+        let palette = CommandPalette::new(Spacer::new(1))
+            .with_tree_wrapped_child_visible(false)
+            .with_host_layout();
         let palette_id = tree.mount(root, Box::new(palette));
 
         let palette_children = {

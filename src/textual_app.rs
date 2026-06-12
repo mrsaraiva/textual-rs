@@ -12,7 +12,6 @@ use crate::keys::KeyEventData;
 use crate::message::{CommandPaletteCommand, MessageEvent};
 use crate::node_id::NodeId;
 use crate::reactive::{ReactiveCtx, ReactiveWidget};
-use crate::style::{Position, Scalar};
 use crate::validation::ValidationResult;
 use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
 use crate::{App, Result};
@@ -341,16 +340,11 @@ fn build_textual_app_runtime_root<T: TextualApp>(
 
 impl<T: TextualApp> TextualAppAdapter<T> {
     fn make_command_palette_host() -> CommandPalette {
-        let mut command_palette =
-            CommandPalette::new(Spacer::new(1)).with_tree_wrapped_child_visible(false);
-        if let Some(styles) = command_palette.styles_mut() {
-            // Keep command palette always mounted for global app bindings, but
-            // out of normal flow so it behaves as a modal overlay.
-            styles.style.position = Some(Position::Absolute);
-            styles.style.width = Some(Scalar::Percent(100.0));
-            styles.style.height = Some(Scalar::Percent(100.0));
-        }
-        command_palette
+        // Keep command palette always mounted for global app bindings, but
+        // out of normal flow so it behaves as a modal overlay.
+        CommandPalette::new(Spacer::new(1))
+            .with_tree_wrapped_child_visible(false)
+            .with_host_layout()
     }
 
     fn new(app: Arc<Mutex<T>>, child: impl Widget + 'static) -> Self {
@@ -1137,6 +1131,7 @@ mod tests {
     use crate::action::parse_action;
     use crate::keys::KeyEventData;
     use crate::node_id::node_id_from_ffi;
+    use crate::style::Position;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};

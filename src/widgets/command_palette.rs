@@ -8,7 +8,7 @@ use crate::event::{
 };
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
-use crate::style::TransitionTiming;
+use crate::style::{Position, Scalar, TransitionTiming};
 
 use crate::node_id::NodeId;
 use crate::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -16,8 +16,8 @@ use crate::runtime::dispatch_ctx::set_dispatch_recipient;
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Input, KeyPanel, ListView, NodeState, Overlay, Spacer, Widget, WidgetRenderable,
-    WidgetStyles, helpers,
+    BindingDecl, Input, KeyPanel, ListView, NodeSeed, NodeState, Overlay, Spacer, Widget,
+    WidgetRenderable, helpers,
     helpers::adjust_line_length_no_bg,
 };
 
@@ -337,14 +337,14 @@ struct CommandListEntry {
 #[derive(Debug, Clone)]
 pub struct SearchIcon {
     icon: String,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl SearchIcon {
     pub fn new() -> Self {
         Self {
             icon: "🔎".to_string(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -373,12 +373,8 @@ impl Widget for SearchIcon {
         line.into_iter().collect()
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -391,7 +387,7 @@ impl Renderable for SearchIcon {
 /// Command palette input control (`CommandInput` in Python Textual).
 pub struct CommandInput {
     input: Input,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     focused: bool,
 }
 
@@ -402,7 +398,7 @@ impl CommandInput {
                 .with_style_type("CommandInput", ["Input"])
                 .class("command-palette--input")
                 .with_placeholder(placeholder),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             focused: false,
         }
     }
@@ -492,12 +488,8 @@ impl Widget for CommandInput {
         self.input.style_classes()
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -518,7 +510,7 @@ pub struct CommandList {
     help_style_override: Mutex<Option<rich_rs::Style>>,
     highlight_style_override: Mutex<Option<rich_rs::Style>>,
     classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl CommandList {
@@ -532,7 +524,7 @@ impl CommandList {
             help_style_override: Mutex::new(None),
             highlight_style_override: Mutex::new(None),
             classes: vec!["command-list".to_string()],
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -813,12 +805,8 @@ impl Widget for CommandList {
         false
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -849,7 +837,7 @@ pub struct CommandPalette {
     layout_height: usize,
     last_render_width: AtomicUsize,
     last_render_height: AtomicUsize,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     /// External providers registered via [`add_provider`](Self::add_provider).
     providers: Vec<Box<dyn Provider>>,
     /// Merged results from all providers, sorted by descending score.
@@ -903,7 +891,7 @@ impl CommandPalette {
             layout_height: 1,
             last_render_width: AtomicUsize::new(1),
             last_render_height: AtomicUsize::new(1),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             providers: Vec::new(),
             provider_results: Vec::new(),
             last_built_query: String::new(),
@@ -948,6 +936,18 @@ impl CommandPalette {
     /// rendered as a sibling subtree and should not be re-rendered inside the palette node.
     pub fn with_tree_wrapped_child_visible(mut self, visible: bool) -> Self {
         self.tree_show_wrapped_child = visible;
+        self
+    }
+
+    /// Configure this command palette as a full-screen host overlay.
+    ///
+    /// Sets position to `Absolute` and dimensions to 100% so the palette covers
+    /// the entire screen as an out-of-flow overlay. Used by the runtime when
+    /// mounting the palette as an always-present host node.
+    pub fn with_host_layout(mut self) -> Self {
+        self.seed.styles.style.position = Some(Position::Absolute);
+        self.seed.styles.style.width = Some(Scalar::Percent(100.0));
+        self.seed.styles.style.height = Some(Scalar::Percent(100.0));
         self
     }
 
@@ -2104,12 +2104,17 @@ impl Widget for CommandPalette {
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn style(&self) -> Option<crate::style::Style> {
+        let s = &self.seed.styles.style;
+        if *s == Default::default() {
+            None
+        } else {
+            Some(s.clone())
+        }
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

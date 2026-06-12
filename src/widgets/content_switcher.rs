@@ -6,7 +6,7 @@ use crate::event::{Event, EventCtx};
 use crate::widgets::delegate::delegate_widget_method;
 
 use super::{
-    Widget, WidgetStyles,
+    NodeSeed, Widget,
     helpers::{
         apply_margin, clamp_with_constraints, constraints_from_style,
         fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
@@ -21,7 +21,7 @@ pub struct ContentSwitcher {
     /// `child_display_for_tree` can still map indices to ids.
     child_ids: Vec<Option<String>>,
     current: Option<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     /// True once `take_composed_children` has been called (arena tree mode).
     children_extracted: bool,
 }
@@ -87,11 +87,8 @@ impl Widget for IdTaggedChild {
             execute_action,
             action_namespace,
             action_registry,
-            styles,
-            styles_mut,
             style_type_aliases,
             style_classes,
-            set_style_id,
             border_title,
             border_subtitle,
             is_disabled,
@@ -130,7 +127,7 @@ impl ContentSwitcher {
             children: Vec::new(),
             child_ids: Vec::new(),
             current: None,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
             children_extracted: false,
         }
     }
@@ -415,12 +412,16 @@ impl Widget for ContentSwitcher {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn styles(&self) -> Option<&crate::widgets::WidgetStyles> {
+        Some(&self.seed.styles)
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn styles_mut(&mut self) -> Option<&mut crate::widgets::WidgetStyles> {
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

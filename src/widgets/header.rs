@@ -8,8 +8,7 @@ use crate::compose::ComposeResult;
 use crate::event::{BindingHint, Event, EventCtx};
 use crate::message::*;
 
-use super::helpers::{empty_classes, fixed_height_from_constraints};
-use super::{Widget, WidgetStyles};
+use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 const COMMAND_PALETTE_HINT_GROUP: &str = "command_palette";
@@ -25,7 +24,7 @@ pub struct HeaderIcon {
     command_palette_tooltip: Option<String>,
     layout_width: u16,
     layout_height: u16,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl HeaderIcon {
@@ -38,7 +37,7 @@ impl HeaderIcon {
             command_palette_tooltip: Some(DEFAULT_COMMAND_PALETTE_TOOLTIP.to_string()),
             layout_width: 1,
             layout_height: 1,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -147,12 +146,8 @@ impl Widget for HeaderIcon {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -168,7 +163,7 @@ pub struct HeaderTitle {
     subtitle: Option<String>,
     default_title: String,
     default_subtitle: Option<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl HeaderTitle {
@@ -183,7 +178,7 @@ impl HeaderTitle {
             subtitle,
             default_title: default_title.into(),
             default_subtitle,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -220,12 +215,8 @@ impl Widget for HeaderTitle {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -237,13 +228,13 @@ impl Renderable for HeaderTitle {
 
 #[derive(Debug, Clone)]
 pub struct HeaderClockSpace {
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl HeaderClockSpace {
     pub fn new() -> Self {
         Self {
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 }
@@ -263,12 +254,8 @@ impl Widget for HeaderClockSpace {
         Segments::new()
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -282,7 +269,7 @@ impl Renderable for HeaderClockSpace {
 pub struct HeaderClock {
     time_format: String,
     last_clock_second: Arc<AtomicU64>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl HeaderClock {
@@ -290,7 +277,7 @@ impl HeaderClock {
         Self {
             time_format: time_format.into(),
             last_clock_second: Arc::new(AtomicU64::new(0)),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -344,12 +331,8 @@ impl Widget for HeaderClock {
         current != self.last_clock_second.load(Ordering::Relaxed)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -374,8 +357,7 @@ pub struct Header {
     show_clock: bool,
     time_format: String,
     children_extracted: bool,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Header {
@@ -392,8 +374,7 @@ impl Header {
             show_clock: false,
             time_format: "%X".to_string(),
             children_extracted: false,
-            classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -634,30 +615,20 @@ impl Widget for Header {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(if self.tall {
-            3
-        } else {
-            1
-        }))
+        Some(if self.tall { 3 } else { 1 })
     }
 
     fn style_classes(&self) -> &[String] {
         if self.tall {
             static TALL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
             TALL.get_or_init(|| vec!["-tall".to_string()])
-        } else if self.classes.is_empty() {
-            empty_classes()
         } else {
-            &self.classes
+            &self.seed.classes
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
