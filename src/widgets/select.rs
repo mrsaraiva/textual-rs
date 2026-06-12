@@ -870,8 +870,8 @@ mod tests {
     #[test]
     fn select_enter_selects_highlighted_option() {
         let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
+        // Use NodeId::default() so self.node_id() == ctx.node_id (message sender) == default.
+        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
         sel.on_layout(30, 20);
 
         // Open
@@ -910,8 +910,8 @@ mod tests {
     #[test]
     fn select_mouse_click_inside_dropdown_selects_item() {
         let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
+        // Use NodeId::default() so self.node_id() matches mouse.target (NodeId::default()).
+        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
         sel.on_layout(30, 20);
 
         let open_key =
@@ -994,8 +994,8 @@ mod tests {
         );
         sel.list
             .set_items(vec![OptionItem::new("Alpha"), OptionItem::disabled("Beta")]);
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
+        // Use NodeId::default() so self.node_id() matches mouse.target (NodeId::default()).
+        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
         sel.on_layout(30, 20);
 
         let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
