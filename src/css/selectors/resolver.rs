@@ -107,19 +107,6 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
     }
 }
 
-pub(crate) fn selector_meta_generic_with_classes<T: Widget + ?Sized>(
-    widget: &T,
-    extra_classes: impl IntoIterator<Item = String>,
-) -> SelectorMeta {
-    let mut meta = selector_meta_generic(widget);
-    for class in extra_classes {
-        if !meta.classes.iter().any(|existing| existing == &class) {
-            meta.classes.push(class);
-        }
-    }
-    meta
-}
-
 pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
     SelectorMeta {
         type_name: parent_type.to_string(),
@@ -487,10 +474,11 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
     };
 
     // Build the :focus-within set: the focused node + all its ancestors.
+    // Dual-write: merge node.state.focused with legacy widget getter.
     let mut focus_within_ids = std::collections::HashSet::new();
     for node_id in tree.walk_depth_first(root) {
         if let Some(node) = tree.get(node_id) {
-            if node.widget.has_focus() {
+            if node.state.focused || node.widget.has_focus() {
                 focus_within_ids.insert(node_id);
                 for ancestor in tree.ancestors(node_id) {
                     focus_within_ids.insert(ancestor);
@@ -503,15 +491,11 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
 
     fn apply_node(tree: &mut WidgetTree, node_id: NodeId) {
         let (meta, resolved, child_ids) = {
-            let Some(node) = tree.get(node_id) else {
+            if tree.get(node_id).is_none() {
                 return;
-            };
-            let mut meta = selector_meta_generic_with_classes(
-                node.widget.as_ref(),
-                node.classes.iter().cloned(),
-            );
-            meta.states.focus_within = is_focus_within(node_id);
-            let resolved = resolve_style(node.widget.as_ref(), &meta);
+            }
+            let meta = node_selector_meta(tree, node_id);
+            let resolved = resolve_node_style(tree, node_id, &meta);
             let child_ids = tree.children(node_id).to_vec();
             (meta, resolved, child_ids)
         };

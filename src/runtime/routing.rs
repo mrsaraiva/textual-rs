@@ -105,7 +105,8 @@ pub fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
         if let Some(node) = tree.get(node_id) {
             if node.display
                 && node.visibility == crate::style::Visibility::Visible
-                && node.widget.has_focus()
+                // Dual-write: merge node.state.focused with legacy widget getter.
+                && (node.state.focused || node.widget.has_focus())
             {
                 return Some(node_id);
             }
@@ -547,7 +548,8 @@ pub(crate) fn focused_help_metadata_tree(tree: &WidgetTree) -> Option<(NodeId, S
     let root = tree.root()?;
     for node_id in tree.walk_depth_first(root) {
         let node = tree.get(node_id)?;
-        if node.widget.has_focus() {
+        // Dual-write: merge node.state.focused with legacy widget getter.
+        if node.state.focused || node.widget.has_focus() {
             let help = node.widget.help_markup().map(str::trim).unwrap_or_default();
             if !help.is_empty() {
                 return Some((node_id, help.to_string()));
