@@ -70,9 +70,8 @@ pub(crate) fn carve_edge(
                 w
             } else {
                 let max_w = tree
-                    .get(child)
-                    .map(|node| node.widget.layout_constraints())
-                    .and_then(|c| c.max_width)
+                    .styles(child)
+                    .and_then(|s| s.layout.max_width)
                     .and_then(|w| u16::try_from(w).ok());
                 max_w.unwrap_or(current_w)
             }

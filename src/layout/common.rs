@@ -6,27 +6,25 @@ use super::region::border_spacing;
 use super::resolve_1d::Edge;
 
 pub(crate) fn get_node_style(tree: &WidgetTree, node: NodeId) -> Style {
-    let Some(node_ref) = tree.get(node) else {
+    if tree.get(node).is_none() {
         return Style::default();
-    };
+    }
 
     // Layout must resolve with full ancestor selector context so combinators
     // like `Horizontal > VerticalScroll` affect width/height distribution.
+    // Use node_selector_meta so tree-assigned classes (e.g. tab highlight) are
+    // included — matching the resolution path used in render_tree_node.
     let ancestors = tree.ancestors(node);
     let mut pushed = 0usize;
-    for ancestor in ancestors.iter().rev() {
-        let Some(ancestor_node) = tree.get(*ancestor) else {
-            continue;
-        };
-        let ancestor_meta = crate::css::selector_meta_generic(ancestor_node.widget.as_ref());
-        let ancestor_style =
-            crate::css::resolve_style(ancestor_node.widget.as_ref(), &ancestor_meta);
+    for &ancestor in ancestors.iter().rev() {
+        let ancestor_meta = crate::css::node_selector_meta(tree, ancestor);
+        let ancestor_style = crate::css::resolve_node_style(tree, ancestor, &ancestor_meta);
         crate::css::push_style_context(ancestor_meta, ancestor_style);
         pushed += 1;
     }
 
-    let meta = crate::css::selector_meta_generic(node_ref.widget.as_ref());
-    let resolved = crate::css::resolve_style(node_ref.widget.as_ref(), &meta);
+    let meta = crate::css::node_selector_meta(tree, node);
+    let resolved = crate::css::resolve_node_style(tree, node, &meta);
 
     for _ in 0..pushed {
         crate::css::pop_style_context();
