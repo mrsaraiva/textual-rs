@@ -8,7 +8,7 @@ use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
 use crate::event::{Event, EventCtx};
 use crate::message::{
-    MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, Message, MessageEvent,
+    MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, MessageEvent,
     NavigatorUpdated, ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated,
 };
 
@@ -1219,15 +1219,14 @@ mod tests {
     fn toc_on_message_posts_toc_selected() {
         let mut toc =
             MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::TreeNodeActivated(TreeNodeActivated {
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            TreeNodeActivated {
                 index: 0,
                 label: "Chapter".to_string(),
                 data: Some("chapter".to_string()),
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = crate::event::EventCtx::default();
         toc.on_message(&msg, &mut ctx);
         assert!(ctx.handled());
@@ -1265,15 +1264,14 @@ mod tests {
     fn toc_on_selected_does_not_post_toc_selected() {
         let mut toc =
             MarkdownTableOfContents::new(vec![(1, "Chapter".to_string(), "chapter".to_string())]);
-        let msg = MessageEvent {
-            sender: crate::node_id::NodeId::default(),
-            message: Message::TreeNodeSelected(crate::message::TreeNodeSelected {
+        let msg = MessageEvent::new(
+            crate::node_id::NodeId::default(),
+            crate::message::TreeNodeSelected {
                 index: 0,
                 label: "Chapter".to_string(),
                 data: Some("chapter".to_string()),
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = crate::event::EventCtx::default();
         toc.on_message(&msg, &mut ctx);
         assert!(!ctx.handled());

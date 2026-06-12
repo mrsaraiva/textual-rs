@@ -446,53 +446,48 @@ impl Widget for DirectoryTree {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        match &message.message {
-            Message::AsyncTaskCompleted(AsyncTaskCompleted {
-                task_id,
-                target,
-                result,
-            }) if *target == self.node_id() => {
-                self.apply_directory_load_result(*task_id, result, ctx);
+        if let Some(m) = message.downcast_ref::<AsyncTaskCompleted>() {
+            if m.target == self.node_id() {
+                self.apply_directory_load_result(m.task_id, &m.result, ctx);
+                ctx.set_handled();
+                return;
+            }
+        }
+        if let Some(m) = message.downcast_ref::<AsyncTaskCancelled>() {
+            if m.target == self.node_id() {
+                self.clear_inflight_task(m.task_id);
+                ctx.set_handled();
+                return;
+            }
+        }
+        if let Some(m) = message.downcast_ref::<TreeNodeSelected>() {
+            if message.sender != self.node_id() {
+                return;
+            }
+            if let Some(entry) = self.visible_entries.get(m.index) {
+                let path = entry.path.display().to_string();
+                if entry.path.is_dir() {
+                    ctx.post_message(DirectoryTreeDirectorySelected {
+                        index: m.index,
+                        path,
+                    });
+                } else {
+                    ctx.post_message(DirectoryTreeFileSelected {
+                        index: m.index,
+                        path,
+                    });
+                }
                 ctx.set_handled();
             }
-            Message::AsyncTaskCancelled(AsyncTaskCancelled { task_id, target })
-                if *target == self.node_id() =>
-            {
-                self.clear_inflight_task(*task_id);
-                ctx.set_handled();
+            return;
+        }
+        if let Some(m) = message.downcast_ref::<TreeNodeToggled>() {
+            if message.sender != self.node_id() {
+                return;
             }
-            Message::TreeNodeSelected(TreeNodeSelected { index, .. }) => {
-                if message.sender != self.node_id() {
-                    return;
-                }
-                if let Some(entry) = self.visible_entries.get(*index) {
-                    let path = entry.path.display().to_string();
-                    let forwarded = if entry.path.is_dir() {
-                        Message::DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected {
-                            index: *index,
-                            path,
-                        })
-                    } else {
-                        Message::DirectoryTreeFileSelected(DirectoryTreeFileSelected {
-                            index: *index,
-                            path,
-                        })
-                    };
-                    ctx.post_message(forwarded);
-                    ctx.set_handled();
-                }
-            }
-            Message::TreeNodeToggled(TreeNodeToggled {
-                index, expanded, ..
-            }) => {
-                if message.sender != self.node_id() {
-                    return;
-                }
-                self.update_node_expanded_state(*index, *expanded, ctx);
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            _ => {}
+            self.update_node_expanded_state(m.index, m.expanded, ctx);
+            ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 
@@ -778,26 +773,23 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeSelected(TreeNodeSelected {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeSelected {
                     index: 1,
                     label: "alpha.txt".to_string(),
                     data: None,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
         assert!(emitted.iter().any(|event| {
-            matches!(
-                &event.message,
-                Message::DirectoryTreeFileSelected(DirectoryTreeFileSelected { index, path })
-                    if *index == 1 && path.ends_with("alpha.txt")
-            )
+            event
+                .downcast_ref::<DirectoryTreeFileSelected>()
+                .is_some_and(|m| m.index == 1 && m.path.ends_with("alpha.txt"))
         }));
     }
 
@@ -811,26 +803,23 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeSelected(TreeNodeSelected {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeSelected {
                     index: 1,
                     label: "nested".to_string(),
                     data: None,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
         assert!(emitted.iter().any(|event| {
-            matches!(
-                &event.message,
-                Message::DirectoryTreeDirectorySelected(DirectoryTreeDirectorySelected { index, path })
-                    if *index == 1 && path.ends_with("nested")
-            )
+            event
+                .downcast_ref::<DirectoryTreeDirectorySelected>()
+                .is_some_and(|m| m.index == 1 && m.path.ends_with("nested"))
         }));
     }
 
@@ -844,28 +833,23 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeToggled(TreeNodeToggled {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
 
         let emitted = ctx.take_messages();
         assert!(emitted.iter().any(|event| {
-            matches!(
-                &event.message,
-                Message::AsyncTaskSpawn(AsyncTaskSpawn {
-                    target,
-                    request: AsyncTaskRequest::ReadDirectory { .. },
-                    ..
-                }) if *target == NodeId::default()
-            )
+            event.downcast_ref::<AsyncTaskSpawn>().is_some_and(|m| {
+                m.target == NodeId::default()
+                    && matches!(m.request, AsyncTaskRequest::ReadDirectory { .. })
+            })
         }));
     }
 
@@ -888,39 +872,35 @@ mod tests {
         // Simulate expanding "nested" — first collapse it (the sync build expanded it) then expand.
         let mut ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeToggled(TreeNodeToggled {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: false,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
         let _ = ctx.take_messages();
 
         let mut ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeToggled(TreeNodeToggled {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut ctx,
         );
         let spawn_msgs = ctx.take_messages();
         let task_id = spawn_msgs.iter().find_map(|event| {
-            if let Message::AsyncTaskSpawn(AsyncTaskSpawn { task_id, .. }) = &event.message {
-                Some(*task_id)
-            } else {
-                None
-            }
+            event
+                .downcast_ref::<AsyncTaskSpawn>()
+                .map(|m| m.task_id)
         });
         assert!(task_id.is_some(), "should have spawned async task");
 
@@ -967,37 +947,36 @@ mod tests {
 
         let mut expand_ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeToggled(TreeNodeToggled {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut expand_ctx,
         );
         let _ = expand_ctx.take_messages();
 
         let mut collapse_ctx = EventCtx::default();
         tree.on_message(
-            &MessageEvent {
-                sender: tree.tree_id(),
-                message: Message::TreeNodeToggled(TreeNodeToggled {
+            &MessageEvent::new(
+                tree.tree_id(),
+                TreeNodeToggled {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: false,
-                }),
-                control: None,
-            },
+                },
+            ),
             &mut collapse_ctx,
         );
 
         let emitted = collapse_ctx.take_messages();
-        assert!(emitted.iter().any(|event| matches!(
-            event.message,
-            Message::AsyncTaskCancel(AsyncTaskCancel { task_id: 1 })
-        )));
+        assert!(emitted.iter().any(|event| {
+            event
+                .downcast_ref::<AsyncTaskCancel>()
+                .is_some_and(|m| m.task_id == 1)
+        }));
     }
 }

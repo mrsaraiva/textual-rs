@@ -143,7 +143,7 @@ impl TextualApp for CodeBrowserApp {
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         // Handle DirectoryTree.FileSelected — mirrors `on_directory_tree_file_selected`.
-        if let Message::DirectoryTreeFileSelected(ev) = &message.message {
+        if let Some(ev) = message.downcast_ref::<DirectoryTreeFileSelected>() {
             Self::load_path(app, &ev.path);
         }
     }

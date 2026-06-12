@@ -554,11 +554,11 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(Message::TreeNodeSelected(TreeNodeSelected {
+            ctx.post_message(TreeNodeSelected {
                 index: self.selected,
                 label: node.label.clone(),
                 data: node.data.clone(),
-            }));
+            });
         }
     }
 
@@ -567,36 +567,33 @@ impl Tree {
             if node.disabled {
                 return;
             }
-            ctx.post_message(Message::TreeNodeActivated(TreeNodeActivated {
+            ctx.post_message(TreeNodeActivated {
                 index,
                 label: node.label.clone(),
                 data: node.data.clone(),
-            }));
+            });
         }
     }
 
     fn emit_highlighted(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
-            ctx.post_message(Message::TreeNodeHighlighted(TreeNodeHighlighted {
+            ctx.post_message(TreeNodeHighlighted {
                 index: self.selected,
                 label: node.label.clone(),
-            }));
+            });
         }
     }
 
     fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
-        ctx.post_message(Message::TreeNodeToggled(TreeNodeToggled {
+        ctx.post_message(TreeNodeToggled {
             index,
             label: label.clone(),
             expanded,
-        }));
+        });
         if expanded {
-            ctx.post_message(Message::TreeNodeExpanded(TreeNodeExpanded { index, label }));
+            ctx.post_message(TreeNodeExpanded { index, label });
         } else {
-            ctx.post_message(Message::TreeNodeCollapsed(TreeNodeCollapsed {
-                index,
-                label,
-            }));
+            ctx.post_message(TreeNodeCollapsed { index, label });
         }
     }
 
@@ -1713,14 +1710,15 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::TreeNodeActivated(TreeNodeActivated {
-                index: 0,
-                ref label,
-                ..
-            }) if label == "Root"
-        ));
+        assert!(messages[0].is::<TreeNodeActivated>());
+        assert_eq!(
+            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().index,
+            0
+        );
+        assert_eq!(
+            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().label,
+            "Root"
+        );
 
         // Enter should not expand/collapse.
         let visible_labels: Vec<String> =
@@ -1752,18 +1750,17 @@ mod tests {
         let messages = ctx.take_messages();
         // emit_toggled now posts TreeNodeToggled + TreeNodeCollapsed (2 messages)
         assert_eq!(messages.len(), 2);
-        assert!(matches!(
-            messages[0].message,
-            Message::TreeNodeToggled(TreeNodeToggled {
-                index: 0,
-                expanded: false,
-                ..
-            })
-        ));
-        assert!(matches!(
-            messages[1].message,
-            Message::TreeNodeCollapsed(TreeNodeCollapsed { index: 0, .. })
-        ));
+        assert!(messages[0].is::<TreeNodeToggled>());
+        assert_eq!(
+            messages[0].downcast_ref::<TreeNodeToggled>().unwrap().index,
+            0
+        );
+        assert!(!messages[0].downcast_ref::<TreeNodeToggled>().unwrap().expanded);
+        assert!(messages[1].is::<TreeNodeCollapsed>());
+        assert_eq!(
+            messages[1].downcast_ref::<TreeNodeCollapsed>().unwrap().index,
+            0
+        );
     }
 
     #[test]
@@ -1800,14 +1797,15 @@ mod tests {
         );
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::TreeNodeActivated(TreeNodeActivated {
-                index: 1,
-                ref label,
-                ..
-            }) if label == "Second"
-        ));
+        assert!(messages[0].is::<TreeNodeActivated>());
+        assert_eq!(
+            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().index,
+            1
+        );
+        assert_eq!(
+            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().label,
+            "Second"
+        );
     }
 
     #[test]

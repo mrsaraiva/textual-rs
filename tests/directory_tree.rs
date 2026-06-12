@@ -71,15 +71,14 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
 
     let mut message_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeToggled(TreeNodeToggled {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut message_ctx,
     );
     assert!(message_ctx.handled());
@@ -95,9 +94,9 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
     );
 
     tree.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
+        &MessageEvent::new(
+            NodeId::default(),
+            AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -108,9 +107,8 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
                         is_dir: false,
                     }],
                 },
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut EventCtx::default(),
     );
 
@@ -132,15 +130,14 @@ fn directory_tree_refresh_preserves_expanded_paths() {
 
     let mut message_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeToggled(TreeNodeToggled {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut message_ctx,
     );
     assert!(message_ctx.handled());
@@ -167,38 +164,36 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
 
     let mut expand_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeToggled(TreeNodeToggled {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut expand_ctx,
     );
     assert!(expand_ctx.handled());
 
     let mut collapse_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeToggled(TreeNodeToggled {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: false,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut collapse_ctx,
     );
     assert!(collapse_ctx.handled());
 
     tree.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
+        &MessageEvent::new(
+            NodeId::default(),
+            AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -209,9 +204,8 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                         is_dir: false,
                     }],
                 },
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut EventCtx::default(),
     );
 
