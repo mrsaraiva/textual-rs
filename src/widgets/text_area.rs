@@ -9,21 +9,21 @@ use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::event::{Event, EventCtx};
 use crate::message::*;
-use crate::style::{Color, Style, parse_color_like};
+use crate::style::{parse_color_like, Color, Style};
 use crate::{Error, Result};
 
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     text_edit::{
-        EditCommand, MoveUnit, byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
+        byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
         cell_len_prefix as grapheme_cell_len_prefix, clamp_grapheme_boundary,
         edit_command_from_key, grapheme_cell_width as grapheme_width, next_grapheme_boundary,
-        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
+        next_word_boundary, prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
     },
+    BindingDecl, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -552,9 +552,7 @@ impl TextArea {
     }
 
     fn post_changed(&self, ctx: &mut EventCtx) {
-        ctx.post_message(TextAreaChanged {
-            value: self.text(),
-        });
+        ctx.post_message(TextAreaChanged { value: self.text() });
     }
 
     fn post_selection_changed(&self, ctx: &mut EventCtx) {
@@ -2016,12 +2014,10 @@ mod tests {
         );
 
         let messages = ctx.take_messages();
-        assert!(
-            messages.iter().any(|m| {
-                m.downcast_ref::<TextAreaChanged>()
-                    .is_some_and(|c| c.value == "x")
-            })
-        );
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<TextAreaChanged>()
+                .is_some_and(|c| c.value == "x")
+        }));
     }
 
     #[test]
@@ -2124,7 +2120,7 @@ mod tests {
         ta.set_focus(true);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         ta.on_event(
@@ -2151,7 +2147,7 @@ mod tests {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id);
+        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         ta.on_event(
@@ -2178,7 +2174,7 @@ mod tests {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id);
+        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         ta.on_message(

@@ -69,8 +69,8 @@ pub use containers::{
 pub use content_switcher::ContentSwitcher;
 pub(crate) use core::render_widget_with_meta;
 pub use core::{
-    BindingDecl, LayoutConstraints, StyleChangeKind, Widget, WidgetSelectionAnchor, WidgetStyles,
-    classify_style_change,
+    BindingDecl, LayoutConstraints, NodeSeed, NodeState, StyleChangeKind, Widget,
+    WidgetSelectionAnchor, WidgetStyles, classify_style_change,
 };
 pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
 pub use data_table::{CursorType, DataTable};

@@ -1733,7 +1733,7 @@ mod tests {
     #[test]
     fn animation_value_matches_real_node_id() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut sv = ScrollView::new(Label::new("content"));
         let mut ctx = EventCtx::default();
@@ -1758,7 +1758,7 @@ mod tests {
         let id = sm.insert(());
         let other = sm.insert(());
         assert_ne!(id, other);
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut sv = ScrollView::new(Label::new("content"));
         let mut ctx = EventCtx::default();
@@ -1780,7 +1780,7 @@ mod tests {
     #[test]
     fn animation_tick_in_tree_mode_requests_repaint_not_layout() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut sv = ScrollView::new(Label::new("content"));
         let _ = sv.take_composed_children();
@@ -1830,7 +1830,7 @@ mod tests {
         let id = sm.insert(());
         let other = sm.insert(());
         assert_ne!(id, other);
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut sv = ScrollView::new(Label::new("content"));
         let mut ctx = EventCtx::default();

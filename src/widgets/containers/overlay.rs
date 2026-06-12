@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn overlay_set_visible_matches_real_node_id() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
@@ -418,7 +418,7 @@ mod tests {
         let id = sm.insert(());
         let other = sm.insert(());
         assert_ne!(id, other);
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn overlay_toggle_matches_real_node_id() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn overlay_dismiss_with_explicit_target_matches_self() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
@@ -485,7 +485,7 @@ mod tests {
         let id = sm.insert(());
         let other = sm.insert(());
         assert_ne!(id, other);
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn overlay_visibility_after_extraction() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal).visible(true);
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn overlay_toggle_after_extraction() {
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal).visible(true);

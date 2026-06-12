@@ -195,7 +195,7 @@ fn execute_action_with_dispatch_target(
     ctx: &mut EventCtx,
     target: NodeId,
 ) -> bool {
-    let _dispatch_guard = set_dispatch_recipient(target);
+    let _dispatch_guard = set_dispatch_recipient(target, crate::widgets::NodeState::default());
     widget.execute_action(action, ctx)
 }
 
@@ -4667,7 +4667,7 @@ impl App {
             if capture_only {
                 let (lx, ly) = tree_content_local_coords(tree, _target, x, y);
                 if let Some(node) = tree.get_mut(_target) {
-                    let _dispatch_guard = set_dispatch_recipient(_target);
+                    let _dispatch_guard = set_dispatch_recipient(_target, node.state);
                     node.widget.on_mouse_move(lx, ly)
                 } else {
                     false

@@ -7,20 +7,20 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
-use crate::style::{Color, parse_color_like};
+use crate::style::{parse_color_like, Color};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Widget, WidgetStyles,
     helpers::{empty_classes, fixed_height_from_constraints},
     input_chrome::InputChrome,
     text_edit::{
-        EditCommand, MoveUnit, byte_index_from_cell_x, clamp_grapheme_boundary,
-        edit_command_from_key, first_clipboard_line, grapheme_cell_width, next_grapheme_boundary,
-        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
+        byte_index_from_cell_x, clamp_grapheme_boundary, edit_command_from_key,
+        first_clipboard_line, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
+        prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
     },
+    BindingDecl, Widget, WidgetStyles,
 };
 
 // ---------------------------------------------------------------------------
@@ -1858,7 +1858,7 @@ mod tests {
         input.set_focus(true);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1887,7 +1887,7 @@ mod tests {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id);
+        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1915,7 +1915,7 @@ mod tests {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id);
+        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_message(

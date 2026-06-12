@@ -234,6 +234,22 @@ pub trait Widget: Send + Sync + Any {
         crate::runtime::dispatch_ctx::dispatch_recipient().unwrap_or_default()
     }
 
+    /// This node's interaction state, delivered via the dispatch context
+    /// (same mechanism as `node_id()`). Outside dispatch it returns
+    /// `NodeState::default()`.
+    fn node_state(&self) -> NodeState {
+        crate::runtime::dispatch_ctx::dispatch_node_state().unwrap_or_default()
+    }
+
+    /// Notification hook invoked by the tree's state writers after the node
+    /// record changed. Widgets needing side effects override this. Default: no-op.
+    fn on_node_state_changed(&mut self, _old: NodeState, _new: NodeState) {}
+
+    /// One-shot mount seed (see NodeSeed).
+    fn take_node_seed(&mut self) -> NodeSeed {
+        NodeSeed::default()
+    }
+
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so
@@ -248,7 +264,8 @@ pub trait Widget: Send + Sync + Any {
         // Set dispatch context so self.node_id() returns the correct arena
         // NodeId during render(). The guard restores the previous recipient
         // on drop, so nested/sibling renders don't leak context.
-        let _dispatch_guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(_node_id);
+        let _dispatch_guard =
+            crate::runtime::dispatch_ctx::set_dispatch_recipient(_node_id, NodeState::default());
 
         // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
         // checks this value, so it must match the tag used here.
@@ -1022,6 +1039,26 @@ impl LayoutConstraints {
     }
 }
 
+/// Framework-owned per-node interaction state. Lives on the arena node record;
+/// widgets read it via `Widget::node_state()` (dispatch context), never store it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NodeState {
+    pub focused: bool,
+    pub hovered: bool,
+    pub disabled: bool,
+    pub loading: bool,
+}
+
+/// One-shot identity/style payload set by widget builder methods before mount
+/// and consumed exactly once by `WidgetTree::mount`/`set_root`. Not live state:
+/// after mount the node record is the single source of truth.
+#[derive(Debug, Clone, Default)]
+pub struct NodeSeed {
+    pub css_id: Option<String>,
+    pub classes: Vec<String>,
+    pub styles: WidgetStyles,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WidgetStyles {
     pub style: Style,
@@ -1183,8 +1220,8 @@ mod tests {
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::{dispatch_recipient, set_dispatch_recipient};
     use crate::style::{Display, Layout, Overflow, Visibility};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[test]
     fn classify_identical_styles_returns_none() {
@@ -1349,7 +1386,7 @@ mod tests {
         assert_eq!(w.node_id(), NodeId::default());
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, NodeState::default());
         assert_eq!(w.node_id(), id);
         assert_ne!(id, NodeId::default());
     }
@@ -1369,7 +1406,7 @@ mod tests {
         assert_ne!(id_a, id_b);
 
         // Set an outer context (simulating parent render).
-        let _outer = set_dispatch_recipient(id_a);
+        let _outer = set_dispatch_recipient(id_a, NodeState::default());
         assert_eq!(dispatch_recipient(), Some(id_a));
 
         // Rendering widget B should temporarily set context to id_b.

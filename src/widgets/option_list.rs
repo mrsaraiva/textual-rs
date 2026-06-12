@@ -1023,7 +1023,7 @@ mod tests {
         list.on_layout(40, 10);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id);
+        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         list.on_event(
@@ -1052,7 +1052,7 @@ mod tests {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id);
+        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
         list.on_event(
