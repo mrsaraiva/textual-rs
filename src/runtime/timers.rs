@@ -1,4 +1,4 @@
-use crate::message::{Message, MessageEvent};
+use crate::message::{MessageEvent, TimerCancelled, TimerFired};
 use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -57,32 +57,32 @@ impl OneShotTimerRuntime {
                 continue;
             };
             let sender = super::App::runtime_message_sender();
-            ready.push(MessageEvent {
-                sender,
-                message: Message::TimerFired(crate::message::TimerFired {
-                    timer_id,
-                    target: timer.target,
-                }),
-                control: Some(sender),
-            });
+            ready.push(
+                MessageEvent::new(
+                    sender,
+                    TimerFired {
+                        timer_id,
+                        target: timer.target,
+                    },
+                )
+                .with_control(sender),
+            );
         }
         ready
     }
 
     fn cancelled_event(&self, timer_id: u64, target: NodeId) -> MessageEvent {
         let sender = super::App::runtime_message_sender();
-        MessageEvent {
-            sender,
-            message: Message::TimerCancelled(crate::message::TimerCancelled { timer_id, target }),
-            control: Some(sender),
-        }
+        MessageEvent::new(sender, TimerCancelled { timer_id, target }).with_control(sender)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::OneShotTimerRuntime;
-    use crate::message::{AsyncTaskRequest, AsyncTaskResult, Message};
+    use crate::message::{
+        AsyncTaskCompleted, AsyncTaskRequest, AsyncTaskResult, TimerCancelled, TimerFired,
+    };
     use crate::node_id::node_id_from_ffi;
     use crate::runtime::tasks::AsyncTaskRuntime;
     use std::thread;
@@ -96,10 +96,11 @@ mod tests {
         thread::sleep(Duration::from_millis(2));
         let ready = runtime.drain_ready(Instant::now());
         assert_eq!(ready.len(), 1);
-        assert!(matches!(
-            ready[0].message,
-            Message::TimerFired(crate::message::TimerFired { timer_id: 4, target }) if target == target_id
-        ));
+        {
+            let m = ready[0].downcast_ref::<TimerFired>().unwrap();
+            assert_eq!(m.timer_id, 4);
+            assert_eq!(m.target, target_id);
+        }
     }
 
     #[test]
@@ -113,10 +114,11 @@ mod tests {
         let replaced = runtime
             .schedule(9, second, Duration::from_secs(10))
             .expect("replacement should emit cancellation");
-        assert!(matches!(
-            replaced.message,
-            Message::TimerCancelled(crate::message::TimerCancelled { timer_id: 9, target }) if target == first
-        ));
+        {
+            let m = replaced.downcast_ref::<TimerCancelled>().unwrap();
+            assert_eq!(m.timer_id, 9);
+            assert_eq!(m.target, first);
+        }
     }
 
     #[test]
@@ -125,10 +127,11 @@ mod tests {
         let target_id = node_id_from_ffi(5);
         runtime.schedule(17, target_id, Duration::from_millis(1));
         let cancelled = runtime.cancel(17).expect("cancelled event");
-        assert!(matches!(
-            cancelled.message,
-            Message::TimerCancelled(crate::message::TimerCancelled { timer_id: 17, target }) if target == target_id
-        ));
+        {
+            let m = cancelled.downcast_ref::<TimerCancelled>().unwrap();
+            assert_eq!(m.timer_id, 17);
+            assert_eq!(m.target, target_id);
+        }
         thread::sleep(Duration::from_millis(2));
         assert!(runtime.drain_ready(Instant::now()).is_empty());
     }
@@ -152,20 +155,15 @@ mod tests {
         let mut saw_task = false;
         for _ in 0..200 {
             let timer_events = timers.drain_ready(Instant::now());
-            saw_timer |= timer_events
-                .iter()
-                .any(|event| matches!(event.message, Message::TimerFired(..)));
+            saw_timer |= timer_events.iter().any(|event| event.is::<TimerFired>());
 
             let task_events = tasks.drain_completed();
             saw_task |= task_events.iter().any(|event| {
-                matches!(
-                    &event.message,
-                    Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted {
-                        task_id,
-                        target,
-                        result: AsyncTaskResult::SleepFinished { .. },
-                    }) if *task_id == 1 && *target == widget_id
-                )
+                event.downcast_ref::<AsyncTaskCompleted>().is_some_and(|m| {
+                    m.task_id == 1
+                        && m.target == widget_id
+                        && matches!(m.result, AsyncTaskResult::SleepFinished { .. })
+                })
             });
 
             if saw_timer && saw_task {

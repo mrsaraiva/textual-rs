@@ -176,7 +176,7 @@ impl TextualApp for DictionaryApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::WorkerStateChanged(w) = &message.message {
+        if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {
                 let markdown = {
                     let mut guard = self.lookup_result.lock().unwrap_or_else(|e| e.into_inner());

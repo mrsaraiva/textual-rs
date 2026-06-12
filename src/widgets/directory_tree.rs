@@ -263,14 +263,14 @@ impl DirectoryTree {
             .insert(path_buf.clone(), task_id);
         self.inflight_loads_by_task
             .insert(task_id, path_buf.clone());
-        ctx.post_message(Message::AsyncTaskSpawn(AsyncTaskSpawn {
+        ctx.post_message(AsyncTaskSpawn {
             task_id,
             target: self.node_id(),
             request: AsyncTaskRequest::ReadDirectory {
                 path: path_buf.display().to_string(),
                 show_hidden: self.show_hidden,
             },
-        }));
+        });
     }
 
     fn cancel_inflight_loads_for(&mut self, path: &Path, ctx: &mut EventCtx) {
@@ -286,7 +286,7 @@ impl DirectoryTree {
             if let Some(pending_path) = self.inflight_loads_by_task.remove(&task_id) {
                 self.inflight_loads_by_path.remove(&pending_path);
             }
-            ctx.post_message(Message::AsyncTaskCancel(AsyncTaskCancel { task_id }));
+            ctx.post_message(AsyncTaskCancel { task_id });
         }
     }
 

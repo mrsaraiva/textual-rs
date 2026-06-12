@@ -1,13 +1,14 @@
 use crate::message::{
-    AsyncDirectoryEntry, AsyncTaskRequest, AsyncTaskResult, Message, MessageEvent,
+    AsyncDirectoryEntry, AsyncTaskCancelled, AsyncTaskCompleted, AsyncTaskRequest, AsyncTaskResult,
+    MessageEvent,
 };
 use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::Arc;
 
 #[derive(Debug)]
 struct RunningTask {
@@ -54,14 +55,16 @@ impl AsyncTaskRuntime {
             previous.cancel_flag.store(true, Ordering::Relaxed);
             (previous.generation, {
                 let sender = super::App::runtime_message_sender();
-                Some(MessageEvent {
-                    sender,
-                    message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
-                        task_id,
-                        target: previous.target,
-                    }),
-                    control: Some(sender),
-                })
+                Some(
+                    MessageEvent::new(
+                        sender,
+                        AsyncTaskCancelled {
+                            task_id,
+                            target: previous.target,
+                        },
+                    )
+                    .with_control(sender),
+                )
             })
         } else {
             (0, None)
@@ -102,14 +105,16 @@ impl AsyncTaskRuntime {
         task.cancel_flag.store(true, Ordering::Relaxed);
         {
             let sender = super::App::runtime_message_sender();
-            Some(MessageEvent {
-                sender,
-                message: Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled {
-                    task_id,
-                    target: task.target,
-                }),
-                control: Some(sender),
-            })
+            Some(
+                MessageEvent::new(
+                    sender,
+                    AsyncTaskCancelled {
+                        task_id,
+                        target: task.target,
+                    },
+                )
+                .with_control(sender),
+            )
         }
     }
 
@@ -146,15 +151,17 @@ impl AsyncTaskRuntime {
 
             self.running.remove(&completion.task_id);
             let sender = super::App::runtime_message_sender();
-            out.push(MessageEvent {
-                sender,
-                message: Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted {
-                    task_id: completion.task_id,
-                    target: completion.target,
-                    result: completion.result,
-                }),
-                control: Some(sender),
-            });
+            out.push(
+                MessageEvent::new(
+                    sender,
+                    AsyncTaskCompleted {
+                        task_id: completion.task_id,
+                        target: completion.target,
+                        result: completion.result,
+                    },
+                )
+                .with_control(sender),
+            );
         }
         out
     }
@@ -219,7 +226,7 @@ fn read_directory_request(path: String, show_hidden: bool) -> AsyncTaskResult {
 #[cfg(test)]
 mod tests {
     use super::AsyncTaskRuntime;
-    use crate::message::{AsyncTaskRequest, Message};
+    use crate::message::{AsyncTaskCancelled, AsyncTaskCompleted, AsyncTaskRequest};
     use crate::node_id::node_id_from_ffi;
     use std::fs;
     use std::path::PathBuf;
@@ -279,11 +286,11 @@ mod tests {
 
         let messages = wait_for_messages(&mut runtime);
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            &messages[0].message,
-            Message::AsyncTaskCompleted(crate::message::AsyncTaskCompleted { task_id, target, .. })
-                if *task_id == 7 && *target == target_id
-        ));
+        {
+            let m = messages[0].downcast_ref::<AsyncTaskCompleted>().unwrap();
+            assert_eq!(m.task_id, 7);
+            assert_eq!(m.target, target_id);
+        }
     }
 
     #[test]
@@ -303,10 +310,11 @@ mod tests {
         );
 
         let cancelled = runtime.cancel(5).expect("cancelled message");
-        assert!(matches!(
-            cancelled.message,
-            Message::AsyncTaskCancelled(crate::message::AsyncTaskCancelled { task_id, target }) if task_id == 5 && target == target_id
-        ));
+        {
+            let m = cancelled.downcast_ref::<AsyncTaskCancelled>().unwrap();
+            assert_eq!(m.task_id, 5);
+            assert_eq!(m.target, target_id);
+        }
 
         let messages = wait_for_messages(&mut runtime);
         assert!(messages.is_empty());

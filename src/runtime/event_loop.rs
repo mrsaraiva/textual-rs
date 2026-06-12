@@ -374,14 +374,11 @@ fn worker_state_runtime_messages(
             let sender = registry
                 .owner(change.worker_id)
                 .unwrap_or_else(App::runtime_message_sender);
-            MessageEvent {
-                sender,
-                message: Message::WorkerStateChanged(crate::message::WorkerStateChanged {
-                    worker_id: change.worker_id,
-                    state: change.state,
-                }),
-                control: Some(sender),
-            }
+            MessageEvent::new(sender, crate::message::WorkerStateChanged {
+                worker_id: change.worker_id,
+                state: change.state,
+            })
+            .with_control(sender)
         })
         .collect()
 }
@@ -615,39 +612,41 @@ fn split_runtime_control_messages(
 ) -> RuntimeMessagePass {
     let mut pass = RuntimeMessagePass::default();
     for event in queue {
+        if let Some(m) = event.downcast_ref::<crate::message::AsyncTaskSpawn>() {
+            let m = m.clone();
+            if let Some(cancelled) = app.async_tasks.spawn(m.task_id, m.target, m.request) {
+                pass.generated.push(cancelled);
+            }
+            continue;
+        }
+        if let Some(m) = event.downcast_ref::<crate::message::AsyncTaskCancel>() {
+            let task_id = m.task_id;
+            if let Some(cancelled) = app.async_tasks.cancel(task_id) {
+                pass.generated.push(cancelled);
+            }
+            continue;
+        }
+        if let Some(m) = event.downcast_ref::<crate::message::AsyncTaskCancelTarget>() {
+            let target = m.target;
+            pass.generated
+                .extend(app.async_tasks.cancel_for_target(target));
+            continue;
+        }
+        if let Some(m) = event.downcast_ref::<crate::message::TimerSchedule>() {
+            let m = m.clone();
+            if let Some(cancelled) = app.one_shot_timers.schedule(m.timer_id, m.target, m.delay) {
+                pass.generated.push(cancelled);
+            }
+            continue;
+        }
+        if let Some(m) = event.downcast_ref::<crate::message::TimerCancel>() {
+            let timer_id = m.timer_id;
+            if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
+                pass.generated.push(cancelled);
+            }
+            continue;
+        }
         match event.message {
-            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
-                task_id,
-                target,
-                request,
-            }) => {
-                if let Some(cancelled) = app.async_tasks.spawn(task_id, target, request) {
-                    pass.generated.push(cancelled);
-                }
-            }
-            Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }) => {
-                if let Some(cancelled) = app.async_tasks.cancel(task_id) {
-                    pass.generated.push(cancelled);
-                }
-            }
-            Message::AsyncTaskCancelTarget(crate::message::AsyncTaskCancelTarget { target }) => {
-                pass.generated
-                    .extend(app.async_tasks.cancel_for_target(target));
-            }
-            Message::TimerSchedule(crate::message::TimerSchedule {
-                timer_id,
-                target,
-                delay,
-            }) => {
-                if let Some(cancelled) = app.one_shot_timers.schedule(timer_id, target, delay) {
-                    pass.generated.push(cancelled);
-                }
-            }
-            Message::TimerCancel(crate::message::TimerCancel { timer_id }) => {
-                if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
-                    pass.generated.push(cancelled);
-                }
-            }
             Message::AppAddClass(crate::message::AppAddClass {
                 selector,
                 class_name,
@@ -6231,11 +6230,8 @@ mod tests {
         }
 
         fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-            if let Message::WorkerStateChanged(crate::message::WorkerStateChanged {
-                state, ..
-            }) = &message.message
-            {
-                match state {
+            if let Some(m) = message.downcast_ref::<crate::message::WorkerStateChanged>() {
+                match m.state {
                     crate::worker::WorkerState::Success => {
                         self.success_hits.fetch_add(1, Ordering::Relaxed);
                         ctx.set_handled();
@@ -6323,21 +6319,13 @@ mod tests {
                 .all(|event| event.control == Some(event.sender))
         );
         assert!(messages.iter().any(|event| event.sender == owner_success
-            && matches!(
-                event.message,
-                Message::WorkerStateChanged(crate::message::WorkerStateChanged {
-                    state: WorkerState::Success,
-                    ..
-                })
-            )));
+            && event
+                .downcast_ref::<crate::message::WorkerStateChanged>()
+                .is_some_and(|m| m.state == WorkerState::Success)));
         assert!(messages.iter().any(|event| event.sender == owner_error
-            && matches!(
-                event.message,
-                Message::WorkerStateChanged(crate::message::WorkerStateChanged {
-                    state: WorkerState::Error(ref err),
-                    ..
-                }) if err == "boom"
-            )));
+            && event
+                .downcast_ref::<crate::message::WorkerStateChanged>()
+                .is_some_and(|m| m.state == WorkerState::Error("boom".into()))));
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
@@ -6363,13 +6351,11 @@ mod tests {
             messages[0].control,
             Some(crate::node_id::node_id_from_ffi(0))
         );
-        assert!(matches!(
-            messages[0].message,
-            Message::WorkerStateChanged(crate::message::WorkerStateChanged {
-                state: crate::worker::WorkerState::Cancelled,
-                ..
-            })
-        ));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::WorkerStateChanged>()
+                .is_some_and(|m| m.state == crate::worker::WorkerState::Cancelled)
+        );
     }
 
     #[test]

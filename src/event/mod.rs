@@ -650,11 +650,11 @@ impl EventCtx {
     }
 
     pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
-        self.post_message(Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
+        self.post_message(crate::message::AsyncTaskSpawn {
             task_id,
             target,
             request,
-        }));
+        });
     }
 
     pub fn spawn_async_task_for(&mut self, task_id: u64, request: AsyncTaskRequest) {
@@ -663,23 +663,19 @@ impl EventCtx {
     }
 
     pub fn cancel_async_task(&mut self, task_id: u64) {
-        self.post_message(Message::AsyncTaskCancel(crate::message::AsyncTaskCancel {
-            task_id,
-        }));
+        self.post_message(crate::message::AsyncTaskCancel { task_id });
     }
 
     pub fn cancel_async_tasks_for(&mut self, target: NodeId) {
-        self.post_message(Message::AsyncTaskCancelTarget(
-            crate::message::AsyncTaskCancelTarget { target },
-        ));
+        self.post_message(crate::message::AsyncTaskCancelTarget { target });
     }
 
     pub fn schedule_timer(&mut self, timer_id: u64, target: NodeId, delay: Duration) {
-        self.post_message(Message::TimerSchedule(crate::message::TimerSchedule {
+        self.post_message(crate::message::TimerSchedule {
             timer_id,
             target,
             delay,
-        }));
+        });
     }
 
     pub fn schedule_timer_for(&mut self, timer_id: u64, delay: Duration) {
@@ -688,9 +684,7 @@ impl EventCtx {
     }
 
     pub fn cancel_timer(&mut self, timer_id: u64) {
-        self.post_message(Message::TimerCancel(crate::message::TimerCancel {
-            timer_id,
-        }));
+        self.post_message(crate::message::TimerCancel { timer_id });
     }
 
     pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
@@ -1006,30 +1000,35 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 4);
-        assert!(matches!(
-            &messages[0].message,
-            Message::AsyncTaskSpawn(crate::message::AsyncTaskSpawn {
-                task_id,
-                target,
-                request: AsyncTaskRequest::Sleep { label, .. },
-            }) if *task_id == 5 && *target == sender_id && label == "work"
-        ));
-        assert!(matches!(
-            messages[1].message,
-            Message::TimerSchedule(crate::message::TimerSchedule {
-                timer_id,
-                target,
-                ..
-            }) if timer_id == 9 && target == sender_id
-        ));
-        assert!(matches!(
-            messages[2].message,
-            Message::AsyncTaskCancel(crate::message::AsyncTaskCancel { task_id }) if task_id == 5
-        ));
-        assert!(matches!(
-            messages[3].message,
-            Message::TimerCancel(crate::message::TimerCancel { timer_id }) if timer_id == 9
-        ));
+        {
+            let m = messages[0]
+                .downcast_ref::<crate::message::AsyncTaskSpawn>()
+                .unwrap();
+            assert_eq!(m.task_id, 5);
+            assert_eq!(m.target, sender_id);
+            assert!(
+                matches!(m.request, AsyncTaskRequest::Sleep { ref label, .. } if label == "work")
+            );
+        }
+        {
+            let m = messages[1]
+                .downcast_ref::<crate::message::TimerSchedule>()
+                .unwrap();
+            assert_eq!(m.timer_id, 9);
+            assert_eq!(m.target, sender_id);
+        }
+        {
+            let m = messages[2]
+                .downcast_ref::<crate::message::AsyncTaskCancel>()
+                .unwrap();
+            assert_eq!(m.task_id, 5);
+        }
+        {
+            let m = messages[3]
+                .downcast_ref::<crate::message::TimerCancel>()
+                .unwrap();
+            assert_eq!(m.timer_id, 9);
+        }
     }
 
     #[test]

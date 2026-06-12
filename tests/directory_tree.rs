@@ -87,11 +87,9 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
     let options = options_for(&console, 60, 8);
     let before_tick = FrameBuffer::from_renderable(&console, &options, &tree, None);
     let before_tick_lines = before_tick.as_plain_lines();
-    assert!(
-        !before_tick_lines
-            .iter()
-            .any(|line| line.contains("leaf.txt"))
-    );
+    assert!(!before_tick_lines
+        .iter()
+        .any(|line| line.contains("leaf.txt")));
 
     tree.on_message(
         &MessageEvent::new(
@@ -227,15 +225,14 @@ fn directory_tree_handles_forwarded_selection_messages() {
 
     let mut message_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeSelected(TreeNodeSelected {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeSelected {
                 index: 1,
                 label: "alpha.txt".to_string(),
                 data: None,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut message_ctx,
     );
 
@@ -252,15 +249,14 @@ fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
 
     let mut message_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeSelected(TreeNodeSelected {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeSelected {
                 index: 1,
                 label: "nested".to_string(),
                 data: None,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut message_ctx,
     );
 
@@ -314,24 +310,23 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
 
     let mut expand_ctx = EventCtx::default();
     tree.on_message(
-        &MessageEvent {
-            sender: tree.tree_id(),
-            message: Message::TreeNodeToggled(TreeNodeToggled {
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut expand_ctx,
     );
     assert!(expand_ctx.handled());
 
     tree.on_unmount();
     tree.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::AsyncTaskCompleted(AsyncTaskCompleted {
+        &MessageEvent::new(
+            NodeId::default(),
+            AsyncTaskCompleted {
                 task_id: 1,
                 target: NodeId::default(),
                 result: AsyncTaskResult::DirectoryEntries {
@@ -342,9 +337,8 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
                         is_dir: false,
                     }],
                 },
-            }),
-            control: None,
-        },
+            },
+        ),
         &mut EventCtx::default(),
     );
 
