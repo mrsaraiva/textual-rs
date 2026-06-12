@@ -669,8 +669,7 @@ mod tests {
             .iter()
             .copied()
             .find(|id| {
-                tree.get(*id).and_then(|node| node.widget.style_id())
-                    == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
+                tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
             })
             .expect("app root vertical scrollbar child should exist");
 
@@ -696,8 +695,7 @@ mod tests {
             .iter()
             .copied()
             .find(|id| {
-                tree.get(*id).and_then(|node| node.widget.style_id())
-                    == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
+                tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
             })
             .expect("app root vertical scrollbar child should exist");
 

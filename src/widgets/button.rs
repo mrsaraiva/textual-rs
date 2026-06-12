@@ -14,6 +14,8 @@ use super::{
     helpers::fixed_height_from_constraints,
     BindingDecl, NodeSeed, Widget,
 };
+#[cfg(test)]
+use super::NodeState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonVariant {

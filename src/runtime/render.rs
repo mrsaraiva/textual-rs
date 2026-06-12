@@ -3422,7 +3422,7 @@ mod tests {
             .children(app_root_id)
             .iter()
             .filter_map(|&child_id| tree.get(child_id).map(|node| (child_id, node)))
-            .find(|(_, node)| node.widget.style_id() == Some(APP_ROOT_VSCROLLBAR_ID))
+            .find(|(child_id, _)| tree.css_id(*child_id) == Some(APP_ROOT_VSCROLLBAR_ID))
             .expect("app root vertical scrollbar child should exist");
         let lane_rect = vertical_scrollbar.1.layout_rect;
         assert_eq!(
@@ -3477,9 +3477,10 @@ mod tests {
         let narrow_vbar_visible = tree
             .children(app_root_id)
             .iter()
-            .filter_map(|&child_id| tree.get(child_id))
-            .find(|node| node.widget.style_id() == Some(APP_ROOT_VSCROLLBAR_ID))
-            .map(|node| node.display)
+            .copied()
+            .filter_map(|child_id| tree.get(child_id).map(|node| (child_id, node)))
+            .find(|(child_id, _)| tree.css_id(*child_id) == Some(APP_ROOT_VSCROLLBAR_ID))
+            .map(|(_, node)| node.display)
             .unwrap_or(false);
         assert!(
             narrow_vbar_visible,

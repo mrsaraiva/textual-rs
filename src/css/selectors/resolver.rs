@@ -280,6 +280,19 @@ pub(crate) fn current_parent_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().cloned())
 }
 
+/// Returns the resolved style of the **widget currently being rendered**.
+///
+/// During a `render()` call, `render_widget_with_meta` pushes the widget's own
+/// resolved style onto `STYLE_STACK` before invoking `widget.render(...)`, so the
+/// top-of-stack entry *is* the widget's own style. Widgets that need to read their
+/// own resolved style (e.g. ScrollBar reading scrollbar color tokens from the CSS)
+/// call this instead of holding a `WidgetStyles` field.
+///
+/// Outside of a render call (e.g. in event handlers) this returns `None`.
+pub(crate) fn current_self_style() -> Option<Style> {
+    STYLE_STACK.with(|stack| stack.borrow().last().cloned())
+}
+
 /// Returns the effective painted background color from the current ancestor stack.
 ///
 /// CSS `bg` is not inherited semantically, but render-time composition needs the

@@ -249,15 +249,15 @@ impl Widget for AppRoot {
         let mut children = std::mem::take(&mut self.children);
 
         let mut vbar = ScrollBar::new(true, 2);
-        vbar.set_style_id(Some(APP_ROOT_VSCROLLBAR_ID.to_string()));
+        vbar.seed.css_id = Some(APP_ROOT_VSCROLLBAR_ID.to_string());
         children.push(Box::new(vbar));
 
         let mut hbar = ScrollBar::new(false, 1);
-        hbar.set_style_id(Some(APP_ROOT_HSCROLLBAR_ID.to_string()));
+        hbar.seed.css_id = Some(APP_ROOT_HSCROLLBAR_ID.to_string());
         children.push(Box::new(hbar));
 
         let mut corner = ScrollBarCorner::new();
-        corner.set_style_id(Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string()));
+        corner.seed.css_id = Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string());
         children.push(Box::new(corner));
 
         children

@@ -3,7 +3,7 @@ use rich_rs::{Segment, Segments};
 use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
 use crate::message::ScrollbarScrollTo;
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
-use crate::widgets::{Widget, WidgetStyles};
+use crate::widgets::{NodeSeed, Widget, WidgetStyles};
 
 pub use crate::message::ScrollbarAxis;
 
@@ -596,7 +596,7 @@ pub struct ScrollBar {
     grab_offset: usize,
     grab_anchor_screen: usize,
     grabbed_position: f32,
-    styles: WidgetStyles,
+    pub(crate) seed: NodeSeed,
 }
 
 const DRAG_POSITION_GRANULARITY_STEPS: f32 = 8.0;
@@ -622,7 +622,7 @@ impl ScrollBar {
             grab_offset: 0,
             grab_anchor_screen: 0,
             grabbed_position: 0.0,
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -671,7 +671,8 @@ impl Widget for ScrollBar {
             options.size.0.max(1)
         };
 
-        let style = &self.styles.style;
+        let resolved = crate::css::current_self_style().unwrap_or_default();
+        let style = &resolved;
         let base_bg = style
             .bg
             .or_else(|| crate::style::parse_color_like("$background"))
@@ -862,22 +863,28 @@ impl Widget for ScrollBar {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 
 pub struct ScrollBarCorner {
-    styles: WidgetStyles,
+    pub(crate) seed: NodeSeed,
 }
 
 impl ScrollBarCorner {
     pub fn new() -> Self {
         Self {
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 }
@@ -900,7 +907,8 @@ impl Widget for ScrollBarCorner {
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let style = &self.styles.style;
+        let resolved = crate::css::current_self_style().unwrap_or_default();
+        let style = &resolved;
         let base_bg = style
             .bg
             .or_else(|| crate::style::parse_color_like("$background"))
@@ -922,11 +930,17 @@ impl Widget for ScrollBarCorner {
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 }
 

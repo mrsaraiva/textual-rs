@@ -1050,10 +1050,7 @@ mod message_tests {
             .children(scroll_id)
             .iter()
             .copied()
-            .find(|child_id| {
-                tree.get(*child_id).and_then(|node| node.widget.style_id())
-                    == Some("__scrollview_vscrollbar")
-            })
+            .find(|child_id| tree.css_id(*child_id) == Some("__scrollview_vscrollbar"))
             .expect("vertical scrollbar child must exist");
 
         // Click below the thumb to trigger page-down behavior.
