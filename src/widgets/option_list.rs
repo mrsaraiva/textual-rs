@@ -8,8 +8,8 @@ use crate::message::*;
 pub(crate) mod toggle_option;
 
 use super::{
-    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    Widget, WidgetStyles,
 };
 use toggle_option::OptionCursorState;
 pub use toggle_option::{OptionId, OptionItem};
@@ -285,13 +285,13 @@ impl OptionList {
 
     fn emit_highlighted(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(Message::OptionHighlighted(OptionHighlighted { index }));
+            ctx.post_message(OptionHighlighted { index });
         }
     }
 
     fn emit_selected(&self, ctx: &mut EventCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(Message::OptionSelected(OptionSelected { index }));
+            ctx.post_message(OptionSelected { index });
         }
     }
 
@@ -772,10 +772,9 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.confirm_selection(&mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::OptionSelected(OptionSelected { index: 0 })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<OptionSelected>()
+            .is_some_and(|s| s.index == 0)));
     }
 
     #[test]
@@ -800,16 +799,12 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         let highlighted_pos = messages.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::OptionHighlighted(OptionHighlighted { index: 1 })
-            )
+            m.downcast_ref::<OptionHighlighted>()
+                .is_some_and(|h| h.index == 1)
         });
         let selected_pos = messages.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::OptionSelected(OptionSelected { index: 1 })
-            )
+            m.downcast_ref::<OptionSelected>()
+                .is_some_and(|s| s.index == 1)
         });
         assert!(
             highlighted_pos.is_some() && selected_pos.is_some() && highlighted_pos < selected_pos

@@ -1909,9 +1909,8 @@ mod envelope_tests {
                 .can_replace(&crate::message::DataTableCursorMoved { row: 1, column: 1 })
         );
         assert!(
-            Message::OptionHighlighted(crate::message::OptionHighlighted { index: 0 }).can_replace(
-                &Message::OptionHighlighted(crate::message::OptionHighlighted { index: 1 })
-            )
+            crate::message::OptionHighlighted { index: 0 }
+                .can_replace(&crate::message::OptionHighlighted { index: 1 })
         );
         // Non-replaceable variants.
         assert!(

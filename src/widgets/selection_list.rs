@@ -6,8 +6,8 @@ use crate::message::*;
 
 use super::option_list::{OptionItem, OptionList};
 use super::{
-    Widget, WidgetStyles,
     helpers::{adjust_line_length_no_bg, empty_classes, fixed_height_from_constraints},
+    Widget, WidgetStyles,
 };
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
@@ -166,13 +166,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         }
         self.selected_set[index] = !self.selected_set[index];
         let selected = self.selected_set[index];
-        ctx.post_message(Message::SelectionListToggled(SelectionListToggled {
-            index,
-            selected,
-        }));
-        ctx.post_message(Message::SelectionListSelectedChanged(
-            SelectionListSelectedChanged,
-        ));
+        ctx.post_message(SelectionListToggled { index, selected });
+        ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -185,9 +180,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = true;
-        ctx.post_message(Message::SelectionListSelectedChanged(
-            SelectionListSelectedChanged,
-        ));
+        ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -200,9 +193,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = false;
-        ctx.post_message(Message::SelectionListSelectedChanged(
-            SelectionListSelectedChanged,
-        ));
+        ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
 
@@ -219,9 +210,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged(
-                SelectionListSelectedChanged,
-            ));
+            ctx.post_message(SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -239,9 +228,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged(
-                SelectionListSelectedChanged,
-            ));
+            ctx.post_message(SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -259,9 +246,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
-            ctx.post_message(Message::SelectionListSelectedChanged(
-                SelectionListSelectedChanged,
-            ));
+            ctx.post_message(SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
@@ -641,13 +626,10 @@ mod tests {
         let messages = ctx.take_messages();
         let toggled_pos = messages
             .iter()
-            .position(|m| matches!(m.message, crate::message::Message::SelectionListToggled(..)));
-        let changed_pos = messages.iter().position(|m| {
-            matches!(
-                m.message,
-                crate::message::Message::SelectionListSelectedChanged(_)
-            )
-        });
+            .position(|m| m.is::<crate::message::SelectionListToggled>());
+        let changed_pos = messages
+            .iter()
+            .position(|m| m.is::<crate::message::SelectionListSelectedChanged>());
         assert!(toggled_pos.is_some() && changed_pos.is_some() && toggled_pos < changed_pos);
     }
 

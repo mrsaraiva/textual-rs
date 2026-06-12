@@ -310,7 +310,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.set_open(false, ctx);
         if changed {
             let label = self.options[index].0.clone();
-            ctx.post_message(Message::SelectChanged(SelectChanged { index, label }));
+            ctx.post_message(SelectChanged { index, label });
         }
     }
 
@@ -607,7 +607,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         // Handle OptionSelected from inner list.
         if message.sender == self.node_id() {
-            if let Message::OptionSelected(OptionSelected { index }) = &message.message {
+            if let Some(OptionSelected { index }) = message.downcast_ref::<OptionSelected>() {
                 self.apply_selection(*index, ctx);
                 ctx.set_handled();
                 return;
@@ -805,8 +805,8 @@ mod tests {
     use crate::event::{Event, EventCtx, MouseDownEvent};
     use crate::keys::KeyEventData;
     use crate::message::Message;
-    use crate::node_id::NodeId;
     use crate::node_id::node_id_from_ffi;
+    use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
     use slotmap::SlotMap;
 
@@ -918,16 +918,12 @@ mod tests {
         assert_eq!(sel.value(), Some(&2)); // Beta
 
         let option_selected_pos = delivered.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::OptionSelected(OptionSelected { index: 1 })
-            )
+            m.downcast_ref::<OptionSelected>()
+                .is_some_and(|s| s.index == 1)
         });
         let select_changed_pos = delivered.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::SelectChanged(SelectChanged { index: 1, label: _ })
-            )
+            m.downcast_ref::<SelectChanged>()
+                .is_some_and(|s| s.index == 1)
         });
         assert!(
             option_selected_pos.is_some()
@@ -965,16 +961,12 @@ mod tests {
         assert_eq!(sel.value(), Some(&2));
         assert!(click_ctx.handled());
         let option_selected_pos = delivered.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::OptionSelected(OptionSelected { index: 1 })
-            )
+            m.downcast_ref::<OptionSelected>()
+                .is_some_and(|s| s.index == 1)
         });
         let select_changed_pos = delivered.iter().position(|m| {
-            matches!(
-                m.message,
-                Message::SelectChanged(SelectChanged { index: 1, label: _ })
-            )
+            m.downcast_ref::<SelectChanged>()
+                .is_some_and(|s| s.index == 1)
         });
         assert!(
             option_selected_pos.is_some()

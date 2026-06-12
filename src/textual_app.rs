@@ -1014,25 +1014,19 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     .unwrap_or_else(|e| e.into_inner())
                     .on_checkbox_changed(*checked, ctx);
             }
-            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged {
-                index,
-                item,
-            }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_list_view_selection_changed(*index, item, ctx);
-            }
-            Message::ListViewItemActivated(crate::message::ListViewItemActivated {
-                index,
-                item,
-            }) => {
-                self.app
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .on_list_view_item_activated(*index, item, ctx);
-            }
             _ => {}
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::ListViewSelectionChanged>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_list_view_selection_changed(m.index, &m.item, ctx);
+        }
+        if let Some(m) = message.downcast_ref::<crate::message::ListViewItemActivated>() {
+            self.app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_list_view_item_activated(m.index, &m.item, ctx);
         }
         if let Some(m) = message.downcast_ref::<crate::message::TabActivated>() {
             self.app
@@ -1649,11 +1643,11 @@ mod tests {
                 value: "textarea".to_string(),
             }),
             Message::CheckboxChanged(crate::message::CheckboxChanged { checked: true }),
-            Message::ListViewSelectionChanged(crate::message::ListViewSelectionChanged {
+            Message::from(crate::message::ListViewSelectionChanged {
                 index: 2,
                 item: "gamma".to_string(),
             }),
-            Message::ListViewItemActivated(crate::message::ListViewItemActivated {
+            Message::from(crate::message::ListViewItemActivated {
                 index: 3,
                 item: "delta".to_string(),
             }),

@@ -303,12 +303,10 @@ impl ListView {
         if self.is_selectable(self.selected)
             && let Some(item) = self.items.get(self.selected)
         {
-            ctx.post_message(Message::ListViewSelectionChanged(
-                ListViewSelectionChanged {
-                    index: self.selected,
-                    item: item.clone(),
-                },
-            ));
+            ctx.post_message(ListViewSelectionChanged {
+                index: self.selected,
+                item: item.clone(),
+            });
         }
     }
 
@@ -316,10 +314,10 @@ impl ListView {
         if self.is_selectable(index)
             && let Some(item) = self.items.get(index)
         {
-            ctx.post_message(Message::ListViewItemActivated(ListViewItemActivated {
+            ctx.post_message(ListViewItemActivated {
                 index,
                 item: item.clone(),
-            }));
+            });
         }
     }
 
@@ -729,13 +727,15 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::ListViewItemActivated(ListViewItemActivated {
-                index: 1,
-                ref item
-            }) if item == "two"
-        ));
+        assert!(messages[0].is::<ListViewItemActivated>());
+        assert_eq!(
+            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().index,
+            1
+        );
+        assert_eq!(
+            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().item,
+            "two"
+        );
     }
 
     #[test]
@@ -771,13 +771,15 @@ mod tests {
 
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::ListViewItemActivated(ListViewItemActivated {
-                index: 0,
-                ref item
-            }) if item == "one"
-        ));
+        assert!(messages[0].is::<ListViewItemActivated>());
+        assert_eq!(
+            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().index,
+            0
+        );
+        assert_eq!(
+            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().item,
+            "one"
+        );
     }
 
     #[test]
