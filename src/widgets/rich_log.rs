@@ -810,7 +810,7 @@ impl Widget for RichLog {
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::ScrollbarScrollTo(payload) = &event.message else {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };
         if payload.axis != ScrollbarAxis::Vertical {
@@ -978,16 +978,12 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         log.on_message(
-            &MessageEvent {
-                sender: crate::node_id::NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 1.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(crate::node_id::NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 1.0,
+                animate: false,
+                scroll_duration: None,
+            }),
             &mut ctx,
         );
         assert!(ctx.handled());

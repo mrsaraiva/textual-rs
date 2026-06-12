@@ -8,7 +8,7 @@ use crate::debug::{DebugLayout, debug_input, debug_layout};
 use crate::event::{
     Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
+use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::style::{Overflow, ScrollbarGutter, ScrollbarVisibility, parse_color_like};
 
 use crate::action::ParsedAction;
@@ -1481,12 +1481,12 @@ impl Widget for ScrollView {
     }
 
     fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::ScrollbarScrollTo(ScrollbarScrollTo {
+        let Some(ScrollbarScrollTo {
             axis,
             offset,
             animate,
             scroll_duration,
-        }) = &msg.message
+        }) = msg.downcast_ref::<ScrollbarScrollTo>()
         else {
             return;
         };

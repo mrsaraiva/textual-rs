@@ -11,7 +11,7 @@ use crate::debug::debug_input;
 use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
 };
-use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
+use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{
@@ -451,12 +451,12 @@ impl Widget for AppRoot {
     }
 
     fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::ScrollbarScrollTo(ScrollbarScrollTo {
+        let Some(ScrollbarScrollTo {
             axis,
             offset,
             animate,
             ..
-        }) = &msg.message
+        }) = msg.downcast_ref::<ScrollbarScrollTo>()
         else {
             return;
         };
@@ -812,16 +812,12 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 24.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: Some(NodeId::default()),
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 24.0,
+                animate: false,
+                scroll_duration: None,
+            }).with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -848,16 +844,12 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 24.5,
-                    animate: true,
-                    scroll_duration: None,
-                }),
-                control: Some(NodeId::default()),
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 24.5,
+                animate: true,
+                scroll_duration: None,
+            }).with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -883,16 +875,12 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 999.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: Some(NodeId::default()),
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 999.0,
+                animate: false,
+                scroll_duration: None,
+            }).with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -912,16 +900,12 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 24.5,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: Some(NodeId::default()),
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 24.5,
+                animate: false,
+                scroll_duration: None,
+            }).with_control(NodeId::default()),
             &mut ctx,
         );
 

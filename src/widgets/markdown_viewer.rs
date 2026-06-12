@@ -779,12 +779,12 @@ impl Widget for MarkdownViewer {
             // Python `scroll_to_widget(..., top=True)` defaults to a fixed 0.2s
             // duration when no explicit speed/duration is provided.
             let scroll_duration = Some(Duration::from_millis(200));
-            ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
+            ctx.post_message(ScrollbarScrollTo {
                 axis: ScrollbarAxis::Vertical,
                 offset: target_line as f32,
                 animate: true,
                 scroll_duration,
-            }));
+            });
             ctx.set_handled();
             return;
         }
@@ -1337,15 +1337,9 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert!(
-            messages.iter().any(|m| matches!(
-                &m.message,
-                Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: _,
-                    animate: true,
-                    ..
-                })
-            )),
+            messages.iter().any(|m| m
+                .downcast_ref::<ScrollbarScrollTo>()
+                .map_or(false, |p| p.axis == ScrollbarAxis::Vertical && p.animate)),
             "TOC selection should route through ScrollbarScrollTo for synchronized content+thumb scroll"
         );
     }

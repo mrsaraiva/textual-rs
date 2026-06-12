@@ -1,7 +1,7 @@
 use rich_rs::{Segment, Segments};
 
 use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
-use crate::message::{Message, ScrollbarScrollTo};
+use crate::message::ScrollbarScrollTo;
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
 use crate::widgets::{Widget, WidgetStyles};
 
@@ -775,12 +775,12 @@ impl Widget for ScrollBar {
                     let clamped =
                         clamp_offset(next, self.window_virtual_size, self.window_size.max(1));
                     self.position = clamped as f32;
-                    ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    ctx.post_message(ScrollbarScrollTo {
                         axis: self.axis(),
                         offset: clamped as f32,
                         animate: true,
                         scroll_duration: None,
-                    }));
+                    });
                 }
                 ctx.set_handled();
             }
@@ -817,12 +817,12 @@ impl Widget for ScrollBar {
                 }
                 if (next_pos - self.position).abs() > f32::EPSILON {
                     self.position = next_pos;
-                    ctx.post_message(Message::ScrollbarScrollTo(ScrollbarScrollTo {
+                    ctx.post_message(ScrollbarScrollTo {
                         axis: self.axis(),
                         offset: next_pos,
                         animate: true,
                         scroll_duration: None,
-                    }));
+                    });
                 }
                 ctx.set_handled();
             }
@@ -1058,7 +1058,7 @@ mod tests {
         let mut emitted_offset = None;
         let mut emitted_animate = None;
         for msg in messages {
-            if let Message::ScrollbarScrollTo(payload) = msg.message {
+            if let Some(payload) = msg.downcast_ref::<ScrollbarScrollTo>() {
                 emitted_offset = Some(payload.offset);
                 emitted_animate = Some(payload.animate);
             }

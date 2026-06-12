@@ -101,16 +101,12 @@ fn key_panel_supports_scrollbar_drag() {
 
     let mut ctx = EventCtx::default();
     panel.on_message(
-        &MessageEvent {
-            sender: NodeId::default(),
-            message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 10.0,
-                animate: false,
-                scroll_duration: None,
-            }),
-            control: None,
-        },
+        &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+            axis: ScrollbarAxis::Vertical,
+            offset: 10.0,
+            animate: false,
+            scroll_duration: None,
+        }),
         &mut ctx,
     );
     assert!(ctx.handled());

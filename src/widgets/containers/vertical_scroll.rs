@@ -75,7 +75,7 @@ delegate_widget_to!(VerticalScroll, inner);
 mod tests {
     use super::*;
     use crate::event::EventCtx;
-    use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
+    use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::node_id::NodeId;
     use crate::prelude::Label;
 
@@ -87,16 +87,12 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         vs.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 7.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 7.0,
+                animate: false,
+                scroll_duration: None,
+            }),
             &mut ctx,
         );
 

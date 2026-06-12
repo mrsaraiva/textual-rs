@@ -592,7 +592,7 @@ mod tests {
     use super::*;
     use crate::css::{default_widget_stylesheet, set_style_context};
     use crate::event::EventCtx;
-    use crate::message::{Message, MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
+    use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::Rect;
     use crate::widget_tree::WidgetTree;
@@ -716,16 +716,12 @@ mod tests {
             app_root.set_virtual_content_size(114, 50);
             let mut ctx = EventCtx::default();
             app_root.on_message(
-                &MessageEvent {
-                    sender: node_id_from_ffi(0),
-                    message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                        axis: ScrollbarAxis::Vertical,
-                        offset: 16.0,
-                        animate: false,
-                        scroll_duration: None,
-                    }),
-                    control: None,
-                },
+                &MessageEvent::new(node_id_from_ffi(0), ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 16.0,
+                    animate: false,
+                    scroll_duration: None,
+                }),
                 &mut ctx,
             );
         }

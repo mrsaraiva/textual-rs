@@ -540,7 +540,7 @@ impl Widget for KeyPanel {
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
-        let Message::ScrollbarScrollTo(payload) = &event.message else {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };
         if payload.axis != ScrollbarAxis::Vertical {
@@ -672,16 +672,12 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         panel.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 2.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 2.0,
+                animate: false,
+                scroll_duration: None,
+            }),
             &mut ctx,
         );
         assert!(ctx.handled());
@@ -711,16 +707,12 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         panel.on_message(
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::ScrollbarScrollTo(ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 2.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
+                axis: ScrollbarAxis::Vertical,
+                offset: 2.0,
+                animate: false,
+                scroll_duration: None,
+            }),
             &mut ctx,
         );
         assert!(ctx.handled());
