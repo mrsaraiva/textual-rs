@@ -686,7 +686,7 @@ impl Footer {
 
         let palette_separator_style = self.palette_separator_style();
         let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
-        right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
+        right_segments.insert(0, Segment::styled("▏".to_string(), palette_separator_style));
         let right_width = Segment::get_line_length(&right_segments);
         let (start, end) = if left_width + right_width < width {
             (width.saturating_sub(right_width), width)
@@ -780,7 +780,7 @@ impl Widget for Footer {
         if let Some(palette_binding) = self.command_palette_binding() {
             let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
             // Keep command palette hint docked at the right with a subtle visible separator.
-            right_segments.insert(0, Segment::styled("│".to_string(), palette_separator_style));
+            right_segments.insert(0, Segment::styled("▏".to_string(), palette_separator_style));
 
             let left_width = Segment::get_line_length(&line_segments);
             let right_width = Segment::get_line_length(&right_segments);
@@ -1402,7 +1402,7 @@ mod tests {
         let chars: Vec<char> = line.chars().collect();
         let separator_idx = chars
             .iter()
-            .position(|ch| *ch == '│')
+            .position(|ch| *ch == '▏')
             .expect("expected command palette separator");
         let caret_idx = chars
             .iter()

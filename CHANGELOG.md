@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (Footer command-palette separator parity)
+
+- **fix(widgets/footer): use `▏` (vkey left edge) for the command-palette separator**
+  - Python's Footer draws the separator via `border-left: vkey` on the
+    command-palette `FooterKey`, which renders `▏`; the Rust footer hardcoded `│`.
+  - Updated both right-dock render paths and the separator-position tests.
+
 ### 2026-02-26 (MarkdownViewer TOC hover-fill + heading landing parity)
 
 - **fix(widgets/tree): make TOC hover-line fill span full row width**
