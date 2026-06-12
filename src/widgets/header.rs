@@ -98,7 +98,7 @@ impl Widget for HeaderIcon {
                 }
                 self.pressed = false;
                 if mouse.target.is_some_and(|target| target == self.node_id()) {
-                    ctx.post_message(Message::HeaderIconPressed(HeaderIconPressed));
+                    ctx.post_message(HeaderIconPressed);
                     if self.command_palette_action_key.is_some() {
                         ctx.post_message(Message::AppCommandPalette(AppCommandPalette));
                     }
@@ -201,16 +201,12 @@ impl Widget for HeaderTitle {
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ScreenTitleChanged(ScreenTitleChanged {
-            ref title,
-            ref sub_title,
-        }) = message.message
-        {
-            self.title = title
+        if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
+            self.title = m.title
                 .as_deref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.default_title.clone());
-            self.subtitle = sub_title
+            self.subtitle = m.sub_title
                 .as_deref()
                 .map(|s| Some(s.to_string()))
                 .unwrap_or_else(|| self.default_subtitle.clone());
@@ -589,7 +585,7 @@ impl Widget for Header {
                 let release_in_toggle_zone = mouse.x > 1;
                 if self.press_in_toggle_zone && release_in_toggle_zone {
                     self.tall = !self.tall;
-                    ctx.post_message(Message::HeaderToggled(HeaderToggled { tall: self.tall }));
+                    ctx.post_message(HeaderToggled { tall: self.tall });
                     ctx.request_layout_invalidation();
                     ctx.request_repaint();
                 }
@@ -609,17 +605,13 @@ impl Widget for Header {
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ScreenTitleChanged(ScreenTitleChanged {
-            ref title,
-            ref sub_title,
-        }) = message.message
-        {
+        if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             // Direct field assignment (internal call site — not reactive setter).
-            self.title = title
+            self.title = m.title
                 .as_deref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.default_title.clone());
-            self.subtitle = sub_title
+            self.subtitle = m.sub_title
                 .as_deref()
                 .map(|s| Some(s.to_string()))
                 .unwrap_or_else(|| self.default_subtitle.clone());
@@ -728,10 +720,8 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].sender, id);
-        assert!(matches!(
-            messages[0].message,
-            Message::HeaderToggled(HeaderToggled { tall: true })
-        ));
+        assert!(messages[0].is::<HeaderToggled>());
+        assert!(messages[0].downcast_ref::<HeaderToggled>().unwrap().tall);
     }
 
     #[test]
@@ -765,7 +755,7 @@ mod tests {
 
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 2);
-        assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
+        assert!(messages[0].is::<HeaderIconPressed>());
         assert!(matches!(
             messages[1].message,
             Message::AppCommandPalette(AppCommandPalette)
@@ -824,10 +814,8 @@ mod tests {
         assert!(up_ctx.invalidation().layout);
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::HeaderToggled(HeaderToggled { tall: true })
-        ));
+        assert!(messages[0].is::<HeaderToggled>());
+        assert!(messages[0].downcast_ref::<HeaderToggled>().unwrap().tall);
     }
 
     #[test]
@@ -933,7 +921,7 @@ mod tests {
         );
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(messages[0].message, Message::HeaderIconPressed(_)));
+        assert!(messages[0].is::<HeaderIconPressed>());
     }
 
     #[test]
@@ -1061,14 +1049,13 @@ mod tests {
         use crate::node_id::node_id_from_ffi;
 
         let mut header = Header::new().title("App").subtitle("Sub");
-        let msg = MessageEvent {
-            sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged(ScreenTitleChanged {
+        let msg = MessageEvent::new(
+            node_id_from_ffi(0),
+            ScreenTitleChanged {
                 title: Some("Screen Title".to_string()),
                 sub_title: Some("Screen Sub".to_string()),
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
 
@@ -1085,28 +1072,23 @@ mod tests {
         let mut header = Header::new().title("App").subtitle("Sub");
 
         // First, override with screen title.
-        let msg = MessageEvent {
-            sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged(ScreenTitleChanged {
+        let msg = MessageEvent::new(
+            node_id_from_ffi(0),
+            ScreenTitleChanged {
                 title: Some("Screen".to_string()),
                 sub_title: None,
-            }),
-            control: None,
-        };
+            },
+        );
         let mut ctx = EventCtx::default();
         header.on_message(&msg, &mut ctx);
         assert_eq!(header.title, "Screen");
         assert_eq!(header.subtitle, Some("Sub".to_string())); // reverted to default
 
         // Then, revert screen title.
-        let msg2 = MessageEvent {
-            sender: node_id_from_ffi(0),
-            message: Message::ScreenTitleChanged(ScreenTitleChanged {
-                title: None,
-                sub_title: None,
-            }),
-            control: None,
-        };
+        let msg2 = MessageEvent::new(
+            node_id_from_ffi(0),
+            ScreenTitleChanged { title: None, sub_title: None },
+        );
         let mut ctx2 = EventCtx::default();
         header.on_message(&msg2, &mut ctx2);
         assert_eq!(header.title, "App"); // back to default

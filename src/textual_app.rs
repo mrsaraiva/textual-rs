@@ -1907,13 +1907,10 @@ mod tests {
         let mut message_ctx = EventCtx::default();
         adapter.on_app_message(
             &mut runtime,
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
-                    count: 0,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(
+                NodeId::default(),
+                crate::message::FooterBindingsUpdated { count: 0 },
+            ),
             &mut message_ctx,
         );
 
@@ -1944,13 +1941,10 @@ mod tests {
         let mut message_ctx = EventCtx::default();
         adapter.on_app_message(
             &mut runtime,
-            &MessageEvent {
-                sender: NodeId::default(),
-                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
-                    count: 0,
-                }),
-                control: None,
-            },
+            &MessageEvent::new(
+                NodeId::default(),
+                crate::message::FooterBindingsUpdated { count: 0 },
+            ),
             &mut message_ctx,
         );
 

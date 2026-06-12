@@ -676,20 +676,18 @@ impl App {
     }
 
     fn enqueue_screen_title_changed(&mut self) {
-        use crate::message::{Message, ScreenTitleChanged};
+        use crate::message::ScreenTitleChanged;
         let title = if self.app_title.is_empty() {
             None
         } else {
             Some(self.app_title.clone())
         };
-        self.pending_app_messages.push(MessageEvent {
-            sender: NodeId::default(),
-            control: None,
-            message: Message::ScreenTitleChanged(ScreenTitleChanged {
+        self.pending_app_messages.push(
+            MessageEvent::new(NodeId::default(), ScreenTitleChanged {
                 title,
                 sub_title: self.app_sub_title.clone(),
             }),
-        });
+        );
     }
 
     /// Drain messages enqueued by `set_title()` / `set_sub_title()`.
@@ -4413,20 +4411,15 @@ mod tests {
 
     #[test]
     fn enqueued_message_is_screen_title_changed() {
-        use crate::message::{Message, ScreenTitleChanged};
+        use crate::message::ScreenTitleChanged;
         let mut app = App::new().expect("app should initialize");
         app.set_title("My App");
         app.set_sub_title("some/path");
         let msgs = app.drain_pending_app_messages();
         // Second message carries both title and subtitle.
-        if let Message::ScreenTitleChanged(ScreenTitleChanged { title, sub_title }) =
-            &msgs[1].message
-        {
-            assert_eq!(title.as_deref(), Some("My App"));
-            assert_eq!(sub_title.as_deref(), Some("some/path"));
-        } else {
-            panic!("expected ScreenTitleChanged message");
-        }
+        let m = msgs[1].downcast_ref::<ScreenTitleChanged>().expect("expected ScreenTitleChanged message");
+        assert_eq!(m.title.as_deref(), Some("My App"));
+        assert_eq!(m.sub_title.as_deref(), Some("some/path"));
     }
 
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {

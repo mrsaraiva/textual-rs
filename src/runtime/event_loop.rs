@@ -5401,13 +5401,10 @@ mod tests {
 
         let outcome = app.dispatch_message_queue_auto(
             &mut runtime_root,
-            vec![MessageEvent {
-                sender: node_id_from_ffi(7),
-                message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
-                    count: 0,
-                }),
-                control: None,
-            }],
+            vec![MessageEvent::new(
+                node_id_from_ffi(7),
+                crate::message::FooterBindingsUpdated { count: 0 },
+            )],
         );
 
         assert_eq!(runtime_root.message_hits.load(Ordering::SeqCst), 1);
@@ -6406,7 +6403,7 @@ mod tests {
         }
 
         fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-            if matches!(message.message, Message::FooterBindingsUpdated(..)) {
+            if message.is::<crate::message::FooterBindingsUpdated>() {
                 ctx.post_message(Message::AppAddClass(crate::message::AppAddClass {
                     selector: "Button".to_string(),
                     class_name: "from-chained-message".to_string(),
@@ -6425,13 +6422,10 @@ mod tests {
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
 
-        let initial = vec![MessageEvent {
-            sender: emitter_id,
-            message: Message::FooterBindingsUpdated(crate::message::FooterBindingsUpdated {
-                count: 0,
-            }),
-            control: Some(emitter_id),
-        }];
+        let initial = vec![
+            MessageEvent::new(emitter_id, crate::message::FooterBindingsUpdated { count: 0 })
+                .with_control(emitter_id),
+        ];
         let outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, initial);
         assert!(outcome.repaint_requested);
         assert!(outcome.invalidation.layout);

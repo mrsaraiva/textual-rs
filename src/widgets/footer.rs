@@ -586,9 +586,7 @@ impl Footer {
                 self.hovered_item = None;
             }
         }
-        ctx.post_message(Message::FooterBindingsUpdated(FooterBindingsUpdated {
-            count: self.bindings.len(),
-        }));
+        ctx.post_message(FooterBindingsUpdated { count: self.bindings.len() });
         ctx.request_repaint();
     }
 
@@ -989,10 +987,9 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| matches!(
-            m.message,
-            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
-        )));
+        assert!(messages.iter().any(|m| m
+            .downcast_ref::<FooterBindingsUpdated>()
+            .map_or(false, |f| f.count == 1)));
     }
 
     #[test]
@@ -1052,10 +1049,8 @@ mod tests {
         footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 2 })
-        ));
+        assert!(messages[0].is::<FooterBindingsUpdated>());
+        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 2);
         assert!(focus_ctx.repaint_requested());
     }
 
@@ -1074,10 +1069,8 @@ mod tests {
         footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
-        ));
+        assert!(messages[0].is::<FooterBindingsUpdated>());
+        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 1);
     }
 
     #[test]
@@ -1094,10 +1087,8 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(matches!(
-            messages[0].message,
-            Message::FooterBindingsUpdated(FooterBindingsUpdated { count: 1 })
-        ));
+        assert!(messages[0].is::<FooterBindingsUpdated>());
+        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 1);
     }
 
     // ── WP-22: Footer Signal subscription + click-to-invoke ─────────────
