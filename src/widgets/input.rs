@@ -13,14 +13,14 @@ use crate::validation::{ValidationResult, ValidatorRef};
 use crate::action::ParsedAction;
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
+    helpers::fixed_height_from_constraints,
     input_chrome::InputChrome,
     text_edit::{
         byte_index_from_cell_x, clamp_grapheme_boundary, edit_command_from_key,
         first_clipboard_line, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
         prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
     },
-    BindingDecl, Widget, WidgetStyles,
+    BindingDecl, NodeSeed, NodeState, Widget, WidgetStyles,
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ pub struct Input {
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
     chrome: InputChrome,
-    styles: WidgetStyles,
+    seed: NodeSeed,
     style_type_name: &'static str,
     style_type_aliases: Vec<&'static str>,
     suggester: Option<Box<dyn Suggester>>,
@@ -170,7 +170,11 @@ impl Input {
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
             chrome: InputChrome::new(),
-            styles: WidgetStyles::default(),
+            seed: {
+                let mut s = NodeSeed::default();
+                s.classes.push("input".to_string());
+                s
+            },
             style_type_name: "Input",
             style_type_aliases: Vec::new(),
             suggester: None,
@@ -210,7 +214,7 @@ impl Input {
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
-        self.chrome.add_user_class(class.into());
+        self.seed.classes.push(class.into());
         self
     }
 
@@ -236,7 +240,13 @@ impl Input {
     }
 
     pub fn set_class(&mut self, class: &str, enabled: bool) {
-        self.chrome.set_class(class, enabled);
+        if enabled {
+            if !self.seed.classes.iter().any(|c| c == class) {
+                self.seed.classes.push(class.to_string());
+            }
+        } else {
+            self.seed.classes.retain(|c| c != class);
+        }
     }
 
     pub fn text(&self) -> &str {
@@ -651,18 +661,16 @@ impl Widget for Input {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        let was_focused = self.chrome.has_focus();
-        self.chrome.set_focus(focused);
-        if was_focused && !focused {
-            self.pending_blur = true;
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        if old.focused != new.focused {
+            let was_focused = old.focused;
+            self.chrome.set_focus(new.focused);
+            if was_focused && !new.focused {
+                self.pending_blur = true;
+            }
+            // Clear suggestion on focus change (matches Python Textual).
+            self.suggestion.clear();
         }
-        // Clear suggestion on focus change (matches Python Textual).
-        self.suggestion.clear();
-    }
-
-    fn has_focus(&self) -> bool {
-        self.chrome.has_focus()
     }
 
     fn is_active(&self) -> bool {
@@ -740,7 +748,7 @@ impl Widget for Input {
                     ctx.request_repaint();
                 }
             }
-            Event::Key(key) if self.chrome.has_focus() => {
+            Event::Key(key) if self.node_state().focused => {
                 // Tab accepts the current suggestion (intercept before edit_command_from_key,
                 // which returns None for Tab).  When no suggestion is active, Tab falls
                 // through (not handled) so the runtime can use it for focus navigation.
@@ -1010,7 +1018,7 @@ impl Widget for Input {
         if self.text.is_empty() {
             let placeholder = self.placeholder.clone().unwrap_or_default();
             let line = rich_rs::set_cell_size(&placeholder, width);
-            if self.chrome.has_focus() && self.chrome.cursor_visible() {
+            if self.node_state().focused && self.chrome.cursor_visible() {
                 // Match Python Textual: when empty and focused, render a cursor in the first cell
                 // (even over placeholder text).
                 let mut chars = line.chars();
@@ -1027,7 +1035,7 @@ impl Widget for Input {
         }
 
         let (sel_start, sel_end) =
-            if self.chrome.has_focus() && self.selection.start != self.selection.end {
+            if self.node_state().focused && self.selection.start != self.selection.end {
                 (
                     self.selection.start.min(self.text.len()),
                     self.selection.end.min(self.text.len()),
@@ -1072,7 +1080,7 @@ impl Widget for Input {
             }
 
             let is_cursor =
-                self.chrome.has_focus() && self.chrome.cursor_visible() && byte_idx == self.cursor;
+                self.node_state().focused && self.chrome.cursor_visible() && byte_idx == self.cursor;
             let in_sel = byte_idx >= sel_lo && byte_idx < sel_hi;
             let style = if is_cursor {
                 Some(cursor_style)
@@ -1098,7 +1106,7 @@ impl Widget for Input {
         flush(&mut out, &mut pending_style, &mut pending_text);
 
         // Show suggestion ghost text (the suffix beyond what the user typed).
-        let show_suggestion = self.chrome.has_focus()
+        let show_suggestion = self.node_state().focused
             && !self.suggestion.is_empty()
             && self.suggestion.len() > self.text.len()
             && self.suggestion.is_char_boundary(self.text.len());
@@ -1151,7 +1159,7 @@ impl Widget for Input {
                     out.push(rich_rs::Segment::styled(ghost_text, suggestion_style));
                 }
             }
-        } else if self.chrome.has_focus()
+        } else if self.node_state().focused
             && self.chrome.cursor_visible()
             && self.cursor == self.text.len()
             && cells_used < width
@@ -1176,20 +1184,21 @@ impl Widget for Input {
     }
 
     fn style_classes(&self) -> &[String] {
-        let classes = self.chrome.style_classes();
-        if classes.is_empty() {
-            empty_classes()
-        } else {
-            classes
-        }
+        &self.seed.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn get_selection(&self) -> Option<String> {
@@ -1209,14 +1218,25 @@ mod tests {
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
 
     #[test]
     fn mouse_click_positions_cursor_in_text() {
         let mut input = Input::new();
         input.set_text("hello");
-        input.set_focus(true);
-        let id = NodeId::default();
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
 
         input.on_event(
@@ -1250,8 +1270,8 @@ mod tests {
     fn mouse_drag_updates_selection_end() {
         let mut input = Input::new();
         input.set_text("hello");
-        input.set_focus(true);
-        let id = NodeId::default();
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
         input.on_event(
             &Event::MouseDown(MouseDownEvent {
@@ -1273,7 +1293,7 @@ mod tests {
     #[test]
     fn typing_emits_input_changed_message() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
         input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
@@ -1292,7 +1312,7 @@ mod tests {
     #[test]
     fn enter_emits_input_submitted_message() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("done");
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1312,7 +1332,7 @@ mod tests {
     #[test]
     fn left_and_backspace_respect_grapheme_clusters() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("a\u{0301}👩‍🚀z");
         input.cursor = input.text.len();
         input.selection = Selection::cursor(input.cursor);
@@ -1342,7 +1362,7 @@ mod tests {
     #[test]
     fn shift_navigation_expands_selection_and_backspace_deletes_it() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("hello world");
         input.cursor = 5;
         input.selection = Selection::cursor(5);
@@ -1372,7 +1392,7 @@ mod tests {
     #[test]
     fn ctrl_backspace_deletes_previous_word() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("alpha beta");
         input.cursor = input.text.len();
         input.selection = Selection::cursor(input.cursor);
@@ -1392,7 +1412,7 @@ mod tests {
     #[test]
     fn copy_and_cut_emit_clipboard_messages() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("hello world");
         input.cursor = 5;
         input.selection = Selection { start: 0, end: 5 };
@@ -1430,7 +1450,8 @@ mod tests {
     #[test]
     fn paste_request_and_message_updates_input_value() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         input.set_text("abc");
         input.cursor = 1;
         input.selection = Selection::cursor(1);
@@ -1447,14 +1468,14 @@ mod tests {
         assert!(messages
             .first()
             .and_then(|m| m.downcast_ref::<TextEditClipboardPasteRequested>())
-            .is_some_and(|m| m.target == NodeId::default()));
+            .is_some_and(|m| m.target == id));
 
         let mut ctx = EventCtx::default();
         input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
-                    target: NodeId::default(),
+                    target: id,
                     text: "XYZ".to_string(),
                 },
             ),
@@ -1467,7 +1488,8 @@ mod tests {
     #[test]
     fn paste_message_uses_first_clipboard_line_only() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         input.set_text("abc");
         input.cursor = 1;
         input.selection = Selection::cursor(1);
@@ -1477,7 +1499,7 @@ mod tests {
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
-                    target: NodeId::default(),
+                    target: id,
                     text: "XYZ\r\n123".to_string(),
                 },
             ),
@@ -1499,7 +1521,7 @@ mod tests {
     fn execute_action_handles_submit() {
         use crate::action::ParsedAction;
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("hello");
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
@@ -1548,7 +1570,7 @@ mod tests {
     fn typing_updates_suggestion() {
         let mut input =
             Input::new().with_suggester(SuggestFromList::new(vec!["Portugal", "Spain"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type 'p' => should suggest "Portugal"
         let mut ctx = EventCtx::default();
@@ -1566,7 +1588,7 @@ mod tests {
     #[test]
     fn typing_clears_stale_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type 'p' => "Portugal"
         let mut ctx = EventCtx::default();
@@ -1595,7 +1617,7 @@ mod tests {
     #[test]
     fn tab_accepts_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type 'p'
         let mut ctx = EventCtx::default();
@@ -1625,7 +1647,7 @@ mod tests {
     #[test]
     fn tab_without_suggestion_is_not_handled() {
         let mut input = Input::new();
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("hello");
         input.cursor = input.text.len();
         input.selection = Selection::cursor(input.cursor);
@@ -1646,7 +1668,7 @@ mod tests {
     #[test]
     fn right_arrow_at_end_accepts_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Spain"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type 's'
         let mut ctx = EventCtx::default();
@@ -1676,7 +1698,7 @@ mod tests {
     #[test]
     fn right_arrow_not_at_end_does_not_accept_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("po");
         input.cursor = 0; // cursor NOT at end
         input.selection = Selection::cursor(0);
@@ -1715,9 +1737,9 @@ mod tests {
     #[test]
     fn focus_change_clears_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.set_focus(true);
+        input.on_node_state_changed(NodeState::default(), NodeState { focused: true, ..Default::default() });
         input.suggestion = "Portugal".to_string();
-        input.set_focus(false);
+        input.on_node_state_changed(NodeState { focused: true, ..Default::default() }, NodeState::default());
         assert!(input.suggestion.is_empty());
     }
 
@@ -1725,7 +1747,7 @@ mod tests {
     fn suggestion_not_shown_when_matches_value_exactly() {
         let suggester = SuggestFromList::new(vec!["abc"], false);
         let mut input = Input::new().with_suggester(suggester);
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type the full value "abc"
         for ch in ['a', 'b', 'c'] {
@@ -1745,7 +1767,7 @@ mod tests {
     #[test]
     fn tab_accept_emits_input_changed() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
 
         // Type 'p'
         let mut ctx = EventCtx::default();
@@ -1775,12 +1797,6 @@ mod tests {
     }
 
     // ── Reactive field tests ────────────────────────────────────────────
-
-    fn make_node_id() -> NodeId {
-        use slotmap::SlotMap;
-        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
-        sm.insert(())
-    }
 
     #[test]
     fn reactive_value_getter() {
@@ -1851,14 +1867,11 @@ mod tests {
 
     #[test]
     fn mouse_click_with_dispatch_context_is_handled() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-
         let mut input = Input::new();
         input.set_text("hello");
-        input.set_focus(true);
 
         let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1877,17 +1890,15 @@ mod tests {
 
     #[test]
     fn mouse_click_with_wrong_target_is_ignored() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
         use slotmap::SlotMap;
 
         let mut input = Input::new();
         input.set_text("hello");
-        input.set_focus(true);
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1905,17 +1916,15 @@ mod tests {
 
     #[test]
     fn paste_message_with_wrong_target_is_ignored() {
-        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
         use slotmap::SlotMap;
 
         let mut input = Input::new();
-        input.set_focus(true);
         input.set_text("abc");
 
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
+        let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
         input.on_message(

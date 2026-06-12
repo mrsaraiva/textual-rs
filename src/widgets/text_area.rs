@@ -16,14 +16,14 @@ use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    helpers::{empty_classes, fixed_height_from_constraints},
+    helpers::fixed_height_from_constraints,
     text_edit::{
         byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
         cell_len_prefix as grapheme_cell_len_prefix, clamp_grapheme_boundary,
         edit_command_from_key, grapheme_cell_width as grapheme_width, next_grapheme_boundary,
         next_word_boundary, prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
     },
-    BindingDecl, Widget, WidgetStyles,
+    BindingDecl, NodeSeed, NodeState, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -164,7 +164,6 @@ pub struct TextArea {
     lines: Vec<String>,
     cursor: Cursor,
     selection: Selection,
-    focused: bool,
     language: Option<String>,
     code_editor: bool,
     read_only: bool,
@@ -189,9 +188,7 @@ pub struct TextArea {
     languages: HashMap<String, LanguageDef>,
     themes: HashMap<String, TextAreaTheme>,
     theme: Option<String>,
-    classes: Vec<String>,
-    focused_classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl TextArea {
@@ -234,7 +231,6 @@ impl TextArea {
             lines: split_lines(text.into()),
             cursor: Cursor::default(),
             selection: Selection::cursor(Cursor::default()),
-            focused: false,
             language: None,
             code_editor: false,
             read_only: false,
@@ -259,9 +255,7 @@ impl TextArea {
             languages: HashMap::new(),
             themes: HashMap::new(),
             theme: None,
-            classes: Vec::new(),
-            focused_classes: Vec::new(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         };
         out.register_builtin_languages();
         out.rebuild_classes();
@@ -792,9 +786,7 @@ impl TextArea {
         if self.read_only {
             classes.push("-read-only".to_string());
         }
-        self.classes = classes.clone();
-        classes.push("focused".to_string());
-        self.focused_classes = classes;
+        self.seed.classes = classes;
     }
 
     fn clamp_cursor(&mut self) {
@@ -912,7 +904,7 @@ impl TextArea {
     }
 
     fn reset_blink(&mut self) {
-        if !self.focused || !self.app_active {
+        if !self.node_state().focused || !self.app_active {
             return;
         }
         self.cursor_visible = true;
@@ -1210,7 +1202,7 @@ impl TextArea {
     }
 
     fn watch_cursor_blink(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
-        if self.focused && self.app_active {
+        if self.node_state().focused && self.app_active {
             self.reset_blink();
         } else {
             self.cursor_visible = false;
@@ -1285,19 +1277,16 @@ impl Widget for TextArea {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        if !focused {
-            self.mouse_down = false;
-            self.cursor_visible = false;
-            self.cursor_blink_next_at = None;
-            return;
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        if old.focused != new.focused {
+            if !new.focused {
+                self.mouse_down = false;
+                self.cursor_visible = false;
+                self.cursor_blink_next_at = None;
+            } else {
+                self.reset_blink();
+            }
         }
-        self.reset_blink();
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
     }
 
     fn is_active(&self) -> bool {
@@ -1379,7 +1368,7 @@ impl Widget for TextArea {
                 ctx.request_repaint();
             }
             Event::Tick(_tick) => {
-                if !self.focused || !self.app_active {
+                if !self.node_state().focused || !self.app_active {
                     return;
                 }
                 let Some(next_at) = self.cursor_blink_next_at else {
@@ -1415,7 +1404,7 @@ impl Widget for TextArea {
                     ctx.request_repaint();
                 }
             }
-            Event::Key(key) if self.focused => {
+            Event::Key(key) if self.node_state().focused => {
                 if !self.read_only && matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
                     self.save_undo_checkpoint();
                     self.backspace();
@@ -1751,7 +1740,7 @@ impl Widget for TextArea {
         let mut out = Segments::new();
         for y in 0..height {
             let row = self.scroll_row + y;
-            let is_cursor_line = self.focused && self.app_active && row == self.cursor.row;
+            let is_cursor_line = self.node_state().focused && self.app_active && row == self.cursor.row;
             let line_bg_style = if is_cursor_line {
                 Some(cursor_line_style.clone())
             } else {
@@ -1765,7 +1754,7 @@ impl Widget for TextArea {
                 } else {
                     " ".repeat(gutter_w)
                 };
-                let style = if self.focused && row == self.cursor.row {
+                let style = if self.node_state().focused && row == self.cursor.row {
                     gutter_active_rich
                 } else {
                     gutter_rich
@@ -1830,7 +1819,7 @@ impl Widget for TextArea {
                     break;
                 }
 
-                let is_cursor = self.focused
+                let is_cursor = self.node_state().focused
                     && self.cursor_visible
                     && row == self.cursor.row
                     && byte_idx == self.cursor.col;
@@ -1884,7 +1873,7 @@ impl Widget for TextArea {
             flush(&mut out, &mut pending_style, &mut pending_text);
 
             // Cursor at end of line: paint a single cell with cursor style.
-            if self.focused && self.cursor_visible && row == self.cursor.row {
+            if self.node_state().focused && self.cursor_visible && row == self.cursor.row {
                 let end_cell = grapheme_cell_len_prefix(line, line.len());
                 if self.cursor.col == line.len() && end_cell >= start_cell && cell_x < text_w {
                     out.push(Segment::styled(" ".to_string(), cursor_rich));
@@ -1920,21 +1909,21 @@ impl Widget for TextArea {
     }
 
     fn style_classes(&self) -> &[String] {
-        if self.focused {
-            &self.focused_classes
-        } else if self.classes.is_empty() {
-            empty_classes()
-        } else {
-            &self.classes
-        }
+        &self.seed.classes
     }
 
     fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+        Some(&self.seed.styles)
     }
 
     fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+        Some(&mut self.seed.styles)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        self.seed.styles = seed.styles.clone();
+        seed
     }
 
     fn get_selection(&self) -> Option<String> {
@@ -1997,12 +1986,23 @@ mod tests {
     use super::*;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
+    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn make_node_id() -> NodeId {
+        use slotmap::SlotMap;
+        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
+        sm.insert(())
+    }
+
+    fn focused_state() -> NodeState {
+        NodeState { focused: true, ..Default::default() }
+    }
 
     #[test]
     fn typing_emits_text_area_changed_message() {
         let mut text_area = TextArea::new("");
-        text_area.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
         text_area.on_event(
@@ -2023,7 +2023,8 @@ mod tests {
     #[test]
     fn clipboard_commands_emit_messages() {
         let mut text_area = TextArea::new("hello\nworld");
-        text_area.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         text_area.set_selection(Selection {
             start: Cursor { row: 0, col: 0 },
             end: Cursor { row: 0, col: 5 },
@@ -2054,14 +2055,15 @@ mod tests {
         let paste_messages = ctx.take_messages();
         assert!(paste_messages.iter().any(|m| {
             m.downcast_ref::<TextEditClipboardPasteRequested>()
-                .is_some_and(|r| r.target == NodeId::default())
+                .is_some_and(|r| r.target == id)
         }));
     }
 
     #[test]
     fn paste_message_inserts_multiline_text() {
         let mut text_area = TextArea::new("abc");
-        text_area.set_focus(true);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
         text_area.set_selection(Selection::cursor(Cursor { row: 0, col: 1 }));
 
         let mut ctx = EventCtx::default();
@@ -2069,7 +2071,7 @@ mod tests {
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
-                    target: NodeId::default(),
+                    target: id,
                     text: "X\nY".to_string(),
                 },
             ),
@@ -2093,7 +2095,7 @@ mod tests {
     fn execute_action_handles_undo() {
         use crate::action::ParsedAction;
         let mut ta = TextArea::new("hello world");
-        ta.set_focus(true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,
@@ -2106,19 +2108,11 @@ mod tests {
 
     // ── P1-14 dispatch-context regression tests ─────────────────────────
 
-    fn make_node_id() -> NodeId {
-        use slotmap::SlotMap;
-        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
-        sm.insert(())
-    }
-
     #[test]
     fn mouse_click_with_dispatch_context_is_handled() {
         use crate::runtime::dispatch_ctx::set_dispatch_recipient;
 
         let mut ta = TextArea::new("hello");
-        ta.set_focus(true);
-
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
@@ -2142,8 +2136,6 @@ mod tests {
         use slotmap::SlotMap;
 
         let mut ta = TextArea::new("hello");
-        ta.set_focus(true);
-
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());
@@ -2169,8 +2161,6 @@ mod tests {
         use slotmap::SlotMap;
 
         let mut ta = TextArea::new("abc");
-        ta.set_focus(true);
-
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         let my_id = sm.insert(());
         let other_id = sm.insert(());

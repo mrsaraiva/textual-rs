@@ -615,18 +615,18 @@ mod focus_tests {
         assert_eq!(ids[1], second_id);
 
         // Set focus on the first input.
-        tree.get_mut(first_id).unwrap().widget.set_focus(true);
-        assert!(tree.get(first_id).unwrap().widget.has_focus());
+        tree.set_focus_state(first_id, true);
+        assert!(tree.node_state(first_id).focused);
 
         // Advance focus: find current in chain, move to next.
         let current = ids.iter().position(|&id| id == first_id).unwrap();
         let next = ids[(current + 1) % ids.len()];
-        tree.get_mut(first_id).unwrap().widget.set_focus(false);
-        tree.get_mut(next).unwrap().widget.set_focus(true);
+        tree.set_focus_state(first_id, false);
+        tree.set_focus_state(next, true);
 
         assert_eq!(next, second_id);
-        assert!(tree.get(second_id).unwrap().widget.has_focus());
-        assert!(!tree.get(first_id).unwrap().widget.has_focus());
+        assert!(tree.node_state(second_id).focused);
+        assert!(!tree.node_state(first_id).focused);
     }
 
     #[test]

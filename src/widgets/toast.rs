@@ -114,19 +114,6 @@ impl Toast {
     }
 }
 
-/// Build a `SelectorMeta` for off-tree toast rendering (e.g. notification overlay).
-///
-/// This constructs the meta explicitly from severity so that CSS rules for
-/// Toast severity classes apply correctly when the toast is rendered without
-/// being mounted in the arena tree. See §T-9 in SPEC-RA2-node-record.md.
-pub(crate) fn toast_selector_meta(severity: ToastSeverity) -> crate::css::SelectorMeta {
-    crate::css::SelectorMeta::new(
-        "Toast".to_string(),
-        None,
-        vec![severity.class_name().to_string()],
-    )
-}
-
 impl Widget for Toast {
     fn focusable(&self) -> bool {
         false

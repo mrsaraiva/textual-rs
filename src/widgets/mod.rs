@@ -125,7 +125,6 @@ pub use text_area::{
     Cursor as TextAreaCursor, Selection as TextAreaSelection, TextArea, TextAreaTheme,
 };
 pub use toast::{Toast, ToastSeverity};
-pub(crate) use toast::toast_selector_meta;
 pub(crate) use tooltip::SYSTEM_TOOLTIP_STYLE_ID;
 pub use tooltip::Tooltip;
 pub use tree::{Tree, TreeNode};

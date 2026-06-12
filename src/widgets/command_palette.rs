@@ -11,11 +11,12 @@ use crate::render::{Cell, FrameBuffer};
 use crate::style::TransitionTiming;
 
 use crate::node_id::NodeId;
+use crate::runtime::dispatch_ctx::set_dispatch_recipient;
 
 use crate::action::ParsedAction;
 
 use super::{
-    BindingDecl, Input, KeyPanel, ListView, Overlay, Spacer, Widget, WidgetRenderable,
+    BindingDecl, Input, KeyPanel, ListView, NodeState, Overlay, Spacer, Widget, WidgetRenderable,
     WidgetStyles, helpers,
     helpers::adjust_line_length_no_bg,
 };
@@ -391,6 +392,7 @@ impl Renderable for SearchIcon {
 pub struct CommandInput {
     input: Input,
     styles: WidgetStyles,
+    focused: bool,
 }
 
 impl CommandInput {
@@ -401,6 +403,7 @@ impl CommandInput {
                 .class("command-palette--input")
                 .with_placeholder(placeholder),
             styles: WidgetStyles::default(),
+            focused: false,
         }
     }
 
@@ -447,10 +450,14 @@ impl Widget for CommandInput {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let state = NodeState { focused: self.focused, ..Default::default() };
+        let _guard = set_dispatch_recipient(self.input.node_id(), state);
         self.input.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        let state = NodeState { focused: self.focused, ..Default::default() };
+        let _guard = set_dispatch_recipient(self.input.node_id(), state);
         self.input.on_event(event, ctx);
     }
 
@@ -471,11 +478,14 @@ impl Widget for CommandInput {
     }
 
     fn set_focus(&mut self, focused: bool) {
-        self.input.set_focus(focused);
+        let old = NodeState { focused: self.focused, ..Default::default() };
+        self.focused = focused;
+        let new = NodeState { focused, ..Default::default() };
+        self.input.on_node_state_changed(old, new);
     }
 
     fn has_focus(&self) -> bool {
-        self.input.has_focus()
+        self.focused
     }
 
     fn style_classes(&self) -> &[String] {
