@@ -288,16 +288,23 @@ impl<'a> DomQueryMut<'a> {
         self
     }
 
-    pub fn set_styles(self, mut f: impl FnMut(&mut WidgetStyles)) -> Self {
-        self.update(|widget| {
-            if let Some(styles) = widget.styles_mut() {
-                f(styles);
+    pub fn set_styles(self, f: impl FnMut(&mut WidgetStyles)) -> Self {
+        let mut f = f;
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                tree.update_styles(id, |s| f(s));
             }
-        })
+        }
+        self
     }
 
     pub fn set_focus(self, focused: bool) -> Self {
-        self.update(|widget| widget.set_focus(focused))
+        if let Some(tree) = self.app.widget_tree.as_mut() {
+            for &id in &self.nodes {
+                tree.set_focus_state(id, focused);
+            }
+        }
+        self
     }
 
     pub fn focus(self) -> Self {
@@ -323,9 +330,8 @@ impl<'a> DomQueryMut<'a> {
         if let Some(focused_id) = focused
             && self.nodes.contains(&focused_id)
             && let Some(tree) = self.app.widget_tree.as_mut()
-            && let Some(node) = tree.get_mut(focused_id)
         {
-            node.widget.set_focus(false);
+            tree.set_focus_state(focused_id, false);
         }
         self
     }
@@ -373,13 +379,23 @@ impl<'a> DomQueryMut<'a> {
         };
 
         let query = if let Some(disabled) = disabled {
-            query.update(|widget| widget.set_disabled_state(disabled))
+            if let Some(tree) = query.app.widget_tree.as_mut() {
+                for &id in &query.nodes {
+                    tree.set_disabled(id, disabled);
+                }
+            }
+            query
         } else {
             query
         };
 
         if let Some(loading) = loading {
-            query.update(|widget| widget.set_loading_state(loading))
+            if let Some(tree) = query.app.widget_tree.as_mut() {
+                for &id in &query.nodes {
+                    tree.set_loading(id, loading);
+                }
+            }
+            query
         } else {
             query
         }
@@ -1019,13 +1035,11 @@ impl App {
         if current == Some(node_id) {
             return false;
         }
-        if let Some(current) = current
-            && let Some(node) = tree.get_mut(current)
-        {
-            node.widget.set_focus(false);
+        if let Some(current) = current {
+            tree.set_focus_state(current, false);
         }
-        if let Some(node) = tree.get_mut(node_id) {
-            node.widget.set_focus(true);
+        if tree.contains(node_id) {
+            tree.set_focus_state(node_id, true);
             return true;
         }
         false
@@ -1055,14 +1069,13 @@ impl App {
         let current = focused_node_id_tree(tree);
         if let Some(current) = current
             && current != first
-            && let Some(node) = tree.get_mut(current)
         {
-            node.widget.set_focus(false);
+            tree.set_focus_state(current, false);
         }
-        if let Some(node) = tree.get_mut(first) {
-            let changed = !node.widget.has_focus();
-            node.widget.set_focus(true);
-            return changed;
+        if tree.contains(first) {
+            let was_focused = tree.node_state(first).focused;
+            tree.set_focus_state(first, true);
+            return !was_focused;
         }
         false
     }
@@ -1727,11 +1740,11 @@ impl App {
             // Extract children from declared widgets too.
             let extracted = widget.take_composed_children();
             let child_compose = widget.compose();
-            // Apply CSS id/classes from the declaration before mount.
-            if let Some(id_str) = &decl.id {
-                widget.set_style_id(Some(id_str.clone()));
-            }
             let node_id = tree.mount(parent, widget);
+            // Apply CSS id from the declaration via the tree after mount.
+            if let Some(id_str) = &decl.id {
+                tree.set_css_id(node_id, Some(id_str.clone()));
+            }
             for class in &decl.classes {
                 tree.add_class(node_id, class);
             }
@@ -1751,9 +1764,9 @@ impl App {
     }
 
     pub(crate) fn mount_system_tooltip(tree: &mut WidgetTree, root: NodeId) -> NodeId {
-        let mut tooltip = Tooltip::system();
-        tooltip.set_style_id(Some(SYSTEM_TOOLTIP_STYLE_ID.to_string()));
+        let tooltip = Tooltip::system();
         let tooltip_id = tree.mount(root, Box::new(tooltip));
+        tree.set_css_id(tooltip_id, Some(SYSTEM_TOOLTIP_STYLE_ID.to_string()));
         tree.set_runtime_display(tooltip_id, false);
         tooltip_id
     }
@@ -2265,12 +2278,20 @@ impl App {
                 self.hovered.map(node_id_to_ffi),
                 hovered.map(node_id_to_ffi)
             ));
-            // Update hover state via centralized widget mutation helper.
+            // Update hover state through the tree (dual-write keeps widget in sync).
             if let Some(old_id) = self.hovered {
-                let _ = self.with_widget_mut(old_id, |widget| widget.set_hovered(false));
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    tree.set_hover_state(old_id, false);
+                } else {
+                    let _ = self.with_widget_mut(old_id, |widget| widget.set_hovered(false));
+                }
             }
             if let Some(new_id) = hovered {
-                let _ = self.with_widget_mut(new_id, |widget| widget.set_hovered(true));
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    tree.set_hover_state(new_id, true);
+                } else {
+                    let _ = self.with_widget_mut(new_id, |widget| widget.set_hovered(true));
+                }
             }
             self.hovered = hovered;
             let shape = self.pointer_shape_for_hover_auto(root, self.hovered);
@@ -3157,16 +3178,16 @@ mod tests {
 
         app.query_mut("Button")
             .expect("query should succeed")
-            .update(|widget| widget.set_focus(true));
+            .set_focus(true);
 
-        app.with_query_one_mut("Button", |widget| widget.set_hovered(true))
-            .expect("target should exist");
+        if let Some(tree) = app.widget_tree.as_mut() {
+            tree.set_hover_state(target, true);
+        }
 
         let (focused, hovered) = app
             .widget_tree
             .as_ref()
-            .and_then(|tree| tree.get(target))
-            .map(|node| (node.widget.has_focus(), node.widget.is_hovered()))
+            .map(|tree| (tree.node_state(target).focused, tree.node_state(target).hovered))
             .unwrap_or((false, false));
         assert!(focused);
         assert!(hovered);
@@ -3762,7 +3783,9 @@ mod tests {
             .exclude(&app, ".left")
             .expect("exclude");
         assert_eq!(not_left.first(), Ok(second));
-        let _ = app.with_widget_mut(second, |widget| widget.set_focus(true));
+        if let Some(tree) = app.widget_tree.as_mut() {
+            tree.set_focus_state(second, true);
+        }
         let only_second = app
             .query("Button")
             .expect("query")
@@ -3991,9 +4014,7 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         let first = tree.mount(root, Box::new(FocusProbe::new("first")));
         let second = tree.mount(root, Box::new(FocusProbe::new("second")));
-        if let Some(node) = tree.get_mut(second) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(second, true);
         let mut app = App::new().expect("app should initialize");
         app.widget_tree = Some(tree);
 
@@ -4086,9 +4107,7 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         let first = tree.mount(root, Box::new(FocusProbe::new("first")));
         let second = tree.mount(root, Box::new(FocusProbe::new("second")));
-        if let Some(node) = tree.get_mut(first) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(first, true);
 
         let mut app = App::new().expect("app should initialize");
         app.widget_tree = Some(tree);

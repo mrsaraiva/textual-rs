@@ -1280,8 +1280,8 @@ mod message_tests {
         );
 
         // Transition focus from child to root.
-        tree.get_mut(child_id).unwrap().widget.set_focus(false);
-        tree.get_mut(root_id).unwrap().widget.set_focus(true);
+        tree.set_focus_state(child_id, false);
+        tree.set_focus_state(root_id, true);
 
         let (second, _) = active_binding_hints_tree(&tree);
         assert_eq!(
@@ -2301,9 +2301,7 @@ mod binding_tests {
         )));
         let _child_id = tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
         // Focus the child
-        if let Some(node) = tree.get_mut(_child_id) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(_child_id, true);
 
         let key =
             KeyEventData::from_crossterm(key_event(KeyCode::Char('q'), KeyModifiers::empty()));

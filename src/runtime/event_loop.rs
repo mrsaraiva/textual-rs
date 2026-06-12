@@ -575,8 +575,8 @@ fn sync_widget_controlled_child_display_tree(
     for (node_id, display) in updates {
         let before = tree.is_displayed(node_id);
         tree.set_runtime_display(node_id, display);
-        if !display && let Some(node) = tree.get_mut(node_id) {
-            node.widget.set_focus(false);
+        if !display {
+            tree.set_focus_state(node_id, false);
         }
         if before != tree.is_displayed(node_id) {
             changed = true;
@@ -1576,9 +1576,8 @@ impl App {
         self.last_focused_on_app_blur = focused;
         if let Some(focused_id) = focused
             && let Some(tree) = self.active_widget_tree_mut()
-            && let Some(node) = tree.get_mut(focused_id)
         {
-            node.widget.set_focus(false);
+            tree.set_focus_state(focused_id, false);
         }
     }
 
@@ -1589,9 +1588,8 @@ impl App {
             && focused_node_id_tree(tree).is_none()
             && tree.contains(focused_id)
             && tree.is_displayed(focused_id)
-            && let Some(node) = tree.get_mut(focused_id)
         {
-            node.widget.set_focus(true);
+            tree.set_focus_state(focused_id, true);
         }
     }
 
@@ -1612,9 +1610,7 @@ impl App {
                 DevtoolsCommand::Focus(id) => {
                     // Tree-based focus: set focus on the tree node directly.
                     if let Some(tree) = self.active_widget_tree_mut() {
-                        if let Some(node) = tree.get_mut(id) {
-                            node.widget.set_focus(true);
-                        }
+                        tree.set_focus_state(id, true);
                     }
                     pending_invalidation.request_full_content();
                 }
@@ -1996,9 +1992,7 @@ impl App {
         if let Some(tree) = self.active_widget_tree_mut() {
             let focus_chain = collect_focus_chain_tree(tree);
             if let Some(&first) = focus_chain.first() {
-                if let Some(node) = tree.get_mut(first) {
-                    node.widget.set_focus(true);
-                }
+                tree.set_focus_state(first, true);
             }
         }
         // Dispatch app-level reactive init phase.
@@ -4130,20 +4124,18 @@ impl App {
             return DispatchOutcome::default();
         }
 
-        // Apply style-value animation updates directly to widget inline styles.
+        // Apply style-value animation updates directly to node inline styles.
         // This mirrors Python Textual's CSSAnimation.animate() which temporarily sets
         // widget.styles.{property} = intermediate_value each tick.
         for style_update in style_updates {
             if let Some(tree) = self.active_widget_tree_mut() {
-                if let Some(node) = tree.get_mut(style_update.target) {
-                    if let Some(styles) = node.widget.styles_mut() {
-                        apply_style_value_to_property(
-                            &mut styles.style,
-                            &style_update.property,
-                            &style_update.value,
-                        );
-                    }
-                }
+                tree.update_styles(style_update.target, |styles| {
+                    apply_style_value_to_property(
+                        &mut styles.style,
+                        &style_update.property,
+                        &style_update.value,
+                    );
+                });
             }
         }
 
@@ -4314,12 +4306,10 @@ impl App {
         }
 
         if let Some(current) = current {
-            if let Some(node) = tree.get_mut(current) {
-                node.widget.set_focus(false);
-            }
+            tree.set_focus_state(current, false);
         }
-        if let Some(node) = tree.get_mut(next) {
-            node.widget.set_focus(true);
+        if tree.contains(next) {
+            tree.set_focus_state(next, true);
             return true;
         }
         false
@@ -5330,9 +5320,7 @@ mod tests {
                 ticks: Arc::clone(&tick_hits),
             }),
         );
-        if let Some(node) = tree.get_mut(probe_id) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(probe_id, true);
         tree.mount(
             root_id,
             Box::new(crate::widgets::CommandPalette::new(
@@ -6423,9 +6411,7 @@ mod tests {
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
         let _second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
-        if let Some(node) = tree.get_mut(first) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(first, true);
 
         let mut app = test_app_with_tree(tree);
         app.apply_app_blur_focus_state();
@@ -6444,9 +6430,7 @@ mod tests {
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
         let second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
-        if let Some(node) = tree.get_mut(first) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(first, true);
 
         let mut app = test_app_with_tree(tree);
         app.apply_app_blur_focus_state();
@@ -6535,9 +6519,7 @@ mod tests {
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let first = tree.mount(root_id, Box::new(FocusIdProbe::new("first")));
         let _second = tree.mount(root_id, Box::new(FocusIdProbe::new("second")));
-        if let Some(node) = tree.get_mut(first) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(first, true);
 
         let mut app = test_app_with_tree(tree);
         // Prevent environment-dependent SIGTSTP suspension during this action-matrix
@@ -6707,9 +6689,7 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         let app_node = tree.mount(root, Box::new(AppActionHost));
         let button = tree.mount(app_node, Box::new(crate::widgets::Button::new("ok")));
-        if let Some(node) = tree.get_mut(button) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(button, true);
 
         let mut app = test_app_with_tree(tree);
         let parsed =
@@ -6751,9 +6731,7 @@ mod tests {
         let root = tree.set_root(Box::new(AppRoot::new()));
         let app_node = tree.mount(root, Box::new(AppActionHost));
         let button = tree.mount(app_node, Box::new(crate::widgets::Button::new("ok")));
-        if let Some(node) = tree.get_mut(button) {
-            node.widget.set_focus(true);
-        }
+        tree.set_focus_state(button, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
