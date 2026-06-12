@@ -8,7 +8,7 @@
 use std::any::{Any, TypeId};
 
 use crate::event::EventCtx;
-use crate::message::{MessageEvent, Msg};
+use crate::message::{Message, MessageEvent};
 use crate::node_id::NodeId;
 
 /// Sender metadata handed to typed handlers alongside the typed payload.
@@ -48,7 +48,7 @@ impl<A> MessageHandlers<A> {
     /// when a matching message is dispatched.
     pub fn on<T, F>(&mut self, mut handler: F)
     where
-        T: Msg,
+        T: Message,
         F: FnMut(&mut A, &T, &MessageContext, &mut EventCtx) + Send + Sync + 'static,
     {
         self.entries.push((
@@ -90,7 +90,7 @@ mod tests {
     use crate::message::{ButtonPressed, CheckboxChanged};
     use crate::node_id::node_id_from_ffi;
 
-    fn make_event<M: Msg>(msg: M) -> MessageEvent {
+    fn make_event<M: Message>(msg: M) -> MessageEvent {
         MessageEvent::new(node_id_from_ffi(1), msg)
     }
 

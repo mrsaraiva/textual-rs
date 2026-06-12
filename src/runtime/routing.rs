@@ -1462,7 +1462,7 @@ mod message_tests {
 #[cfg(test)]
 mod envelope_tests {
     use super::*;
-    use crate::message::{MessageEnvelope, MessageEvent, Msg};
+    use crate::message::{Message, MessageEnvelope, MessageEvent};
     use crate::node_id::node_id_from_ffi;
     use crate::widget_tree::WidgetTree;
     use crate::widgets::Label;
@@ -1511,7 +1511,7 @@ mod envelope_tests {
     }
 
     /// Helper: build a MessageEvent from a sender FFI id and a typed message.
-    fn msg_event<M: crate::message::Msg>(sender_ffi: u64, message: M) -> MessageEvent {
+    fn msg_event<M: Message>(sender_ffi: u64, message: M) -> MessageEvent {
         MessageEvent::new(node_id_from_ffi(sender_ffi), message)
     }
 

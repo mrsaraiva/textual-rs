@@ -1,7 +1,7 @@
 use crate::debug::debug_message;
 use crate::keys::format_key_display;
 use crate::keys::KeyEventData;
-use crate::message::{AsyncTaskRequest, CommandPaletteCommand, MessageEvent, Msg};
+use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{node_id_to_ffi, NodeId};
 use crate::style::{Color, Scalar, Spacing, Tint};
 use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
@@ -636,11 +636,11 @@ impl EventCtx {
         self.stop_requested
     }
 
-    pub fn post_message<M: Msg>(&mut self, message: M) {
+    pub fn post_message<M: Message>(&mut self, message: M) {
         self.post_message_boxed(Box::new(message));
     }
 
-    pub fn post_message_boxed(&mut self, message: Box<dyn Msg>) {
+    pub fn post_message_boxed(&mut self, message: Box<dyn Message>) {
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
             node_id_to_ffi(self.node_id)
@@ -962,7 +962,7 @@ impl<'a> WidgetCtx<'a> {
 
     /// Post a message from this widget (sender = self).
     #[inline]
-    pub fn post_message<M: Msg>(&mut self, message: M) {
+    pub fn post_message<M: Message>(&mut self, message: M) {
         self.event_ctx.set_node_id(self.node_id);
         self.event_ctx.post_message(message);
     }

@@ -11,7 +11,7 @@ use crate::event::{
     EventCtx,
 };
 use crate::message::{
-    Msg, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
+    Message, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
 };
 use crate::style::{Dock, TransitionTiming};
 
@@ -256,7 +256,7 @@ pub struct Tabs {
     classes: Vec<String>,
     focused_classes: Vec<String>,
     styles: WidgetStyles,
-    pending_messages: Arc<Mutex<Vec<Box<dyn Msg>>>>,
+    pending_messages: Arc<Mutex<Vec<Box<dyn Message>>>>,
     /// True after the first event dispatch (widget is live in the tree).
     /// Used to gate runtime-only messages from `add_tab`.
     live: bool,

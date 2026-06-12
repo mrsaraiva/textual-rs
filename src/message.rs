@@ -800,34 +800,34 @@ pub struct WorkerStateChanged {
 crate::impl_message!(WorkerStateChanged);
 
 // ---------------------------------------------------------------------------
-// Open message trait (transition name: Msg; renamed to Message at Step 19)
+// Open message trait (final name: Message)
 // ---------------------------------------------------------------------------
 
-/// Open message trait. Every message — built-in or third-party — is a plain
-/// struct implementing this trait. Dispatch is by `TypeId`.
+/// Canonical open message trait. Every message — built-in or third-party —
+/// is a plain struct implementing this trait. Dispatch is by `TypeId`.
 ///
 /// Use [`impl_message!`] to implement this trait for your types.
-pub trait Msg: std::any::Any + Send + Sync + std::fmt::Debug + 'static {
+pub trait Message: std::any::Any + Send + Sync + std::fmt::Debug + 'static {
     /// Downcast support.
     fn as_any(&self) -> &dyn std::any::Any;
     /// Clone into a boxed trait object.
-    fn clone_box(&self) -> Box<dyn Msg>;
+    fn clone_box(&self) -> Box<dyn Message>;
     /// Whether this (newer) message can replace an older `pending` message in
     /// the queue. Called by the coalescer with the newer message as `self`.
     /// Mirrors Python Textual's `Message.can_replace`. Default: `false`.
-    fn can_replace(&self, _pending: &dyn Msg) -> bool {
+    fn can_replace(&self, _pending: &dyn Message) -> bool {
         false
     }
 }
 
-impl Clone for Box<dyn Msg> {
+impl Clone for Box<dyn Message> {
     fn clone(&self) -> Self {
         self.clone_box()
     }
 }
 
 // ---------------------------------------------------------------------------
-// impl_message! macro — the only way to implement Msg for a struct
+// impl_message! macro — the only way to implement the Message trait
 // ---------------------------------------------------------------------------
 
 /// Implements the message trait for a `Clone + Debug + Send + Sync` struct.
@@ -841,24 +841,24 @@ impl Clone for Box<dyn Msg> {
 #[macro_export]
 macro_rules! impl_message {
     ($T:ty) => {
-        impl $crate::message::Msg for $T {
+        impl $crate::message::Message for $T {
             fn as_any(&self) -> &dyn::std::any::Any {
                 self
             }
-            fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Msg> {
+            fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Message> {
                 ::std::boxed::Box::new(::std::clone::Clone::clone(self))
             }
         }
     };
     ($T:ty, replaceable) => {
-        impl $crate::message::Msg for $T {
+        impl $crate::message::Message for $T {
             fn as_any(&self) -> &dyn::std::any::Any {
                 self
             }
-            fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Msg> {
+            fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Message> {
                 ::std::boxed::Box::new(::std::clone::Clone::clone(self))
             }
-            fn can_replace(&self, pending: &dyn $crate::message::Msg) -> bool {
+            fn can_replace(&self, pending: &dyn $crate::message::Message) -> bool {
                 pending.as_any().is::<$T>()
             }
         }
@@ -872,7 +872,7 @@ macro_rules! impl_message {
 #[derive(Debug, Clone)]
 pub struct MessageEvent {
     pub sender: NodeId,
-    message: Box<dyn Msg>,
+    message: Box<dyn Message>,
     /// The originating widget ("control") — defaults to sender.
     /// Handlers can use this to identify which widget produced the message,
     /// even when the message has bubbled through containers.
@@ -880,8 +880,8 @@ pub struct MessageEvent {
 }
 
 impl MessageEvent {
-    /// Construct a `MessageEvent` from any type implementing `Msg`.
-    pub fn new<M: Msg>(sender: NodeId, message: M) -> Self {
+    /// Construct a `MessageEvent` from any type implementing [`Message`].
+    pub fn new<M: Message>(sender: NodeId, message: M) -> Self {
         Self {
             sender,
             message: Box::new(message),
@@ -889,8 +889,8 @@ impl MessageEvent {
         }
     }
 
-    /// Construct a `MessageEvent` from a pre-boxed `Msg` trait object.
-    pub fn from_boxed(sender: NodeId, message: Box<dyn Msg>) -> Self {
+    /// Construct a `MessageEvent` from a pre-boxed [`Message`] trait object.
+    pub fn from_boxed(sender: NodeId, message: Box<dyn Message>) -> Self {
         Self {
             sender,
             message,
@@ -904,20 +904,20 @@ impl MessageEvent {
         self
     }
 
-    /// A reference to the message payload as a `Msg` trait object.
-    pub fn payload(&self) -> &dyn Msg {
+    /// A reference to the message payload as a [`Message`] trait object.
+    pub fn payload(&self) -> &dyn Message {
         self.message.as_ref()
     }
 
     /// Downcast the payload to a concrete type `T`.
     ///
     /// Returns `Some(&T)` if the payload is of type `T`, `None` otherwise.
-    pub fn downcast_ref<T: Msg>(&self) -> Option<&T> {
+    pub fn downcast_ref<T: Message>(&self) -> Option<&T> {
         self.payload().as_any().downcast_ref::<T>()
     }
 
     /// Returns `true` if the payload is of type `T`.
-    pub fn is<T: Msg>(&self) -> bool {
+    pub fn is<T: Message>(&self) -> bool {
         self.downcast_ref::<T>().is_some()
     }
 
@@ -1018,18 +1018,18 @@ impl MessageEnvelope {
         self.event.sender
     }
 
-    /// A reference to the message payload (was `&Message` enum; now `&dyn Msg`).
-    pub fn message(&self) -> &dyn Msg {
+    /// A reference to the message payload.
+    pub fn message(&self) -> &dyn Message {
         self.event.payload()
     }
 
     /// Downcast the envelope's payload to a concrete type `T`.
-    pub fn downcast_ref<T: Msg>(&self) -> Option<&T> {
+    pub fn downcast_ref<T: Message>(&self) -> Option<&T> {
         self.event.downcast_ref::<T>()
     }
 
     /// Returns `true` if the envelope's payload is of type `T`.
-    pub fn is<T: Msg>(&self) -> bool {
+    pub fn is<T: Message>(&self) -> bool {
         self.event.is::<T>()
     }
 }
@@ -1275,7 +1275,7 @@ mod tests {
         assert_eq!(env.control(), Some(node_id_from_ffi(1)));
     }
 
-    // --- Msg trait can_replace ---
+    // --- Message trait can_replace ---
 
     #[test]
     fn replaceable_trait_impl_returns_true_for_same_type() {
@@ -1347,7 +1347,7 @@ mod tests {
 
     #[test]
     fn box_dyn_msg_clone_preserves_payload() {
-        let original: Box<dyn Msg> = Box::new(ButtonPressed {
+        let original: Box<dyn Message> = Box::new(ButtonPressed {
             description: "clone-me".into(),
             button_id: None,
         });
@@ -1356,23 +1356,23 @@ mod tests {
         assert_eq!(bp.description, "clone-me");
     }
 
-    // --- Custom Msg impl (key-based replacement) ---
+    // --- Custom Message impl (key-based replacement) ---
 
     #[derive(Debug, Clone)]
     struct ReplaceableCustom {
         key: u8,
     }
 
-    impl Msg for ReplaceableCustom {
+    impl Message for ReplaceableCustom {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
 
-        fn clone_box(&self) -> Box<dyn Msg> {
+        fn clone_box(&self) -> Box<dyn Message> {
             Box::new(self.clone())
         }
 
-        fn can_replace(&self, pending: &dyn Msg) -> bool {
+        fn can_replace(&self, pending: &dyn Message) -> bool {
             pending
                 .as_any()
                 .downcast_ref::<ReplaceableCustom>()

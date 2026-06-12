@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-12 (SPEC-RA1 Step 19: Rename Msg trait to Message)
+
+- **BREAKING(message): `Msg` trait renamed to `Message` (final API name)**
+  - The open message trait is now `pub trait Message` in `crate::message`.
+  - All `impl_message!(T)` / `impl_message!(T, replaceable)` macro bodies updated.
+  - All `Box<dyn Msg>` / `&dyn Msg` / `M: Msg` bounds renamed to `Message`.
+  - Zero callers of `impl_message!` need updating (macro paths use `$crate::message::Message` internally).
+
 ### 2026-06-12 (SPEC-RA1 Step 18: Swap carrier to Box<dyn Msg>; remove the Message enum)
 
 - **BREAKING(message): `Message` enum removed; all messages are now `Box<dyn Msg>`**
