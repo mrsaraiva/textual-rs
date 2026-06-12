@@ -1378,7 +1378,7 @@ fn paint_outline(
     // Top outline: row at dest_y - 1, columns [dest_x .. dest_x + w).
     if outline_top.is_set() {
         let y = dest_y - 1;
-        let ch = outline_char_horizontal(outline_top);
+        let ch = outline_char_horizontal(outline_top, true);
         for col in 0..w as i32 {
             paint_cell(frame, dest_x + col, y, ch, outline_top);
         }
@@ -1387,7 +1387,7 @@ fn paint_outline(
     // Bottom outline: row at dest_y + h, columns [dest_x .. dest_x + w).
     if outline_bottom.is_set() {
         let y = dest_y + h as i32;
-        let ch = outline_char_horizontal(outline_bottom);
+        let ch = outline_char_horizontal(outline_bottom, false);
         for col in 0..w as i32 {
             paint_cell(frame, dest_x + col, y, ch, outline_bottom);
         }
@@ -1396,7 +1396,7 @@ fn paint_outline(
     // Left outline: column at dest_x - 1, rows [dest_y .. dest_y + h).
     if outline_left.is_set() {
         let x = dest_x - 1;
-        let ch = outline_char_vertical(outline_left);
+        let ch = outline_char_vertical(outline_left, true);
         for row in 0..h as i32 {
             paint_cell(frame, x, dest_y + row, ch, outline_left);
         }
@@ -1405,65 +1405,23 @@ fn paint_outline(
     // Right outline: column at dest_x + w, rows [dest_y .. dest_y + h).
     if outline_right.is_set() {
         let x = dest_x + w as i32;
-        let ch = outline_char_vertical(outline_right);
+        let ch = outline_char_vertical(outline_right, false);
         for row in 0..h as i32 {
             paint_cell(frame, x, dest_y + row, ch, outline_right);
         }
     }
 }
 
-/// Pick horizontal outline character based on border type.
-fn outline_char_horizontal(edge: &BorderEdge) -> char {
-    match edge {
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Solid,
-            ..
-        } => '─',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Heavy,
-            ..
-        } => '━',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Block,
-            ..
-        } => '▀',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Tall,
-            ..
-        } => '▔',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Outer,
-            ..
-        } => '▀',
-        _ => '─',
-    }
+/// Pick the horizontal outline character (top or bottom row, middle column).
+fn outline_char_horizontal(edge: &BorderEdge, top: bool) -> char {
+    let (chars, _) = crate::widgets::border_chars(edge.edge_type());
+    chars[if top { 0 } else { 2 }][1]
 }
 
-/// Pick vertical outline character based on border type.
-fn outline_char_vertical(edge: &BorderEdge) -> char {
-    match edge {
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Solid,
-            ..
-        } => '│',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Heavy,
-            ..
-        } => '┃',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Block,
-            ..
-        } => '█',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Tall,
-            ..
-        } => '▊',
-        BorderEdge::Edge {
-            border_type: crate::style::BorderType::Outer,
-            ..
-        } => '▌',
-        _ => '│',
-    }
+/// Pick the vertical outline character (middle row, left or right column).
+fn outline_char_vertical(edge: &BorderEdge, left: bool) -> char {
+    let (chars, _) = crate::widgets::border_chars(edge.edge_type());
+    chars[1][if left { 0 } else { 2 }]
 }
 
 // ===========================================================================

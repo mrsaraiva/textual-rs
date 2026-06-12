@@ -888,6 +888,7 @@ pub struct PropertyTransition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BorderType {
+    // existing variants — keep order, do not reorder
     Solid,
     Heavy,
     Block,
@@ -895,6 +896,17 @@ pub enum BorderType {
     Outer,
     HKey,
     VKey,
+    // new variants (Python VALID_BORDER minus none/hidden, which map to BorderEdge::None)
+    Ascii,
+    Blank,
+    Dashed,
+    Double,
+    Inner,
+    Panel,
+    Round,
+    Tab,
+    Thick,
+    Wide,
 }
 
 impl BorderType {
@@ -907,7 +919,43 @@ impl BorderType {
             BorderType::Outer => "outer",
             BorderType::HKey => "hkey",
             BorderType::VKey => "vkey",
+            BorderType::Ascii => "ascii",
+            BorderType::Blank => "blank",
+            BorderType::Dashed => "dashed",
+            BorderType::Double => "double",
+            BorderType::Inner => "inner",
+            BorderType::Panel => "panel",
+            BorderType::Round => "round",
+            BorderType::Tab => "tab",
+            BorderType::Thick => "thick",
+            BorderType::Wide => "wide",
         }
+    }
+
+    /// Parse a border-type keyword (Python `VALID_BORDER`, lowercase).
+    /// `none`/`hidden` are NOT border types here — they normalize to no border
+    /// (`BorderEdge::None`) and are handled by the parser.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "solid" => Self::Solid,
+            "heavy" => Self::Heavy,
+            "block" => Self::Block,
+            "tall" => Self::Tall,
+            "outer" => Self::Outer,
+            "hkey" => Self::HKey,
+            "vkey" => Self::VKey,
+            "ascii" => Self::Ascii,
+            "blank" => Self::Blank,
+            "dashed" => Self::Dashed,
+            "double" => Self::Double,
+            "inner" => Self::Inner,
+            "panel" => Self::Panel,
+            "round" => Self::Round,
+            "tab" => Self::Tab,
+            "thick" => Self::Thick,
+            "wide" => Self::Wide,
+            _ => return None,
+        })
     }
 }
 
@@ -3471,5 +3519,26 @@ mod tests {
         let combined = base.combine(&overlay);
         assert_eq!(combined.constrain, Some(Constrain::Inside));
         assert!(combined.importance.get(StyleProperty::Constrain));
+    }
+
+    #[test]
+    fn border_type_name_round_trip() {
+        use BorderType::*;
+        let all = [
+            Solid, Heavy, Block, Tall, Outer, HKey, VKey,
+            Ascii, Blank, Dashed, Double, Inner, Panel, Round, Tab, Thick, Wide,
+        ];
+        for t in all {
+            assert_eq!(
+                BorderType::from_name(t.as_edge_type()),
+                Some(t),
+                "round-trip failed for {:?}",
+                t
+            );
+        }
+        // none/hidden/bogus must not resolve to a BorderType
+        assert_eq!(BorderType::from_name("none"), None);
+        assert_eq!(BorderType::from_name("hidden"), None);
+        assert_eq!(BorderType::from_name("bogus"), None);
     }
 }

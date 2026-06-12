@@ -16,7 +16,8 @@ use crate::action::ParsedAction;
 
 use super::{
     BindingDecl, Input, KeyPanel, ListView, Overlay, Spacer, Widget, WidgetRenderable,
-    WidgetStyles, helpers::adjust_line_length_no_bg,
+    WidgetStyles, helpers,
+    helpers::adjust_line_length_no_bg,
 };
 
 // ---------------------------------------------------------------------------
@@ -1085,11 +1086,15 @@ impl CommandPalette {
             .min(height.saturating_sub(1));
         let panel_width = width.max(1);
         let max_panel_height = height.saturating_sub(panel_y).max(1);
+        // Account for the CommandList border overhead (blank top + hkey bottom) so the
+        // desired height correctly accommodates all entries.
+        let list_style = crate::css::resolve_component_style(&self.list, &[]);
+        let list_border_overhead = helpers::border_vertical_padding(&list_style);
         let desired_results_height = self
             .provider_results
             .len()
             .saturating_mul(2)
-            .saturating_add(1)
+            .saturating_add(1 + list_border_overhead)
             .max(1);
         let results_height =
             desired_results_height.min(max_panel_height.saturating_sub(Self::HEADER_ROWS).max(1));
@@ -2845,8 +2850,10 @@ mod tests {
         let buf =
             FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
 
-        let title_bg = buf.get(0, 0).style.as_ref().and_then(|style| style.bgcolor);
-        let help_bg = buf.get(0, 1).style.as_ref().and_then(|style| style.bgcolor);
+        // Row 0 is the blank top border (border-top: blank from default CommandList CSS).
+        // Entry 0 starts at row 1 (title) and row 2 (help).
+        let title_bg = buf.get(0, 1).style.as_ref().and_then(|style| style.bgcolor);
+        let help_bg = buf.get(0, 2).style.as_ref().and_then(|style| style.bgcolor);
         assert_eq!(title_bg, help_bg);
         assert!(
             title_bg.is_some(),
@@ -2882,9 +2889,11 @@ mod tests {
         let buf =
             FrameBuffer::from_renderable(&console, &options, &WidgetRenderable::new(&list), None);
 
-        let selected_bg = buf.get(0, 0).style.as_ref().and_then(|style| style.bgcolor);
-        let hover_title_bg = buf.get(0, 2).style.as_ref().and_then(|style| style.bgcolor);
-        let hover_help_bg = buf.get(0, 3).style.as_ref().and_then(|style| style.bgcolor);
+        // Row 0 is the blank top border (border-top: blank from default CommandList CSS).
+        // Entry 0 (selected) starts at row 1, entry 1 (hovered) starts at row 3.
+        let selected_bg = buf.get(0, 1).style.as_ref().and_then(|style| style.bgcolor);
+        let hover_title_bg = buf.get(0, 3).style.as_ref().and_then(|style| style.bgcolor);
+        let hover_help_bg = buf.get(0, 4).style.as_ref().and_then(|style| style.bgcolor);
         assert_eq!(hover_title_bg, hover_help_bg);
         assert!(
             hover_title_bg.is_some(),

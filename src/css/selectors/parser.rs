@@ -1715,31 +1715,37 @@ fn parse_spacing(value: &str) -> Option<crate::style::Spacing> {
     }
 }
 
-fn parse_border_edge(value: &str) -> Option<BorderEdge> {
+/// Parse a Textual border value: any mix of one border-type keyword, one
+/// color, and one alpha percentage, in any order (Python
+/// `_styles_builder._parse_border`, _styles_builder.py:518-555). Last token of
+/// each kind wins. `none`/`hidden` normalize to no border (Python
+/// _border.py:470-479).
+///
+/// Returns `None` if any token is invalid — Python raises a declaration error
+/// here; this parser's convention for invalid declaration values is "drop the
+/// declaration" (cf. `transition-duration`, this file), plus a style-debug log
+/// so the failure is observable via TEXTUAL_DEBUG_STYLE_FILE.
+fn parse_border_value(value: &str) -> Option<BorderEdge> {
     let value = value.trim();
-    if value.eq_ignore_ascii_case("none") {
-        return Some(BorderEdge::None);
+    if value.is_empty() {
+        return None;
     }
-    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
-    let first = tokens.next()?;
-    let (border_type, rest_tokens): (BorderType, Vec<&str>) = match first.to_lowercase().as_str() {
-        "tall" => (BorderType::Tall, tokens.collect()),
-        "block" => (BorderType::Block, tokens.collect()),
-        "heavy" => (BorderType::Heavy, tokens.collect()),
-        "solid" => (BorderType::Solid, tokens.collect()),
-        "outer" => (BorderType::Outer, tokens.collect()),
-        "hkey" => (BorderType::HKey, tokens.collect()),
-        "vkey" => (BorderType::VKey, tokens.collect()),
-        // If the first token isn't a border type, treat it as a color token and default
-        // to `solid`.
-        _ => (
-            BorderType::Solid,
-            std::iter::once(first).chain(tokens).collect(),
-        ),
-    };
+    let mut invisible = false;
+    let mut border_type: Option<BorderType> = None;
     let mut color: Option<crate::style::Color> = None;
     let mut alpha_percent: Option<u8> = None;
-    for token in rest_tokens {
+    for token in value.split_whitespace() {
+        let lower = token.to_lowercase();
+        if lower == "none" || lower == "hidden" {
+            invisible = true;
+            border_type = None;
+            continue;
+        }
+        if let Some(bt) = BorderType::from_name(&lower) {
+            invisible = false;
+            border_type = Some(bt);
+            continue;
+        }
         if let Some(raw) = token.strip_suffix('%') {
             if let Ok(v) = raw.parse::<u8>() {
                 alpha_percent = Some(v.min(100));
@@ -1748,55 +1754,31 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
         }
         if let Some(c) = parse_color_like(token) {
             color = Some(c);
+            continue;
         }
+        crate::debug::debug_style(&format!(
+            "[css][border] invalid token {token:?} in border value {value:?}; declaration ignored"
+        ));
+        return None;
     }
-    let mut color = color?;
+    if invisible {
+        return Some(BorderEdge::None);
+    }
+    // Python defaults: type "solid", color Color(0, 255, 0).
+    let border_type = border_type.unwrap_or(BorderType::Solid);
+    let mut color = color.unwrap_or(crate::style::Color::rgb(0, 255, 0));
     if let Some(p) = alpha_percent {
         color = color.with_alpha(p as f32 / 100.0);
     }
     Some(BorderEdge::Edge { border_type, color })
 }
 
+fn parse_border_edge(value: &str) -> Option<BorderEdge> {
+    parse_border_value(value)
+}
+
 fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("none") {
-        return Some((
-            BorderEdge::None,
-            BorderEdge::None,
-            BorderEdge::None,
-            BorderEdge::None,
-        ));
-    }
-    let mut tokens = value.split_whitespace().filter(|t| !t.is_empty());
-    let kind = tokens.next()?.to_lowercase();
-    let border_type = match kind.as_str() {
-        "block" => BorderType::Block,
-        "solid" => BorderType::Solid,
-        "heavy" => BorderType::Heavy,
-        "tall" => BorderType::Tall,
-        "outer" => BorderType::Outer,
-        "hkey" => BorderType::HKey,
-        "vkey" => BorderType::VKey,
-        _ => return None,
-    };
-    let mut color: Option<crate::style::Color> = None;
-    let mut alpha_percent: Option<u8> = None;
-    for token in tokens {
-        if let Some(raw) = token.strip_suffix('%') {
-            if let Ok(v) = raw.parse::<u8>() {
-                alpha_percent = Some(v.min(100));
-                continue;
-            }
-        }
-        if let Some(c) = parse_color_like(token) {
-            color = Some(c);
-        }
-    }
-    let mut color = color?;
-    if let Some(p) = alpha_percent {
-        color = color.with_alpha(p as f32 / 100.0);
-    }
-    let edge = BorderEdge::Edge { border_type, color };
+    let edge = parse_border_value(value)?;
     Some((edge, edge, edge, edge))
 }
 
@@ -2534,6 +2516,153 @@ mod tests {
                 color: crate::style::parse_color_like("#336699").expect("hex token should resolve"),
             }
         );
+    }
+
+    #[test]
+    fn parse_border_all_python_types() {
+        use BorderType::*;
+        let types = [
+            ("ascii", Ascii),
+            ("blank", Blank),
+            ("dashed", Dashed),
+            ("double", Double),
+            ("heavy", Heavy),
+            ("hkey", HKey),
+            ("inner", Inner),
+            ("outer", Outer),
+            ("panel", Panel),
+            ("round", Round),
+            ("solid", Solid),
+            ("tall", Tall),
+            ("tab", Tab),
+            ("thick", Thick),
+            ("block", Block),
+            ("vkey", VKey),
+            ("wide", Wide),
+        ];
+        let red = crate::style::parse_color_like("red").expect("red should resolve");
+        for (name, expected_type) in types {
+            let css = format!("border: {name} red;");
+            let style = parse_style_body(&css);
+            let expected = crate::style::BorderEdge::Edge {
+                border_type: expected_type,
+                color: red,
+            };
+            assert_eq!(style.border_top, expected, "border-top for type={name}");
+            assert_eq!(style.border_right, expected, "border-right for type={name}");
+            assert_eq!(style.border_bottom, expected, "border-bottom for type={name}");
+            assert_eq!(style.border_left, expected, "border-left for type={name}");
+        }
+    }
+
+    #[test]
+    fn parse_border_type_only_uses_python_default_color() {
+        let style = parse_style_body("border: round;");
+        let expected = crate::style::BorderEdge::Edge {
+            border_type: BorderType::Round,
+            color: crate::style::Color::rgb(0, 255, 0),
+        };
+        assert_eq!(style.border_top, expected);
+        assert_eq!(style.border_right, expected);
+        assert_eq!(style.border_bottom, expected);
+        assert_eq!(style.border_left, expected);
+    }
+
+    #[test]
+    fn parse_border_color_only_defaults_solid() {
+        let style = parse_style_body("border-top: red;");
+        assert_eq!(
+            style.border_top,
+            crate::style::BorderEdge::Edge {
+                border_type: BorderType::Solid,
+                color: crate::style::parse_color_like("red").unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_border_hidden_is_none() {
+        let style = parse_style_body("border: hidden;");
+        assert_eq!(style.border_top, crate::style::BorderEdge::None);
+        assert_eq!(style.border_right, crate::style::BorderEdge::None);
+        assert_eq!(style.border_bottom, crate::style::BorderEdge::None);
+        assert_eq!(style.border_left, crate::style::BorderEdge::None);
+
+        let style2 = parse_style_body("border-left: hidden;");
+        assert_eq!(style2.border_left, crate::style::BorderEdge::None);
+    }
+
+    #[test]
+    fn parse_border_none_with_color_is_none() {
+        let style = parse_style_body("border: none red;");
+        assert_eq!(style.border_top, crate::style::BorderEdge::None);
+        assert_eq!(style.border_right, crate::style::BorderEdge::None);
+        assert_eq!(style.border_bottom, crate::style::BorderEdge::None);
+        assert_eq!(style.border_left, crate::style::BorderEdge::None);
+    }
+
+    #[test]
+    fn parse_border_invalid_token_drops_declaration() {
+        // "bogus" is not a valid border type or color → declaration dropped.
+        let style = parse_style_body("border-top: bogus red;");
+        assert_eq!(
+            style.border_top,
+            crate::style::BorderEdge::Unset,
+            "invalid border-top should be Unset"
+        );
+
+        let style2 = parse_style_body("border: solid bogus;");
+        assert_eq!(
+            style2.border_top,
+            crate::style::BorderEdge::Unset,
+            "invalid border shorthand should be Unset"
+        );
+    }
+
+    #[test]
+    fn parse_border_type_color_any_order() {
+        // Python token loop is order-independent; "red round" == "round red"
+        let red = crate::style::parse_color_like("red").unwrap();
+        let style = parse_style_body("border: red round;");
+        assert_eq!(
+            style.border_top,
+            crate::style::BorderEdge::Edge {
+                border_type: BorderType::Round,
+                color: red,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_outline_round_parses() {
+        let red = crate::style::parse_color_like("red").unwrap();
+        let style = parse_style_body("outline: round red;");
+        let expected = crate::style::BorderEdge::Edge {
+            border_type: BorderType::Round,
+            color: red,
+        };
+        assert_eq!(style.outline_top, expected);
+        assert_eq!(style.outline_right, expected);
+        assert_eq!(style.outline_bottom, expected);
+        assert_eq!(style.outline_left, expected);
+    }
+
+    #[test]
+    fn parse_border_round_with_alpha() {
+        let style = parse_style_body("border: round red 50%;");
+        let red = crate::style::parse_color_like("red").unwrap();
+        let expected_color = red.with_alpha(0.5);
+        if let crate::style::BorderEdge::Edge { border_type, color } = style.border_top {
+            assert_eq!(border_type, BorderType::Round);
+            // Alpha should be approximately 0.5
+            let expected = expected_color;
+            assert_eq!(
+                color, expected,
+                "alpha-applied color should match red with alpha 0.5"
+            );
+        } else {
+            panic!("expected Edge variant, got {:?}", style.border_top);
+        }
     }
 
     #[test]

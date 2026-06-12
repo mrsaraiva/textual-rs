@@ -81,6 +81,7 @@ pub use header::{Header, HeaderClock, HeaderClockSpace, HeaderIcon, HeaderTitle}
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::adjust_line_length_no_bg;
+pub(crate) use helpers::border_chars;
 pub(crate) use helpers::border_spacing_from_style;
 pub(crate) use helpers::crop_line_horizontal;
 pub(crate) use helpers::fixed_height_from_constraints;

@@ -377,6 +377,7 @@ pub(crate) fn apply_border_edges(
                 style.border_title_background,
                 style.border_title_style,
                 inner_bg,
+                border_title_flip(border_top.edge_type()).0,
             );
         }
         if border_debug {
@@ -412,6 +413,7 @@ pub(crate) fn apply_border_edges(
                 style.border_subtitle_background,
                 style.border_subtitle_style,
                 inner_bg,
+                border_title_flip(border_bottom.edge_type()).1,
             );
         }
         if border_debug {
@@ -468,7 +470,7 @@ enum Side {
     Right,
 }
 
-fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
+pub(crate) fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
     let edge_type = effective_border_edge_type(edge_type);
     match edge_type {
         "solid" => (
@@ -499,10 +501,60 @@ fn border_chars(edge_type: &str) -> ([[char; 3]; 3], [[u8; 3]; 3]) {
             [['▏', ' ', '▕'], ['▏', ' ', '▕'], ['▏', ' ', '▕']],
             [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
         ),
+        "ascii" => (
+            [['+', '-', '+'], ['|', ' ', '|'], ['+', '-', '+']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "blank" => (
+            [[' ', ' ', ' '], [' ', ' ', ' '], [' ', ' ', ' ']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "round" => (
+            [['╭', '─', '╮'], ['│', ' ', '│'], ['╰', '─', '╯']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "double" => (
+            [['╔', '═', '╗'], ['║', ' ', '║'], ['╚', '═', '╝']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "dashed" => (
+            [['┏', '╍', '┓'], ['╏', ' ', '╏'], ['┗', '╍', '┛']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "inner" => (
+            [['▗', '▄', '▖'], ['▐', ' ', '▌'], ['▝', '▀', '▘']],
+            [[1, 1, 1], [1, 1, 1], [1, 1, 1]],
+        ),
+        "thick" => (
+            [['█', '▀', '█'], ['█', ' ', '█'], ['█', '▄', '█']],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+        ),
+        "panel" => (
+            [['▊', '█', '▎'], ['▊', ' ', '▎'], ['▊', '▁', '▎']],
+            [[2, 0, 1], [2, 0, 1], [2, 0, 1]],
+        ),
+        "tab" => (
+            [['▁', '▁', '▁'], ['▎', ' ', '▊'], ['▔', '▔', '▔']],
+            [[1, 1, 1], [0, 1, 3], [1, 1, 1]],
+        ),
+        "wide" => (
+            [['▁', '▁', '▁'], ['▎', ' ', '▊'], ['▔', '▔', '▔']],
+            [[1, 1, 1], [0, 1, 3], [1, 1, 1]],
+        ),
         _ => (
             [[' ', ' ', ' '], [' ', ' ', ' '], [' ', ' ', ' ']],
             [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
         ),
+    }
+}
+
+/// Python `BORDER_TITLE_FLIP` (_border.py:238-241): whether the (title, subtitle)
+/// must render with foreground/background swapped for this border type.
+pub(crate) fn border_title_flip(edge_type: &str) -> (bool, bool) {
+    match edge_type {
+        "panel" => (true, false),
+        "tab" => (true, true),
+        _ => (false, false),
     }
 }
 
@@ -690,6 +742,7 @@ fn overlay_border_text(
     bg: Option<crate::style::Color>,
     flags: Option<crate::style::TextStyleFlags>,
     fallback_bg: crate::style::Color,
+    flip: bool,
 ) {
     let left_w = usize::from(has_left);
     let right_w = usize::from(has_right);
@@ -714,6 +767,10 @@ fn overlay_border_text(
         .get(usize::from(has_left))
         .and_then(|s| s.style)
         .unwrap_or_default();
+    if flip {
+        // Python _border.py:397-401: swap fg/bg of the base style for panel/tab titles.
+        std::mem::swap(&mut middle_style.color, &mut middle_style.bgcolor);
+    }
     if let Some(c) = fg {
         middle_style = middle_style.with_color(c.to_simple_opaque());
     }
