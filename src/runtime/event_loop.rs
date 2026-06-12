@@ -301,6 +301,26 @@ fn dispatch_simulated_key_like_input(
             pass.generated.extend(root_ctx.take_messages());
             return;
         }
+
+        // Fallback: app-defined custom action (e.g. "add", "clear").
+        // Called when no action_registry handler exists and execute_action declined.
+        {
+            let mut fallback_ctx = EventCtx::default();
+            root.on_app_unhandled_action(app, &action_str, &mut fallback_ctx);
+            if fallback_ctx.handled() {
+                pass.repaint_requested |= fallback_ctx.repaint_requested();
+                pass.invalidation.merge(fallback_ctx.invalidation());
+                pass.stop_requested |= fallback_ctx.stop_requested();
+                pass.animation_requests
+                    .extend(fallback_ctx.take_animation_requests());
+                pass.worker_requests
+                    .extend(fallback_ctx.take_worker_requests());
+                pass.recompose_nodes
+                    .extend(fallback_ctx.take_recompose_nodes());
+                pass.generated.extend(fallback_ctx.take_messages());
+                return;
+            }
+        }
     }
 
     // Raw key dispatch.
@@ -2528,6 +2548,48 @@ impl App {
                                     ));
                                 }
                                 continue;
+                            }
+
+                            // Fallback: app-defined custom action (e.g. "add", "clear").
+                            // Called when no action_registry handler exists and execute_action declined.
+                            {
+                                let mut fallback_ctx = EventCtx::default();
+                                root.on_app_unhandled_action(self, &action_str, &mut fallback_ctx);
+                                if fallback_ctx.handled() {
+                                    let mut fallback_outcome = DispatchOutcome {
+                                        handled: true,
+                                        repaint_requested: fallback_ctx.repaint_requested(),
+                                        invalidation: fallback_ctx.invalidation(),
+                                        stop_requested: fallback_ctx.stop_requested(),
+                                        messages: fallback_ctx.take_messages(),
+                                        animation_requests: fallback_ctx.take_animation_requests(),
+                                        worker_requests: fallback_ctx.take_worker_requests(),
+                                        recompose_nodes: fallback_ctx.take_recompose_nodes(),
+                                        default_prevented: false,
+                                    };
+                                    self.absorb_outcome(
+                                        &mut fallback_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    let messages = fallback_outcome.messages;
+                                    if !messages.is_empty() {
+                                        let mut msg_outcome = self
+                                            .dispatch_message_queue_with_runtime(root, messages);
+                                        self.absorb_outcome(
+                                            &mut msg_outcome,
+                                            &mut pending_invalidation,
+                                            InvalidationScope::Global,
+                                        );
+                                        if msg_outcome.stop_requested {
+                                            break 'event_loop;
+                                        }
+                                    }
+                                    if fallback_outcome.stop_requested {
+                                        break 'event_loop;
+                                    }
+                                    continue;
+                                }
                             }
                         }
 
@@ -7108,5 +7170,84 @@ mod tests {
         assert_eq!(init_true_calls.load(Ordering::SeqCst), 1);
         assert_eq!(init_false_calls.load(Ordering::SeqCst), 0);
         assert!(pending.flags.content);
+    }
+
+    // SPEC-P2 Step 6a (option b): test for on_app_unhandled_action fallback.
+    // dispatch_simulated_key_like_input is private; test lives here where it is in scope.
+    #[test]
+    fn on_app_unhandled_action_fires_for_custom_binding() {
+        use std::sync::Mutex;
+
+        // A widget tree node with a declarative binding x->frob but no action_registry entry.
+        struct FrobBindingNode {
+            focused: bool,
+        }
+
+        impl Widget for FrobBindingNode {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn focusable(&self) -> bool {
+                true
+            }
+
+            fn has_focus(&self) -> bool {
+                self.focused
+            }
+
+            fn bindings(&self) -> Vec<BindingDecl> {
+                vec![BindingDecl::new("x", "frob", "Frob thing")]
+            }
+        }
+
+        // Runtime root that overrides on_app_unhandled_action and records the action.
+        struct FallbackRecorder {
+            recorded: Arc<Mutex<Option<String>>>,
+        }
+
+        impl Widget for FallbackRecorder {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+
+            fn on_app_unhandled_action(
+                &mut self,
+                _app: &mut App,
+                action: &str,
+                ctx: &mut EventCtx,
+            ) {
+                *self.recorded.lock().unwrap() = Some(action.to_string());
+                ctx.set_handled();
+            }
+        }
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        tree.set_root(Box::new(FrobBindingNode { focused: true }));
+
+        let mut app = test_app_with_tree(tree);
+        let recorded = Arc::new(Mutex::new(None::<String>));
+        let mut runtime_root = FallbackRecorder {
+            recorded: Arc::clone(&recorded),
+        };
+
+        // Simulate pressing 'x', which maps to binding action "frob".
+        let _outcome = app.dispatch_message_queue_with_runtime(
+            &mut runtime_root,
+            vec![crate::message::MessageEvent {
+                sender: crate::node_id::node_id_from_ffi(1),
+                message: crate::message::Message::AppSimulateKey(crate::message::AppSimulateKey {
+                    key: "x".to_string(),
+                }),
+                control: Some(crate::node_id::node_id_from_ffi(1)),
+            }],
+        );
+
+        let got = recorded.lock().unwrap().clone();
+        assert_eq!(
+            got.as_deref(),
+            Some("frob"),
+            "on_app_unhandled_action must be called with action='frob'"
+        );
     }
 }

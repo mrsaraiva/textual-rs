@@ -1438,6 +1438,27 @@ mod message_tests {
         assert_eq!(focused_hits.load(Ordering::Relaxed), 1);
         assert_eq!(sibling_hits.load(Ordering::Relaxed), 1);
     }
+
+    #[test]
+    fn active_hints_include_root_app_bindings_when_tree_is_focused() {
+        // Tree is focused; root (TreeStubWidget) has an app-level binding.
+        // After hiding Tree nav bindings, the app binding is visible.
+        // This test verifies the hint IS collected from the root node
+        // even when the focused child has no hints of its own.
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(HintNode::new(
+            false,
+            vec![BindingHint::new("a", "Add node")],
+        )));
+        let _tree_id = tree.mount(root_id, Box::new(HintNode::new(true, vec![])));
+
+        let (hints, sources) = active_binding_hints_tree(&tree);
+        assert!(
+            hints.iter().any(|h| h.key == "a"),
+            "app-level 'a' binding hint must appear in active hints when Tree is focused"
+        );
+        assert_eq!(sources.len(), 2, "focused node + root both in sources");
+    }
 }
 
 #[cfg(test)]

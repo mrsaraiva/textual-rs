@@ -327,6 +327,16 @@ pub trait Widget: Send + Sync + Any {
     /// Called for unhandled actions so app wrappers can run selector/query-based
     /// behavior with mutable runtime access.
     fn on_app_action(&mut self, _app: &mut crate::App, _action: Action, _ctx: &mut EventCtx) {}
+    /// Called by the runtime when a declarative binding's action string cannot be
+    /// resolved by `resolve_action` and `execute_action`.  Only `TextualAppAdapter`
+    /// overrides this.
+    fn on_app_unhandled_action(
+        &mut self,
+        _app: &mut crate::App,
+        _action: &str,
+        _ctx: &mut EventCtx,
+    ) {
+    }
     /// Optional runtime-level app message hook.
     ///
     /// Called after `on_message` when the message remains unhandled.

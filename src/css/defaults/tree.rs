@@ -4,6 +4,8 @@ pub(super) const DEFAULT_CSS: &str = r#"
 Tree {
     bg: $surface;
     fg: $foreground;
+    width: 1fr;
+    height: 1fr;
 }
 
 Tree > .tree--label {}

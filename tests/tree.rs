@@ -15,6 +15,7 @@ fn tree_renders_expanded_and_collapsed_nodes() {
 
     let tree = Tree::new(vec![
         TreeNode::new("Root")
+            .expanded(true)
             .with_child(TreeNode::new("Child A"))
             .with_child(
                 TreeNode::new("Child B")
@@ -128,6 +129,7 @@ fn tree_mouse_scroll_clamps_to_bounds() {
 fn tree_navigation_skips_disabled_nodes() {
     let mut tree = Tree::new(vec![
         TreeNode::new("Root")
+            .expanded(true)
             .with_child(TreeNode::new("Disabled Child").disabled(true))
             .with_child(TreeNode::new("Enabled Child")),
     ]);
@@ -146,7 +148,9 @@ fn tree_navigation_skips_disabled_nodes() {
 #[test]
 fn tree_mouse_click_ignores_disabled_nodes() {
     let mut tree = Tree::new(vec![
-        TreeNode::new("Root").with_child(TreeNode::new("Child").disabled(true)),
+        TreeNode::new("Root")
+            .expanded(true)
+            .with_child(TreeNode::new("Child").disabled(true)),
     ]);
     tree.on_layout(24, 5);
 

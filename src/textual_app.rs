@@ -54,6 +54,15 @@ pub trait TextualApp: Send + 'static {
         Ok(())
     }
 
+    /// Display title shown in the Header.  Defaults to "textual-rs".
+    ///
+    /// Override this to set the app title, mirroring Python Textual's `App.TITLE`
+    /// class variable.  The runtime reads this once at mount time and stores it
+    /// in `App::title()`.
+    fn title(&self) -> &'static str {
+        "textual-rs"
+    }
+
     /// Declarative app-level key bindings.
     ///
     /// These are attached to the root adapter widget, so they are available
@@ -100,6 +109,15 @@ pub trait TextualApp: Send + 'static {
         let _ = app;
         self.on_action(action, ctx);
     }
+
+    /// Handle a custom action string declared in `bindings()` whose name is not in
+    /// any widget's `action_registry()`.  Mirror Python's `action_<name>` method
+    /// dispatch for app-level custom actions.
+    ///
+    /// Override this instead of `on_key_with_app` for actions tied to declarative
+    /// bindings.  The `action` string is exactly what was declared as the action
+    /// in `BindingDecl::new(key, action, description)`.
+    fn on_app_action_str(&mut self, _app: &mut App, _action: &str, _ctx: &mut EventCtx) {}
 
     /// App-level key hook.
     ///
@@ -815,6 +833,14 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
+    fn on_app_unhandled_action(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_app_action_str(app, action, ctx);
+        self.dispatch_app_reactive(app, ctx);
+    }
+
     fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if self.sync_help_panel_visible_from_runtime(app) && self.command_palette_visible {
             self.publish_command_palette_commands(ctx);
@@ -844,6 +870,12 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 .unwrap_or_else(|e| e.into_inner())
                 .check_action(action, params)
         }));
+
+        // Propagate the app-defined title to the runtime before any Header reads it.
+        {
+            let app_title = self.app.lock().unwrap_or_else(|e| e.into_inner()).title();
+            app.set_title(app_title);
+        }
 
         self.app
             .lock()

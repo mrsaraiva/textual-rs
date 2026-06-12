@@ -28,7 +28,7 @@ impl TreeNode {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            expanded: true,
+            expanded: false,
             allow_expand: false,
             disabled: false,
             component_classes: Vec::new(),
@@ -1119,16 +1119,16 @@ impl Widget for Tree {
 
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
-            BindingDecl::new("up", "cursor_up", "Move cursor up"),
-            BindingDecl::new("down", "cursor_down", "Move cursor down"),
+            BindingDecl::new("up", "cursor_up", "Move cursor up").hidden(),
+            BindingDecl::new("down", "cursor_down", "Move cursor down").hidden(),
             BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
             BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
             BindingDecl::new("home", "scroll_home", "Move to first node").hidden(),
             BindingDecl::new("end", "scroll_end", "Move to last node").hidden(),
-            BindingDecl::new("left", "collapse_or_parent", "Collapse or move to parent"),
-            BindingDecl::new("right", "expand_or_child", "Expand or move to child"),
-            BindingDecl::new("enter", "select_cursor", "Activate node"),
-            BindingDecl::new("space", "toggle_node", "Toggle node"),
+            BindingDecl::new("left", "collapse_or_parent", "Collapse or move to parent").hidden(),
+            BindingDecl::new("right", "expand_or_child", "Expand or move to child").hidden(),
+            BindingDecl::new("enter", "select_cursor", "Activate node").hidden(),
+            BindingDecl::new("space", "toggle_node", "Toggle node").hidden(),
             BindingDecl::new("shift+up", "cursor_previous_sibling", "Previous sibling").hidden(),
             BindingDecl::new("shift+down", "cursor_next_sibling", "Next sibling").hidden(),
             BindingDecl::new("shift+left", "cursor_parent", "Go to parent").hidden(),
@@ -1919,6 +1919,7 @@ mod tests {
 
         let tree = Tree::new(vec![
             TreeNode::new("Root")
+                .expanded(true)
                 .with_child(TreeNode::new("Child A"))
                 .with_child(TreeNode::new("Child B")),
         ]);
@@ -2080,13 +2081,13 @@ mod tests {
     #[test]
     fn tree_node_expand_collapse() {
         let mut node = TreeNode::new("N");
-        // Nodes with children default to expanded.
+        // Nodes start collapsed by default; expanded must be set explicitly.
         node = node.with_child(TreeNode::new("C"));
-        assert!(node.is_expanded());
-        node.collapse();
         assert!(!node.is_expanded());
         node.expand();
         assert!(node.is_expanded());
+        node.collapse();
+        assert!(!node.is_expanded());
     }
 
     #[test]
@@ -2138,5 +2139,23 @@ mod tests {
             text.contains("[not-markup]"),
             "plain bracketed labels should render literally: {text:?}"
         );
+    }
+
+    #[test]
+    fn tree_node_default_not_expanded() {
+        let node = TreeNode::new("label");
+        assert!(!node.is_expanded(), "new TreeNode must start collapsed");
+    }
+
+    #[test]
+    fn tree_navigation_bindings_all_hidden() {
+        let tree = Tree::new(vec![TreeNode::new("r")]);
+        for binding in tree.bindings() {
+            assert!(
+                !binding.show,
+                "Tree binding {:?}/{:?} must be hidden (show=false)",
+                binding.key, binding.description
+            );
+        }
     }
 }
