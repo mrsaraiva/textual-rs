@@ -433,6 +433,8 @@ struct FiveByFiveApp {
     /// Some(moves) once won; None while playing (Python: WinnerMessage show/hide).
     #[reactive(watch_with_app, init = false)]
     won_at: Option<usize>,
+    /// Handle slot for the WinnerMessage overlay (direct AppRoot child).
+    winner: HandleSlot<WinnerMessage>,
 }
 
 impl FiveByFiveApp {
@@ -442,6 +444,7 @@ impl FiveByFiveApp {
             cursor: (SIZE / 2, SIZE / 2),
             moves: 0,
             won_at: None,
+            winner: HandleSlot::new(),
         }
     }
 
@@ -526,10 +529,12 @@ impl FiveByFiveApp {
         ctx: &mut ReactiveCtx,
     ) {
         let new = *new;
-        let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| match new {
-            Some(moves) => w.show(moves),
-            None => w.hide(),
-        });
+        if let Ok(h) = self.winner.handle() {
+            let _ = h.update(app, |w, _ctx| match new {
+                Some(moves) => w.show(moves),
+                None => w.hide(),
+            });
+        }
         ctx.request_layout();
         ctx.request_repaint();
     }
@@ -566,7 +571,7 @@ impl TextualApp for FiveByFiveApp {
         AppRoot::new()
             .with_child(GameHeader::new())
             .with_child(grid)
-            .with_child(WinnerMessage::new())
+            .with_child_handle(WinnerMessage::new(), &self.winner)
             .with_child(Footer::new())
     }
 
