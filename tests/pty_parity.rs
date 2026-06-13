@@ -93,17 +93,45 @@ const CASES: &[Case] = &[
         keys: " ",
         golden_replacements: &[],
         status: Status::XFail(
-            "five_by_five processes NO keypresses (Space, 'n' new-game, '?' help \
-             all no-op via portable-pty AND tmux), so the header stays at \
-             Moves:0/Filled:5 after a move. NOT a reactive/repaint issue \
-             (dispatch_app_reactive IS wired after on_app_key, textual_app.rs:875) \
-             and NOT framework-wide (json_tree 'a' and markdown 't' parity cases \
-             process keys fine). Five_by_five-specific input routing: keys likely \
-             captured by the focused GameCell button instead of reaching the app \
-             binding/on_key_with_app. Surfaced by RA-4 verification; whether \
-             RA-3-introduced or pre-existing is unconfirmed (needs git-bisect). \
-             five_by_five_initial passes because the first frame needs no input.",
+            "five_by_five input is dead APP-WIDE: Space, 'n', and the '?' help \
+             binding all no-op (see five_by_five_help). NOT GameCell key-capture \
+             (the '?' app binding fails too), NOT reactive/repaint \
+             (dispatch_app_reactive IS wired after on_app_key, textual_app.rs:875), \
+             NOT framework-wide (json_tree 'a'/'t' and markdown 't' all pass). \
+             Five_by_five-specific: keys never reach app bindings or \
+             on_key_with_app — likely tied to its Screen-stack/GameGrid focus \
+             composition. Surfaced by RA-4 verification; RA-3-introduced vs \
+             pre-existing unconfirmed (needs git-bisect). five_by_five_initial \
+             passes because the first frame needs no input.",
         ),
+    },
+    Case {
+        // Diagnostic for the five_by_five input bug: `?` is an app-level binding
+        // (help screen push), not a cursor/cell key. If this works but
+        // after_move does not, keys are being captured by the focused GameCell;
+        // if this also fails, input is dead app-wide for this example.
+        name: "five_by_five_help",
+        example: "five_by_five",
+        args: &[],
+        cwd: None,
+        keys: "?",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "five_by_five input bug (see five_by_five_after_move): `?` help \
+             overlay does not appear. Confirms keys do not reach app bindings \
+             either, not just cell movement.",
+        ),
+    },
+    Case {
+        // Second interactive case for json_tree (beyond add_node) to confirm it
+        // is genuinely interactive, not coincidentally passing one key.
+        name: "json_tree_toggle_root",
+        example: "json_tree",
+        args: &[],
+        cwd: None,
+        keys: "t",
+        golden_replacements: &[],
+        status: Status::Pass,
     },
     Case {
         name: "json_tree_initial",
@@ -388,6 +416,8 @@ pty_case!(markdown_initial, "markdown_initial");
 pty_case!(markdown_toc_toggle, "markdown_toc_toggle");
 pty_case!(five_by_five_initial, "five_by_five_initial");
 pty_case!(five_by_five_after_move, "five_by_five_after_move");
+pty_case!(five_by_five_help, "five_by_five_help");
+pty_case!(json_tree_toggle_root, "json_tree_toggle_root");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
