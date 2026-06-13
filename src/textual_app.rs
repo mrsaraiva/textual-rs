@@ -461,35 +461,67 @@ impl<T: TextualApp> TextualAppAdapter<T> {
     /// Drain any pending reactive changes accumulated on `app.reactive_ctx()`
     /// and dispatch them to the app's `ReactiveWidget` impl (if any).
     ///
-    /// Called after every `TextualApp` hook that receives `&mut App` so that
-    /// reactive setters called inside hooks trigger watchers and repaint/layout.
+    /// Iterative: chained watcher sets (watchers calling setters on their
+    /// dispatch `ctx`) are fed back and re-processed, up to
+    /// [`crate::reactive::MAX_REACTIVE_ITERATIONS`]. Mirrors the widget-level
+    /// `run_reactive_phase_with_dispatch` semantics for the app-level bridge.
     ///
-    /// Repaint/layout flags from the setter (stored on `app.reactive_ctx()`) and
-    /// from the watcher itself (on the dispatch `rctx`) are both propagated to `ctx`.
+    /// Repaint/layout/styles flags from setters and watchers are all propagated
+    /// to `ctx` (using `EventCtx::request_repaint`,
+    /// `request_layout_invalidation`, `request_style_invalidation`).
     fn dispatch_app_reactive(&self, app: &mut App, ctx: &mut EventCtx) {
-        if !app.reactive_ctx().has_changes() {
-            return;
+        let mut needs_repaint = false;
+        let mut needs_layout = false;
+        let mut needs_styles = false;
+
+        for _ in 0..crate::reactive::MAX_REACTIVE_ITERATIONS {
+            if !app.reactive_ctx().has_changes() {
+                break;
+            }
+            needs_repaint |= app.reactive_ctx().needs_repaint();
+            needs_layout |= app.reactive_ctx().needs_layout();
+            needs_styles |= app.reactive_ctx().needs_styles();
+            let changes = app.reactive_ctx().take_changes();
+            app.reactive_ctx().reset_flags();
+            let mut rctx = ReactiveCtx::new(NodeId::default());
+            if let Some(rw) = self
+                .app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reactive_widget_mut()
+            {
+                rw.reactive_dispatch_with_app(app, &changes, &mut rctx);
+            }
+            needs_repaint |= rctx.needs_repaint();
+            needs_layout |= rctx.needs_layout();
+            needs_styles |= rctx.needs_styles();
+            // Feed chained changes (watchers calling setters on the dispatch ctx)
+            // back into the app ctx for the next iteration.
+            for change in rctx.take_changes() {
+                app.reactive_ctx().record_change(
+                    change.field_name,
+                    change.flags,
+                    change.old_value,
+                    change.new_value,
+                );
+            }
         }
-        // Capture setter-level repaint/layout flags, drain changes, then reset
-        // flags so they don't accumulate across subsequent hook calls.
-        let setter_needs_repaint = app.reactive_ctx().needs_repaint();
-        let setter_needs_layout = app.reactive_ctx().needs_layout();
-        let changes = app.reactive_ctx().take_changes();
-        app.reactive_ctx().reset_flags();
-        let mut rctx = ReactiveCtx::new(NodeId::default());
-        if let Some(rw) = self
-            .app
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .reactive_widget_mut()
-        {
-            rw.reactive_dispatch(&changes, &mut rctx);
+
+        // Cycle guard — mirror run_reactive_phase_with_dispatch.
+        if app.reactive_ctx().has_changes() {
+            crate::debug::debug_render("[reactive] app-level cycle detected; draining");
+            let _ = app.reactive_ctx().take_changes();
+            app.reactive_ctx().reset_flags();
         }
-        if setter_needs_repaint || rctx.needs_repaint() {
+
+        if needs_repaint {
             ctx.request_repaint();
         }
-        if setter_needs_layout || rctx.needs_layout() {
+        if needs_layout {
             ctx.request_layout_invalidation();
+        }
+        if needs_styles {
+            ctx.request_style_invalidation();
         }
     }
 }
@@ -894,6 +926,22 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             let app_title = self.app.lock().unwrap_or_else(|e| e.into_inner()).title();
             app.set_title(app_title);
         }
+
+        // Init-phase watcher firing (G3): record synthetic old==new changes for
+        // every reactive field with init=true, then dispatch them. This mirrors
+        // Python's Reactive._initialize_object (reactive.py:227-228) and fires
+        // before on_mount_with_app (matching Python ordering).
+        {
+            if let Some(rw) = self
+                .app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reactive_widget_mut()
+            {
+                rw.reactive_record_init(app.reactive_ctx());
+            }
+        }
+        self.dispatch_app_reactive(app, ctx);
 
         self.app
             .lock()
@@ -2515,6 +2563,280 @@ mod tests {
         let guard = app_state.lock().unwrap();
         assert_eq!(guard.count, 101);
         assert_eq!(guard.watch_log.len(), 2);
+    }
+
+    // ---------------------------------------------------------------------------
+    // T2b: New bridge tests — chained changes, cycle guard, styles flag, init order
+    // ---------------------------------------------------------------------------
+
+    /// A TextualApp that chains reactive changes: watcher for `a` records a
+    /// change for `b`, which has its own watcher.
+    struct ChainedReactiveApp {
+        a: i32,
+        b: i32,
+        watch_log: Vec<(&'static str, i32, i32)>, // (field, old, new)
+    }
+
+    impl ChainedReactiveApp {
+        fn new() -> Self {
+            Self { a: 0, b: 0, watch_log: Vec::new() }
+        }
+
+        fn set_a(&mut self, val: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.a;
+            self.a = val;
+            ctx.record_change("a", ReactiveFlags::reactive(), Box::new(old), Box::new(val));
+        }
+
+        fn set_b(&mut self, val: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.b;
+            self.b = val;
+            ctx.record_change("b", ReactiveFlags::reactive(), Box::new(old), Box::new(val));
+        }
+    }
+
+    impl TextualApp for ChainedReactiveApp {
+        fn compose(&mut self) -> AppRoot { AppRoot::new() }
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> { Some(self) }
+    }
+
+    impl ReactiveWidget for ChainedReactiveApp {
+        fn reactive_dispatch_with_app(
+            &mut self,
+            _app: &mut App,
+            changes: &[crate::reactive::ReactiveChange],
+            ctx: &mut ReactiveCtx,
+        ) {
+            for change in changes {
+                if change.field_name == "a" {
+                    if let (Some(&old), Some(&new)) = (
+                        change.old_value.downcast_ref::<i32>(),
+                        change.new_value.downcast_ref::<i32>(),
+                    ) {
+                        self.watch_log.push(("a", old, new));
+                        // Chain: watcher for 'a' sets 'b' via the dispatch ctx
+                        self.set_b(new * 2, ctx);
+                    }
+                } else if change.field_name == "b" {
+                    if let (Some(&old), Some(&new)) = (
+                        change.old_value.downcast_ref::<i32>(),
+                        change.new_value.downcast_ref::<i32>(),
+                    ) {
+                        self.watch_log.push(("b", old, new));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_reactive_bridge_chained_watcher_changes_are_processed() {
+        let app_state = Arc::new(Mutex::new(ChainedReactiveApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        // set_a records change for 'a'; watcher for 'a' will chain a change for 'b'
+        app_state.lock().unwrap().set_a(5, runtime.reactive_ctx());
+        adapter.dispatch_app_reactive(&mut runtime, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        assert_eq!(guard.a, 5);
+        assert_eq!(guard.b, 10, "chained set_b(5*2) should have fired");
+        // Both watchers should have run
+        assert!(guard.watch_log.iter().any(|(f, _, _)| *f == "a"), "watcher 'a' should run");
+        assert!(guard.watch_log.iter().any(|(f, _, _)| *f == "b"), "watcher 'b' should run (chained)");
+    }
+
+    /// An app whose watcher always re-records a change for the same field (infinite loop).
+    struct CycleApp {
+        val: i32,
+        dispatch_count: usize,
+    }
+
+    impl CycleApp {
+        fn new() -> Self { Self { val: 0, dispatch_count: 0 } }
+
+        fn set_val(&mut self, v: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.val;
+            self.val = v;
+            ctx.record_change("val", ReactiveFlags::reactive(), Box::new(old), Box::new(v));
+        }
+    }
+
+    impl TextualApp for CycleApp {
+        fn compose(&mut self) -> AppRoot { AppRoot::new() }
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> { Some(self) }
+    }
+
+    impl ReactiveWidget for CycleApp {
+        fn reactive_dispatch_with_app(
+            &mut self,
+            _app: &mut App,
+            changes: &[crate::reactive::ReactiveChange],
+            ctx: &mut ReactiveCtx,
+        ) {
+            for change in changes {
+                if change.field_name == "val" {
+                    self.dispatch_count += 1;
+                    // Always re-record to create a cycle
+                    use crate::reactive::ReactiveFlags;
+                    let new = *change.new_value.downcast_ref::<i32>().unwrap();
+                    ctx.record_change(
+                        "val",
+                        ReactiveFlags::reactive(),
+                        Box::new(new),
+                        Box::new(new + 1),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_reactive_bridge_cycle_guard_terminates() {
+        let app_state = Arc::new(Mutex::new(CycleApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        app_state.lock().unwrap().set_val(1, runtime.reactive_ctx());
+        // Must return (not loop forever)
+        adapter.dispatch_app_reactive(&mut runtime, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        // Should have run up to MAX_REACTIVE_ITERATIONS times, then stopped
+        assert!(guard.dispatch_count <= crate::reactive::MAX_REACTIVE_ITERATIONS);
+        // The app ctx must be drained
+        assert!(!runtime.reactive_ctx().has_changes());
+    }
+
+    /// An app whose watcher calls ctx.request_styles().
+    struct StylesRequestApp {
+        val: i32,
+    }
+
+    impl StylesRequestApp {
+        fn new() -> Self { Self { val: 0 } }
+
+        fn set_val(&mut self, v: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.val;
+            self.val = v;
+            ctx.record_change("val", ReactiveFlags::reactive(), Box::new(old), Box::new(v));
+        }
+    }
+
+    impl TextualApp for StylesRequestApp {
+        fn compose(&mut self) -> AppRoot { AppRoot::new() }
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> { Some(self) }
+    }
+
+    impl ReactiveWidget for StylesRequestApp {
+        fn reactive_dispatch_with_app(
+            &mut self,
+            _app: &mut App,
+            changes: &[crate::reactive::ReactiveChange],
+            ctx: &mut ReactiveCtx,
+        ) {
+            for change in changes {
+                if change.field_name == "val" {
+                    let _ = change;
+                    ctx.request_styles();
+                    ctx.request_repaint();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_reactive_bridge_styles_flag_maps_to_event_ctx() {
+        let app_state = Arc::new(Mutex::new(StylesRequestApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        app_state.lock().unwrap().set_val(1, runtime.reactive_ctx());
+        adapter.dispatch_app_reactive(&mut runtime, &mut ctx);
+
+        assert!(ctx.repaint_requested(), "repaint should be requested");
+        assert!(ctx.invalidation().style, "style invalidation should be requested");
+    }
+
+    /// An app that logs watcher call order to verify init fires before on_mount_with_app.
+    struct InitOrderApp {
+        log: Vec<&'static str>,
+    }
+
+    impl InitOrderApp {
+        fn new() -> Self { Self { log: Vec::new() } }
+
+        fn set_count(&mut self, _val: i32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            ctx.record_change("count", ReactiveFlags::reactive(), Box::new(0_i32), Box::new(0_i32));
+        }
+    }
+
+    impl TextualApp for InitOrderApp {
+        fn compose(&mut self) -> AppRoot { AppRoot::new() }
+
+        fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {
+            self.log.push("on_mount_with_app");
+        }
+
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> { Some(self) }
+    }
+
+    impl ReactiveWidget for InitOrderApp {
+        fn reactive_record_init(&self, ctx: &mut ReactiveCtx) {
+            // Simulate recording init changes for a field named "count"
+            use crate::reactive::ReactiveFlags;
+            ctx.record_change(
+                "count",
+                ReactiveFlags::reactive(),
+                Box::new(0_i32),
+                Box::new(0_i32),
+            );
+        }
+
+        fn reactive_dispatch_with_app(
+            &mut self,
+            _app: &mut App,
+            changes: &[crate::reactive::ReactiveChange],
+            ctx: &mut ReactiveCtx,
+        ) {
+            for change in changes {
+                if change.field_name == "count" {
+                    let _ = change;
+                    self.log.push("watcher_count");
+                    ctx.request_repaint();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_reactive_bridge_record_init_fires_before_mount_hook() {
+        let app_state = Arc::new(Mutex::new(InitOrderApp::new()));
+        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let mut runtime = App::new().expect("runtime init");
+        let mut ctx = EventCtx::default();
+
+        adapter.on_app_mount(&mut runtime, &mut ctx);
+
+        let guard = app_state.lock().unwrap();
+        // watcher_count must appear before on_mount_with_app in the log
+        let watcher_pos = guard.log.iter().position(|&s| s == "watcher_count");
+        let mount_pos = guard.log.iter().position(|&s| s == "on_mount_with_app");
+        assert!(watcher_pos.is_some(), "watcher should have fired");
+        assert!(mount_pos.is_some(), "on_mount_with_app should have been called");
+        assert!(
+            watcher_pos.unwrap() < mount_pos.unwrap(),
+            "init watcher must fire before on_mount_with_app"
+        );
     }
 
     // ---------------------------------------------------------------------------
