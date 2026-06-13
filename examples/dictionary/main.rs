@@ -117,12 +117,15 @@ fn make_word_markdown(word: &str) -> String {
 struct DictionaryApp {
     /// Shared result buffer between the app and the background worker thread.
     lookup_result: Arc<Mutex<Option<String>>>,
+    /// Post-mount typed handle to the Markdown results widget (nested in Node > ScrollView).
+    results: Option<Handle<Markdown>>,
 }
 
 impl DictionaryApp {
     fn new() -> Self {
         Self {
             lookup_result: Arc::new(Mutex::new(None)),
+            results: None,
         }
     }
 }
@@ -143,6 +146,12 @@ impl TextualApp for DictionaryApp {
                 Node::new(ScrollView::new(Markdown::new("").with_id("results")))
                     .id("results-container"),
             )
+    }
+
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // The Markdown results widget is nested (Node > ScrollView > Markdown),
+        // so use post-mount query_one_typed rather than with_child_handle.
+        self.results = app.query_one_typed::<Markdown>("#results").ok();
     }
 
     fn on_input_changed(
@@ -184,9 +193,11 @@ impl TextualApp for DictionaryApp {
                     { self.lookup_result.lock().unwrap_or_else(|e| e.into_inner()).take() };
                 if let Some(markdown) = markdown {
                     // Python: `self.results.update(markdown)` on the queried widget.
-                    let _ = app.with_query_one_mut_as::<Markdown, _>("#results", |w| {
-                        w.set_markup(markdown.clone());
-                    });
+                    if let Some(h) = self.results {
+                        let _ = h.update(app, |w, _ctx| {
+                            w.set_markup(markdown.clone());
+                        });
+                    }
                 }
             }
         }
