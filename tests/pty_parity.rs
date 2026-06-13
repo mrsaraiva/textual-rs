@@ -93,14 +93,16 @@ const CASES: &[Case] = &[
         keys: " ",
         golden_replacements: &[],
         status: Status::XFail(
-            "Moves/Filled header labels do not update after a keypress: the \
-             app-level reactive phase does not dispatch watchers after \
-             event-handler mutations (set_moves/set_cells during on_key_with_app), \
-             so watch_moves/watch_cells never fire mid-play. The init watch fires \
-             at mount (five_by_five_initial passes), masking the bug at the first \
-             frame. Surfaced by RA-4 verification; root cause is the RA-3 \
-             signals-first rewrite. Needs a framework fix: run the app reactive \
-             phase after event handlers.",
+            "five_by_five processes NO keypresses (Space, 'n' new-game, '?' help \
+             all no-op via portable-pty AND tmux), so the header stays at \
+             Moves:0/Filled:5 after a move. NOT a reactive/repaint issue \
+             (dispatch_app_reactive IS wired after on_app_key, textual_app.rs:875) \
+             and NOT framework-wide (json_tree 'a' and markdown 't' parity cases \
+             process keys fine). Five_by_five-specific input routing: keys likely \
+             captured by the focused GameCell button instead of reaching the app \
+             binding/on_key_with_app. Surfaced by RA-4 verification; whether \
+             RA-3-introduced or pre-existing is unconfirmed (needs git-bisect). \
+             five_by_five_initial passes because the first frame needs no input.",
         ),
     },
     Case {
