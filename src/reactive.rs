@@ -165,6 +165,7 @@ pub struct ReactiveCtx {
     repaint_requested: bool,
     layout_requested: bool,
     class_ops: Vec<(NodeId, crate::event::ClassOp)>,
+    styles_requested: bool,
 }
 
 impl ReactiveCtx {
@@ -176,6 +177,7 @@ impl ReactiveCtx {
             repaint_requested: false,
             layout_requested: false,
             class_ops: Vec::new(),
+            styles_requested: false,
         }
     }
 
@@ -226,6 +228,26 @@ impl ReactiveCtx {
         self.layout_requested
     }
 
+    /// Whether any change/watcher requested style recomputation.
+    pub fn needs_styles(&self) -> bool {
+        self.styles_requested
+    }
+
+    /// Request a repaint without recording a field change (for watcher side effects).
+    pub fn request_repaint(&mut self) {
+        self.repaint_requested = true;
+    }
+
+    /// Request layout invalidation without recording a field change.
+    pub fn request_layout(&mut self) {
+        self.layout_requested = true;
+    }
+
+    /// Request style recomputation (e.g. after CSS class changes via queries).
+    pub fn request_styles(&mut self) {
+        self.styles_requested = true;
+    }
+
     /// Returns `true` if any changes were recorded.
     pub fn has_changes(&self) -> bool {
         !self.changes.is_empty()
@@ -239,12 +261,14 @@ impl ReactiveCtx {
     pub fn reset_flags(&mut self) {
         self.repaint_requested = false;
         self.layout_requested = false;
+        self.styles_requested = false;
     }
 
     /// Reset the repaint/layout flags (e.g. after the runtime processes them).
     pub fn clear_flags(&mut self) {
         self.repaint_requested = false;
         self.layout_requested = false;
+        self.styles_requested = false;
     }
 
     /// Queue an `Add` class op on this widget's own node.
@@ -294,6 +318,7 @@ impl std::fmt::Debug for ReactiveCtx {
             .field("changes", &self.changes.len())
             .field("repaint_requested", &self.repaint_requested)
             .field("layout_requested", &self.layout_requested)
+            .field("styles_requested", &self.styles_requested)
             .finish()
     }
 }
@@ -696,5 +721,71 @@ mod tests {
         assert!(!ReactiveFlags::reactive().always_update);
         assert!(!ReactiveFlags::var().always_update);
         assert!(!ReactiveFlags::reactive_layout().always_update);
+    }
+
+    #[test]
+    fn ctx_request_styles_sets_flag_and_clears() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        assert!(!ctx.needs_styles());
+        ctx.request_styles();
+        assert!(ctx.needs_styles());
+        ctx.clear_flags();
+        assert!(!ctx.needs_styles());
+
+        ctx.request_styles();
+        assert!(ctx.needs_styles());
+        ctx.reset_flags();
+        assert!(!ctx.needs_styles());
+    }
+
+    #[test]
+    fn ctx_request_repaint_layout_without_change() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        assert!(!ctx.needs_repaint());
+        assert!(!ctx.needs_layout());
+        assert!(!ctx.has_changes());
+
+        ctx.request_repaint();
+        assert!(ctx.needs_repaint());
+        assert!(!ctx.has_changes());
+
+        ctx.request_layout();
+        assert!(ctx.needs_layout());
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn reactive_widget_default_with_app_delegates() {
+        // Verifies that a struct with only reactive_dispatch overridden
+        // receives calls correctly through the default impl path.
+        struct SimpleWidget {
+            dispatch_called: bool,
+        }
+        impl ReactiveWidget for SimpleWidget {
+            fn reactive_dispatch(
+                &mut self,
+                changes: &[ReactiveChange],
+                _ctx: &mut ReactiveCtx,
+            ) {
+                if !changes.is_empty() {
+                    self.dispatch_called = true;
+                }
+            }
+        }
+
+        let id = make_node_id();
+        let flags = ReactiveFlags::reactive();
+        let changes = vec![ReactiveChange {
+            field_name: "x",
+            flags,
+            old_value: Box::new(0_i32),
+            new_value: Box::new(1_i32),
+        }];
+        let mut ctx = ReactiveCtx::new(id);
+        let mut w = SimpleWidget { dispatch_called: false };
+        w.reactive_dispatch(&changes, &mut ctx);
+        assert!(w.dispatch_called);
     }
 }
