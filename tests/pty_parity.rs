@@ -83,6 +83,27 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        // Exercises the post-keypress update path (move counter + filled count +
+        // cell toggling) — the behavior RA-4's Handle<Label> migration touched,
+        // which the initial-screen cases do not cover.
+        name: "five_by_five_after_move",
+        example: "five_by_five",
+        args: &[],
+        cwd: None,
+        keys: " ",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "Moves/Filled header labels do not update after a keypress: the \
+             app-level reactive phase does not dispatch watchers after \
+             event-handler mutations (set_moves/set_cells during on_key_with_app), \
+             so watch_moves/watch_cells never fire mid-play. The init watch fires \
+             at mount (five_by_five_initial passes), masking the bug at the first \
+             frame. Surfaced by RA-4 verification; root cause is the RA-3 \
+             signals-first rewrite. Needs a framework fix: run the app reactive \
+             phase after event handlers.",
+        ),
+    },
+    Case {
         name: "json_tree_initial",
         example: "json_tree",
         args: &[],
@@ -364,6 +385,7 @@ macro_rules! pty_case {
 pty_case!(markdown_initial, "markdown_initial");
 pty_case!(markdown_toc_toggle, "markdown_toc_toggle");
 pty_case!(five_by_five_initial, "five_by_five_initial");
+pty_case!(five_by_five_after_move, "five_by_five_after_move");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
