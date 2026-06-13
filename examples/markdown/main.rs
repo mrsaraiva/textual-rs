@@ -21,6 +21,8 @@ struct MarkdownApp {
     nav_state: (bool, bool),
     /// Optional file path from CLI args.
     initial_path: Option<String>,
+    /// Typed handle slot for the MarkdownViewer child.
+    viewer: HandleSlot<MarkdownViewer>,
 }
 
 impl MarkdownApp {
@@ -28,6 +30,7 @@ impl MarkdownApp {
         Self {
             nav_state: (true, true),
             initial_path: None,
+            viewer: HandleSlot::new(),
         }
     }
 
@@ -60,23 +63,28 @@ impl TextualApp for MarkdownApp {
         let mut viewer = MarkdownViewer::new(DEMO_MD).with_id("markdown-viewer");
         viewer.register_content("demo.md", DEMO_MD);
         viewer.register_content("example.md", EXAMPLE_MD);
-        AppRoot::new().with_child(Footer::new()).with_child(viewer)
+        AppRoot::new()
+            .with_child(Footer::new())
+            .with_child_handle(viewer, &self.viewer)
     }
 
     fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
         // Load initial content: CLI arg path or demo.md.
         if let Some(ref path) = self.initial_path {
             if let Ok(content) = std::fs::read_to_string(path) {
-                let _ =
-                    app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
+                let _ = self.viewer.handle().and_then(|h| {
+                    h.update(app, |viewer, _ctx| {
                         viewer.register_content(path.clone(), content);
                         viewer.go(path.clone());
-                    });
+                    })
+                });
                 ctx.post_message(NavigatorUpdated);
             }
         } else {
-            let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
-                viewer.go("demo.md");
+            let _ = self.viewer.handle().and_then(|h| {
+                h.update(app, |viewer, _ctx| {
+                    viewer.go("demo.md");
+                })
             });
             ctx.post_message(NavigatorUpdated);
         }
@@ -86,21 +94,22 @@ impl TextualApp for MarkdownApp {
         match key.name() {
             "t" | "T" => {
                 // Python: self.markdown_viewer.show_table_of_contents = not ...
-                let _ =
-                    app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
+                let _ = self.viewer.handle().and_then(|h| {
+                    h.update(app, |viewer, _ctx| {
                         let show = !viewer.is_showing_table_of_contents();
                         viewer.set_show_table_of_contents(show);
-                    });
+                    })
+                });
                 ctx.set_handled();
                 ctx.request_style_invalidation();
                 ctx.request_layout_invalidation();
                 ctx.request_repaint();
             }
             "b" => {
-                let navigated = app
-                    .with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
-                        viewer.back()
-                    })
+                let navigated = self
+                    .viewer
+                    .handle()
+                    .and_then(|h| h.update(app, |viewer, _ctx| viewer.back()))
                     .unwrap_or(false);
                 if navigated {
                     ctx.post_message(NavigatorUpdated);
@@ -109,10 +118,10 @@ impl TextualApp for MarkdownApp {
                 ctx.request_repaint();
             }
             "f" => {
-                let navigated = app
-                    .with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
-                        viewer.forward()
-                    })
+                let navigated = self
+                    .viewer
+                    .handle()
+                    .and_then(|h| h.update(app, |viewer, _ctx| viewer.forward()))
                     .unwrap_or(false);
                 if navigated {
                     ctx.post_message(NavigatorUpdated);
@@ -126,10 +135,12 @@ impl TextualApp for MarkdownApp {
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         if message.is::<NavigatorUpdated>() {
-            if let Ok(state) = app.with_query_one_mut_as::<MarkdownViewer, _>(
-                "#markdown-viewer",
-                |v| (v.navigator.at_start(), v.navigator.at_end()),
-            ) {
+            if let Some(state) = self
+                .viewer
+                .handle()
+                .ok()
+                .and_then(|h| h.read(app, |v| (v.navigator.at_start(), v.navigator.at_end())).ok())
+            {
                 self.set_nav_state(state, app.reactive_ctx());
             }
         }
@@ -177,6 +188,19 @@ mod tests {
         let mut viewer = MarkdownViewer::new(DEMO_MD).with_id("markdown-viewer");
         let seed = viewer.take_node_seed();
         assert_eq!(seed.css_id.as_deref(), Some("markdown-viewer"));
+    }
+
+    #[test]
+    fn viewer_slot_is_bound_after_tree_build() {
+        let mut app = MarkdownApp::new();
+        assert!(app.viewer.get().is_none(), "slot should be unfilled before compose");
+        let mut root = app.compose();
+        let tree = build_widget_tree_from_root(&mut root).expect("tree should build");
+        let handle = app.viewer.handle().expect("slot should be filled after compose+build");
+        // The mounted node should still be readable.
+        let _ = handle
+            .read_in(&tree, |_viewer| ())
+            .expect("read_in should succeed");
     }
 
     #[test]

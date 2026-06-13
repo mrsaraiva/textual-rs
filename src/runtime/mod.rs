@@ -1712,6 +1712,10 @@ impl App {
     /// Plumbing for `Handle::update`: tree-level update (enqueues the reactive
     /// entry) + automatic subtree repaint via the same path as
     /// `DomQueryMut::refresh` (src/runtime/mod.rs:415).
+    ///
+    /// Also drains any pending class ops staged by widget methods (e.g.
+    /// `MarkdownViewer.toc_class_pending`) — the same post-mutation step
+    /// that `with_widget_mut` performs (src/runtime/mod.rs:1623).
     pub(crate) fn handle_update<W: Widget, R>(
         &mut self,
         handle: crate::handle::Handle<W>,
@@ -1719,7 +1723,22 @@ impl App {
     ) -> std::result::Result<R, QueryError> {
         let out = {
             let tree = self.active_widget_tree_mut().ok_or(QueryError::Unmounted)?;
-            handle.update_in(tree, f)?
+            let out = handle.update_in(tree, f)?;
+            // Drain pending class ops (same as with_widget_mut, src/runtime/mod.rs:1623).
+            let node_id = handle.node_id();
+            if let Some(node) = tree.get_mut(node_id) {
+                let pending = node.widget.drain_pending_class_ops();
+                if !pending.is_empty() {
+                    for (class, add) in pending {
+                        if add {
+                            tree.add_class(node_id, &class);
+                        } else {
+                            tree.remove_class(node_id, &class);
+                        }
+                    }
+                }
+            }
+            out
         };
         self.request_query_refresh(&[handle.node_id()]);
         Ok(out)
