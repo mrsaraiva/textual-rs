@@ -435,10 +435,6 @@ struct FiveByFiveApp {
     won_at: Option<usize>,
     /// Handle slot for the WinnerMessage overlay (direct AppRoot child).
     winner: HandleSlot<WinnerMessage>,
-    /// Post-mount handle for the moves counter label (nested inside GameHeader).
-    moves_label: Option<Handle<Label>>,
-    /// Post-mount handle for the filled-count label (nested inside GameHeader).
-    progress_label: Option<Handle<Label>>,
 }
 
 impl FiveByFiveApp {
@@ -449,8 +445,6 @@ impl FiveByFiveApp {
             moves: 0,
             won_at: None,
             winner: HandleSlot::new(),
-            moves_label: None,
-            progress_label: None,
         }
     }
 
@@ -483,9 +477,9 @@ impl FiveByFiveApp {
             }
         }
         let filled = filled_count(new);
-        if let Some(h) = self.progress_label {
-            let _ = h.update(app, |l, _ctx| l.set_text(progress_text(filled)));
-        }
+        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| {
+            l.set_text(progress_text(filled));
+        });
         ctx.request_styles();
         ctx.request_repaint();
     }
@@ -520,9 +514,9 @@ impl FiveByFiveApp {
         ctx: &mut ReactiveCtx,
     ) {
         let moves = *new;
-        if let Some(h) = self.moves_label {
-            let _ = h.update(app, |l, _ctx| l.set_text(moves_text(moves)));
-        }
+        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| {
+            l.set_text(moves_text(moves));
+        });
         ctx.request_repaint();
     }
 
@@ -582,8 +576,6 @@ impl TextualApp for FiveByFiveApp {
     }
 
     fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
-        self.moves_label = app.query_one_typed::<Label>("#moves").ok();
-        self.progress_label = app.query_one_typed::<Label>("#progress").ok();
         self.new_game(app);
     }
 

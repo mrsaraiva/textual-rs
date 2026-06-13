@@ -51,11 +51,9 @@ until the API stabilizes.
       descendant selector `#code-view VerticalScroll` replaces the `#code-view`
       selector that silently no-oped scroll-home via the Node wrapper.
     - `five_by_five`: `HandleSlot<WinnerMessage>` via `with_child_handle`;
-      `watch_won_at` uses `h.update`. `#moves`/`#progress` Labels (nested
-      inside `GameHeader`) acquired post-mount via `query_one_typed::<Label>`
-      in `on_mount_with_app` as `Option<Handle<Label>>` fields; `watch_moves`
-      and `watch_cells` use `h.update`. Bulk GameCell class ops remain as
-      `query_mut` (correct: multi-cell selector, not single-widget access).
+      `watch_won_at` uses `h.update`. `#moves`/`#progress` label sites keep
+      `with_query_one_mut_as` — their init-phase watchers fire before
+      `on_mount_with_app`, making post-mount handles incorrect there.
   - Parity: all 8 PTY parity tests pass; XFail cases unchanged.
 
 ### 2026-06-13 (SPEC-RA3 Step 10: five_by_five rewrite — signals-first)
