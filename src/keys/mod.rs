@@ -441,6 +441,40 @@ pub fn key_to_identifier(key: &str) -> String {
 /// assert_eq!(format_key_display("shift+left"), "shift+\u{2190}");
 /// assert_eq!(format_key_display("alt+ctrl+x"), "alt+^x");
 /// ```
+/// Inverse of `character_to_key_name` for the punctuation set: maps a canonical
+/// key identifier (e.g. "question_mark") back to its display character ("?").
+/// Used by `format_key_display` so punctuation bindings render as their symbol
+/// in footers/hints, matching Python Textual.
+fn punctuation_name_to_char(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "exclamation_mark" => "!",
+        "quotation_mark" => "\"",
+        "number_sign" => "#",
+        "dollar_sign" => "$",
+        "percent_sign" => "%",
+        "ampersand" => "&",
+        "apostrophe" => "'",
+        "left_parenthesis" => "(",
+        "right_parenthesis" => ")",
+        "asterisk" => "*",
+        "plus_sign" => "+",
+        "comma" => ",",
+        "hyphen_minus" => "-",
+        "full_stop" => ".",
+        "solidus" => "/",
+        "colon" => ":",
+        "semicolon" => ";",
+        "less_than_sign" => "<",
+        "equals_sign" => "=",
+        "greater_than_sign" => ">",
+        "question_mark" => "?",
+        "commercial_at" => "@",
+        "left_square_bracket" => "[",
+        "reverse_solidus" => "\\",
+        _ => return None,
+    })
+}
+
 pub fn format_key_display(key: &str) -> String {
     let parts: Vec<&str> = key.split('+').collect();
     if parts.is_empty() {
@@ -450,11 +484,14 @@ pub fn format_key_display(key: &str) -> String {
     let key_part = parts[parts.len() - 1];
     let modifier_parts = &parts[..parts.len() - 1];
 
-    // Look up display alias for the key part.
+    // Look up display alias for the key part. Punctuation keys carry their
+    // canonical identifier (e.g. "question_mark") as the binding key; display
+    // them as their source character (e.g. "?"), mirroring Python Textual.
     let displayed_key = KEY_DISPLAY_ALIASES
         .iter()
         .find(|&&(name, _)| name == key_part)
         .map(|&(_, display)| display)
+        .or_else(|| punctuation_name_to_char(key_part))
         .unwrap_or(key_part);
 
     let has_ctrl = modifier_parts.contains(&"ctrl");

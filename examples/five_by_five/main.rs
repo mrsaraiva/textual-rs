@@ -554,7 +554,7 @@ impl TextualApp for FiveByFiveApp {
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
             BindingDecl::new("n", "new_game", "New Game"),
-            BindingDecl::new("?", "app.push_screen('help')", "Help"),
+            BindingDecl::new("question_mark", "app.push_screen('help')", "Help"),
             BindingDecl::new("q", "app.quit", "Quit"),
             BindingDecl::new("ctrl+d", "app.toggle_dark", "Toggle Dark Mode"),
         ]
@@ -598,8 +598,9 @@ impl TextualApp for FiveByFiveApp {
                 self.set_cursor(wrap_navigate(self.cursor, 0, 1), app.reactive_ctx());
                 true
             }
-            // Make a move at the current cursor position
-            " " => {
+            // Make a move at the current cursor position.
+            // Key identifier is "space", not a literal " " (see keys::key_to_identifier).
+            "space" => {
                 if self.won_at.is_none() {
                     let mut cells = self.cells;
                     toggle_cross(&mut cells, self.cursor.0, self.cursor.1);

@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (five_by_five input fix — wrong key identifiers + punctuation display)
+
+- **fix(example/five_by_five): use canonical key identifiers**
+  - `on_key_with_app` matched `" "` (literal space) instead of `"space"`, and the
+    help binding used `"?"` instead of `"question_mark"` — so Space (make move)
+    and `?` (help) never matched; Space then fell through to the default
+    action-map (→ Toggle) and the game was non-functional on play despite a
+    correct initial frame. Surfaced by the new interactive parity coverage.
+- **fix(keys): `format_key_display` renders punctuation identifiers as symbols**
+  - Added `punctuation_name_to_char` (inverse of `character_to_key_name`) so
+    bindings declared with canonical names (e.g. `question_mark`) display as
+    their symbol (`?`) in footers/hints, matching Python Textual. Without this
+    the footer showed the literal `question_mark`.
+- **test(parity): `five_by_five_after_move` promoted XFail → Pass**; `five_by_five_help`
+  re-scoped to the remaining help-screen Markdown content-rendering gap.
+
 ### 2026-06-13 (SPEC-RA4: typed widget handles)
 
 - **feat(handle): `Handle<W>` + `HandleSlot<W>` — typed widget handles (RA-4)**

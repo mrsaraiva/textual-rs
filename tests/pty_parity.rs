@@ -92,18 +92,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: " ",
         golden_replacements: &[],
-        status: Status::XFail(
-            "five_by_five input is dead APP-WIDE: Space, 'n', and the '?' help \
-             binding all no-op (see five_by_five_help). NOT GameCell key-capture \
-             (the '?' app binding fails too), NOT reactive/repaint \
-             (dispatch_app_reactive IS wired after on_app_key, textual_app.rs:875), \
-             NOT framework-wide (json_tree 'a'/'t' and markdown 't' all pass). \
-             Five_by_five-specific: keys never reach app bindings or \
-             on_key_with_app — likely tied to its Screen-stack/GameGrid focus \
-             composition. Surfaced by RA-4 verification; RA-3-introduced vs \
-             pre-existing unconfirmed (needs git-bisect). five_by_five_initial \
-             passes because the first frame needs no input.",
-        ),
+        status: Status::Pass,
     },
     Case {
         // Diagnostic for the five_by_five input bug: `?` is an app-level binding
@@ -117,9 +106,11 @@ const CASES: &[Case] = &[
         keys: "?",
         golden_replacements: &[],
         status: Status::XFail(
-            "five_by_five input bug (see five_by_five_after_move): `?` help \
-             overlay does not appear. Confirms keys do not reach app bindings \
-             either, not just cell movement.",
+            "Input is FIXED — `?` now pushes the help screen (overlay box \
+             appears). Remaining gap: the help screen's Markdown content renders \
+             EMPTY (Python shows the 5x5/Introduction/Objective text). This is a \
+             Markdown-in-screen rendering bug, same class as the dictionary/ \
+             code_browser content-rendering xfails (P3/P4), not an input issue.",
         ),
     },
     Case {
