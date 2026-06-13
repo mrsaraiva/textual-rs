@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA3 Step 7: code_browser rewrite — signals-first)
+
+- **refactor(examples/code_browser): rewrite to signals-first idiom**
+  - `CodeBrowserApp` now derives `Reactive` with `#[var(watch_with_app)] show_tree: bool`
+    and `#[reactive(watch_with_app)] path: Option<String>`.
+  - `watch_show_tree` applies/removes `-show-tree` CSS class on Screen via
+    `app.query_mut(...).set_class(...)` and requests style+layout+repaint invalidation.
+  - `watch_path` loads and syntax-highlights the selected file (or shows an error);
+    replaces the former `load_path` free function.
+  - `on_key_with_app` handles `f` by calling `self.set_show_tree(...)` — replaces the
+    old `app.toggle_class('Screen', '-show-tree')` action string.
+  - `on_message_with_app` calls `self.set_path(...)` on file selection — delegates to the
+    watcher rather than calling load logic directly.
+  - `on_mount_with_app` drops the manual `query_mut("Screen").add_class("-show-tree")`
+    call; the init-phase watcher (G3) applies initial class before the first render.
+  - `reactive_widget_mut` → `Some(self)`.
+  - In-file tests updated: binding assertions check `action == "toggle_files"`;
+    new `watch_state_default` test asserts `show_tree == true` and `path == None`.
+  - `code_browser_initial` PTY-parity case remains xfail-miss (DirectoryTree render
+    gap is a separate concern); all other parity cases unchanged.
+
 ### 2026-06-13 (SPEC-RA3 Steps 1-6: Signals-first reactive framework additions)
 
 - **feat(reactive): ReactiveCtx invalidation-request API (G2b)**
@@ -48,6 +69,42 @@ until the API stabilizes.
 - **feat(prelude): reactive types exported from `textual::prelude`**
   - `ReactiveChange`, `ReactiveCtx`, `ReactiveFlags`, `ReactiveWidget`, and the
     `Reactive` derive macro are now re-exported from `textual::prelude`.
+
+### 2026-06-13 (SPEC-RA3 Step 8: dictionary example rewrite — signals-first)
+
+- **refactor(example/dictionary): rewrite to signals-first pattern (RA-3 Step 8)**
+  - `DictionaryApp` gains `#[derive(Reactive)]` with one reactive field:
+    `#[reactive(watch_with_app, init = false)] results: String` — replaces the
+    direct `with_query_one_mut_as::<Markdown>` call in `on_message_with_app`.
+  - `watch_results` watcher updates the `#results` Markdown widget and requests
+    repaint (selector changed from `"Markdown"` to `"#results"`, using the
+    widget's existing `.with_id("results")` from compose).
+  - `on_message_with_app` `WorkerStateChanged::Success` branch now calls
+    `self.set_results(markdown, app.reactive_ctx())` instead of directly
+    mutating the widget.
+  - `reactive_widget_mut` override returns `Some(self)`.
+  - Worker plumbing (`on_input_changed`, `request_exclusive_worker_task`)
+    unchanged.
+  - PTY parity: `dictionary_initial` remains XFail-miss (known rendering gap,
+    not addressed here).
+  - LOC: 237 → 263.
+
+### 2026-06-13 (SPEC-RA3 Step 9: markdown example rewrite — signals-first)
+
+- **refactor(example/markdown): rewrite to signals-first pattern (RA-3 Step 9)**
+  - `MarkdownApp` gains `#[derive(Reactive)]` with one reactive field:
+    `#[reactive(watch_with_app, init = false)] nav_state: (bool, bool)` — replaces
+    the manual `navigator_at_start`/`navigator_at_end` cache fields.
+  - `watch_nav_state` watcher calls `app.refresh_bindings()` + `ctx.request_repaint()`,
+    eliminating the old `update_navigator_state` helper and the manual call sites.
+  - `on_message_with_app` reads the navigator state and calls `set_nav_state` via
+    the reactive setter; `refresh_bindings` + repaint now happen via the watcher.
+  - `check_action` reads `self.nav_state.0`/`.1` (was `navigator_at_start`/`at_end`).
+  - `reactive_widget_mut` override returns `Some(self)`.
+  - t-key invalidation calls (`request_style_invalidation`, `request_layout_invalidation`,
+    `request_repaint`) preserved unchanged — parity-critical for `markdown_toc_toggle`.
+  - PTY parity: `markdown_initial` and `markdown_toc_toggle` both Pass (unchanged).
+  - LOC: 225 → 209.
 
 ### 2026-06-13 (RA-2 complete: behavior-only Widget trait — BREAKING)
 

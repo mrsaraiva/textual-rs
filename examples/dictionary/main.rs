@@ -10,9 +10,9 @@
 /// `self.results.update(markdown)`.
 ///
 /// Rust: `ctx.request_exclusive_worker_task("lookup_word", ...)` with a simulated
-/// lookup producing deterministic Markdown output. Shared `Arc<Mutex<Option<String>>>`
-/// passes the formatted result back; `on_message_with_app` updates the `Markdown`
-/// widget on `WorkerStateChanged::Success`.
+/// lookup producing deterministic Markdown output. The worker hands the result
+/// back via the message hook, which sets the `results` reactive field;
+/// `watch_results` updates the `Markdown` widget.
 ///
 /// DEFERRED: Real HTTP lookup — requires a blocking HTTP client (e.g. `reqwest` with the
 /// `blocking` feature). Simulated here with a short delay and built-in word list.
@@ -112,20 +112,44 @@ fn make_word_markdown(word: &str) -> String {
 // App
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct DictionaryApp {
     /// Shared result buffer between the app and the background worker thread.
     lookup_result: Arc<Mutex<Option<String>>>,
+    /// Rendered markdown for the results pane (Python updates the widget
+    /// directly from the worker; here the worker hands off via the message
+    /// hook, which sets this reactive).
+    #[reactive(watch_with_app, init = false)]
+    results: String,
 }
 
 impl DictionaryApp {
     fn new() -> Self {
         Self {
             lookup_result: Arc::new(Mutex::new(None)),
+            results: String::new(),
         }
+    }
+
+    fn watch_results(
+        &mut self,
+        app: &mut App,
+        _old: &String,
+        new: &String,
+        ctx: &mut ReactiveCtx,
+    ) {
+        let _ = app.with_query_one_mut_as::<Markdown, _>("#results", |w| {
+            w.set_markup(new.clone());
+        });
+        ctx.request_repaint();
     }
 }
 
 impl TextualApp for DictionaryApp {
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())
@@ -175,18 +199,14 @@ impl TextualApp for DictionaryApp {
         ctx.request_repaint();
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {
-                let markdown = {
-                    let mut guard = self.lookup_result.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.take()
-                };
-                // Update the Markdown widget with the lookup result.
-                let _ = app.with_query_one_mut_as::<Markdown, _>("Markdown", |widget| {
-                    widget.set_markup(markdown.unwrap_or_default());
-                });
-                ctx.request_repaint();
+                let markdown =
+                    { self.lookup_result.lock().unwrap_or_else(|e| e.into_inner()).take() };
+                if let Some(markdown) = markdown {
+                    self.set_results(markdown, app.reactive_ctx());
+                }
             }
         }
     }
@@ -215,6 +235,12 @@ mod tests {
         let app = DictionaryApp::new();
         let guard = app.lookup_result.lock().unwrap();
         assert!(guard.is_none());
+    }
+
+    #[test]
+    fn initial_results_field_is_empty() {
+        let app = DictionaryApp::new();
+        assert!(app.results.is_empty());
     }
 
     #[test]
