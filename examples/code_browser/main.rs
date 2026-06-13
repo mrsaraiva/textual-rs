@@ -63,6 +63,10 @@ struct CodeBrowserApp {
     /// Python: path = reactive(None); watch_path loads + highlights the file.
     #[reactive(watch_with_app)]
     path: Option<String>,
+    /// Post-mount typed handle to the syntax-highlighted code widget.
+    code: Option<Handle<Static>>,
+    /// Post-mount typed handle to the VerticalScroll wrapping the code widget.
+    code_view: Option<Handle<VerticalScroll>>,
 }
 
 impl CodeBrowserApp {
@@ -71,6 +75,8 @@ impl CodeBrowserApp {
             start_path: start_path.into(),
             show_tree: true,
             path: None,
+            code: None,
+            code_view: None,
         }
     }
 
@@ -100,26 +106,27 @@ impl CodeBrowserApp {
     ) {
         match new {
             None => {
-                let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| s.update(""));
+                if let Some(h) = self.code {
+                    let _ = h.update(app, |s, _ctx| s.update(""));
+                }
             }
             Some(path) => match Syntax::from_path(path) {
                 Ok(syntax) => {
                     let highlighted = syntax.highlight();
-                    let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
-                        s.update_rich(highlighted);
-                    });
-                    let _ =
-                        app.with_query_one_mut_as::<VerticalScroll, _>("#code-view", |s| {
-                            s.scroll_home();
-                        });
+                    if let Some(h) = self.code {
+                        let _ = h.update(app, |s, _ctx| s.update_rich(highlighted));
+                    }
+                    if let Some(h) = self.code_view {
+                        let _ = h.update(app, |s, _ctx| s.scroll_home());
+                    }
                     app.set_sub_title(path.as_str());
                 }
                 Err(e) => {
                     let error_msg =
                         format!("[b red]Error reading file:[/b red]\n{path}\n\n{e}");
-                    let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
-                        s.update(&error_msg);
-                    });
+                    if let Some(h) = self.code {
+                        let _ = h.update(app, |s, _ctx| s.update(&error_msg));
+                    }
                     app.set_sub_title("ERROR");
                 }
             },
@@ -170,6 +177,13 @@ impl TextualApp for CodeBrowserApp {
 
         // Focus the directory tree so the user can navigate immediately.
         let _ = app.action_focus("tree-view");
+
+        // Acquire post-mount typed handles for the code pane widgets.
+        // `#code` is the Static widget for syntax-highlighted content.
+        self.code = app.query_one_typed::<Static>("#code").ok();
+        // The VerticalScroll is a direct child of Node#code-view; use a
+        // descendant selector to bypass the Node wrapper.
+        self.code_view = app.query_one_typed::<VerticalScroll>("#code-view VerticalScroll").ok();
 
         // Note: initial tree visibility is applied by watch_show_tree firing at
         // mount (init-phase watcher dispatch, G3) — no manual add_class needed.
