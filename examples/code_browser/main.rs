@@ -53,44 +53,78 @@ Screen.-show-tree #tree-view {
 // App definition
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct CodeBrowserApp {
     /// Root directory shown in the tree on startup.
     start_path: String,
+    /// Python: show_tree = var(True); watch_show_tree -> set_class("-show-tree").
+    #[var(watch_with_app)]
+    show_tree: bool,
+    /// Python: path = reactive(None); watch_path loads + highlights the file.
+    #[reactive(watch_with_app)]
+    path: Option<String>,
 }
 
 impl CodeBrowserApp {
     fn new(start_path: impl Into<String>) -> Self {
         Self {
             start_path: start_path.into(),
+            show_tree: true,
+            path: None,
         }
     }
 
-    /// Load a file and update the syntax-highlighted code view.
-    ///
-    /// Mirrors Python's `watch_path()`.  On success the code pane is updated,
-    /// the scroll position is reset to the top, and the subtitle is set to the
-    /// file path.  On error the code pane shows a styled error message and the
-    /// subtitle is set to "ERROR".
-    fn load_path(app: &mut App, path: &str) {
-        match Syntax::from_path(path) {
-            Ok(syntax) => {
-                let highlighted = syntax.highlight();
-                let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
-                    s.update_rich(highlighted);
-                });
-                let _ = app.with_query_one_mut_as::<VerticalScroll, _>("#code-view", |s| {
-                    s.scroll_home();
-                });
-                app.set_sub_title(path);
+    /// Mirrors Python's `watch_show_tree`: toggles `-show-tree` CSS class on
+    /// the Screen, which the stylesheet uses to show/hide the directory tree.
+    fn watch_show_tree(
+        &mut self,
+        app: &mut App,
+        _old: &bool,
+        new: &bool,
+        ctx: &mut ReactiveCtx,
+    ) {
+        let _ = app.query_mut("Screen").map(|q| q.set_class(*new, &["-show-tree"]));
+        ctx.request_styles();
+        ctx.request_layout();
+        ctx.request_repaint();
+    }
+
+    /// Mirrors Python's `watch_path`: loads and syntax-highlights the file on
+    /// each path change (None → clear the code pane).
+    fn watch_path(
+        &mut self,
+        app: &mut App,
+        _old: &Option<String>,
+        new: &Option<String>,
+        ctx: &mut ReactiveCtx,
+    ) {
+        match new {
+            None => {
+                let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| s.update(""));
             }
-            Err(e) => {
-                let error_msg = format!("[b red]Error reading file:[/b red]\n{path}\n\n{e}");
-                let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
-                    s.update(&error_msg);
-                });
-                app.set_sub_title("ERROR");
-            }
+            Some(path) => match Syntax::from_path(path) {
+                Ok(syntax) => {
+                    let highlighted = syntax.highlight();
+                    let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
+                        s.update_rich(highlighted);
+                    });
+                    let _ =
+                        app.with_query_one_mut_as::<VerticalScroll, _>("#code-view", |s| {
+                            s.scroll_home();
+                        });
+                    app.set_sub_title(path.as_str());
+                }
+                Err(e) => {
+                    let error_msg =
+                        format!("[b red]Error reading file:[/b red]\n{path}\n\n{e}");
+                    let _ = app.with_query_one_mut_as::<Static, _>("#code", |s| {
+                        s.update(&error_msg);
+                    });
+                    app.set_sub_title("ERROR");
+                }
+            },
         }
+        ctx.request_repaint();
     }
 }
 
@@ -100,15 +134,15 @@ impl TextualApp for CodeBrowserApp {
         Ok(())
     }
 
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
             // Toggle the directory tree sidebar.
             // Mirrors Python's `action_toggle_files` + `watch_show_tree`.
-            BindingDecl::new(
-                "f",
-                "app.toggle_class('Screen', '-show-tree')",
-                "Toggle Files",
-            ),
+            BindingDecl::new("f", "toggle_files", "Toggle Files"),
             BindingDecl::new("q", "app.quit", "Quit"),
         ]
     }
@@ -137,14 +171,29 @@ impl TextualApp for CodeBrowserApp {
         // Focus the directory tree so the user can navigate immediately.
         let _ = app.action_focus("tree-view");
 
-        // Mirrors `show_tree = var(True)`: start with the tree visible.
-        let _ = app.query_mut("Screen").map(|q| q.add_class("-show-tree"));
+        // Note: initial tree visibility is applied by watch_show_tree firing at
+        // mount (init-phase watcher dispatch, G3) — no manual add_class needed.
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+        // Toggle the directory-tree sidebar when the user presses "f".
+        // Mirrors Python's `action_toggle_files` which flips `self.show_tree`.
+        if key.name() == "f" {
+            let show = !self.show_tree;
+            self.set_show_tree(show, app.reactive_ctx());
+            ctx.set_handled();
+        }
+    }
+
+    fn on_message_with_app(
+        &mut self,
+        app: &mut App,
+        message: &MessageEvent,
+        _ctx: &mut EventCtx,
+    ) {
         // Handle DirectoryTree.FileSelected — mirrors `on_directory_tree_file_selected`.
         if let Some(ev) = message.downcast_ref::<DirectoryTreeFileSelected>() {
-            Self::load_path(app, &ev.path);
+            self.set_path(Some(ev.path.clone()), app.reactive_ctx());
         }
     }
 }
@@ -174,16 +223,22 @@ mod tests {
     }
 
     #[test]
+    fn watch_state_default() {
+        // Initial reactive state: show_tree == true, path == None.
+        let app = CodeBrowserApp::new("./");
+        assert!(app.show_tree, "show_tree must default to true");
+        assert!(app.path.is_none(), "path must default to None");
+    }
+
+    #[test]
     fn bindings_include_toggle_files_and_quit() {
         // DG-02: expected bindings are declared.
         let app = CodeBrowserApp::new("./");
         let bindings = app.bindings();
         let actions: Vec<&str> = bindings.iter().map(|b| b.action.as_str()).collect();
         assert!(
-            actions
-                .iter()
-                .any(|a| a.contains("toggle_class") && a.contains("-show-tree")),
-            "expected toggle_class binding for '-show-tree': {:?}",
+            actions.iter().any(|a| *a == "toggle_files"),
+            "expected toggle_files binding: {:?}",
             actions,
         );
         assert!(
@@ -195,17 +250,15 @@ mod tests {
 
     #[test]
     fn bindings_f_key_triggers_toggle_files() {
-        // DG-02: "f" key is bound to the toggle action.
+        // DG-02: "f" key is bound to the toggle_files action.
         let app = CodeBrowserApp::new("./");
         let bindings = app.bindings();
-        let toggle_binding = bindings
-            .iter()
-            .find(|b| b.action.contains("toggle_class") && b.action.contains("-show-tree"));
-        assert!(toggle_binding.is_some(), "toggle binding not found");
+        let toggle_binding = bindings.iter().find(|b| b.action == "toggle_files");
+        assert!(toggle_binding.is_some(), "toggle_files binding not found");
         let keys = &toggle_binding.unwrap().key;
         assert!(
             keys.split(',').any(|k| k.trim() == "f"),
-            "expected 'f' key for toggle: {keys:?}",
+            "expected 'f' key for toggle_files: {keys:?}",
         );
     }
 
