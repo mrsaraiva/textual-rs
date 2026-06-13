@@ -491,7 +491,7 @@ Detailed execution plan, evidence, acceptance criteria, and success metric live 
 |--------|------|-------|
 | Done | RA-0 Verification gate | Harness + blocking CI landed (`dfc566e`, `25e58e9`); verified 8/8 green. Gate rule persists: no RA phase marked Done without harness + test + LOC-metric evidence |
 | Done | RA-1 Open messages | Landed 2026-06-12 (21 commits, `321586c`..`03891bb`): `Message` enum removed, open trait + `impl_message!`, `TypeId` `MessageHandlers`, `#[on]` downcast codegen, third-party acceptance tests (`tests/open_messages.rs`). Gate evidence: full suite 2,564/0; pty harness 8/8 (5 Pass / 2 XFail unchanged); LOC metric re-measured 2.7x (unchanged — ergonomics targets are RA-2/RA-3) |
-| Pending | RA-2 Node-record split | Arena owns id/classes/styles/geometry/state; `Widget` trait shrinks to behavior |
+| Done | RA-2 Node-record split | Landed 2026-06-13 (`bd7d235`..`45a640c`): arena WidgetNode owns id/classes(HashSet)/styles/geometry/focus/hover/disabled; `Widget` trait shed ~15 identity/style/state methods. Keystone `45a640c` net −78 lines. Gate evidence: full suite green, pty 8/8 (5 Pass / 2 XFail unchanged), LOC 2.71 (flat — internal ownership change; ergonomics land in RA-3/RA-5). Residual: 4 widgets retain runtime-mutated `classes` exposed via `style_classes` (tracked) |
 | Pending | RA-3 Signals-first state | Promote `#[derive(Reactive)]`/`Signal<T>` to primary model; rewrite shared examples |
 | Pending | RA-4 Typed handles | `Handle<W>.update(...)` for residual direct access |
 | Pending | RA-5 Composition-based specialization | Containment + hooks replace inheritance emulation |

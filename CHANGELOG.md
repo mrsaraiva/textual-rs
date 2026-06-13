@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (RA-2 complete: behavior-only Widget trait — BREAKING)
+
+- **refactor(core)!: the arena node record is the sole owner of widget identity/style/state**
+  - Widget structs no longer carry `id`/`classes`/`styles`/`focus`/`hover`/`disabled`;
+    the `WidgetTree` `WidgetNode` record owns them (`classes` is now a `HashSet`).
+  - The `Widget` trait sheds ~15 identity/style/state accessor methods and shrinks
+    toward behavior (`render`/`measure`/`on_event`/lifecycle). Identity and style
+    context reach widgets via `NodeSeed` (compose time) and `NodeState` (runtime).
+  - `set_inline_style` now routes pre-mount inline styles into the seed (was a no-op
+    default that silently dropped them).
+  - **Layout contract change:** `content_width()` returns pure content; the auto-width
+    edge adds full horizontal chrome regardless of box-sizing (border-box no longer
+    assumes the widget folded its own padding). Height keeps margin-only behavior.
+  - New `is_initially_disabled()`/`is_initially_focused()` seed interaction state at
+    mount so `:disabled`/`:focus` resolve in headless tree builds.
+  - Row/Dock legacy non-tree focus path removed (arena-tree mode is canonical).
+  - Migration shipped as the 21-commit `bd7d235`..`45a640c` series; full suite green,
+    PTY parity 8/8 unchanged.
+
 ### 2026-06-12 (SPEC-RA2 Step 5c: Remove identity/style/state plumbing from toggle/form widgets)
 
 - **refactor(widgets): toggle/form widget families migrated to node-record identity/style/state**
