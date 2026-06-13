@@ -11,15 +11,7 @@ use textual::prelude::*;
 #[derive(Debug, Clone)]
 struct ClearKeyLogMessage;
 
-impl textual::message::UserMessage for ClearKeyLogMessage {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn clone_box(&self) -> Box<dyn textual::message::UserMessage> {
-        Box::new(self.clone())
-    }
-}
+textual::impl_message!(ClearKeyLogMessage);
 
 struct KeyLog {
     log: RichLog,
@@ -42,12 +34,8 @@ impl Widget for KeyLog {
         self.log.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.log.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.log.has_focus()
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        self.log.on_node_state_changed(old, new);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -59,9 +47,7 @@ impl Widget for KeyLog {
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::Custom(custom) = &message.message
-            && custom.as_any().is::<ClearKeyLogMessage>()
-        {
+        if message.downcast_ref::<ClearKeyLogMessage>().is_some() {
             self.log.clear();
             ctx.request_repaint();
             ctx.set_handled();
@@ -211,7 +197,7 @@ impl TextualApp for KeysApp {
     fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
         match description {
             "Clear" => {
-                ctx.post_message(Message::Custom(Box::new(ClearKeyLogMessage)));
+                ctx.post_message(ClearKeyLogMessage);
                 ctx.set_handled();
                 ctx.request_repaint();
             }

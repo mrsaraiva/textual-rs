@@ -85,7 +85,7 @@ impl TextualApp for SelectionListApp {
         message: &MessageEvent,
         _ctx: &mut EventCtx,
     ) {
-        if let Message::SelectionListSelectedChanged(_) = &message.message {
+        if message.downcast_ref::<SelectionListSelectedChanged>().is_some() {
             // Collect selected values and update Pretty.
             let selected = app
                 .with_query_one_mut_as::<SelectionList<String>, _>(

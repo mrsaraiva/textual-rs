@@ -5,7 +5,7 @@
 /// - When a selection changes, the app title is updated.
 ///
 /// Python: `@on(Select.Changed)` sets `self.title = str(event.value)`.
-/// Rust: `on_message_with_app` handles `Message::SelectChanged` and calls
+/// Rust: `on_message_with_app` downcasts to `SelectChanged` and calls
 /// `app.set_title(label)`.
 use textual::prelude::*;
 
@@ -51,7 +51,7 @@ impl TextualApp for SelectApp {
         message: &MessageEvent,
         _ctx: &mut EventCtx,
     ) {
-        if let Message::SelectChanged(ev) = &message.message {
+        if let Some(ev) = message.downcast_ref::<SelectChanged>() {
             app.set_title(ev.label.clone());
         }
     }

@@ -132,24 +132,20 @@ impl TextualApp for TabsApp {
         message: &MessageEvent,
         _ctx: &mut EventCtx,
     ) {
-        match &message.message {
-            Message::TabActivated(ev) => {
-                // Update label text and ensure it is visible.
-                let title = ev.title.clone();
-                let _ = app.with_query_one_mut_as::<Label, _>("#content-label", |label| {
-                    label.set_text(title);
-                });
-                let _ = app
-                    .query_mut("#content-label")
-                    .map(|q| q.remove_class("hidden"));
-            }
-            Message::TabsCleared(_) => {
-                // Hide the label when there are no tabs.
-                let _ = app
-                    .query_mut("#content-label")
-                    .map(|q| q.add_class("hidden"));
-            }
-            _ => {}
+        if let Some(ev) = message.downcast_ref::<TabActivated>() {
+            // Update label text and ensure it is visible.
+            let title = ev.title.clone();
+            let _ = app.with_query_one_mut_as::<Label, _>("#content-label", |label| {
+                label.set_text(title);
+            });
+            let _ = app
+                .query_mut("#content-label")
+                .map(|q| q.remove_class("hidden"));
+        } else if message.downcast_ref::<TabsCleared>().is_some() {
+            // Hide the label when there are no tabs.
+            let _ = app
+                .query_mut("#content-label")
+                .map(|q| q.add_class("hidden"));
         }
     }
 }

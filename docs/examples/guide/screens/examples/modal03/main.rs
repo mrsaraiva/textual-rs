@@ -108,7 +108,7 @@ impl TextualApp for ModalApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, event: &MessageEvent, ctx: &mut EventCtx) {
-        if !matches!(event.message, Message::ButtonPressed(_)) || app.screen_count() == 0 {
+        if event.downcast_ref::<ButtonPressed>().is_none() || app.screen_count() == 0 {
             return;
         }
 
@@ -147,14 +147,14 @@ mod tests {
     }
 
     fn button_pressed_event(button: NodeId) -> MessageEvent {
-        MessageEvent {
-            sender: button,
-            message: Message::ButtonPressed(ButtonPressed {
+        MessageEvent::new(
+            button,
+            ButtonPressed {
                 description: "test".to_string(),
                 button_id: None,
-            }),
-            control: Some(button),
-        }
+            },
+        )
+        .with_control(button)
     }
 
     #[test]

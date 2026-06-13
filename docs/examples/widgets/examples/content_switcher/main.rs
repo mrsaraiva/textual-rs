@@ -96,7 +96,7 @@ impl TextualApp for ContentSwitcherApp {
         _ctx: &mut EventCtx,
     ) {
         // Mirror Python: `self.query_one(ContentSwitcher).current = event.button.id`
-        if let Message::ButtonPressed(ev) = &message.message {
+        if let Some(ev) = message.downcast_ref::<ButtonPressed>() {
             if let Some(ref id) = ev.button_id {
                 let _ = app.with_query_one_mut_as::<ContentSwitcher, _>(
                     "ContentSwitcher",

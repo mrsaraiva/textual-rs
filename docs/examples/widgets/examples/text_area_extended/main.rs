@@ -20,18 +20,14 @@ impl Widget for AutoParenEditor {
         self.child.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.child.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.child.has_focus()
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        self.child.on_node_state_changed(old, new);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::Key(key) = event
             && key.code == crossterm::event::KeyCode::Char('(')
-            && self.child.has_focus()
+            && self.node_state().focused
         {
             self.child.insert("()");
             self.child.move_cursor_relative(-1, 0);

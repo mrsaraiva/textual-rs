@@ -1,6 +1,6 @@
 use rich_rs::{Segment, Segments};
 use textual::compose;
-use textual::message::{ButtonPressed, Message};
+use textual::message::ButtonPressed;
 use textual::prelude::*;
 use textual::style::Color;
 
@@ -67,7 +67,7 @@ impl TextualApp for ButtonsAdvancedApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Message::ButtonPressed(ButtonPressed { description, .. }) = &message.message {
+        if let Some(ButtonPressed { description, .. }) = message.downcast_ref::<ButtonPressed>() {
             let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status| {
                 status.set_text(description.clone());
             });

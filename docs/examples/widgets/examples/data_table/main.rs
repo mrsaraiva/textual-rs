@@ -1,7 +1,5 @@
 use rich_rs::{Segment, Segments};
-use textual::message::{
-    DataTableCellActivated, DataTableCursorMoved, DataTableHeaderSelected, Message,
-};
+use textual::message::{DataTableCellActivated, DataTableCursorMoved, DataTableHeaderSelected};
 use textual::prelude::*;
 use textual::style::{Color, parse_color_like};
 
@@ -43,17 +41,20 @@ impl TextualApp for DataTableApp {
     }
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        let text = match &message.message {
-            Message::DataTableCursorMoved(DataTableCursorMoved { row, column }) => {
-                format!("cursor=({row},{column})")
-            }
-            Message::DataTableHeaderSelected(DataTableHeaderSelected { column }) => {
-                format!("header=({column})")
-            }
-            Message::DataTableCellActivated(DataTableCellActivated { row, column }) => {
-                format!("activated=({row},{column})")
-            }
-            _ => return,
+        let text = if let Some(DataTableCursorMoved { row, column }) =
+            message.downcast_ref::<DataTableCursorMoved>()
+        {
+            format!("cursor=({row},{column})")
+        } else if let Some(DataTableHeaderSelected { column }) =
+            message.downcast_ref::<DataTableHeaderSelected>()
+        {
+            format!("header=({column})")
+        } else if let Some(DataTableCellActivated { row, column }) =
+            message.downcast_ref::<DataTableCellActivated>()
+        {
+            format!("activated=({row},{column})")
+        } else {
+            return;
         };
         let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status_line| {
             status_line.set_text(text);

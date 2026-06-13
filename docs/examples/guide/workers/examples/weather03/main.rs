@@ -100,7 +100,7 @@ impl TextualApp for WeatherApp {
         message: &MessageEvent,
         ctx: &mut EventCtx,
     ) {
-        if let Message::WorkerStateChanged(w) = &message.message {
+        if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {
                 let weather = {
                     let mut guard =
