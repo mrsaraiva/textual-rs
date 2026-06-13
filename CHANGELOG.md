@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA5 Step 2: GameCell containment rewrite)
+
+- **refactor(example/five_by_five): rewrite `GameCell` via Button containment (SPEC-RA5 Step 2)**
+  - `GameCell` now owns an `inner: Button` child field (compact, no CSS id) providing focus +
+    press behavior. The outer wrapper (`GameCell`) is the CSS-identity node.
+  - `take_composed_children` drains the Button into the arena tree on first call (idempotent gate
+    via `child_extracted: bool`). Second call returns empty.
+  - `style_type_aliases() -> &["Button"]` so both `GameCell { }` and `Button { }` CSS rules match,
+    mirroring Python MRO-based selector matching for `GameCell(Button)`.
+  - `on_message` intercepts `ButtonPressed` via `msg.downcast_ref::<ButtonPressed>()` (post-RA-1
+    form) and calls `ctx.set_handled()` to stop bubble propagation past the wrapper.
+  - `focusable() = false` / `can_focus_children() = false`: outer wrapper and Button child are
+    excluded from the focus chain — all keyboard logic is at the app level (`on_key_with_app`).
+    Mouse-click events still reach the Button via arena hit-testing independently of focus.
+    `compact(true)` on the inner Button suppresses tall-border chrome (▔/▁) from default CSS.
+  - `is_hovered`/`is_active`/`mouse_interactive` forwarded from inner Button for off-tree CSS
+    pseudo-class resolution against the GameCell SelectorMeta node.
+  - New unit tests: `game_cell_has_button_child`, `game_cell_style_aliases`,
+    `game_cell_not_focusable`. New integration test file `tests/containment_pattern.rs` with
+    four tests: `containment_take_composed_children_idempotent`,
+    `containment_style_type_aliases_match`, `containment_style_type_aliases_returns_button`,
+    `containment_outer_not_focusable`.
+  - All PTY parity cases (`five_by_five_initial`, `five_by_five_after_move`,
+    `five_by_five_help`) remain at their previous status (Pass/XFail).
+
 ### 2026-06-13 (SPEC-RA5 Step 1: deprecate delegation macros)
 
 - **deprecate(delegate): mark `delegate_widget_method!`/`delegate_widget_to!` as migration-period only**

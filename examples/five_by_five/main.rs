@@ -163,9 +163,15 @@ fn plural(n: usize) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// GameCell — individual playable cell (matches Python's GameCell(Button))
+// GameCell — individual playable cell (containment pattern, SPEC-RA5).
+//
+// Python: `GameCell(Button)` — subclasses Button, inheriting focus, press
+// behavior, and Button CSS rules. Rust analog: GameCell CONTAINS a Button
+// child, uses `style_type_aliases = &["Button"]` so that Button CSS rules
+// match, and intercepts ButtonPressed via on_message.
+//
 // Cell fill/cursor state lives on the arena node (set by watchers via
-// app.query_mut); no internal state fields beyond coordinates and seed.
+// app.query_mut); no fill/cursor fields on the struct.
 // ---------------------------------------------------------------------------
 
 pub struct GameCell {
@@ -173,6 +179,11 @@ pub struct GameCell {
     row: usize,
     #[allow(dead_code)]
     col: usize,
+    /// Inner Button child: provides focus + press behavior.
+    /// No CSS id is set on it — GameCell is the CSS-identity node.
+    inner: Button,
+    /// Guard so take_composed_children is idempotent.
+    child_extracted: bool,
     seed: NodeSeed,
 }
 
@@ -181,7 +192,16 @@ impl GameCell {
         let id = Self::id_for(row, col);
         let mut seed = NodeSeed::default();
         seed.css_id = Some(id);
-        Self { row, col, seed }
+        Self {
+            row,
+            col,
+            // compact(true) suppresses the tall-border chrome (▔/▁) from Button's
+            // default CSS so the Button child is visually transparent inside the
+            // GameCell frame. No CSS id — GameCell is the CSS-identity node.
+            inner: Button::new("").compact(true),
+            child_extracted: false,
+            seed,
+        }
     }
 
     pub fn id_for(row: usize, col: usize) -> String {
@@ -194,18 +214,79 @@ impl Widget for GameCell {
         "GameCell"
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        // Visual appearance comes from CSS background and border.
-        Widget::render(&Label::new(" "), console, options)
+    // GameCell CSS rules apply (via style_type = "GameCell") AND
+    // Button CSS rules apply (via alias "Button"), mirroring Python's MRO
+    // where GameCell(Button) matches both `GameCell { }` and `Button { }`.
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["Button"]
     }
 
+    // Outer wrapper has no content to render; the Button child renders via arena.
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    // Consume the NodeSeed at mount (RA-2 pattern).
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
 
+    // Move the Button child into the arena tree.
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.child_extracted {
+            return vec![];
+        }
+        self.child_extracted = true;
+        // Replace inner with a compact sentinel so the field stays valid.
+        vec![Box::new(std::mem::replace(
+            &mut self.inner,
+            Button::new("").compact(true),
+        ))]
+    }
+
+    // Outer wrapper is not itself focusable.
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    // The Button child is a behavior-only child; it must not appear in the focus
+    // chain. Focus traversal is suppressed so the child's bindings (enter/space
+    // "Press button") do not bleed into the footer — all keyboard logic is handled
+    // at the app level via on_key_with_app. Mouse-click events still reach the
+    // Button via arena hit-testing independently of focus.
+    fn can_focus_children(&self) -> bool {
+        false
+    }
+
+    // Intercept ButtonPressed from the Button child and stop bubbling.
+    // The FiveByFiveApp handles game logic via on_key_with_app (space key calls
+    // toggle_cross directly). Mouse-click presses are absorbed here; a future
+    // RA-1 demo enhancement could re-emit a custom GameCellPressed { row, col }
+    // message instead (Alternative G in SPEC-RA5).
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+        if msg.downcast_ref::<ButtonPressed>().is_some() {
+            ctx.set_handled();
+        }
+    }
+
+    // Forward hover/active state from inner Button for off-tree CSS resolution.
+    // GameCell is the CSS-identity node, so :hover and :active rules are
+    // resolved against its SelectorMeta; the Button child tracks the actual
+    // hover/active state. After RA-2 (node.state owns this), forwarding can go.
+    fn is_hovered(&self) -> bool {
+        self.inner.is_hovered()
+    }
+
+    fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        true
+    }
+
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
     fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
 }
 
 impl Renderable for GameCell {
@@ -733,6 +814,32 @@ mod tests {
         let cell = GameCell::new(2, 3);
         let id = cell.seed.css_id.as_deref();
         assert_eq!(id, Some("cell-2-3"));
+    }
+
+    #[test]
+    fn game_cell_has_button_child() {
+        // take_composed_children returns one child on first call, empty on second.
+        let mut cell = GameCell::new(1, 2);
+        let first = cell.take_composed_children();
+        assert_eq!(first.len(), 1, "first call must return the Button child");
+        let second = cell.take_composed_children();
+        assert_eq!(second.len(), 0, "second call must be empty (idempotent)");
+    }
+
+    #[test]
+    fn game_cell_style_aliases() {
+        let cell = GameCell::new(0, 0);
+        let aliases = cell.style_type_aliases();
+        assert_eq!(aliases, &["Button"], "GameCell must alias Button for CSS type-selector matching");
+    }
+
+    #[test]
+    fn game_cell_not_focusable() {
+        let cell = GameCell::new(0, 0);
+        assert!(!cell.focusable(), "outer GameCell wrapper must not be focusable itself");
+        // Focus traversal is suppressed so the Button child's bindings do not bleed
+        // into the footer. All keyboard logic is at the app level (on_key_with_app).
+        assert!(!cell.can_focus_children(), "GameCell must suppress focus into Button child to avoid footer binding bleed");
     }
 
     // --- WinnerMessage ---
