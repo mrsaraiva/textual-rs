@@ -159,7 +159,37 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "DirectoryTree never renders; hatch code pane missing; `f` toggle no-op",
+            "Closest diff isolated to ONE row: Python golden row 29 is a hatch \
+             (`╱`) fill row; Rust leaves it blank and the Footer lands one row too \
+             high (content area is 27 rows vs Python's 28). Root cause: spurious \
+             HORIZONTAL scrollbar on `#code-view` (a VerticalScroll with CSS \
+             `overflow: auto scroll`). overflow-y=scroll force-shows the vertical \
+             scrollbar, shrinking the viewport from 102 to 100 cols. \
+             `apply_host_scrollbar_layout` (src/runtime/render.rs) then re-measures \
+             children via `host_content_extent`, which reports the child `#code` \
+             (Static, `width: auto`) at its LAYOUT width (fills the container) \
+             rather than its NATURAL content width. Python uses natural content \
+             width (~2 cols for empty padding): 2 <= 100 => no horizontal \
+             scrollbar. Rust sees 100 and, combined with the \
+             `content_width.max(widget_width)` floor in `ScrollbarPolicy::resolve` \
+             (src/widgets/scrollbar.rs) plus the `virtual_w.max(content_w)` floor \
+             at the second resolve() call, computes 102 > 100 => a horizontal \
+             scrollbar that eats the missing content row. \
+             TRIED AND REVERTED (do not re-attempt without the real fix): (a) \
+             dropping the `max(widget_width/height)` floors so content that merely \
+             FILLS the viewport is not counted as overflow — makes code_browser \
+             Pass but regresses `tree_mode_render_produces_chrome_not_blank` and \
+             `layout_info_sets_vertical_scroll_virtual_content_in_tree_mode` (they \
+             rely on the floor to size the viewport when virtual content is \
+             unknown; without it the viewport collapses to 0 lines); (b) moving \
+             ScrollView overflow out of `seed.styles.style` into dedicated policy \
+             fields — regresses `layout_info_sets_vertical_scroll_virtual_content_\
+             in_tree_mode` because the off-tree VerticalScroll virtual-sizing path \
+             reads overflow back from `seed.styles.style`. \
+             CORRECT FIX (future): `host_content_extent` must use NATURAL content \
+             size for `width:auto`/`height:auto` scroll children instead of layout \
+             extent, so the scrollbar floors can stay AND empty `width:auto` \
+             children are not treated as filling the viewport.",
         ),
     },
 ];
