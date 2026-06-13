@@ -4,6 +4,7 @@ use textual::Reactive;
 use textual::reactive::{
     MAX_REACTIVE_ITERATIONS, ReactiveCtx, ReactiveFlags, ReactiveWidget, run_reactive_phase,
 };
+use textual::App;
 
 // ── Basic derive + getters/setters ──────────────────────────────────
 
@@ -689,4 +690,204 @@ fn basic_widget_has_correct_descriptors() {
     assert!(size_desc.flags.repaint);
     assert!(size_desc.flags.layout);
     assert!(size_desc.flags.init);
+}
+
+// ── G4: var init default + opt-out ─────────────────────────────────
+
+#[derive(Reactive)]
+struct VarInitWidget {
+    #[var]
+    default_var: u32,
+    #[var(init = false)]
+    no_init_var: u32,
+}
+
+#[test]
+fn var_init_default_true_and_opt_out() {
+    let w = VarInitWidget {
+        default_var: 0,
+        no_init_var: 0,
+    };
+    let descriptors = w.reactive_field_descriptors();
+    let def = descriptors.iter().find(|d| d.name == "default_var").unwrap();
+    assert!(!def.flags.repaint);
+    assert!(!def.flags.layout);
+    assert!(def.flags.init, "#[var] should have init=true (G4 Python parity)");
+
+    let no = descriptors.iter().find(|d| d.name == "no_init_var").unwrap();
+    assert!(!no.flags.repaint);
+    assert!(!no.flags.layout);
+    assert!(!no.flags.init, "#[var(init = false)] should have init=false");
+}
+
+// ── G1: watch_with_app dispatches with runtime ──────────────────────
+
+#[derive(Reactive)]
+struct WatchWithAppWidget {
+    #[reactive(watch_with_app)]
+    value: i32,
+}
+
+impl WatchWithAppWidget {
+    fn watch_value(&mut self, app: &mut App, _old: &i32, new: &i32, _ctx: &mut ReactiveCtx) {
+        // Use app to record observation (set_title is a no-op test surface)
+        app.set_title(format!("value={}", new));
+    }
+}
+
+#[test]
+fn watch_with_app_dispatches_with_runtime() {
+    let mut w = WatchWithAppWidget { value: 0 };
+    let mut ctx = make_ctx();
+    let mut app = App::new().expect("runtime init");
+
+    // Synthesize a change
+    use textual::reactive::ReactiveChange;
+    let changes = vec![ReactiveChange {
+        field_name: "value",
+        flags: ReactiveFlags::reactive(),
+        old_value: Box::new(0_i32),
+        new_value: Box::new(42_i32),
+    }];
+
+    // reactive_dispatch does NOT call watch_with_app watchers
+    w.reactive_dispatch(&changes, &mut ctx);
+    // title was not set by reactive_dispatch
+    // (we can only check that it didn't panic here)
+
+    // reactive_dispatch_with_app DOES call watch_with_app watchers
+    let mut ctx2 = make_ctx();
+    w.reactive_dispatch_with_app(&mut app, &changes, &mut ctx2);
+    assert_eq!(app.title(), "value=42");
+}
+
+// ── G1: #[var(watch_with_app)] parses and dispatches ──────────────
+
+#[derive(Reactive)]
+struct VarWatchWithAppWidget {
+    #[var(watch_with_app)]
+    show: bool,
+}
+
+impl VarWatchWithAppWidget {
+    fn watch_show(&mut self, app: &mut App, _old: &bool, new: &bool, _ctx: &mut ReactiveCtx) {
+        app.set_title(format!("show={}", new));
+    }
+}
+
+#[test]
+fn var_with_watch_with_app_parses_and_dispatches() {
+    let mut w = VarWatchWithAppWidget { show: false };
+    let mut app = App::new().expect("runtime init");
+    let mut ctx = make_ctx();
+
+    use textual::reactive::ReactiveChange;
+    let changes = vec![ReactiveChange {
+        field_name: "show",
+        flags: ReactiveFlags::var(),
+        old_value: Box::new(false),
+        new_value: Box::new(true),
+    }];
+
+    w.reactive_dispatch_with_app(&mut app, &changes, &mut ctx);
+    assert_eq!(app.title(), "show=true");
+
+    // Descriptor must have init=true (var default after G4)
+    let descs = w.reactive_field_descriptors();
+    let show_desc = descs.iter().find(|d| d.name == "show").unwrap();
+    assert!(show_desc.flags.init);
+    assert!(!show_desc.flags.repaint);
+}
+
+// ── G3: reactive_record_init emits old==new for init fields only ──
+
+#[derive(Reactive)]
+struct RecordInitWidget {
+    #[reactive]
+    a: i32,               // init=true
+    #[reactive(init = false)]
+    b: i32,               // init=false
+    #[var]
+    c: i32,               // init=true (G4 flip)
+    #[var(init = false)]
+    d: i32,               // init=false
+}
+
+#[test]
+fn record_init_emits_old_eq_new_for_init_fields_only() {
+    let w = RecordInitWidget { a: 10, b: 20, c: 30, d: 40 };
+    let mut ctx = make_ctx();
+    w.reactive_record_init(&mut ctx);
+
+    let changes = ctx.take_changes();
+    // Only a (init=true) and c (var, init=true after G4) should be recorded
+    assert_eq!(changes.len(), 2, "expected 2 init changes (a and c)");
+
+    let a_change = changes.iter().find(|c| c.field_name == "a").unwrap();
+    assert_eq!(*a_change.old_value.downcast_ref::<i32>().unwrap(), 10);
+    assert_eq!(*a_change.new_value.downcast_ref::<i32>().unwrap(), 10);
+
+    let c_change = changes.iter().find(|c| c.field_name == "c").unwrap();
+    assert_eq!(*c_change.old_value.downcast_ref::<i32>().unwrap(), 30);
+    assert_eq!(*c_change.new_value.downcast_ref::<i32>().unwrap(), 30);
+
+    // b and d must NOT be present
+    assert!(changes.iter().find(|c| c.field_name == "b").is_none());
+    assert!(changes.iter().find(|c| c.field_name == "d").is_none());
+}
+
+// ── G1: mixed plain-watch and watch_with_app in one dispatch call ──
+
+#[derive(Reactive)]
+struct MixedWatchWidget {
+    #[reactive(watch)]
+    plain: i32,
+    #[reactive(watch_with_app)]
+    with_app: i32,
+}
+
+impl MixedWatchWidget {
+    fn watch_plain(&mut self, _old: &i32, new: &i32, ctx: &mut ReactiveCtx) {
+        ctx.request_repaint();
+        let _ = new;
+    }
+
+    fn watch_with_app(&mut self, app: &mut App, _old: &i32, new: &i32, _ctx: &mut ReactiveCtx) {
+        app.set_title(format!("with_app={}", new));
+    }
+}
+
+#[test]
+fn mixed_watch_kinds_one_dispatch_with_app() {
+    let mut w = MixedWatchWidget { plain: 0, with_app: 0 };
+    let mut app = App::new().expect("runtime init");
+
+    use textual::reactive::ReactiveChange;
+    let changes = vec![
+        ReactiveChange {
+            field_name: "plain",
+            flags: ReactiveFlags::reactive(),
+            old_value: Box::new(0_i32),
+            new_value: Box::new(1_i32),
+        },
+        ReactiveChange {
+            field_name: "with_app",
+            flags: ReactiveFlags::reactive(),
+            old_value: Box::new(0_i32),
+            new_value: Box::new(99_i32),
+        },
+    ];
+
+    // reactive_dispatch fires only the plain watcher
+    let mut ctx1 = make_ctx();
+    w.reactive_dispatch(&changes, &mut ctx1);
+    assert!(ctx1.needs_repaint(), "plain watch should request repaint");
+    // Title was NOT set (with_app watcher not called)
+    // (Cannot easily assert title not set since App::new() has a default title)
+
+    // reactive_dispatch_with_app fires both watchers
+    let mut ctx2 = make_ctx();
+    w.reactive_dispatch_with_app(&mut app, &changes, &mut ctx2);
+    assert!(ctx2.needs_repaint(), "plain watch in _with_app should still request repaint");
+    assert_eq!(app.title(), "with_app=99");
 }

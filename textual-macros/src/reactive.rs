@@ -2,8 +2,10 @@
 //!
 //! Generates getters, setters (with change detection), watcher dispatch,
 //! and computed field caching for fields annotated with `#[reactive]`,
-//! `#[reactive(layout)]`, `#[reactive(watch)]`, `#[reactive(init = false)]`,
-//! `#[var]`, or `#[computed(depends_on = "field1, field2")]`.
+//! `#[reactive(layout)]`, `#[reactive(watch)]`, `#[reactive(watch_with_app)]`,
+//! `#[reactive(init = false)]`, `#[var]`, `#[var(watch)]`,
+//! `#[var(watch_with_app)]`, `#[var(init = false)]`, or
+//! `#[computed(depends_on = "field1, field2")]`.
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -18,9 +20,11 @@ struct ReactiveField {
     ty: syn::Type,
     /// Whether `layout` was specified.
     layout: bool,
-    /// Whether `watch` was specified (opt-in watcher dispatch).
+    /// Whether `watch` was specified (opt-in watcher dispatch without app access).
     watch: bool,
-    /// Whether this is a `#[var]` field (no repaint, no layout, no init).
+    /// Whether `watch_with_app` was specified (watcher receives `&mut App`).
+    watch_with_app: bool,
+    /// Whether this is a `#[var]` field (no repaint, no layout).
     is_var: bool,
     /// Whether `init = false` was specified (suppress watcher on mount).
     init_false: bool,
@@ -54,15 +58,87 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
     let ty = field.ty.clone();
 
     for attr in &field.attrs {
-        // Check for #[var]
+        // Check for #[var] or #[var(...)]
         if attr.path().is_ident("var") {
+            let mut watch = false;
+            let mut watch_with_app = false;
+            let mut init_false = false;
+
+            // Parse optional args: watch, watch_with_app, init = false
+            if let Meta::List(meta_list) = &attr.meta {
+                let nested = meta_list.parse_args_with(
+                    syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+                )?;
+
+                for nested_meta in &nested {
+                    match nested_meta {
+                        Meta::Path(path) => {
+                            if path.is_ident("watch") {
+                                watch = true;
+                            } else if path.is_ident("watch_with_app") {
+                                watch_with_app = true;
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    path,
+                                    format!(
+                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, or `init = false`",
+                                        path.get_ident()
+                                            .map(|i| i.to_string())
+                                            .unwrap_or_default()
+                                    ),
+                                ));
+                            }
+                        }
+                        Meta::NameValue(nv) => {
+                            if nv.path.is_ident("init") {
+                                if let Expr::Lit(expr_lit) = &nv.value {
+                                    if let Lit::Bool(lit_bool) = &expr_lit.lit {
+                                        if !lit_bool.value {
+                                            init_false = true;
+                                        }
+                                    } else {
+                                        return Err(syn::Error::new_spanned(
+                                            &nv.value,
+                                            "expected boolean literal for `init`",
+                                        ));
+                                    }
+                                } else {
+                                    return Err(syn::Error::new_spanned(
+                                        &nv.value,
+                                        "expected boolean literal for `init`",
+                                    ));
+                                }
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    &nv.path,
+                                    format!(
+                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, or `init`",
+                                        nv.path
+                                            .get_ident()
+                                            .map(|i| i.to_string())
+                                            .unwrap_or_default()
+                                    ),
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(syn::Error::new_spanned(
+                                nested_meta,
+                                "expected a simple identifier (e.g. `watch`, `watch_with_app`) or `init = false`",
+                            ));
+                        }
+                    }
+                }
+            }
+
             return Ok(Some(FieldAnnotation::Reactive(ReactiveField {
                 ident,
                 ty,
                 layout: false,
-                watch: false,
+                watch,
+                watch_with_app,
                 is_var: true,
-                init_false: false,
+                init_false,
             })));
         }
 
@@ -142,9 +218,10 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
         if attr.path().is_ident("reactive") {
             let mut layout = false;
             let mut watch = false;
+            let mut watch_with_app = false;
             let mut init_false = false;
 
-            // Parse arguments if present: #[reactive(layout, watch, init = false)]
+            // Parse arguments if present: #[reactive(layout, watch, watch_with_app, init = false)]
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
@@ -157,11 +234,13 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 layout = true;
                             } else if path.is_ident("watch") {
                                 watch = true;
+                            } else if path.is_ident("watch_with_app") {
+                                watch_with_app = true;
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     path,
                                     format!(
-                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, or `init = false`",
+                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, or `init = false`",
                                         path.get_ident().map(|i| i.to_string()).unwrap_or_default()
                                     ),
                                 ));
@@ -192,7 +271,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 return Err(syn::Error::new_spanned(
                                     &nv.path,
                                     format!(
-                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, or `init`",
+                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, or `init`",
                                         nv.path
                                             .get_ident()
                                             .map(|i| i.to_string())
@@ -204,7 +283,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                         _ => {
                             return Err(syn::Error::new_spanned(
                                 nested_meta,
-                                "expected a simple identifier (e.g. `layout`, `watch`) or `init = false`",
+                                "expected a simple identifier (e.g. `layout`, `watch`, `watch_with_app`) or `init = false`",
                             ));
                         }
                     }
@@ -216,6 +295,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 ty,
                 layout,
                 watch,
+                watch_with_app,
                 is_var: false,
                 init_false,
             })));
@@ -223,6 +303,23 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
     }
 
     Ok(None)
+}
+
+/// Compute the `ReactiveFlags` constructor expression for a field.
+fn flags_expr(field: &ReactiveField) -> TokenStream {
+    if field.is_var && field.init_false {
+        quote! { textual::reactive::ReactiveFlags::var_no_init() }
+    } else if field.is_var {
+        quote! { textual::reactive::ReactiveFlags::var() }
+    } else if field.layout && field.init_false {
+        quote! { textual::reactive::ReactiveFlags::reactive_layout_no_init() }
+    } else if field.layout {
+        quote! { textual::reactive::ReactiveFlags::reactive_layout() }
+    } else if field.init_false {
+        quote! { textual::reactive::ReactiveFlags::reactive_no_init() }
+    } else {
+        quote! { textual::reactive::ReactiveFlags::reactive() }
+    }
 }
 
 pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
@@ -276,18 +373,7 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         let field_ty = &field.ty;
         let setter_name = format_ident!("set_{}", field_ident);
         let field_name_str = field_ident.to_string();
-
-        let flags_expr = if field.is_var {
-            quote! { textual::reactive::ReactiveFlags::var() }
-        } else if field.layout && field.init_false {
-            quote! { textual::reactive::ReactiveFlags::reactive_layout_no_init() }
-        } else if field.layout {
-            quote! { textual::reactive::ReactiveFlags::reactive_layout() }
-        } else if field.init_false {
-            quote! { textual::reactive::ReactiveFlags::reactive_no_init() }
-        } else {
-            quote! { textual::reactive::ReactiveFlags::reactive() }
-        };
+        let f_flags_expr = flags_expr(field);
 
         accessors.push(quote! {
             /// Generated getter for reactive field.
@@ -307,7 +393,7 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                     let new = self.#field_ident.clone();
                     ctx.record_change(
                         #field_name_str,
-                        #flags_expr,
+                        #f_flags_expr,
                         Box::new(old),
                         Box::new(new),
                     );
@@ -328,9 +414,6 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
             }
         });
     }
-
-    // Generate reactive_dispatch — watches + computed recomputation.
-    let watch_fields: Vec<&ReactiveField> = reactive_fields.iter().filter(|f| f.watch).collect();
 
     // Build computed recomputation arms: for each changed dependency field,
     // recompute dependent computed fields.
@@ -364,16 +447,31 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         });
     }
 
-    let has_watchers = !watch_fields.is_empty();
+    // Plain-watch fields: watch=true, watch_with_app=false.
+    // These go into reactive_dispatch (no app access).
+    let plain_watch_fields: Vec<&ReactiveField> = reactive_fields
+        .iter()
+        .filter(|f| f.watch && !f.watch_with_app)
+        .collect();
+
+    // watch_with_app fields: watch_with_app=true (may or may not also have watch=true).
+    let app_watch_fields: Vec<&ReactiveField> = reactive_fields
+        .iter()
+        .filter(|f| f.watch_with_app)
+        .collect();
+
+    let has_plain_watch = !plain_watch_fields.is_empty();
+    let has_app_watch = !app_watch_fields.is_empty();
     let has_computed = !computed_fields.is_empty();
 
-    let dispatch_body = if !has_watchers && !has_computed {
+    // ── reactive_dispatch body (plain-watch + computed; no watch_with_app) ──
+    let dispatch_body = if !has_plain_watch && !has_computed {
         quote! {
             let _ = (changes, ctx);
         }
     } else {
-        let watcher_block = if has_watchers {
-            let match_arms: Vec<TokenStream> = watch_fields
+        let watcher_block = if has_plain_watch {
+            let match_arms: Vec<TokenStream> = plain_watch_fields
                 .iter()
                 .map(|field| {
                     let field_name_str = field.ident.to_string();
@@ -419,27 +517,133 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         }
     };
 
+    // ── reactive_dispatch_with_app body (all watch kinds + computed) ──
+    // Only generated when at least one field has watch_with_app.
+    let dispatch_with_app_impl = if has_app_watch {
+        // All watcher arms for the with-app override: plain-watch first, then app-watch.
+        let plain_arms: Vec<TokenStream> = plain_watch_fields
+            .iter()
+            .map(|field| {
+                let field_name_str = field.ident.to_string();
+                let field_ty = &field.ty;
+                let watcher_name = format_ident!("watch_{}", field.ident);
+                quote! {
+                    #field_name_str => {
+                        if let (Some(old), Some(new)) = (
+                            change.old_value.downcast_ref::<#field_ty>(),
+                            change.new_value.downcast_ref::<#field_ty>(),
+                        ) {
+                            self.#watcher_name(old, new, ctx);
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        let app_arms: Vec<TokenStream> = app_watch_fields
+            .iter()
+            .map(|field| {
+                let field_name_str = field.ident.to_string();
+                let field_ty = &field.ty;
+                let watcher_name = format_ident!("watch_{}", field.ident);
+                quote! {
+                    #field_name_str => {
+                        if let (Some(old), Some(new)) = (
+                            change.old_value.downcast_ref::<#field_ty>(),
+                            change.new_value.downcast_ref::<#field_ty>(),
+                        ) {
+                            self.#watcher_name(app, old, new, ctx);
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        let computed_block = if has_computed {
+            quote! { #(#computed_recompute_stmts)* }
+        } else {
+            quote! {}
+        };
+
+        // If there are no plain arms and no app arms in the match, we need a fallback.
+        let match_body = quote! {
+            for change in changes {
+                match change.field_name {
+                    #(#plain_arms)*
+                    #(#app_arms)*
+                    _ => {}
+                }
+            }
+            #computed_block
+        };
+
+        quote! {
+            fn reactive_dispatch_with_app(
+                &mut self,
+                app: &mut textual::App,
+                changes: &[textual::reactive::ReactiveChange],
+                ctx: &mut textual::reactive::ReactiveCtx,
+            ) {
+                #match_body
+            }
+        }
+    } else {
+        // No watch_with_app fields — rely on the trait default (delegates to reactive_dispatch).
+        quote! {}
+    };
+
+    // ── reactive_record_init ──
+    // For each non-computed reactive field whose effective flags have init=true,
+    // emit a synthetic change old==new==current value.
+    let init_fields: Vec<&ReactiveField> = reactive_fields
+        .iter()
+        .filter(|f| {
+            // Determine if this field has init=true
+            if f.is_var {
+                !f.init_false // var() has init=true; var_no_init() has init=false
+            } else {
+                !f.init_false // reactive() / reactive_layout() have init=true
+            }
+        })
+        .collect();
+
+    let record_init_impl = if !init_fields.is_empty() {
+        let record_stmts: Vec<TokenStream> = init_fields
+            .iter()
+            .map(|field| {
+                let field_ident = &field.ident;
+                let field_name_str = field_ident.to_string();
+                let f_flags_expr = flags_expr(field);
+                quote! {
+                    ctx.record_change(
+                        #field_name_str,
+                        #f_flags_expr,
+                        Box::new(self.#field_ident.clone()),
+                        Box::new(self.#field_ident.clone()),
+                    );
+                }
+            })
+            .collect();
+
+        quote! {
+            fn reactive_record_init(&self, ctx: &mut textual::reactive::ReactiveCtx) {
+                #(#record_stmts)*
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // Generate the list of reactive field descriptors for `reactive_field_descriptors()`.
     let descriptor_entries: Vec<TokenStream> = reactive_fields
         .iter()
         .map(|field| {
             let field_name_str = field.ident.to_string();
-            let flags_expr = if field.is_var {
-                quote! { textual::reactive::ReactiveFlags::var() }
-            } else if field.layout && field.init_false {
-                quote! { textual::reactive::ReactiveFlags::reactive_layout_no_init() }
-            } else if field.layout {
-                quote! { textual::reactive::ReactiveFlags::reactive_layout() }
-            } else if field.init_false {
-                quote! { textual::reactive::ReactiveFlags::reactive_no_init() }
-            } else {
-                quote! { textual::reactive::ReactiveFlags::reactive() }
-            };
-
+            let f_flags_expr = flags_expr(field);
             quote! {
                 textual::reactive::ReactiveFieldDescriptor {
                     name: #field_name_str,
-                    flags: #flags_expr,
+                    flags: #f_flags_expr,
                 }
             }
         })
@@ -459,12 +663,16 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                 #dispatch_body
             }
 
+            #dispatch_with_app_impl
+
             fn reactive_field_descriptors(&self) -> &'static [textual::reactive::ReactiveFieldDescriptor] {
                 static DESCRIPTORS: &[textual::reactive::ReactiveFieldDescriptor] = &[
                     #(#descriptor_entries),*
                 ];
                 DESCRIPTORS
             }
+
+            #record_init_impl
         }
     };
 
