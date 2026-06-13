@@ -14,10 +14,11 @@ use textual::prelude::*;
 const DEMO_MD: &str = include_str!("demo.md");
 const EXAMPLE_MD: &str = include_str!("example.md");
 
+#[derive(Reactive)]
 struct MarkdownApp {
-    /// Cached navigator state for check_action (avoids querying widget).
-    navigator_at_start: bool,
-    navigator_at_end: bool,
+    /// (at_start, at_end) of the viewer's navigator — drives check_action.
+    #[reactive(watch_with_app, init = false)]
+    nav_state: (bool, bool),
     /// Optional file path from CLI args.
     initial_path: Option<String>,
 }
@@ -25,14 +26,28 @@ struct MarkdownApp {
 impl MarkdownApp {
     fn new() -> Self {
         Self {
-            navigator_at_start: true,
-            navigator_at_end: true,
+            nav_state: (true, true),
             initial_path: None,
         }
+    }
+
+    fn watch_nav_state(
+        &mut self,
+        app: &mut App,
+        _old: &(bool, bool),
+        _new: &(bool, bool),
+        ctx: &mut ReactiveCtx,
+    ) {
+        app.refresh_bindings();
+        ctx.request_repaint();
     }
 }
 
 impl TextualApp for MarkdownApp {
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![
             BindingDecl::new("t", "toggle_table_of_contents", "TOC"),
@@ -109,33 +124,23 @@ impl TextualApp for MarkdownApp {
         }
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         if message.is::<NavigatorUpdated>() {
-            self.update_navigator_state(app);
-            app.refresh_bindings();
-            ctx.request_repaint();
+            if let Ok(state) = app.with_query_one_mut_as::<MarkdownViewer, _>(
+                "#markdown-viewer",
+                |v| (v.navigator.at_start(), v.navigator.at_end()),
+            ) {
+                self.set_nav_state(state, app.reactive_ctx());
+            }
         }
     }
 
     fn check_action(&self, action: &str, _parameters: &[String]) -> Option<bool> {
         match action {
-            "forward" if self.navigator_at_end => None,
-            "back" if self.navigator_at_start => None,
+            "forward" if self.nav_state.1 => None,
+            "back" if self.nav_state.0 => None,
             _ => Some(true),
         }
-    }
-}
-
-impl MarkdownApp {
-    fn update_navigator_state(&mut self, app: &mut App) {
-        let mut at_start = true;
-        let mut at_end = true;
-        let _ = app.with_query_one_mut_as::<MarkdownViewer, _>("#markdown-viewer", |viewer| {
-            at_start = viewer.navigator.at_start();
-            at_end = viewer.navigator.at_end();
-        });
-        self.navigator_at_start = at_start;
-        self.navigator_at_end = at_end;
     }
 }
 
@@ -187,8 +192,7 @@ mod tests {
     #[test]
     fn markdown_check_action_disables_back_at_start() {
         let app = MarkdownApp {
-            navigator_at_start: true,
-            navigator_at_end: false,
+            nav_state: (true, false),
             initial_path: None,
         };
         assert_eq!(app.check_action("back", &[]), None); // dimmed
@@ -198,8 +202,7 @@ mod tests {
     #[test]
     fn markdown_check_action_disables_forward_at_end() {
         let app = MarkdownApp {
-            navigator_at_start: false,
-            navigator_at_end: true,
+            nav_state: (false, true),
             initial_path: None,
         };
         assert_eq!(app.check_action("forward", &[]), None); // dimmed
