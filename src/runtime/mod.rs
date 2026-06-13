@@ -1543,7 +1543,7 @@ impl App {
         }
     }
 
-    fn request_query_refresh(&mut self, nodes: &[NodeId]) {
+    pub(crate) fn request_query_refresh(&mut self, nodes: &[NodeId]) {
         let queued: Vec<NodeId> = {
             let Some(tree) = self.active_widget_tree() else {
                 self.clear_on_next_render = true;
@@ -1647,6 +1647,8 @@ impl App {
     }
 
     /// Query one widget by selector and borrow it mutably for a scoped update.
+    ///
+    /// Escape hatch; prefer `query_one_typed` + `Handle` for typed single-widget access.
     pub fn with_query_one_mut<R>(
         &mut self,
         selector: &str,
@@ -1657,6 +1659,8 @@ impl App {
     }
 
     /// Query one widget by selector and mutably downcast it to `T`.
+    ///
+    /// Escape hatch; prefer `query_one_typed` + `Handle` for typed single-widget access.
     pub fn with_query_one_mut_as<T: Widget + 'static, R>(
         &mut self,
         selector: &str,
@@ -1665,6 +1669,67 @@ impl App {
         let node_id = self.query_one(selector)?;
         self.with_widget_mut_as(node_id, f)
             .ok_or(QueryError::NoMatch)
+    }
+
+    /// Typed `query_one` upgrade: selector must match exactly one node whose
+    /// concrete type is `W`.
+    ///
+    /// Typed wrapper over the same arena access as `with_widget_mut_as`;
+    /// for imperative widget APIs. Application state belongs in reactive
+    /// fields/signals (RA-3).
+    pub fn query_one_typed<W: Widget>(&self, selector: &str) -> std::result::Result<crate::handle::Handle<W>, QueryError> {
+        let node_id = self.query_one(selector)?;
+        self.typed_handle::<W>(node_id)
+    }
+
+    /// Checked typed upgrade of a NodeId in the active tree.
+    ///
+    /// Typed wrapper over the same arena access as `with_widget_mut_as`;
+    /// for one-off access to a `NodeId` from a message (e.g. `MessageEvent.sender`).
+    pub fn typed_handle<W: Widget>(&self, node_id: NodeId) -> std::result::Result<crate::handle::Handle<W>, QueryError> {
+        let tree = self.active_widget_tree().ok_or(QueryError::Unmounted)?;
+        crate::handle::Handle::<W>::resolve(tree, node_id)
+    }
+
+    /// Mount a widget as a direct child of the active tree root and return a
+    /// typed handle to it (typed twin of `App::mount`, src/runtime/mod.rs:882).
+    pub fn mount_typed<W: Widget>(&mut self, widget: W) -> std::result::Result<crate::handle::Handle<W>, QueryError> {
+        let node_id = self.mount(widget).map_err(|_| QueryError::Unmounted)?;
+        let tree = self.active_widget_tree().ok_or(QueryError::Unmounted)?;
+        Ok(crate::handle::Handle::new(node_id, tree.tree_id()))
+    }
+
+    /// Plumbing for `Handle::read` (active_widget_tree is pub(super)).
+    pub(crate) fn handle_read<W: Widget, R>(
+        &self,
+        handle: crate::handle::Handle<W>,
+        f: impl FnOnce(&W) -> R,
+    ) -> std::result::Result<R, QueryError> {
+        let tree = self.active_widget_tree().ok_or(QueryError::Unmounted)?;
+        handle.read_in(tree, f)
+    }
+
+    /// Plumbing for `Handle::update`: tree-level update (enqueues the reactive
+    /// entry) + automatic subtree repaint via the same path as
+    /// `DomQueryMut::refresh` (src/runtime/mod.rs:415).
+    pub(crate) fn handle_update<W: Widget, R>(
+        &mut self,
+        handle: crate::handle::Handle<W>,
+        f: impl FnOnce(&mut W, &mut crate::reactive::ReactiveCtx) -> R,
+    ) -> std::result::Result<R, QueryError> {
+        let out = {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::Unmounted)?;
+            handle.update_in(tree, f)?
+        };
+        self.request_query_refresh(&[handle.node_id()]);
+        Ok(out)
+    }
+
+    /// Plumbing for `Handle::is_mounted`.
+    pub(crate) fn handle_is_mounted<W: Widget>(&self, handle: crate::handle::Handle<W>) -> bool {
+        self.active_widget_tree()
+            .map(|tree| handle.is_mounted_in(tree))
+            .unwrap_or(false)
     }
 
     /// Build the arena-based widget tree by extracting children from the root widget.

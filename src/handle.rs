@@ -179,6 +179,32 @@ impl<W: Widget> Handle<W> {
         Ok(out)
     }
 
+    /// App-level read-only access over the active tree (screen-stack aware).
+    ///
+    /// Typed wrapper over the same arena access as `with_widget_mut_as`;
+    /// for imperative widget APIs. Application state belongs in reactive
+    /// fields/signals (RA-3).
+    pub fn read<R>(self, app: &crate::runtime::App, f: impl FnOnce(&W) -> R) -> Result<R, QueryError> {
+        app.handle_read(self, f)
+    }
+
+    /// App-level mutable access: tree-level update + automatic subtree repaint.
+    ///
+    /// Creates a fresh `ReactiveCtx`; changes flow into the runtime reactive
+    /// phase so `watch_*` callbacks fire normally. Always requests a subtree
+    /// repaint after mutation (mirrors Python's implicit refresh on mutation).
+    pub fn update<R>(
+        self,
+        app: &mut crate::runtime::App,
+        f: impl FnOnce(&mut W, &mut ReactiveCtx) -> R,
+    ) -> Result<R, QueryError> {
+        app.handle_update(self, f)
+    }
+
+    /// Whether the handle still names a live node in the active tree.
+    pub fn is_mounted(self, app: &crate::runtime::App) -> bool {
+        app.handle_is_mounted(self)
+    }
 }
 
 // ---------------------------------------------------------------------------
