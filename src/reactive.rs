@@ -352,6 +352,29 @@ pub trait ReactiveWidget {
         // Default: no-op. The derive macro generates the real dispatch.
     }
 
+    /// Like [`reactive_dispatch`](Self::reactive_dispatch), but with mutable
+    /// access to the app runtime so watchers can query/mutate widgets —
+    /// matching Python Textual watchers, which freely call `self.query_one(...)`.
+    ///
+    /// Called by the app-level reactive bridge (`TextualAppAdapter`). The
+    /// widget-level event-loop phase keeps calling `reactive_dispatch` (widgets
+    /// do not receive `App`). The default implementation delegates to
+    /// `reactive_dispatch`, so apps with only plain `watch` fields need no
+    /// override. `#[derive(Reactive)]` overrides this when any field is
+    /// annotated `watch_with_app`.
+    ///
+    /// Watchers that call setters to chain further changes must pass **their
+    /// `ctx` parameter** (the dispatch ctx), not `app.reactive_ctx()`, so
+    /// that chained changes are fed back into the iterative bridge loop.
+    fn reactive_dispatch_with_app(
+        &mut self,
+        _app: &mut crate::App,
+        changes: &[ReactiveChange],
+        ctx: &mut ReactiveCtx,
+    ) {
+        self.reactive_dispatch(changes, ctx);
+    }
+
     /// Return static descriptors for all reactive fields on this widget.
     ///
     /// Used by the runtime to decide which fields need init-phase watcher
@@ -359,6 +382,14 @@ pub trait ReactiveWidget {
     fn reactive_field_descriptors(&self) -> &'static [ReactiveFieldDescriptor] {
         &[]
     }
+
+    /// Record one synthetic change (`old == new == current value`) for every
+    /// reactive field whose flags have `init = true`, into `ctx`.
+    ///
+    /// Mirrors Python's `Reactive._initialize_object`: dispatching these
+    /// changes fires `watch_*` with identical old/new values once, post-mount.
+    /// The default does nothing; `#[derive(Reactive)]` overrides it.
+    fn reactive_record_init(&self, _ctx: &mut ReactiveCtx) {}
 }
 
 // ── Runtime reactive phase ──────────────────────────────────────────
