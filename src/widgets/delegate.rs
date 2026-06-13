@@ -1,5 +1,26 @@
 /// Widget method delegation macros.
 ///
+/// **Deprecated (migration-period only).**
+///
+/// These macros exist to bridge the pre-RA-2 period where widgets carry their own
+/// identity/style fields. Once RA-2 (node-record split) fully lands, widgets will no
+/// longer own `id`/`classes`/`WidgetStyles`, and the delegated methods (`styles`,
+/// `styles_mut`, `style_id`, `style_classes`, `set_style_id`) will be removed from
+/// the `Widget` trait. At that point, these macros become obsolete and will be
+/// removed.
+///
+/// Removal criteria (both must be met):
+/// 1. RA-2 is fully landed and the `styles` / `styles_mut` / `style_id` /
+///    `style_classes` / `set_style_id` / `style_type_aliases` methods are removed
+///    from `Widget`.
+/// 2. All delegation sites (inventoried in SPEC-RA5) have been migrated to the
+///    RA-2 node-record pattern.
+///
+/// **Do not add new uses of these macros.** For new widget-wrapper code, use the
+/// containment pattern (SPEC-RA5).
+///
+/// ---
+///
 /// Two macros are provided:
 ///
 /// ## `delegate_widget_to!` (existing, expanded)
@@ -630,6 +651,7 @@ mod tests {
     }
 }
 
+// DEFERRED(RA-2): remove delegate macros after RA-2 node-record split is landed
 pub use delegate_renderable;
 pub use delegate_widget_method;
 pub use delegate_widget_to;

@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA5 Step 1: deprecate delegation macros)
+
+- **deprecate(delegate): mark `delegate_widget_method!`/`delegate_widget_to!` as migration-period only**
+  - Added deprecation notice and removal criteria to the `src/widgets/delegate.rs` module doc.
+  - Added `DEFERRED(RA-2)` comments on `pub use` re-exports in `delegate.rs` and the prelude
+    in `src/lib.rs`. No behavioral change; no usage sites touched. The canonical delegate method
+    count test (`canonical_delegate_method_count_matches_expected`) still passes.
+  - New widget-wrapper code should use the containment pattern (SPEC-RA5) instead.
+
 ### 2026-06-13 (SPEC-P3: dictionary_initial parity — dock intrinsic height + example CSS alignment)
 
 - **fix(layout/split): `carve_edge` unset-height now uses widget intrinsic height**

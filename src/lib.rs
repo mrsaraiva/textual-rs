@@ -106,6 +106,7 @@ pub mod prelude {
         Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
         TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tooltip, Tree, TreeNode, Vertical,
         VerticalGroup, VerticalScroll, Welcome, Widget, WidgetRenderable, WidgetStyles,
+        // DEFERRED(RA-2): remove delegate macros after RA-2 node-record split is landed
         classify_style_change, delegate_renderable, delegate_widget_method, delegate_widget_to,
         preview_root, preview_root_with_bottom, preview_root_with_top_bottom, summary_max,
         summary_mean, summary_min,
