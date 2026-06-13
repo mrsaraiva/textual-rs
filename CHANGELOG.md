@@ -7,6 +7,55 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA4: typed widget handles)
+
+- **feat(handle): `Handle<W>` + `HandleSlot<W>` — typed widget handles (RA-4)**
+  - `src/handle.rs`: new module. `Handle<W>` wraps `(NodeId, tree_id: u64)` with
+    `PhantomData<fn() -> W>` for `Copy + Send + Sync` independent of `W`.
+    `HandleSlot<W>`: `Arc<Mutex<Option<(NodeId, u64)>>>` cell filled by the mount
+    pipeline; `make_sink()` produces the `HandleSink` callback.
+    `Handle::read_in`/`update_in`: typed arena access (read-only / mutable).
+    `Handle::read`/`update`/`is_mounted`: app-level delegation to
+    `handle_read`/`handle_update`/`handle_is_mounted`.
+    `update_in` enqueues a `RuntimeReactiveEntry` when the closure records changes
+    or requests repaint/layout — same reactive phase as event handlers.
+    `handle_update` drains `drain_pending_class_ops()` after the closure, matching
+    the `with_widget_mut` contract (fixes `MarkdownViewer` TOC class staging).
+  - `src/widget_tree.rs`: `QueryError` extended with `Unmounted` and
+    `TypeMismatch { expected, actual }`; `WidgetTree` gains `tree_id: u64`
+    (process-unique, from `AtomicU64`) to prevent cross-tree handle aliasing.
+  - `src/compose.rs`: `ChildDecl` gains `handle_sink: Option<HandleSink>` field.
+  - `src/widgets/core.rs`: `Widget` trait gains default
+    `take_child_handle_sinks() -> Vec<(usize, HandleSink)>`.
+  - `src/widgets/containers/app_root.rs`: `with_child_handle<W>` builder +
+    `take_child_handle_sinks` override.
+  - `src/runtime/mod.rs`: mount pipeline fires sinks at mount; new app-level API:
+    `query_one_typed`, `typed_handle`, `mount_typed`,
+    `handle_read` (pub(crate)), `handle_update` (pub(crate)),
+    `handle_is_mounted` (pub(crate)).
+  - `src/lib.rs`/`prelude`: `Handle`, `HandleSlot`, `HandleSink` exported.
+  - `tests/typed_handles.rs`: 6 integration tests (slot fills on build,
+    unfilled before build, bind fills slot, slot tracks latest mount,
+    typed mismatch is loud, stale after remove).
+  - Example migrations (judgment rule applied — handles used where they read
+    clearer than stringly selectors, not forced mechanically):
+    - `markdown`: `HandleSlot<MarkdownViewer>` via `with_child_handle`;
+      `on_message_with_app` uses `h.read` for navigator state;
+      key handlers use `h.update` for TOC / back / forward.
+    - `json_tree`: `HandleSlot<Tree>` via `with_child_handle`;
+      `on_app_action_str` uses `h.update` for add/clear/toggle-root.
+    - `dictionary`: `Option<Handle<Markdown>>` acquired post-mount via
+      `query_one_typed`; `on_message_with_app` uses `h.update`.
+    - `code_browser`: `Option<Handle<Static>>` + `Option<Handle<VerticalScroll>>`
+      acquired post-mount; `watch_path` uses `h.update` for all three sites;
+      descendant selector `#code-view VerticalScroll` replaces the `#code-view`
+      selector that silently no-oped scroll-home via the Node wrapper.
+    - `five_by_five`: `HandleSlot<WinnerMessage>` via `with_child_handle`;
+      `watch_won_at` uses `h.update`. `#moves`/`#progress` label sites keep
+      `with_query_one_mut_as` — their init-phase watchers fire before
+      `on_mount_with_app`, making post-mount handles incorrect there.
+  - Parity: all 8 PTY parity tests pass; XFail cases unchanged.
+
 ### 2026-06-13 (SPEC-RA3 Step 10: five_by_five rewrite — signals-first)
 
 - **refactor(examples/five_by_five): rewrite to signals-first idiom (RA-3 Step 10)**
