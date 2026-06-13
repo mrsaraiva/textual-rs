@@ -47,9 +47,10 @@ pub(crate) fn carve_edge(
     let width_is_explicit = matches!(style.width, Some(ref s) if !matches!(s, Scalar::Auto));
 
     let child_h = match style.height.as_ref() {
-        None => 1, // truly unset → 1 row for dock/split children
-        Some(Scalar::Auto) => {
-            // Use widget's intrinsic height, fall back to current available.
+        None | Some(Scalar::Auto) => {
+            // Unset or auto: use widget intrinsic height if available, fall back
+            // to full available height (same policy as layout_vertical's
+            // extract_child_spec for None | Auto).
             tree.get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok())

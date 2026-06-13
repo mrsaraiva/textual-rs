@@ -1307,6 +1307,37 @@ mod tests {
     }
 
     #[test]
+    fn dock_top_unset_height_uses_intrinsic_height() {
+        // Regression: carve_edge previously defaulted to h=1 when style.height
+        // is None (unset), ignoring the widget's layout_height(). This caused
+        // docked widgets with no explicit CSS height (e.g. an Input inside a Node
+        // with `dock: top`) to be sized as 1 row instead of their natural height.
+        // The fix aligns None with Some(Scalar::Auto): both use layout_height().
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let docked = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "Header",
+                {
+                    let mut s = Style::new();
+                    // height is intentionally NOT set (None)
+                    s.dock = Some(crate::style::Dock::Top);
+                    s
+                },
+                3,
+            ),
+        );
+
+        let available = Region::new(0, 0, 80, 50);
+        let remaining = arrange_dock(&mut tree, &[docked], available, (80, 50));
+
+        // Must use intrinsic height 3, not the old default of 1.
+        assert_layout_rect(&tree, docked, 0, 0, 80, 3);
+        assert_eq!(remaining, Region::new(0, 3, 80, 47));
+    }
+
+    #[test]
     fn dock_left_auto_width_with_max_width_clamp() {
         // Widget with content_width()=60 but max_width=40 — max_width should clamp.
         let mut tree = WidgetTree::new();

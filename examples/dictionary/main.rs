@@ -22,16 +22,24 @@ use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
 const CSS: &str = r#"
-#dictionary-search {
+Screen {
+    background: $panel;
+}
+
+Input#dictionary-search {
     dock: top;
     margin: 1 0;
-    width: 100%;
 }
 
 #results-container {
-    width: 100%;
-    height: 1fr;
     background: $surface;
+    margin: 0 0 1 0;
+    height: 1fr;
+    border: tall transparent;
+}
+
+#results-container:focus {
+    border: tall $border;
 }
 
 #results {
@@ -139,7 +147,12 @@ impl TextualApp for DictionaryApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
             .with_child(
-                Node::new(Input::new().with_placeholder("Search for a word"))
+                // Python: `Input(placeholder="Search for a word", id="dictionary-search")` —
+                // the Input widget carries the id directly so CSS `Input#dictionary-search`
+                // (dock: top; margin: 1 0) matches it and layout_height() returns the
+                // correct intrinsic height (1 content + 2 border rows = 3).
+                Input::new()
+                    .with_placeholder("Search for a word")
                     .id("dictionary-search"),
             )
             .with_child(

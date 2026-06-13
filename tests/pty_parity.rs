@@ -149,9 +149,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "#results container does not render; Input bottom border edge missing",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "code_browser_initial",

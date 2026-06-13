@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-P3: dictionary_initial parity — dock intrinsic height + example CSS alignment)
+
+- **fix(layout/split): `carve_edge` unset-height now uses widget intrinsic height**
+  - Changed `None => 1` in `carve_edge`'s `child_h` match to `None | Some(Scalar::Auto)`
+    (delegates to `widget.layout_height()`, falling back to full available height). This
+    matches the policy of `layout_vertical`'s `extract_child_spec`. Previously, docked
+    widgets with no explicit CSS `height` always got height=1, which caused `Node#dictionary-search`
+    (dock: top, no explicit height) to be allocated only 3 rows (1 content + 2 margins)
+    instead of the correct 5 (3 input + 2 margins), overwriting the Input bottom border with
+    the results-container background.
+- **fix(example/dictionary): align compose + CSS with Python**
+  - `Input` now carries its CSS id (`"dictionary-search"`) directly via `Input::id()` instead
+    of being wrapped in a `Node`, matching Python's `Input(id="dictionary-search")` structure.
+    This preserves `Input.layout_height()` in the arena tree (Node child extraction replaces the
+    child with a Spacer, losing the intrinsic height).
+  - Added `Input::id()` builder method (sets `seed.css_id`).
+  - CSS updated to match Python's `dictionary.tcss`: `Screen { background: $panel; }`,
+    `Input#dictionary-search` selector, `border: tall transparent` on `#results-container`,
+    `margin: 0 0 1 0` on `#results-container`, `:focus { border: tall $border; }` rule.
+- **test(layout): new regression test `dock_top_unset_height_uses_intrinsic_height`** guards
+  the `carve_edge` `None`-height fix so it cannot silently revert.
+- **test(parity): `dictionary_initial` promoted XFail → Pass**
+
 ### 2026-06-13 (five_by_five input fix — wrong key identifiers + punctuation display)
 
 - **fix(example/five_by_five): use canonical key identifiers**

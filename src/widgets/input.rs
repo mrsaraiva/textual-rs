@@ -217,6 +217,11 @@ impl Input {
         self
     }
 
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.seed.css_id = Some(id.into());
+        self
+    }
+
     pub fn with_password(mut self, password: bool) -> Self {
         self.password = password;
         self
