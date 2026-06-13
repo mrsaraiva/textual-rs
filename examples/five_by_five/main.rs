@@ -1,8 +1,8 @@
 /// Port of Python Textual `examples/five_by_five.py`.
 ///
 /// A 5×5 toggle-puzzle game demonstrating:
-/// - Proper widget composition: `GameCell` widgets in a CSS grid,
-///   `GameHeader` for stats, `WinnerMessage` for victory display.
+/// - Signals-first state: `FiveByFiveApp` derives `Reactive`; all DOM mutation
+///   happens inside `watch_*` watchers, not inline in key handlers.
 /// - Screen stack (`push_screen`/`pop_screen`) for a help overlay.
 /// - Key bindings for grid navigation (arrows, WASD, hjkl) and game actions.
 /// - Footer with binding hints.
@@ -10,9 +10,9 @@
 ///
 /// Python: `Game(Screen)` composes `GameHeader`, `GameGrid` (5×5 grid of
 /// `GameCell(Button)`), `Footer`, and `WinnerMessage(Label)` overlay.
-/// Reactive properties track moves/filled counts.
-/// Rust: `FiveByFiveApp` composes equivalent widgets with state managed
-/// by `GameState`. Widgets are queried and mutated via `with_query_one_mut_as`.
+/// Reactive properties: `GameHeader.moves`, `GameHeader.filled`
+/// (five_by_five.py:78-81); cell fill state lives in DOM classes toggled
+/// via queries (five_by_five.py:218-242).
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use textual::prelude::*;
 
@@ -123,105 +123,39 @@ HelpRoot {
 "#;
 
 // ---------------------------------------------------------------------------
-// GameState — pure game logic, no widget concerns.
+// Pure game-logic helpers (replace GameState methods — unit-testable).
 // ---------------------------------------------------------------------------
 
-pub struct GameState {
-    pub cells: [[bool; SIZE]; SIZE],
-    pub cursor: (usize, usize),
-    pub moves: usize,
-    pub won: bool,
+type Cells = [[bool; SIZE]; SIZE];
+
+/// Toggle the cross pattern (cell + 4 neighbors) centered at (row, col).
+/// Mirrors Python `Game._toggle_cell` / `action_new_game` toggling logic.
+fn toggle_cross(cells: &mut Cells, row: usize, col: usize) {
+    cells[row][col] = !cells[row][col];
+    if row > 0 {
+        cells[row - 1][col] = !cells[row - 1][col];
+    }
+    if row + 1 < SIZE {
+        cells[row + 1][col] = !cells[row + 1][col];
+    }
+    if col > 0 {
+        cells[row][col - 1] = !cells[row][col - 1];
+    }
+    if col + 1 < SIZE {
+        cells[row][col + 1] = !cells[row][col + 1];
+    }
 }
 
-impl GameState {
-    pub fn new() -> Self {
-        let mut state = Self {
-            cells: [[false; SIZE]; SIZE],
-            cursor: (SIZE / 2, SIZE / 2),
-            moves: 0,
-            won: false,
-        };
-        state.toggle_cross(SIZE / 2, SIZE / 2);
-        state
-    }
+/// Count filled cells.
+fn filled_count(cells: &Cells) -> usize {
+    cells.iter().flatten().filter(|&&c| c).count()
+}
 
-    fn toggle_at(&mut self, row: usize, col: usize) {
-        self.cells[row][col] = !self.cells[row][col];
-    }
-
-    fn toggle_cross(&mut self, row: usize, col: usize) {
-        self.toggle_at(row, col);
-        if row > 0 {
-            self.toggle_at(row - 1, col);
-        }
-        if row + 1 < SIZE {
-            self.toggle_at(row + 1, col);
-        }
-        if col > 0 {
-            self.toggle_at(row, col - 1);
-        }
-        if col + 1 < SIZE {
-            self.toggle_at(row, col + 1);
-        }
-    }
-
-    pub fn filled_count(&self) -> usize {
-        self.cells.iter().flatten().filter(|&&c| c).count()
-    }
-
-    pub fn all_filled(&self) -> bool {
-        self.filled_count() == SIZE * SIZE
-    }
-
-    /// Make a move at the cursor. Returns the list of toggled cell coordinates.
-    pub fn make_move(&mut self) -> Vec<(usize, usize)> {
-        if self.won {
-            return vec![];
-        }
-        let (r, c) = self.cursor;
-        let mut affected = vec![(r, c)];
-        self.toggle_at(r, c);
-        if r > 0 {
-            self.toggle_at(r - 1, c);
-            affected.push((r - 1, c));
-        }
-        if r + 1 < SIZE {
-            self.toggle_at(r + 1, c);
-            affected.push((r + 1, c));
-        }
-        if c > 0 {
-            self.toggle_at(r, c - 1);
-            affected.push((r, c - 1));
-        }
-        if c + 1 < SIZE {
-            self.toggle_at(r, c + 1);
-            affected.push((r, c + 1));
-        }
-        self.moves += 1;
-        if self.all_filled() {
-            self.won = true;
-        }
-        affected
-    }
-
-    /// Navigate cursor by (dr, dc) with wrapping. Returns old cursor position.
-    pub fn navigate(&mut self, dr: i32, dc: i32) -> (usize, usize) {
-        let old = self.cursor;
-        let (r, c) = self.cursor;
-        let nr = ((r as i32 + dr).rem_euclid(SIZE as i32)) as usize;
-        let nc = ((c as i32 + dc).rem_euclid(SIZE as i32)) as usize;
-        self.cursor = (nr, nc);
-        old
-    }
-
-    /// Reset and start a new game (middle cell cross-toggled as initial state).
-    pub fn new_game(&mut self) {
-        self.cells = [[false; SIZE]; SIZE];
-        self.moves = 0;
-        self.won = false;
-        self.cursor = (SIZE / 2, SIZE / 2);
-        self.toggle_cross(SIZE / 2, SIZE / 2);
-    }
+/// Navigate cursor by (dr, dc) with wrapping.
+fn wrap_navigate(cur: (usize, usize), dr: i32, dc: i32) -> (usize, usize) {
+    let nr = ((cur.0 as i32 + dr).rem_euclid(SIZE as i32)) as usize;
+    let nc = ((cur.1 as i32 + dc).rem_euclid(SIZE as i32)) as usize;
+    (nr, nc)
 }
 
 fn plural(n: usize) -> &'static str {
@@ -230,6 +164,8 @@ fn plural(n: usize) -> &'static str {
 
 // ---------------------------------------------------------------------------
 // GameCell — individual playable cell (matches Python's GameCell(Button))
+// Cell fill/cursor state lives on the arena node (set by watchers via
+// app.query_mut); no internal state fields beyond coordinates and seed.
 // ---------------------------------------------------------------------------
 
 pub struct GameCell {
@@ -237,57 +173,19 @@ pub struct GameCell {
     row: usize,
     #[allow(dead_code)]
     col: usize,
-    filled: bool,
-    is_cursor: bool,
     seed: NodeSeed,
 }
 
 impl GameCell {
-    pub fn new(row: usize, col: usize, filled: bool, is_cursor: bool) -> Self {
+    pub fn new(row: usize, col: usize) -> Self {
         let id = Self::id_for(row, col);
         let mut seed = NodeSeed::default();
         seed.css_id = Some(id);
-        let mut cell = Self {
-            row,
-            col,
-            filled,
-            is_cursor,
-            seed,
-        };
-        cell.rebuild_classes();
-        cell
+        Self { row, col, seed }
     }
 
     pub fn id_for(row: usize, col: usize) -> String {
         format!("cell-{}-{}", row, col)
-    }
-
-    pub fn set_filled(&mut self, filled: bool) {
-        self.filled = filled;
-        self.rebuild_classes();
-    }
-
-    pub fn set_cursor(&mut self, is_cursor: bool) {
-        self.is_cursor = is_cursor;
-        self.rebuild_classes();
-    }
-
-    fn rebuild_classes(&mut self) {
-        self.seed.classes.clear();
-        if self.filled {
-            self.seed.classes.push("filled".to_string());
-        }
-        if self.is_cursor {
-            self.seed.classes.push("cursor".to_string());
-        }
-    }
-
-    pub fn classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    pub fn css_id(&self) -> Option<&str> {
-        self.seed.css_id.as_deref()
     }
 }
 
@@ -319,20 +217,18 @@ impl Renderable for GameCell {
 // ---------------------------------------------------------------------------
 // GameHeader — title + moves + filled counts
 // (Python: reactive labels in Horizontal, five_by_five.py:84-93)
+// After mount, moves/filled are updated by the watchers via direct
+// label queries (#moves, #progress) since composed children are in the arena.
 // ---------------------------------------------------------------------------
 
 pub struct GameHeader {
-    moves: usize,
-    filled: usize,
     children_extracted: bool,
     seed: NodeSeed,
 }
 
 impl GameHeader {
-    pub fn new(moves: usize, filled: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            moves,
-            filled,
             children_extracted: false,
             seed: NodeSeed::default(),
         }
@@ -357,8 +253,8 @@ impl Widget for GameHeader {
         vec![Box::new(
             Horizontal::new()
                 .with_child(Label::new(APP_TITLE).with_id("app-title"))
-                .with_child(Label::new(moves_text(self.moves)).with_id("moves"))
-                .with_child(Label::new(progress_text(self.filled)).with_id("progress")),
+                .with_child(Label::new(moves_text(0)).with_id("moves"))
+                .with_child(Label::new(progress_text(0)).with_id("progress")),
         )]
     }
 
@@ -517,73 +413,133 @@ impl Screen for HelpScreen {
 }
 
 // ---------------------------------------------------------------------------
-// Main app
+// Main app — signals-first state model
 // ---------------------------------------------------------------------------
 
+/// Cell fill state is the canonical source of truth; watchers mirror it into
+/// arena node classes (CSS matching unions node classes via
+/// `node_selector_meta_from_node`, src/css/selectors/resolver.rs:172-220).
+#[derive(Reactive)]
 struct FiveByFiveApp {
-    state: GameState,
+    /// Cell fill array. Python: fill state lives in DOM classes (five_by_five.py:218-242).
+    #[reactive(watch_with_app, init = false)]
+    cells: Cells,
+    /// Cursor position. init=true → watch_cursor fires at mount to set initial class.
+    #[reactive(watch_with_app)]
+    cursor: (usize, usize),
+    /// Move counter. init=true → watch_moves fires at mount to initialize header.
+    #[reactive(watch_with_app)]
+    moves: usize,
+    /// Some(moves) once won; None while playing (Python: WinnerMessage show/hide).
+    #[reactive(watch_with_app, init = false)]
+    won_at: Option<usize>,
 }
 
 impl FiveByFiveApp {
     fn new() -> Self {
         Self {
-            state: GameState::new(),
+            cells: [[false; SIZE]; SIZE],
+            cursor: (SIZE / 2, SIZE / 2),
+            moves: 0,
+            won_at: None,
         }
     }
 
-    /// Sync all cells + header + winner after a new game.
-    fn sync_all(&self, app: &mut App) {
+    /// Mirrors Python `Game.on_mount` → `action_new_game` (five_by_five.py:267-299).
+    /// Sets all reactive fields; watchers apply DOM mutations before first render.
+    fn new_game(&mut self, app: &mut App) {
+        let mut cells: Cells = [[false; SIZE]; SIZE];
+        toggle_cross(&mut cells, SIZE / 2, SIZE / 2);
+        self.set_moves(0, app.reactive_ctx());
+        self.set_won_at(None, app.reactive_ctx());
+        self.set_cursor((SIZE / 2, SIZE / 2), app.reactive_ctx());
+        self.set_cells(cells, app.reactive_ctx());
+    }
+
+    /// Diff old/new cell arrays and update arena node classes for changed cells.
+    fn watch_cells(
+        &mut self,
+        app: &mut App,
+        old: &Cells,
+        new: &Cells,
+        ctx: &mut ReactiveCtx,
+    ) {
         for row in 0..SIZE {
             for col in 0..SIZE {
-                let id = format!("#cell-{}-{}", row, col);
-                let filled = self.state.cells[row][col];
-                let is_cursor = self.state.cursor == (row, col);
-                let _ = app.with_query_one_mut_as::<GameCell, _>(&id, |cell| {
-                    cell.set_filled(filled);
-                    cell.set_cursor(is_cursor);
-                });
+                if old[row][col] != new[row][col] {
+                    let _ = app
+                        .query_mut(&format!("#cell-{row}-{col}"))
+                        .map(|q| q.set_class(new[row][col], &["filled"]));
+                }
             }
         }
-        let moves = self.state.moves;
-        let filled = self.state.filled_count();
-        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
-        let _ = app
-            .with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
-        let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
+        let filled = filled_count(new);
+        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| {
+            l.set_text(progress_text(filled));
+        });
+        ctx.request_styles();
+        ctx.request_repaint();
     }
 
-    /// Update specific cells after a move.
-    fn sync_cells(&self, app: &mut App, cells: &[(usize, usize)]) {
-        for &(row, col) in cells {
-            let id = format!("#cell-{}-{}", row, col);
-            let filled = self.state.cells[row][col];
-            let _ = app.with_query_one_mut_as::<GameCell, _>(&id, |cell| {
-                cell.set_filled(filled);
-            });
-        }
-        let moves = self.state.moves;
-        let filled = self.state.filled_count();
-        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
-        let _ = app
-            .with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
-    }
-
-    /// Update cursor display (clear old, set new).
-    fn sync_cursor(&self, app: &mut App, old: (usize, usize), new: (usize, usize)) {
+    /// Move cursor class from old node to new node. init fires with old == new →
+    /// adds initial cursor class on the starting cell.
+    fn watch_cursor(
+        &mut self,
+        app: &mut App,
+        old: &(usize, usize),
+        new: &(usize, usize),
+        ctx: &mut ReactiveCtx,
+    ) {
         if old != new {
-            let old_id = format!("#cell-{}-{}", old.0, old.1);
-            let _ = app.with_query_one_mut_as::<GameCell, _>(&old_id, |cell| {
-                cell.set_cursor(false);
-            });
-            let new_id = format!("#cell-{}-{}", new.0, new.1);
-            let _ = app.with_query_one_mut_as::<GameCell, _>(&new_id, |cell| {
-                cell.set_cursor(true);
-            });
+            let _ = app
+                .query_mut(&format!("#cell-{}-{}", old.0, old.1))
+                .map(|q| q.remove_class("cursor"));
         }
+        let _ = app
+            .query_mut(&format!("#cell-{}-{}", new.0, new.1))
+            .map(|q| q.add_class("cursor"));
+        ctx.request_styles();
+        ctx.request_repaint();
+    }
+
+    /// Update the moves label. init fires at mount → initializes header to 0.
+    fn watch_moves(
+        &mut self,
+        app: &mut App,
+        _old: &usize,
+        new: &usize,
+        ctx: &mut ReactiveCtx,
+    ) {
+        let moves = *new;
+        let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| {
+            l.set_text(moves_text(moves));
+        });
+        ctx.request_repaint();
+    }
+
+    /// Show/hide the winner overlay. init = false → does not fire at mount.
+    fn watch_won_at(
+        &mut self,
+        app: &mut App,
+        _old: &Option<usize>,
+        new: &Option<usize>,
+        ctx: &mut ReactiveCtx,
+    ) {
+        let new = *new;
+        let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| match new {
+            Some(moves) => w.show(moves),
+            None => w.hide(),
+        });
+        ctx.request_layout();
+        ctx.request_repaint();
     }
 }
 
 impl TextualApp for FiveByFiveApp {
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         app.add_mode("help", || Box::new(HelpScreen));
@@ -600,73 +556,66 @@ impl TextualApp for FiveByFiveApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let header = GameHeader::new(self.state.moves, self.state.filled_count());
-
         let mut grid = Grid::new(SIZE, SIZE).id("game-grid");
         for row in 0..SIZE {
             for col in 0..SIZE {
-                let filled = self.state.cells[row][col];
-                let is_cursor = self.state.cursor == (row, col);
-                grid = grid.with_child(GameCell::new(row, col, filled, is_cursor));
+                grid = grid.with_child(GameCell::new(row, col));
             }
         }
 
         AppRoot::new()
-            .with_child(header)
+            .with_child(GameHeader::new())
             .with_child(grid)
             .with_child(WinnerMessage::new())
             .with_child(Footer::new())
+    }
+
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        self.new_game(app);
     }
 
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         let handled = match key.name() {
             // Navigation — arrow keys, WASD, hjkl
             "up" | "w" | "k" => {
-                let old = self.state.navigate(-1, 0);
-                self.sync_cursor(app, old, self.state.cursor);
+                self.set_cursor(wrap_navigate(self.cursor, -1, 0), app.reactive_ctx());
                 true
             }
             "down" | "s" | "j" => {
-                let old = self.state.navigate(1, 0);
-                self.sync_cursor(app, old, self.state.cursor);
+                self.set_cursor(wrap_navigate(self.cursor, 1, 0), app.reactive_ctx());
                 true
             }
             "left" | "a" | "h" => {
-                let old = self.state.navigate(0, -1);
-                self.sync_cursor(app, old, self.state.cursor);
+                self.set_cursor(wrap_navigate(self.cursor, 0, -1), app.reactive_ctx());
                 true
             }
             "right" | "d" | "l" => {
-                let old = self.state.navigate(0, 1);
-                self.sync_cursor(app, old, self.state.cursor);
+                self.set_cursor(wrap_navigate(self.cursor, 0, 1), app.reactive_ctx());
                 true
             }
             // Make a move at the current cursor position
             " " => {
-                let affected = self.state.make_move();
-                if !affected.is_empty() {
-                    self.sync_cells(app, &affected);
-                    if self.state.won {
-                        let moves = self.state.moves;
-                        let _ = app
-                            .with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| {
-                                w.show(moves)
-                            });
+                if self.won_at.is_none() {
+                    let mut cells = self.cells;
+                    toggle_cross(&mut cells, self.cursor.0, self.cursor.1);
+                    let moves = self.moves + 1;
+                    self.set_cells(cells, app.reactive_ctx());
+                    self.set_moves(moves, app.reactive_ctx());
+                    if filled_count(&self.cells) == SIZE * SIZE {
+                        self.set_won_at(Some(moves), app.reactive_ctx());
                     }
                 }
                 true
             }
             // New game
             "n" => {
-                self.state.new_game();
-                self.sync_all(app);
+                self.new_game(app);
                 true
             }
             _ => false,
         };
         if handled {
             ctx.set_handled();
-            ctx.request_repaint();
         }
     }
 }
@@ -676,7 +625,7 @@ fn main() -> textual::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Regression tests
+// Regression tests — rewritten against pure helpers (GameState dissolved).
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -689,78 +638,98 @@ mod tests {
         let _root = app.compose();
     }
 
+    // --- pure-helper tests ---
+
     #[test]
-    fn game_state_starts_with_cross_filled() {
-        let state = GameState::new();
+    fn toggle_cross_fills_center() {
+        let mut cells: Cells = [[false; SIZE]; SIZE];
+        toggle_cross(&mut cells, SIZE / 2, SIZE / 2);
         // Middle cross: (2,2), (1,2), (3,2), (2,1), (2,3) — 5 cells.
-        assert_eq!(state.filled_count(), 5);
-        assert!(!state.won);
+        assert_eq!(filled_count(&cells), 5);
+        assert!(cells[2][2]);
+        assert!(cells[1][2]);
+        assert!(cells[3][2]);
+        assert!(cells[2][1]);
+        assert!(cells[2][3]);
     }
 
     #[test]
-    fn game_state_toggle_cross_fills_adjacent() {
-        let mut state = GameState::new();
-        state.new_game();
-        let before = state.filled_count();
-        state.cursor = (0, 0);
-        let affected = state.make_move();
-        let after = state.filled_count();
-        assert_ne!(before, after, "toggle cross should change cell count");
-        assert_eq!(state.moves, 1);
-        // Corner move affects 3 cells: (0,0), (1,0), (0,1)
-        assert_eq!(affected.len(), 3);
+    fn toggle_cross_fills_adjacent_at_corner() {
+        let mut cells: Cells = [[false; SIZE]; SIZE];
+        toggle_cross(&mut cells, 0, 0);
+        // Corner: (0,0), (1,0), (0,1) — 3 cells.
+        assert_eq!(filled_count(&cells), 3);
+        assert!(cells[0][0]);
+        assert!(cells[1][0]);
+        assert!(cells[0][1]);
     }
 
     #[test]
-    fn game_state_navigate_wraps_at_edges() {
-        let mut state = GameState::new();
-        state.cursor = (0, 0);
-        let old = state.navigate(-1, 0); // wrap top → bottom
-        assert_eq!(old, (0, 0));
-        assert_eq!(state.cursor.0, SIZE - 1, "should wrap to last row");
-        let old = state.navigate(0, -1); // wrap left → right
-        assert_eq!(old, (SIZE - 1, 0));
-        assert_eq!(state.cursor.1, SIZE - 1, "should wrap to last col");
+    fn toggle_cross_double_toggle_is_identity() {
+        let mut cells: Cells = [[false; SIZE]; SIZE];
+        toggle_cross(&mut cells, 2, 2);
+        toggle_cross(&mut cells, 2, 2);
+        assert_eq!(filled_count(&cells), 0);
     }
 
     #[test]
-    fn game_state_new_game_resets() {
-        let mut state = GameState::new();
-        state.cursor = (0, 0);
-        state.make_move();
-        assert!(state.moves > 0);
-
-        state.new_game();
-        assert_eq!(state.moves, 0);
-        assert!(!state.won);
-        assert_eq!(state.cursor, (SIZE / 2, SIZE / 2));
-        assert_eq!(state.filled_count(), 5);
+    fn initial_cells_are_all_false() {
+        let cells: Cells = [[false; SIZE]; SIZE];
+        assert_eq!(filled_count(&cells), 0);
     }
 
     #[test]
-    fn game_cell_classes_reflect_state() {
-        let cell = GameCell::new(0, 0, false, false);
-        assert!(cell.classes().is_empty());
-
-        let cell = GameCell::new(1, 1, true, false);
-        assert_eq!(cell.classes(), &["filled".to_string()]);
-
-        let cell = GameCell::new(2, 2, false, true);
-        assert_eq!(cell.classes(), &["cursor".to_string()]);
-
-        let cell = GameCell::new(3, 3, true, true);
-        assert_eq!(
-            cell.classes(),
-            &["filled".to_string(), "cursor".to_string()]
-        );
+    fn new_game_cells_have_cross_filled() {
+        let mut cells: Cells = [[false; SIZE]; SIZE];
+        toggle_cross(&mut cells, SIZE / 2, SIZE / 2);
+        assert_eq!(filled_count(&cells), 5);
     }
+
+    #[test]
+    fn wrap_navigate_normal_move() {
+        assert_eq!(wrap_navigate((2, 2), -1, 0), (1, 2));
+        assert_eq!(wrap_navigate((2, 2), 1, 0), (3, 2));
+        assert_eq!(wrap_navigate((2, 2), 0, -1), (2, 1));
+        assert_eq!(wrap_navigate((2, 2), 0, 1), (2, 3));
+    }
+
+    #[test]
+    fn wrap_navigate_wraps_at_top() {
+        let result = wrap_navigate((0, 0), -1, 0);
+        assert_eq!(result.0, SIZE - 1, "should wrap to last row");
+        assert_eq!(result.1, 0);
+    }
+
+    #[test]
+    fn wrap_navigate_wraps_at_left() {
+        let result = wrap_navigate((0, 0), 0, -1);
+        assert_eq!(result.0, 0);
+        assert_eq!(result.1, SIZE - 1, "should wrap to last col");
+    }
+
+    #[test]
+    fn wrap_navigate_wraps_at_bottom() {
+        let result = wrap_navigate((SIZE - 1, 0), 1, 0);
+        assert_eq!(result.0, 0, "should wrap to first row");
+    }
+
+    #[test]
+    fn wrap_navigate_wraps_at_right() {
+        let result = wrap_navigate((0, SIZE - 1), 0, 1);
+        assert_eq!(result.1, 0, "should wrap to first col");
+    }
+
+    // --- GameCell ---
 
     #[test]
     fn game_cell_id_format() {
         assert_eq!(GameCell::id_for(2, 3), "cell-2-3");
-        let cell = GameCell::new(2, 3, false, false);
-        assert_eq!(cell.css_id(), Some("cell-2-3"));
+        let cell = GameCell::new(2, 3);
+        let id = cell.seed.css_id.as_deref();
+        assert_eq!(id, Some("cell-2-3"));
     }
+
+    // --- WinnerMessage ---
 
     #[test]
     fn winner_message_starts_hidden() {
@@ -786,10 +755,14 @@ mod tests {
         assert_eq!(msg.layout_height(), Some(0));
     }
 
+    // --- GameHeader ---
+
     #[test]
     fn game_header_label_texts() {
         assert_eq!(APP_TITLE, "5x5 -- A little annoying puzzle");
         assert_eq!(moves_text(0), "Moves: 0");
         assert_eq!(progress_text(5), "Filled: 5");
+        // GameHeader::new() takes no args; initial label text uses 0/0.
+        let _header = GameHeader::new();
     }
 }

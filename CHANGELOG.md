@@ -7,6 +7,37 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA3 Step 10: five_by_five rewrite — signals-first)
+
+- **refactor(examples/five_by_five): rewrite to signals-first idiom (RA-3 Step 10)**
+  - `GameState` struct dissolved; pure helper functions replace its methods:
+    `toggle_cross`, `filled_count`, `wrap_navigate`, `plural`.
+  - `FiveByFiveApp` now derives `Reactive` with four reactive fields:
+    `#[reactive(watch_with_app, init = false)] cells: Cells`,
+    `#[reactive(watch_with_app)] cursor: (usize, usize)`,
+    `#[reactive(watch_with_app)] moves: usize`,
+    `#[reactive(watch_with_app, init = false)] won_at: Option<usize>`.
+  - `watch_cells`: diffs old/new cell arrays, updates arena node classes via
+    `app.query_mut("#cell-r-c").set_class(...)`, updates `#progress` label.
+  - `watch_cursor`: removes `cursor` class from old node, adds to new node via
+    `app.query_mut(...)` — init fires with old==new to set the initial cursor class.
+  - `watch_moves`: updates `#moves` label via `app.with_query_one_mut_as::<Label, _>`.
+  - `watch_won_at`: shows/hides `WinnerMessage` via
+    `app.with_query_one_mut_as::<WinnerMessage, _>`.
+  - `GameCell` loses `filled`, `is_cursor`, `classes`, `set_filled`, `set_cursor`,
+    `rebuild_classes`, and `style_classes()` override; `new(row, col)` takes only
+    coordinates. CSS classes live on arena nodes, matched via `node_selector_meta_from_node`.
+  - `GameHeader::new()` takes no args; initial labels show `Moves: 0` / `Filled: 0`.
+    `sync_all`, `sync_cells`, `sync_cursor` free functions deleted.
+  - `on_mount_with_app` calls `self.new_game(app)` — sets all reactive fields;
+    init-phase watchers (cursor, moves) fire before the first render (G3).
+  - `on_key_with_app` navigation arms call `set_cursor(wrap_navigate(...))`;
+    space arm calls `set_cells`/`set_moves`/`set_won_at`; n arm calls `new_game`.
+  - In-file tests rewritten against pure helpers (`toggle_cross`, `filled_count`,
+    `wrap_navigate`); `game_cell_classes_reflect_state` deleted (classes are
+    arena-side); `game_header_label_texts` adjusted for `GameHeader::new()` no-args.
+  - `five_by_five_initial` PTY parity: remains Pass. LOC: 795 → 768.
+
 ### 2026-06-13 (SPEC-RA3 Step 7: code_browser rewrite — signals-first)
 
 - **refactor(examples/code_browser): rewrite to signals-first idiom**
