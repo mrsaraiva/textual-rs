@@ -599,10 +599,15 @@ fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: No
         return;
     };
     let extracted = node.widget.take_composed_children();
+    let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
+        node.widget.take_child_handle_sinks().into_iter().collect();
     let declarations = node.widget.compose();
     tree.remove_children(node_id);
-    for child in extracted {
-        App::mount_extracted_recursive(tree, node_id, child);
+    for (index, child) in extracted.into_iter().enumerate() {
+        let child_id = App::mount_extracted_recursive(tree, node_id, child);
+        if let Some(sink) = sinks.remove(&index) {
+            sink(child_id, tree.tree_id());
+        }
     }
     if !declarations.is_empty() {
         App::mount_declarations(tree, node_id, declarations);

@@ -31,6 +31,8 @@ pub struct AppRoot {
     viewport_height: AtomicUsize,
     last_layout_height: u16,
     last_layout_width: u16,
+    /// (index into `children`, sink) recorded by `with_child_handle`.
+    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 #[cfg(test)]
@@ -86,11 +88,25 @@ impl AppRoot {
             viewport_height: AtomicUsize::new(0),
             last_layout_height: 0,
             last_layout_width: 0,
+            child_handle_sinks: Vec::new(),
         }
     }
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
+        self
+    }
+
+    /// Add a child and bind `slot` to it; the slot is filled with the child's
+    /// arena identity when the widget tree is built.
+    pub fn with_child_handle<W: Widget + 'static>(
+        mut self,
+        child: W,
+        slot: &crate::handle::HandleSlot<W>,
+    ) -> Self {
+        self.children.push(Box::new(child));
+        self.child_handle_sinks
+            .push((self.children.len() - 1, slot.make_sink()));
         self
     }
 
@@ -258,6 +274,10 @@ impl Widget for AppRoot {
         children.push(Box::new(corner));
 
         children
+    }
+
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        std::mem::take(&mut self.child_handle_sinks)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {

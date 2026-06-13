@@ -221,6 +221,18 @@ pub trait Widget: Send + Sync + Any {
         Vec::new()
     }
 
+    /// Drain compose-time handle sinks for the children returned by the most
+    /// recent `take_composed_children()` call, as `(child_index, sink)` pairs.
+    /// Containers that offer `with_child_handle`-style builders override this.
+    /// Default: no sinks (leaf widgets and containers without handle builders).
+    ///
+    /// Migration-period shape — RA-2's node-record direction will eventually
+    /// fold child declaration metadata into `ChildDecl`-only compose, at which
+    /// point this hook is deleted together with `take_composed_children`.
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        Vec::new()
+    }
+
     /// Return this widget's arena-assigned NodeId.
     ///
     /// During event/message dispatch and rendering, the runtime sets a

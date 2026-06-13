@@ -1700,21 +1700,33 @@ impl App {
     }
 
     /// Recursively extract children from a widget via `take_composed_children()`
-    /// and mount them into the tree.
+    /// and mount them into the tree. Fires handle sinks for any bound children.
     fn extract_children_to_tree(tree: &mut WidgetTree, parent: NodeId, widget: &mut dyn Widget) {
         let children = widget.take_composed_children();
-        for mut child in children {
+        let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
+            widget.take_child_handle_sinks().into_iter().collect();
+        for (index, mut child) in children.into_iter().enumerate() {
             // Recursively extract grandchildren before mounting the child.
             // We must do this while we still have &mut access to the child.
             let grandchildren = child.take_composed_children();
+            let mut grandchild_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
+                child.take_child_handle_sinks().into_iter().collect();
             // Also collect compose() declarations from the child.
             let child_compose = child.compose();
 
             let node_id = tree.mount(parent, child);
 
+            // Fire this child's sink if one was recorded.
+            if let Some(sink) = sinks.remove(&index) {
+                sink(node_id, tree.tree_id());
+            }
+
             // Recursively mount grandchildren under this node.
-            for grandchild in grandchildren {
-                Self::mount_extracted_recursive(tree, node_id, grandchild);
+            for (g_index, grandchild) in grandchildren.into_iter().enumerate() {
+                let g_id = Self::mount_extracted_recursive(tree, node_id, grandchild);
+                if let Some(sink) = grandchild_sinks.remove(&g_index) {
+                    sink(g_id, tree.tree_id());
+                }
             }
 
             // Mount compose() declarations from the child.
@@ -1725,51 +1737,76 @@ impl App {
     }
 
     /// Recursively mount an already-extracted child widget and its descendants.
+    /// Returns the `NodeId` of the newly mounted node.
     pub(crate) fn mount_extracted_recursive(
         tree: &mut WidgetTree,
         parent: NodeId,
         mut widget: Box<dyn Widget>,
-    ) {
+    ) -> NodeId {
         let grandchildren = widget.take_composed_children();
+        let mut grandchild_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
+            widget.take_child_handle_sinks().into_iter().collect();
         let compose_decls = widget.compose();
 
         let node_id = tree.mount(parent, widget);
 
-        for grandchild in grandchildren {
-            Self::mount_extracted_recursive(tree, node_id, grandchild);
+        for (g_index, grandchild) in grandchildren.into_iter().enumerate() {
+            let g_id = Self::mount_extracted_recursive(tree, node_id, grandchild);
+            if let Some(sink) = grandchild_sinks.remove(&g_index) {
+                sink(g_id, tree.tree_id());
+            }
         }
 
         if !compose_decls.is_empty() {
             Self::mount_declarations(tree, node_id, compose_decls);
         }
+
+        node_id
     }
 
     /// Recursively mount `ChildDecl` declarations into the tree under `parent`.
+    /// Fires handle sinks recorded on declarations via `HandleSlot::bind`.
     pub(crate) fn mount_declarations(
         tree: &mut WidgetTree,
         parent: NodeId,
         declarations: Vec<ChildDecl>,
     ) {
         for decl in declarations {
-            let WidgetBuilder::Ready(mut widget) = decl.builder;
+            let ChildDecl {
+                builder,
+                children: decl_children,
+                id,
+                classes,
+                handle_sink,
+            } = decl;
+            let WidgetBuilder::Ready(mut widget) = builder;
             // Extract children from declared widgets too.
             let extracted = widget.take_composed_children();
+            let mut extracted_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
+                widget.take_child_handle_sinks().into_iter().collect();
             let child_compose = widget.compose();
             let node_id = tree.mount(parent, widget);
+            // Fire the decl's handle sink if one was set via HandleSlot::bind.
+            if let Some(sink) = handle_sink {
+                sink(node_id, tree.tree_id());
+            }
             // Apply CSS id from the declaration via the tree after mount.
-            if let Some(id_str) = &decl.id {
+            if let Some(id_str) = &id {
                 tree.set_css_id(node_id, Some(id_str.clone()));
             }
-            for class in &decl.classes {
+            for class in &classes {
                 tree.add_class(node_id, class);
             }
             // Mount extracted children first.
-            for child in extracted {
-                Self::mount_extracted_recursive(tree, node_id, child);
+            for (index, child) in extracted.into_iter().enumerate() {
+                let c_id = Self::mount_extracted_recursive(tree, node_id, child);
+                if let Some(sink) = extracted_sinks.remove(&index) {
+                    sink(c_id, tree.tree_id());
+                }
             }
             // Mount explicit child declarations.
-            if !decl.children.is_empty() {
-                Self::mount_declarations(tree, node_id, decl.children);
+            if !decl_children.is_empty() {
+                Self::mount_declarations(tree, node_id, decl_children);
             }
             // Then mount compose() declarations from the widget itself.
             if !child_compose.is_empty() {
