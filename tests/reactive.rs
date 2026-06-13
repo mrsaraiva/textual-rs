@@ -646,7 +646,7 @@ fn var_field_descriptors_have_correct_flags() {
     let counter_desc = descriptors.iter().find(|d| d.name == "counter").unwrap();
     assert!(!counter_desc.flags.repaint);
     assert!(!counter_desc.flags.layout);
-    assert!(!counter_desc.flags.init);
+    assert!(counter_desc.flags.init); // G4: Python var default is init=True
 }
 
 // ── ReactiveFlags new constructors ──────────────────────────────────

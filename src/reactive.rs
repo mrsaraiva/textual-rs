@@ -103,8 +103,24 @@ impl ReactiveFlags {
         }
     }
 
-    /// Flags for `#[var]`: no repaint, no layout, no init watcher.
+    /// Flags for `#[var]`: no repaint, no layout, but watcher fires on init.
+    ///
+    /// Matches Python `var` default (`init=True`, `reactive.py:489`). Use
+    /// [`var_no_init`](Self::var_no_init) to suppress init-phase watcher firing.
     pub const fn var() -> Self {
+        Self {
+            repaint: false,
+            layout: false,
+            init: true,
+            always_update: false,
+        }
+    }
+
+    /// Flags for `#[var(init = false)]`: no repaint, no layout, no init watcher.
+    ///
+    /// Use this when you want `var` semantics but do not want the watcher to
+    /// fire at mount (e.g. the value is not yet meaningful at init time).
+    pub const fn var_no_init() -> Self {
         Self {
             repaint: false,
             layout: false,
@@ -574,6 +590,14 @@ mod tests {
     #[test]
     fn reactive_flags_var() {
         let flags = ReactiveFlags::var();
+        assert!(!flags.repaint);
+        assert!(!flags.layout);
+        assert!(flags.init); // G4: Python var default is init=True
+    }
+
+    #[test]
+    fn reactive_flags_var_no_init() {
+        let flags = ReactiveFlags::var_no_init();
         assert!(!flags.repaint);
         assert!(!flags.layout);
         assert!(!flags.init);
