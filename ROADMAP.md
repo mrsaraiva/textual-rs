@@ -500,6 +500,16 @@ Acceptance target: mean example LOC ratio vs Python drops from 2.7× to ≤1.5×
 no parity-harness regressions. CSS engine, layout, compositor, and rich-rs
 integration are explicitly out of scope (unchanged).
 
+Parity scoreboard (2026-06-13, real-PTY harness, 11 cases incl. interactive):
+9 Pass / 2 XFail. Pass: markdown (initial+toc), five_by_five (initial+after_move),
+json_tree (initial+add_node+toggle_root), dictionary. XFail: code_browser_initial
+(spurious horizontal scrollbar from `host_content_extent` measuring width:auto
+children at layout width, not natural content width — fix attempted but introduced
+a parallel-test global-state regression in keys_preview; reverted, diagnosis kept),
+five_by_five_help (help-screen Markdown content renders empty). Session wins:
+five_by_five input fixed (key identifiers), dictionary rendering fixed (dock
+intrinsic height).
+
 ---
 
 ## Definition of Done (v0.1) — Achieved
