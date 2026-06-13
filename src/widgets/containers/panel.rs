@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{NodeSeed, Spacer, Widget, WidgetStyles, helpers::fixed_height_from_constraints};
+use crate::widgets::{NodeSeed, Spacer, Widget};
 
 pub struct Panel {
     child: Box<dyn Widget>,
@@ -238,9 +238,6 @@ impl Widget for Panel {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         self.child.layout_height().map(|child| {
             let border = if self.border { 2 } else { 0 };
             let meta = crate::css::selector_meta_generic(self);
@@ -341,24 +338,12 @@ impl Widget for Panel {
         self.child.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        if !self.child_extracted {
-            self.child.set_focus(focused);
-        }
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

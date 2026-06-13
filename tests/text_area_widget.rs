@@ -21,7 +21,10 @@ fn make_node_id() -> NodeId {
 }
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 #[test]

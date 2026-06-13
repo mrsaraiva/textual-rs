@@ -144,20 +144,6 @@ impl HoverProbe {
             sink,
         }
     }
-}
-
-impl Widget for HoverProbe {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
 
     fn set_hovered(&mut self, hovered: bool) {
         if self.hovered != hovered {
@@ -167,6 +153,16 @@ impl Widget for HoverProbe {
                 .unwrap_or_else(|e| e.into_inner())
                 .push(format!("{}:{hovered}", self.id));
         }
+    }
+}
+
+impl Widget for HoverProbe {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -199,20 +195,6 @@ impl FocusProbe {
             sink,
         }
     }
-}
-
-impl Widget for FocusProbe {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
-    fn focusable(&self) -> bool {
-        true
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
 
     fn set_focus(&mut self, focused: bool) {
         if self.focused != focused {
@@ -222,6 +204,16 @@ impl Widget for FocusProbe {
                 .unwrap_or_else(|e| e.into_inner())
                 .push(format!("{}:{focused}", self.id));
         }
+    }
+}
+
+impl Widget for FocusProbe {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn focusable(&self) -> bool {
+        true
     }
 
     fn mouse_interactive(&self) -> bool {
@@ -398,6 +390,15 @@ impl DataTableNavProbe {
             sink,
         }
     }
+
+    fn has_focus(&self) -> bool {
+        self.focused || self.node_state().focused
+    }
+
+    #[allow(dead_code)]
+    fn set_focus(&mut self, focused: bool) {
+        self.focused = focused;
+    }
 }
 
 impl Widget for DataTableNavProbe {
@@ -407,14 +408,6 @@ impl Widget for DataTableNavProbe {
 
     fn focusable(&self) -> bool {
         self.inner.focusable()
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused || self.node_state().focused
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -440,7 +433,10 @@ impl Widget for DataTableNavProbe {
         let before = self.inner.selected();
         if self.has_focus() {
             let node_id = self.node_id();
-            let focused_ns = NodeState { focused: true, ..Default::default() };
+            let focused_ns = NodeState {
+                focused: true,
+                ..Default::default()
+            };
             let _guard = set_dispatch_recipient(node_id, focused_ns);
             self.inner.on_event(event, ctx);
         } else {

@@ -6,6 +6,7 @@ use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
 use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::style::parse_color_like;
+use textual::widgets::NodeState;
 
 fn two_tabs() -> Tabs {
     Tabs::new()
@@ -48,7 +49,13 @@ fn tabs_render_header_and_active_content() {
 #[test]
 fn tabs_keyboard_changes_active_tab() {
     let mut tabs = two_tabs();
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     let key = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,
         crossterm::event::KeyModifiers::NONE,
@@ -122,7 +129,13 @@ fn tabs_switch_binding_hint_is_hidden_for_footer() {
 fn tabs_default_css_focus_styles_active_tab_and_underline() {
     let _guard = set_style_context(default_widget_stylesheet());
     let mut tabs = two_tabs();
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     let frame = render_tabs_frame(&mut tabs, 20, 2);
 
     let header = frame.as_plain_lines()[0].clone();
@@ -198,7 +211,13 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
     let mut rctx = ReactiveCtx::new(NodeId::default());
     assert!(tabs.disable_tab("two", &mut rctx));
     assert!(tabs.hide_tab("three", &mut rctx));
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
 
     let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,

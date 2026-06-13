@@ -2,6 +2,7 @@ use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::widgets::NodeState;
 
 fn options_for(console: &Console, width: usize, height: usize) -> rich_rs::ConsoleOptions {
     let mut options = console.options().clone();
@@ -191,7 +192,13 @@ fn rich_log_focus_style_does_not_draw_border_chrome() {
     let options = options_for(&console, 12, 2);
 
     let mut log = RichLog::new();
-    log.set_focus(true);
+    log.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     log.write("line 1");
     log.write("line 2");
 

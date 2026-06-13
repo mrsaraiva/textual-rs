@@ -5,10 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 use crate::style::Style;
 
-use crate::widgets::{
-    LayoutConstraints, NodeSeed, Spacer, Widget, WidgetStyles,
-    helpers::{fixed_height_from_constraints, merge_constraints},
-};
+use crate::widgets::{LayoutConstraints, NodeSeed, Spacer, Widget};
 
 pub struct Styled {
     child: Box<dyn Widget>,
@@ -30,6 +27,10 @@ impl Styled {
     pub fn style(mut self, style: Style) -> Self {
         self.seed.styles.style = style;
         self
+    }
+
+    fn seed_constraints(&self) -> LayoutConstraints {
+        self.seed.styles.layout
     }
 }
 
@@ -80,39 +81,38 @@ impl Widget for Styled {
         false
     }
 
-    fn set_focus(&mut self, _focused: bool) {}
-
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
+        let constraints = self.seed_constraints();
+        if let (Some(min), Some(max)) = (constraints.min_height, constraints.max_height) {
+            if min == max {
+                return Some(min);
+            }
         }
         self.child.layout_height()
     }
 
-    fn layout_constraints(&self) -> LayoutConstraints {
-        merge_constraints(self.seed.styles.layout, self.child.layout_constraints())
-    }
-
     fn style(&self) -> Option<Style> {
-        Some(self.seed.styles.style.clone())
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+        let s = self.seed.styles.style.clone();
+        if s == Default::default() {
+            None
+        } else {
+            Some(s)
+        }
     }
 
     fn style_type(&self) -> &'static str {
         "Styled"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        // Merge incoming layout hints (dock, height, box_sizing) with the
+        // existing widget style (borders, bg, etc.) so neither loses its
+        // properties. The incoming style's fields win only where they are set.
+        self.seed.styles.style = self.seed.styles.style.combine(&style);
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

@@ -269,23 +269,18 @@ pub trait Widget: Send + Sync + Any {
 
         // Use the arena NodeId for metadata tagging — `apply_style_to_segments`
         // checks this value, so it must match the tag used here.
+        // Debug label is built from type identity + dispatch-context state only;
+        // DOM identity (id/classes) lives on the node record, not the widget.
         let debug_widget_label = {
             let mut label = self.style_type().to_string();
-            if let Some(id) = self.style_id() {
-                label.push('#');
-                label.push_str(id);
-            }
-            for class in self.style_classes() {
-                label.push('.');
-                label.push_str(class);
-            }
-            if self.is_disabled() {
+            let state = self.node_state();
+            if state.disabled {
                 label.push_str(":disabled");
             }
-            if self.has_focus() {
+            if state.focused {
                 label.push_str(":focus");
             }
-            if self.is_hovered() {
+            if state.hovered {
                 label.push_str(":hover");
             }
             if self.is_active() {
@@ -559,28 +554,6 @@ pub trait Widget: Send + Sync + Any {
     fn can_focus_children(&self) -> bool {
         true
     }
-    fn set_focus(&mut self, _focused: bool) {}
-    /// Whether the widget is disabled (used for `:disabled` selector matching).
-    fn is_disabled(&self) -> bool {
-        false
-    }
-    /// Set disabled state (used by DOM query bulk mutations).
-    fn set_disabled_state(&mut self, _disabled: bool) {}
-    /// Whether the widget is in loading state.
-    fn is_loading(&self) -> bool {
-        false
-    }
-    /// Set loading state (used by DOM query bulk mutations).
-    fn set_loading_state(&mut self, _loading: bool) {}
-    /// Whether the widget currently has focus (used for `:focus` selector matching).
-    fn has_focus(&self) -> bool {
-        false
-    }
-    /// Whether the widget is hovered (mouse support not yet implemented).
-    fn is_hovered(&self) -> bool {
-        false
-    }
-    fn set_hovered(&mut self, _hovered: bool) {}
     /// Whether the widget should be treated as interactive for mouse hover / cursor feedback.
     ///
     /// This is intentionally distinct from `focusable()`: some widgets (e.g. disabled buttons)
@@ -590,6 +563,55 @@ pub trait Widget: Send + Sync + Any {
     }
     /// Whether the widget is active (e.g. pressed/dragging).
     fn is_active(&self) -> bool {
+        false
+    }
+    /// Initial disabled state for off-tree rendering and tree-mount initialization.
+    ///
+    /// Widgets that carry their own disabled flag (e.g. `Button`) override this so
+    /// that `WidgetTree::make_node_from_seed` can seed `node.state.disabled` correctly
+    /// and CSS `:disabled` rules apply from the very first render.
+    fn is_initially_disabled(&self) -> bool {
+        false
+    }
+    /// Whether this widget should be treated as focused from the first render.
+    ///
+    /// Widgets that track focus internally (e.g. `Tabs`) override this so that
+    /// `build_widget_tree_from_root` can seed `node.state.focused` correctly when
+    /// `on_node_state_changed(focused: true)` is called before tree construction
+    /// (as is common in unit tests).
+    ///
+    /// After mount the canonical source of truth is `WidgetNode.state.focused` in
+    /// the tree, set via `WidgetTree::set_focus_state`.
+    fn is_initially_focused(&self) -> bool {
+        false
+    }
+    /// CSS classes for off-tree style resolution.
+    ///
+    /// Used by `selector_meta_generic` when no dispatch context is active (e.g.
+    /// during `layout_height()` or direct `FrameBuffer::from_renderable` renders).
+    /// Widgets that maintain their own class list (Button, FooterKey, Input) override
+    /// this so that CSS rules like `Button.-primary { ... }` resolve correctly even
+    /// outside the arena render path.
+    ///
+    /// After mount the canonical source of truth is `WidgetNode.classes` in the tree;
+    /// this method is ONLY consulted off-tree.
+    fn style_classes(&self) -> &[String] {
+        &[]
+    }
+    /// CSS id for off-tree style resolution.
+    ///
+    /// Widgets that carry their own CSS id (e.g. `Node`) override this so that
+    /// id-selector rules (`#hero { ... }`) are visible in off-tree renders and
+    /// during `build_widget_tree_from_root` identity propagation.
+    fn style_id(&self) -> Option<&str> {
+        None
+    }
+    /// Hover state for off-tree style resolution.
+    ///
+    /// Used by `selector_meta_generic` when no dispatch context is active. Widgets
+    /// that track hover internally (e.g. `FooterKey`) override this so that
+    /// `FooterKey:hover .footer-key--key` rules apply correctly in off-tree renders.
+    fn is_hovered(&self) -> bool {
         false
     }
     /// Whether styled rendering should preserve underlying frame cells that
@@ -602,29 +624,41 @@ pub trait Widget: Send + Sync + Any {
     fn preserve_underlay(&self) -> bool {
         false
     }
+    /// Drain pending class add/remove ops that were staged by widget methods called
+    /// outside of an event handler (e.g. via `App::with_query_one_mut_as`).
+    ///
+    /// Returns a list of `(class_name, add)` pairs where `add = true` means add the
+    /// class and `add = false` means remove it. The runtime calls this after each
+    /// `with_widget_mut` invocation and applies the ops directly to the arena node.
+    ///
+    /// Widgets that stage class changes from non-event-handler contexts should
+    /// override this method to drain and return those pending ops.
+    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
+        Vec::new()
+    }
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).
     fn content_width(&self) -> Option<usize> {
         None
     }
+    /// Intrinsic content height only. Size constraints from CSS/node styles are
+    /// applied by layout callsites (which read `tree.styles(node).layout`) before
+    /// falling back to this value.
     fn layout_height(&self) -> Option<usize> {
-        helpers::fixed_height_from_constraints(self.layout_constraints())
+        None
     }
-    fn layout_constraints(&self) -> LayoutConstraints {
-        self.styles()
-            .map(|styles| styles.layout)
-            .unwrap_or_default()
-    }
+    /// Behavior-derived style contribution (e.g. a widget computing `grid_rows`
+    /// from its content model). User/inline styles live on the node record.
     fn style(&self) -> Option<Style> {
-        self.styles().map(|styles| styles.style.clone())
-    }
-    fn styles(&self) -> Option<&WidgetStyles> {
         None
     }
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        None
-    }
+    /// Pre-mount inline style injection.
+    ///
+    /// Used by layout containers (e.g. Dock) to attach dock/size styles to a child
+    /// before the child is mounted to the arena tree.  The default is a no-op; widgets
+    /// that hold a NodeSeed override this to write into `seed.styles.style`.
+    fn set_inline_style(&mut self, _style: Style) {}
     fn style_type(&self) -> &'static str {
         std::any::type_name::<Self>()
             .rsplit("::")
@@ -639,18 +673,6 @@ pub trait Widget: Send + Sync + Any {
     fn style_type_aliases(&self) -> &[&'static str] {
         &[]
     }
-    fn style_id(&self) -> Option<&str> {
-        self.styles().and_then(|styles| styles.style_id.as_deref())
-    }
-    fn style_classes(&self) -> &[String] {
-        helpers::empty_classes()
-    }
-    /// Set this widget's CSS id (if backed by WidgetStyles).
-    fn set_style_id(&mut self, id: Option<String>) {
-        if let Some(styles) = self.styles_mut() {
-            styles.style_id = id;
-        }
-    }
     /// Optional text rendered on the top border when border-title styling is active.
     fn border_title(&self) -> Option<&str> {
         None
@@ -659,15 +681,16 @@ pub trait Widget: Send + Sync + Any {
     fn border_subtitle(&self) -> Option<&str> {
         None
     }
-    /// Legacy convenience wrapper: render with styling.
+    /// Type-meta-only styled render wrapper for off-tree (non-arena) rendering.
     ///
-    /// Widget-to-widget rendering calls this during migration. Once the runtime
-    /// renders via the arena tree (P1-12), this path becomes unused and the
-    /// runtime calls `render_styled_dyn_obj` directly with the real `NodeId`.
+    /// Children rendered through this path have no DOM identity: the selector
+    /// meta is built from type + dispatch-context state only. Reachable from
+    /// container-internal rendering when children were not drained into the
+    /// arena (unit-test/snapshot contexts).
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.render_styled_dyn_obj(console, options, None, NodeId::default())
     }
-    /// Legacy convenience wrapper with debug layout.
+    /// Type-meta-only styled render wrapper with debug layout (see `render_styled`).
     fn render_styled_with_debug(
         &self,
         console: &Console,
@@ -675,41 +698,6 @@ pub trait Widget: Send + Sync + Any {
         debug: &DebugLayout,
     ) -> Segments {
         self.render_styled_dyn_obj(console, options, Some(debug), NodeId::default())
-    }
-    fn set_width(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_width(value);
-        }
-    }
-
-    fn set_height(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_height(value);
-        }
-    }
-
-    fn set_min_width(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_min_width(value);
-        }
-    }
-
-    fn set_max_width(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_max_width(value);
-        }
-    }
-
-    fn set_min_height(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_min_height(value);
-        }
-    }
-
-    fn set_max_height(&mut self, value: usize) {
-        if let Some(styles) = self.styles_mut() {
-            styles.set_max_height(value);
-        }
     }
 }
 
@@ -1063,7 +1051,6 @@ pub struct NodeSeed {
 pub struct WidgetStyles {
     pub style: Style,
     pub layout: LayoutConstraints,
-    pub style_id: Option<String>,
 }
 
 impl WidgetStyles {
@@ -1134,14 +1121,6 @@ impl WidgetStyles {
         self.style = std::mem::take(&mut self.style).border(value);
     }
 
-    pub fn set_style_id(&mut self, id: impl Into<String>) {
-        self.style_id = Some(id.into());
-    }
-
-    pub fn clear_style_id(&mut self) {
-        self.style_id = None;
-    }
-
     pub fn width(mut self, value: usize) -> Self {
         let value = value.max(1);
         self.layout.min_width = Some(value);
@@ -1207,9 +1186,6 @@ impl WidgetStyles {
     /// Compare with another set of widget styles and classify the change
     /// for invalidation purposes.
     pub fn invalidation_kind(&self, other: &WidgetStyles) -> StyleChangeKind {
-        if self.style_id != other.style_id {
-            return StyleChangeKind::Layout;
-        }
         classify_style_change(&self.style, &other.style)
     }
 }
@@ -1220,8 +1196,8 @@ mod tests {
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::{dispatch_recipient, set_dispatch_recipient};
     use crate::style::{Display, Layout, Overflow, Visibility};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn classify_identical_styles_returns_none() {

@@ -16,10 +16,11 @@ use crate::node_id::NodeId;
 use crate::renderables::Blank;
 use crate::widgets::scrollbar;
 use crate::widgets::{
-    BindingDecl, Container, NodeSeed, ScrollBar, ScrollBarCorner, Spacer, Widget, WidgetStyles,
+    BindingDecl, Container, LayoutConstraints, NodeSeed, ScrollBar, ScrollBarCorner, Spacer,
+    Widget,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, clamp_with_constraints, crop_line_horizontal,
-        fixed_height_from_constraints, pad_lines_to_width,
+        pad_lines_to_width,
     },
 };
 
@@ -176,6 +177,16 @@ impl ScrollView {
 
     pub fn set_scroll_step_x(&mut self, step: usize) {
         self.scroll_step_x = step.max(1);
+    }
+
+    pub fn with_overflow_x(mut self, overflow: crate::style::Overflow) -> Self {
+        self.seed.styles.style.overflow_x = Some(overflow);
+        self
+    }
+
+    pub fn with_overflow_y(mut self, overflow: crate::style::Overflow) -> Self {
+        self.seed.styles.style.overflow_y = Some(overflow);
+        self
     }
 
     pub fn offset_y(&self) -> usize {
@@ -645,8 +656,12 @@ impl Widget for ScrollView {
         true
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hover_v_thumb = false;
             self.hover_v_track = false;
             self.hover_h_thumb = false;
@@ -767,7 +782,7 @@ impl Widget for ScrollView {
         let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
             && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
 
-        let constraints = self.child.layout_constraints();
+        let constraints = LayoutConstraints::default();
         let v_scrollbar_size = sb.v_size;
         let h_scrollbar_size = sb.h_size;
         let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
@@ -993,18 +1008,12 @@ impl Widget for ScrollView {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn render_with_debug(
@@ -1672,9 +1681,6 @@ impl Widget for ScrollView {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         self.height
     }
 }

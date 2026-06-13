@@ -8,10 +8,7 @@ use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
 use crate::node_id::NodeId;
 
-use super::{
-    NodeSeed, Tree, TreeNode, Widget, WidgetStyles,
-    helpers::fixed_height_from_constraints,
-};
+use super::{NodeSeed, Tree, TreeNode, Widget};
 
 /// Icon for an expanded folder (Python: `ICON_NODE_EXPANDED`).
 const ICON_FOLDER_OPEN: &str = "📂 ";
@@ -473,7 +470,7 @@ impl Widget for DirectoryTree {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(self.tree.layout_height())
+        self.tree.layout_height()
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -492,18 +489,12 @@ impl Widget for DirectoryTree {
         "DirectoryTree"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     // delegate-audit: 70 methods as of 2026-02-26
@@ -536,7 +527,6 @@ impl Widget for DirectoryTree {
             clips_descendants_to_content,
             child_display_for_tree,
             tree_child_content_inset,
-            layout_constraints,
             preserve_underlay,
             bindings,
             binding_hints,
@@ -546,10 +536,6 @@ impl Widget for DirectoryTree {
             style_type_aliases,
             border_title,
             border_subtitle,
-            is_disabled,
-            set_disabled_state,
-            is_loading,
-            set_loading_state,
             is_active,
             mouse_interactive,
             tooltip,
@@ -872,11 +858,9 @@ mod tests {
             &mut ctx,
         );
         let spawn_msgs = ctx.take_messages();
-        let task_id = spawn_msgs.iter().find_map(|event| {
-            event
-                .downcast_ref::<AsyncTaskSpawn>()
-                .map(|m| m.task_id)
-        });
+        let task_id = spawn_msgs
+            .iter()
+            .find_map(|event| event.downcast_ref::<AsyncTaskSpawn>().map(|m| m.task_id));
         assert!(task_id.is_some(), "should have spawned async task");
 
         // Simulate async result with both files arriving.

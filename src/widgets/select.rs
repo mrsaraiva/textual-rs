@@ -4,13 +4,15 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx, MouseDownEvent};
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
+use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+use crate::widgets::NodeState;
 
 use super::helpers::adjust_line_length_no_bg;
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
 use crate::action::ParsedAction;
 
-use super::{BindingDecl, NodeSeed, Widget, WidgetStyles};
+use super::{BindingDecl, NodeSeed, Widget};
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -56,7 +58,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             .map(|(label, _)| OptionItem::new(label.as_str()))
             .collect();
         let mut list = OptionList::with_items(list_items);
-        list.set_focus(true);
 
         // Default allow_blank=false: auto-select first option.
         let mut cursor = OptionCursorState::default();
@@ -212,7 +213,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         self.disabled = disabled;
         if disabled {
             self.open = false;
-            self.list.set_focus(false);
         }
         self
     }
@@ -275,11 +275,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
                 self.list.clear_highlighted();
                 self.cursor.set_highlighted(None);
             }
-            self.list.set_focus(true);
             // Reset search state when opening.
             self.search_buffer.clear();
         } else {
-            self.list.set_focus(false);
             self.search_buffer.clear();
         }
         ctx.request_repaint();
@@ -394,22 +392,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         !self.disabled
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        if !focused && self.open {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.focused && self.open {
             // Close dropdown when focus is lost.
             self.open = false;
-            self.list.set_focus(false);
             self.search_buffer.clear();
         }
-    }
-
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-        if disabled {
+        if new.disabled && self.open {
             self.open = false;
             self.search_buffer.clear();
         }
@@ -500,7 +493,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                             self.set_open(false, ctx);
                         } else {
                             // Route selection through OptionList message flow.
+                            let _guard = set_dispatch_recipient(
+                                crate::node_id::NodeId::default(),
+                                NodeState {
+                                    focused: true,
+                                    ..Default::default()
+                                },
+                            );
                             self.list.on_event(event, ctx);
+                            drop(_guard);
                             self.cursor.set_highlighted(self.list.highlighted());
                         }
                         ctx.set_handled();
@@ -551,7 +552,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                 _ => {}
             }
             // Delegate navigation keys to the inner OptionList.
-            self.list.on_event(event, ctx);
+            {
+                let _guard = set_dispatch_recipient(
+                    crate::node_id::NodeId::default(),
+                    NodeState {
+                        focused: true,
+                        ..Default::default()
+                    },
+                );
+                self.list.on_event(event, ctx);
+            }
             self.cursor.set_highlighted(self.list.highlighted());
             if !ctx.handled() {
                 // Absorb all events when overlay is open.
@@ -715,26 +725,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         )
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
     fn style_type(&self) -> &'static str {
         "Select"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     // NOTE: Select intentionally does NOT implement visit_children_mut.
@@ -771,8 +771,8 @@ mod tests {
     use super::*;
     use crate::event::{Event, EventCtx, MouseDownEvent};
     use crate::keys::KeyEventData;
-    use crate::node_id::node_id_from_ffi;
     use crate::node_id::NodeId;
+    use crate::node_id::node_id_from_ffi;
     use crate::reactive::ReactiveCtx;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crate::widgets::NodeState;
@@ -784,7 +784,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     /// Derive a test-only NodeId from a widget's pointer address.

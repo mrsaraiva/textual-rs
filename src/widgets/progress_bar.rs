@@ -6,10 +6,7 @@ use crate::event::AnimationLevel;
 use crate::renderables::Bar;
 use crate::style::Color;
 
-use super::{
-    NodeSeed, Widget,
-    helpers::adjust_line_length_no_bg,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -689,6 +686,10 @@ impl Widget for ProgressBar {
 
     fn style_type(&self) -> &'static str {
         "ProgressBar"
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

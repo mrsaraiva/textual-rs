@@ -844,7 +844,7 @@ fn p1g15_overlay_modal_preserves_underlay_outside_modal_bounds() {
 
     let mut modal_layer = Container::new().with_child(Static::new("MODAL_CARD"));
     {
-        let style = &mut modal_layer.styles_mut().expect("modal styles").style;
+        let style = &mut modal_layer.seed_mut().styles.style;
         style.position = Some(Position::Absolute);
         style.offset = Some(Offset {
             x: OffsetValue::Cells(2),
@@ -893,7 +893,7 @@ fn p1g15_overlay_visibility_toggle_does_not_shift_footer_layout() {
 
         let mut modal_layer = Container::new().with_child(Static::new("MODAL_CARD"));
         {
-            let style = &mut modal_layer.styles_mut().expect("modal styles").style;
+            let style = &mut modal_layer.seed_mut().styles.style;
             style.position = Some(Position::Absolute);
             style.offset = Some(Offset {
                 x: OffsetValue::Cells(1),

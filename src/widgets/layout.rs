@@ -4,15 +4,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{
+    Action, BlurEvent, Event, EventCtx, FocusEvent, MouseEnterEvent, MouseLeaveEvent,
+};
 use crate::node_id::NodeId;
 
 use super::{
-    LayoutConstraints, NodeSeed, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Widget,
     helpers::{
         adjust_line_length_no_bg, apply_debug_box, apply_margin, clamp_with_constraints,
-        constraints_from_style, fixed_height_from_constraints, margin_from_style,
-        merge_constraints, pad_lines_to_width,
+        constraints_from_style, margin_from_style, pad_lines_to_width,
     },
 };
 use crate::style::{BoxSizing, Dock as StyleDock, Margin, Scalar};
@@ -23,6 +24,10 @@ pub struct Row {
     align: RowAlign,
     last_layout_width: u16,
     seed: NodeSeed,
+    /// Index of the currently focused child (non-tree mode only).
+    focused_child: Option<usize>,
+    /// Index of the currently hovered child (non-tree mode only).
+    hovered_child: Option<usize>,
 }
 
 impl Row {
@@ -33,6 +38,8 @@ impl Row {
             align: RowAlign::Top,
             last_layout_width: 0,
             seed: NodeSeed::default(),
+            focused_child: None,
+            hovered_child: None,
         }
     }
 
@@ -96,25 +103,17 @@ impl Row {
         Some((count - 1, 0))
     }
 
-    fn focus_child(&mut self, index: usize) -> bool {
-        let mut changed = false;
-        for (idx, child) in self.children.iter_mut().enumerate() {
-            let should_focus = idx == index && child.focusable() && !child.is_disabled();
-            if child.has_focus() != should_focus {
-                child.set_focus(should_focus);
-                changed = true;
-            }
-        }
-        changed
-    }
-
+    /// Cycle focus to the next/prev focusable child (non-tree mode).
+    ///
+    /// Dispatches `Event::Blur` to the previously focused child and
+    /// `Event::Focus` to the next one, updating `self.focused_child`.
     fn cycle_focus(&mut self, action: Action) -> bool {
-        let mut focusable = Vec::new();
-        let mut current = None;
+        let mut focusable: Vec<usize> = Vec::new();
+        let mut current_pos: Option<usize> = None;
         for (idx, child) in self.children.iter().enumerate() {
-            if child.focusable() && !child.is_disabled() {
-                if child.has_focus() {
-                    current = Some(focusable.len());
+            if child.focusable() {
+                if self.focused_child == Some(idx) {
+                    current_pos = Some(focusable.len());
                 }
                 focusable.push(idx);
             }
@@ -122,15 +121,37 @@ impl Row {
         if focusable.is_empty() {
             return false;
         }
-        let next_pos = match (action, current) {
+        let next_pos = match (action, current_pos) {
             (Action::FocusNext, Some(pos)) => (pos + 1) % focusable.len(),
-            (Action::FocusPrev, Some(0)) => focusable.len() - 1,
+            (Action::FocusPrev, Some(0)) | (Action::FocusPrev, None) => focusable.len() - 1,
             (Action::FocusPrev, Some(pos)) => pos - 1,
             (Action::FocusNext, None) => 0,
-            (Action::FocusPrev, None) => focusable.len() - 1,
             _ => return false,
         };
-        self.focus_child(focusable[next_pos])
+        let next_idx = focusable[next_pos];
+        if self.focused_child == Some(next_idx) {
+            return false;
+        }
+        // Blur the previously focused child.
+        if let Some(prev_idx) = self.focused_child {
+            let blur = Event::Blur(BlurEvent {
+                node: NodeId::default(),
+            });
+            let mut ctx = EventCtx::default();
+            if let Some(child) = self.children.get_mut(prev_idx) {
+                child.on_event(&blur, &mut ctx);
+            }
+        }
+        self.focused_child = Some(next_idx);
+        // Focus the new child.
+        let focus = Event::Focus(FocusEvent {
+            node: NodeId::default(),
+        });
+        let mut ctx = EventCtx::default();
+        if let Some(child) = self.children.get_mut(next_idx) {
+            child.on_event(&focus, &mut ctx);
+        }
+        true
     }
 }
 
@@ -178,7 +199,7 @@ impl Widget for Row {
             let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
-            let constraints = merge_constraints(style_constraints, child.layout_constraints());
+            let constraints = style_constraints;
 
             let fixed =
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
@@ -383,18 +404,12 @@ impl Widget for Row {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn render_with_debug(
@@ -421,7 +436,7 @@ impl Widget for Row {
             let resolved = css::resolve_style(child.as_ref(), &meta);
             let margin = margin_from_style(&resolved);
             let style_constraints = constraints_from_style(&resolved);
-            let constraints = merge_constraints(style_constraints, child.layout_constraints());
+            let constraints = style_constraints;
 
             let fixed =
                 if let (Some(min), Some(max)) = (constraints.min_width, constraints.max_width) {
@@ -674,7 +689,6 @@ impl Widget for Row {
             }
             Event::MouseDown(mouse) => {
                 if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
-                    let _ = self.focus_child(idx);
                     let child_event = Event::MouseDown(crate::event::MouseDownEvent {
                         target: NodeId::default(),
                         screen_x: mouse.screen_x,
@@ -736,6 +750,7 @@ impl Widget for Row {
             return false;
         }
         let hit = self.child_at_x(x);
+        let new_hovered = hit.map(|(idx, _)| idx);
         let mut changed = false;
         debug_input(&format!(
             "[hover][row] x={} y={} hit={:?}",
@@ -744,14 +759,33 @@ impl Widget for Row {
             hit.map(|(idx, local_x)| (idx, local_x))
         ));
 
-        for (idx, child) in self.children.iter_mut().enumerate() {
-            let hovered = hit.map(|(hit_idx, _)| hit_idx == idx).unwrap_or(false);
-            if child.is_hovered() != hovered {
-                debug_input(&format!(
-                    "[hover][row] set child={} hovered={}",
-                    idx, hovered
-                ));
-                child.set_hovered(hovered);
+        // Dispatch Enter/Leave events when the hovered child changes.
+        if new_hovered != self.hovered_child {
+            if let Some(prev_idx) = self.hovered_child {
+                let leave = Event::Leave(MouseLeaveEvent {
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                });
+                let mut ctx = EventCtx::default();
+                if let Some(child) = self.children.get_mut(prev_idx) {
+                    child.on_event(&leave, &mut ctx);
+                }
+                changed = true;
+            }
+            self.hovered_child = new_hovered;
+            if let Some(new_idx) = new_hovered {
+                let enter = Event::Enter(MouseEnterEvent {
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                });
+                let mut ctx = EventCtx::default();
+                if let Some(child) = self.children.get_mut(new_idx) {
+                    child.on_event(&enter, &mut ctx);
+                }
                 changed = true;
             }
         }
@@ -862,48 +896,8 @@ impl Dock {
         self.items_extracted
     }
 
-    fn focus_child(&mut self, index: usize) -> bool {
-        let mut changed = false;
-        for (idx, item) in self.items.iter_mut().enumerate() {
-            let should_focus = idx == index && item.child.focusable() && !item.child.is_disabled();
-            if item.child.has_focus() != should_focus {
-                item.child.set_focus(should_focus);
-                changed = true;
-            }
-        }
-        changed
-    }
-
-    fn cycle_focus(&mut self, action: Action) -> bool {
-        let mut focusable = Vec::new();
-        let mut current = None;
-        for (idx, item) in self.items.iter().enumerate() {
-            if item.child.focusable() && !item.child.is_disabled() {
-                if item.child.has_focus() {
-                    current = Some(focusable.len());
-                }
-                focusable.push(idx);
-            }
-        }
-        if focusable.is_empty() {
-            return false;
-        }
-        let next_pos = match (action, current) {
-            (Action::FocusNext, Some(pos)) => (pos + 1) % focusable.len(),
-            (Action::FocusPrev, Some(0)) => focusable.len() - 1,
-            (Action::FocusPrev, Some(pos)) => pos - 1,
-            (Action::FocusNext, None) => 0,
-            (Action::FocusPrev, None) => focusable.len() - 1,
-            _ => return false,
-        };
-        self.focus_child(focusable[next_pos])
-    }
-
     fn apply_item_layout_hints(item: &mut DockItem) {
-        let Some(styles) = item.child.styles_mut() else {
-            return;
-        };
-        let style = &mut styles.style;
+        let mut style = crate::style::Style::default();
         match item.kind {
             DockKind::Top => {
                 style.dock = Some(StyleDock::Top);
@@ -938,8 +932,11 @@ impl Dock {
                 }
             }
             DockKind::Fill => {
-                style.dock = None;
+                // No dock style for fill items.
             }
+        }
+        if style != crate::style::Style::default() {
+            item.child.set_inline_style(style);
         }
     }
 
@@ -1049,37 +1046,7 @@ impl Widget for Dock {
         if self.is_tree_mode() {
             return false;
         }
-        self.items
-            .iter()
-            .any(|item| item.child.focusable() && !item.child.is_disabled())
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        if self.is_tree_mode() || !focused {
-            if !focused && !self.is_tree_mode() {
-                for item in &mut self.items {
-                    item.child.set_focus(false);
-                }
-            }
-            return;
-        }
-        if self.items.iter().any(|item| item.child.has_focus()) {
-            return;
-        }
-        if let Some(idx) = self
-            .items
-            .iter()
-            .position(|item| item.child.focusable() && !item.child.is_disabled())
-        {
-            let _ = self.focus_child(idx);
-        }
-    }
-
-    fn has_focus(&self) -> bool {
-        if self.is_tree_mode() {
-            return self.node_state().focused;
-        }
-        self.node_state().focused || self.items.iter().any(|item| item.child.has_focus())
+        self.items.iter().any(|item| item.child.focusable())
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1123,7 +1090,11 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_height = clamp_with_constraints(
                         height,
                         constraints.min_height,
@@ -1155,7 +1126,11 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_height = clamp_with_constraints(
                         height,
                         constraints.min_height,
@@ -1183,7 +1158,11 @@ impl Widget for Dock {
                 }
                 DockKind::Left => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_width = clamp_with_constraints(
                         width,
                         constraints.min_width,
@@ -1211,7 +1190,11 @@ impl Widget for Dock {
                 }
                 DockKind::Right => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_width = clamp_with_constraints(
                         width,
                         constraints.min_width,
@@ -1245,7 +1228,11 @@ impl Widget for Dock {
 
         if let Some(idx) = fill_index {
             let item = &self.items[idx];
-            let constraints = item.child.layout_constraints();
+            let constraints = {
+                let meta = css::selector_meta_generic(item.child.as_ref());
+                let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                constraints_from_style(&resolved)
+            };
             let render_width = clamp_with_constraints(
                 remaining_width,
                 constraints.min_width,
@@ -1330,17 +1317,10 @@ impl Widget for Dock {
         }
         match event {
             Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
-                if let Event::Action(action) = event
-                    && self.cycle_focus(*action)
-                {
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                    return;
-                }
+                return;
             }
             Event::MouseDown(mouse) => {
                 if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
-                    let _ = self.focus_child(idx);
                     if let Some(item) = self.items.get_mut(idx) {
                         item.child.on_layout(w, h);
                     }
@@ -1420,15 +1400,6 @@ impl Widget for Dock {
         let hit = self
             .child_at_xy(x, y)
             .map(|(idx, local_x, local_y, w, h)| (idx, local_x, local_y, w, h));
-        for (idx, item) in self.items.iter_mut().enumerate() {
-            let hovered = hit
-                .map(|(hit_idx, _, _, _, _)| hit_idx == idx)
-                .unwrap_or(false);
-            if item.child.is_hovered() != hovered {
-                item.child.set_hovered(hovered);
-                changed = true;
-            }
-        }
         if let Some((idx, local_x, local_y, w, h)) = hit
             && let Some(item) = self.items.get_mut(idx)
         {
@@ -1438,18 +1409,12 @@ impl Widget for Dock {
         changed
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn render_with_debug(
@@ -1481,7 +1446,11 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_height = clamp_with_constraints(
                         height,
                         constraints.min_height,
@@ -1526,7 +1495,11 @@ impl Widget for Dock {
                         .or_else(|| item.child.layout_height())
                         .unwrap_or(1)
                         .min(remaining_height);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_height = clamp_with_constraints(
                         height,
                         constraints.min_height,
@@ -1567,7 +1540,11 @@ impl Widget for Dock {
                 }
                 DockKind::Left => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_width = clamp_with_constraints(
                         width,
                         constraints.min_width,
@@ -1608,7 +1585,11 @@ impl Widget for Dock {
                 }
                 DockKind::Right => {
                     let width = item.size.unwrap_or(1).min(remaining_width);
-                    let constraints = item.child.layout_constraints();
+                    let constraints = {
+                        let meta = css::selector_meta_generic(item.child.as_ref());
+                        let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                        constraints_from_style(&resolved)
+                    };
                     let render_width = clamp_with_constraints(
                         width,
                         constraints.min_width,
@@ -1655,7 +1636,11 @@ impl Widget for Dock {
 
         if let Some(idx) = fill_index {
             let item = &self.items[idx];
-            let constraints = item.child.layout_constraints();
+            let constraints = {
+                let meta = css::selector_meta_generic(item.child.as_ref());
+                let resolved = css::resolve_style(item.child.as_ref(), &meta);
+                constraints_from_style(&resolved)
+            };
             let render_width = clamp_with_constraints(
                 remaining_width,
                 constraints.min_width,
@@ -1792,9 +1777,6 @@ impl Widget for Dock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         self.fixed_height
     }
 }
@@ -1985,10 +1967,7 @@ impl Widget for Grid {
                     let meta = css::selector_meta_generic(child.as_ref());
                     let resolved = css::resolve_style(child.as_ref(), &meta);
                     let style_constraints = constraints_from_style(&resolved);
-                    (
-                        margin_from_style(&resolved),
-                        merge_constraints(style_constraints, child.layout_constraints()),
-                    )
+                    (margin_from_style(&resolved), style_constraints)
                 } else {
                     (Margin::default(), LayoutConstraints::default())
                 };
@@ -2122,10 +2101,7 @@ impl Widget for Grid {
                     let meta = css::selector_meta_generic(child.as_ref());
                     let resolved = css::resolve_style(child.as_ref(), &meta);
                     let style_constraints = constraints_from_style(&resolved);
-                    (
-                        margin_from_style(&resolved),
-                        merge_constraints(style_constraints, child.layout_constraints()),
-                    )
+                    (margin_from_style(&resolved), style_constraints)
                 } else {
                     (Margin::default(), LayoutConstraints::default())
                 };
@@ -2289,26 +2265,12 @@ impl Widget for Grid {
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.seed.css_id.as_deref()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

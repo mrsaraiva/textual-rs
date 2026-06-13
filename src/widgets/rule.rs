@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{NodeSeed, Widget, WidgetStyles};
+use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Orientation of a rule separator.
@@ -223,23 +223,16 @@ impl Widget for Rule {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn style_type(&self) -> &'static str {
         "Rule"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        // Preserve the inline style so post-mount style() queries remain accurate.
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -340,7 +333,6 @@ mod tests {
 
     #[test]
     fn set_orientation_noop_same() {
-        use crate::event::ClassOp;
         let mut r = Rule::horizontal();
         let mut ctx = ReactiveCtx::new(make_node_id());
         // Setting same orientation should record no changes.

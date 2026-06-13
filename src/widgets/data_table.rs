@@ -8,10 +8,7 @@ use crate::style::{Color, parse_color_like};
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use super::{
-    BindingDecl, NodeSeed, ScrollBar, ScrollView, Widget, WidgetStyles,
-    helpers::fixed_height_from_constraints,
-};
+use super::{BindingDecl, NodeSeed, ScrollBar, ScrollView, Widget};
 
 pub(crate) const DATA_TABLE_HSCROLLBAR_ID: &str = "__data_table_hscrollbar";
 
@@ -1690,7 +1687,7 @@ impl Widget for DataTable {
     fn layout_height(&self) -> Option<usize> {
         let header_rows = if self.show_header { 1 } else { 0 };
         let intrinsic = header_rows + self.rows.len().max(1);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(intrinsic))
+        Some(intrinsic)
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -1709,18 +1706,12 @@ impl Widget for DataTable {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
@@ -1822,11 +1813,17 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     fn hovered_state() -> NodeState {
-        NodeState { hovered: true, ..Default::default() }
+        NodeState {
+            hovered: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1868,7 +1865,6 @@ mod tests {
             ],
         );
         table.on_layout(20, 4);
-        table.set_hovered(true);
 
         table.on_mouse_move(0, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
@@ -1903,7 +1899,6 @@ mod tests {
             vec!["👩‍🚀".into(), "B".into()],
             vec![vec!["x".into(), "y".into()]],
         );
-        table.set_hovered(true);
 
         // First header uses two display cells; x=0..1 should still map to col 0.
         table.on_mouse_move(0, 0);
@@ -1930,8 +1925,6 @@ mod tests {
             vec!["中中".into(), "B".into()],
             vec![vec!["x".into(), "y".into()]],
         );
-        table.set_hovered(true);
-
         table.on_mouse_move(0, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
         table.on_mouse_move(3, 0);
@@ -1987,7 +1980,6 @@ mod tests {
         );
         let mut rctx = ReactiveCtx::new(NodeId::default());
         table.set_fixed_columns(1, &mut rctx);
-        table.set_focus(true);
         table.on_layout(12, 3);
         table.set_cursor(0, 3, &mut rctx);
 
@@ -2024,7 +2016,13 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<DataTableHeaderSelected>());
-        assert_eq!(messages[0].downcast_ref::<DataTableHeaderSelected>().unwrap().column, 2);
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableHeaderSelected>()
+                .unwrap()
+                .column,
+            2
+        );
     }
 
     #[test]
@@ -2171,7 +2169,13 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<DataTableHeaderSelected>());
-        assert_eq!(messages[0].downcast_ref::<DataTableHeaderSelected>().unwrap().column, 1);
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableHeaderSelected>()
+                .unwrap()
+                .column,
+            1
+        );
     }
 
     #[test]
@@ -2228,7 +2232,9 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<DataTableCellActivated>());
-        let m = messages[0].downcast_ref::<DataTableCellActivated>().unwrap();
+        let m = messages[0]
+            .downcast_ref::<DataTableCellActivated>()
+            .unwrap();
         assert_eq!((m.row, m.column), (1, 1));
     }
 
@@ -2272,12 +2278,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         table.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Horizontal,
-                offset: 999.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 999.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
 
@@ -2324,12 +2333,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         table.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Horizontal,
-                offset: 3.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 3.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
         assert!(ctx.handled());
@@ -2337,12 +2349,15 @@ mod tests {
 
         let mut ctx2 = EventCtx::default();
         table.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Horizontal,
-                offset: 10.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 10.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx2,
         );
         assert!(ctx2.handled());
@@ -2374,7 +2389,6 @@ mod tests {
                 vec!["Bob".into(), "200".into()],
             ],
         );
-        table.set_focus(true);
         table.on_layout(40, 10);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
@@ -2396,9 +2410,12 @@ mod tests {
             ],
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
-        let children = table.take_composed_children();
+        let mut children = table.take_composed_children();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].style_id(), Some(DATA_TABLE_HSCROLLBAR_ID));
+        assert_eq!(
+            children[0].take_node_seed().css_id.as_deref(),
+            Some(DATA_TABLE_HSCROLLBAR_ID)
+        );
     }
 
     #[test]
@@ -2417,12 +2434,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         table.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Horizontal,
-                offset: 999.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 999.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
 

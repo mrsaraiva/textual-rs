@@ -167,7 +167,10 @@ fn event_ctx_set_class_queues_correct_op() {
     }
 
     let (tree, id) = dispatch_key(true);
-    assert!(tree.has_class(id, "-toggle"), "Add: class should be present");
+    assert!(
+        tree.has_class(id, "-toggle"),
+        "Add: class should be present"
+    );
 
     let (tree, id) = dispatch_key(false);
     assert!(

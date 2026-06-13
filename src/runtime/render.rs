@@ -719,18 +719,9 @@ fn render_tree_node(
             let id_part = node
                 .css_id
                 .as_deref()
-                .or_else(|| node.widget.style_id())
                 .map(|id| format!("#{id}"))
                 .unwrap_or_default();
-            let class_parts: Vec<String> = {
-                let mut classes: Vec<String> = node.widget.style_classes().to_vec();
-                for c in &node.classes {
-                    if !classes.iter().any(|existing| existing == c) {
-                        classes.push(c.clone());
-                    }
-                }
-                classes.iter().map(|c| format!(".{c}")).collect()
-            };
+            let class_parts: Vec<String> = node.classes.iter().map(|c| format!(".{c}")).collect();
             format!(
                 "{}{}{}",
                 node.widget.style_type(),
@@ -1243,8 +1234,8 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };
-    // Read css_id from node record (canonical in dual-write phase).
-    let css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
+    // Read css_id from node record (canonical source of truth after RA-2 step 6).
+    let css_id = node.css_id.as_deref();
     matches!(
         css_id,
         Some(
@@ -2126,10 +2117,13 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
 
     // Walk tree children and render each at its layout_rect.
     // NOTE: root is the real root widget; tree.root() holds a TreeStubWidget.
-    // Use the real root widget for style resolution so inline styles on the
-    // root are correctly applied to the style stack for children.
+    // Use node_selector_meta for the SELECTOR_STACK entry so that node-level
+    // state (focused, hovered, etc.) set via set_focus_state / is_initially_focused
+    // is visible to descendant CSS rules (e.g. `Tabs:focus & .-active`).
+    // Use the real root widget's style() for inline-style contribution so
+    // widget-owned styles (e.g. Tabs dock) still apply to children.
     if let Some(root_id) = tree.root() {
-        let root_meta = crate::css::selector_meta_generic(root);
+        let root_meta = crate::css::node_selector_meta(tree, root_id);
         let root_resolved = crate::css::resolve_style(root, &root_meta);
         push_style_context(root_meta, root_resolved);
 
@@ -2243,8 +2237,8 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
         let Some(child) = tree.get(child_id) else {
             continue;
         };
-        // Read css_id from node record (canonical in dual-write phase).
-        let css_id = child.css_id.as_deref().or_else(|| child.widget.style_id());
+        // Read css_id from node record (canonical source of truth after RA-2 step 6).
+        let css_id = child.css_id.as_deref();
         match css_id {
             Some(APP_ROOT_VSCROLLBAR_ID | SCROLL_VIEW_VSCROLLBAR_ID) => {
                 children.vertical = Some(child_id)
@@ -2972,28 +2966,23 @@ mod tests {
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
-        // Create root with layers: "base overlay"
-        let mut root_widget = AppRoot::new();
-        {
-            let styles = root_widget.styles_mut().unwrap();
-            styles.style.layers = Some(vec!["base".into(), "overlay".into()]);
-        }
-
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(root_widget));
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // Set layers on root via tree API (node-record owns inline styles after RA-2 step 6).
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["base".into(), "overlay".into()]);
+        });
 
         // Child A: layer = "overlay" (should be last)
-        let mut label_a = Label::new("A");
-        label_a.styles_mut().unwrap().style.layer = Some("overlay".into());
-        let a = tree.mount(root, Box::new(label_a));
+        let a = tree.mount(root, Box::new(Label::new("A")));
+        tree.update_styles(a, |s| s.style.layer = Some("overlay".into()));
 
         // Child B: no layer (should be first = default)
         let b = tree.mount(root, Box::new(Label::new("B")));
 
         // Child C: layer = "base" (should be between default and overlay)
-        let mut label_c = Label::new("C");
-        label_c.styles_mut().unwrap().style.layer = Some("base".into());
-        let c = tree.mount(root, Box::new(label_c));
+        let c = tree.mount(root, Box::new(Label::new("C")));
+        tree.update_styles(c, |s| s.style.layer = Some("base".into()));
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
@@ -3009,25 +2998,23 @@ mod tests {
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
-        let mut root_widget = AppRoot::new();
-        root_widget.styles_mut().unwrap().style.layers =
-            Some(vec!["base".into(), "overlay".into()]);
-
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(root_widget));
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // Set layers on root via tree API (node-record owns inline styles after RA-2 step 6).
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["base".into(), "overlay".into()]);
+        });
 
         // Child A: no layer (group 0 = default)
         let a = tree.mount(root, Box::new(Label::new("A")));
 
         // Child B: layer = "unknown" (group 0 = falls back to default, preserves DOM order)
-        let mut label_b = Label::new("B");
-        label_b.styles_mut().unwrap().style.layer = Some("unknown".into());
-        let b = tree.mount(root, Box::new(label_b));
+        let b = tree.mount(root, Box::new(Label::new("B")));
+        tree.update_styles(b, |s| s.style.layer = Some("unknown".into()));
 
         // Child C: layer = "base" (group 1 = named)
-        let mut label_c = Label::new("C");
-        label_c.styles_mut().unwrap().style.layer = Some("base".into());
-        let c = tree.mount(root, Box::new(label_c));
+        let c = tree.mount(root, Box::new(Label::new("C")));
+        tree.update_styles(c, |s| s.style.layer = Some("base".into()));
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
@@ -3043,20 +3030,17 @@ mod tests {
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
-        let mut root_widget = AppRoot::new();
-        root_widget.styles_mut().unwrap().style.layers = Some(vec!["bg".into()]);
-
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(root_widget));
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // Set layers on root via tree API (node-record owns inline styles after RA-2 step 6).
+        tree.update_styles(root, |s| s.style.layers = Some(vec!["bg".into()]));
 
         // Both children in the same layer — DOM order preserved.
-        let mut label_a = Label::new("A");
-        label_a.styles_mut().unwrap().style.layer = Some("bg".into());
-        let a = tree.mount(root, Box::new(label_a));
+        let a = tree.mount(root, Box::new(Label::new("A")));
+        tree.update_styles(a, |s| s.style.layer = Some("bg".into()));
 
-        let mut label_b = Label::new("B");
-        label_b.styles_mut().unwrap().style.layer = Some("bg".into());
-        let b = tree.mount(root, Box::new(label_b));
+        let b = tree.mount(root, Box::new(Label::new("B")));
+        tree.update_styles(b, |s| s.style.layer = Some("bg".into()));
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
@@ -3252,19 +3236,18 @@ mod tests {
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
-        let mut root_widget = AppRoot::new();
-        root_widget.styles_mut().unwrap().style.layers = Some(vec!["base".into(), "top".into()]);
-
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(root_widget));
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // Set layers on root via tree API (node-record owns inline styles after RA-2 step 6).
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["base".into(), "top".into()]);
+        });
 
-        let mut label_top = Label::new("top");
-        label_top.styles_mut().unwrap().style.layer = Some("top".into());
-        let top_id = tree.mount(root, Box::new(label_top));
+        let top_id = tree.mount(root, Box::new(Label::new("top")));
+        tree.update_styles(top_id, |s| s.style.layer = Some("top".into()));
 
-        let mut label_base = Label::new("base");
-        label_base.styles_mut().unwrap().style.layer = Some("base".into());
-        let base_id = tree.mount(root, Box::new(label_base));
+        let base_id = tree.mount(root, Box::new(Label::new("base")));
+        tree.update_styles(base_id, |s| s.style.layer = Some("base".into()));
 
         let nodes = collect_render_nodes(&tree);
         let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
@@ -3572,35 +3555,11 @@ mod tests {
         use crate::widget_tree::WidgetTree;
         use crate::widgets::{AppRoot, Widget};
 
-        struct Parent {
-            classes: Vec<String>,
-        }
-
-        impl Parent {
-            fn new() -> Self {
-                Self {
-                    classes: Vec::new(),
-                }
-            }
-
-            fn set_show(&mut self, show: bool) {
-                if show {
-                    if !self.classes.iter().any(|c| c == "show") {
-                        self.classes.push("show".to_string());
-                    }
-                } else {
-                    self.classes.retain(|c| c != "show");
-                }
-            }
-        }
+        struct Parent;
 
         impl Widget for Parent {
             fn style_type(&self) -> &'static str {
                 "Parent"
-            }
-
-            fn style_classes(&self) -> &[String] {
-                &self.classes
             }
 
             fn render(
@@ -3639,7 +3598,7 @@ Parent.show > Child { display: block; }
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        let parent_id = tree.mount(root, Box::new(Parent::new()));
+        let parent_id = tree.mount(root, Box::new(Parent));
         let child_id = tree.mount(parent_id, Box::new(Child));
 
         run_layout_pass(&mut tree, (80, 24));
@@ -3648,14 +3607,8 @@ Parent.show > Child { display: block; }
             "child should be hidden by parent-combinator display:none rule"
         );
 
-        {
-            let parent_node = tree.get_mut(parent_id).expect("parent node exists");
-            let parent_any = parent_node.widget.as_mut() as &mut dyn std::any::Any;
-            let parent = parent_any
-                .downcast_mut::<Parent>()
-                .expect("parent widget type should match");
-            parent.set_show(true);
-        }
+        // Toggle class on the tree node (canonical class owner after RA-2 step 6).
+        tree.add_class(parent_id, "show");
 
         run_layout_pass(&mut tree, (80, 24));
         assert!(

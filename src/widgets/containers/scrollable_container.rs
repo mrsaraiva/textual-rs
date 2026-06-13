@@ -95,6 +95,16 @@ impl ScrollableContainer {
         self
     }
 
+    pub fn with_overflow_x(mut self, overflow: crate::style::Overflow) -> Self {
+        self.inner = self.inner.with_overflow_x(overflow);
+        self
+    }
+
+    pub fn with_overflow_y(mut self, overflow: crate::style::Overflow) -> Self {
+        self.inner = self.inner.with_overflow_y(overflow);
+        self
+    }
+
     pub fn can_maximize(&self) -> bool {
         self.can_maximize.unwrap_or(self.can_focus)
     }
@@ -113,14 +123,8 @@ impl Widget for ScrollableContainer {
         let mut flattened_container = false;
 
         for mut child in extracted {
-            let is_scrollbar_lane = matches!(
-                child.style_id(),
-                Some(
-                    super::SCROLL_VIEW_VSCROLLBAR_ID
-                        | super::SCROLL_VIEW_HSCROLLBAR_ID
-                        | super::SCROLL_VIEW_SCROLLBAR_CORNER_ID
-                )
-            );
+            let ty = child.style_type();
+            let is_scrollbar_lane = ty == "ScrollBar" || ty == "ScrollBarCorner";
             if !flattened_container && !is_scrollbar_lane {
                 let any = &mut *child as &mut dyn std::any::Any;
                 if let Some(container) = any.downcast_mut::<Container>() {
@@ -184,7 +188,7 @@ impl Widget for ScrollableContainer {
         }
     }
 
-    // delegate-audit: 70 methods as of 2026-02-26
+    // delegate-audit: 56 methods (after RA-2 step 6 cleanup)
     delegate_widget_method!(
         inner,
         [
@@ -193,8 +197,6 @@ impl Widget for ScrollableContainer {
             render_line,
             render_lines,
             compose,
-            set_focus,
-            has_focus,
             on_mount,
             on_unmount,
             on_tick,
@@ -219,26 +221,14 @@ impl Widget for ScrollableContainer {
             tree_child_content_inset,
             layout_height,
             content_width,
-            layout_constraints,
             preserve_underlay,
             binding_hints,
             action_namespace,
             action_registry,
-            styles,
-            styles_mut,
             style_type,
             style_type_aliases,
-            style_id,
-            style_classes,
-            set_style_id,
             border_title,
             border_subtitle,
-            is_disabled,
-            set_disabled_state,
-            is_loading,
-            set_loading_state,
-            is_hovered,
-            set_hovered,
             is_active,
             mouse_interactive,
             tooltip,
@@ -287,12 +277,15 @@ mod tests {
         sc.set_virtual_content_size(20, 100);
         let mut ctx = EventCtx::default();
         sc.on_message(
-            &MessageEvent::new(crate::node_id::NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 6.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                crate::node_id::NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 6.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
         assert_eq!(sc.scroll_offset().1, 6);

@@ -239,8 +239,6 @@ pub struct GameCell {
     col: usize,
     filled: bool,
     is_cursor: bool,
-    id: String,
-    classes: Vec<String>,
     seed: NodeSeed,
 }
 
@@ -248,15 +246,12 @@ impl GameCell {
     pub fn new(row: usize, col: usize, filled: bool, is_cursor: bool) -> Self {
         let id = Self::id_for(row, col);
         let mut seed = NodeSeed::default();
-        seed.css_id = Some(id.clone());
-        seed.styles.style_id = Some(id.clone());
+        seed.css_id = Some(id);
         let mut cell = Self {
             row,
             col,
             filled,
             is_cursor,
-            id,
-            classes: Vec::new(),
             seed,
         };
         cell.rebuild_classes();
@@ -278,27 +273,27 @@ impl GameCell {
     }
 
     fn rebuild_classes(&mut self) {
-        self.classes.clear();
+        self.seed.classes.clear();
         if self.filled {
-            self.classes.push("filled".to_string());
+            self.seed.classes.push("filled".to_string());
         }
         if self.is_cursor {
-            self.classes.push("cursor".to_string());
+            self.seed.classes.push("cursor".to_string());
         }
+    }
+
+    pub fn classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
+    pub fn css_id(&self) -> Option<&str> {
+        self.seed.css_id.as_deref()
     }
 }
 
 impl Widget for GameCell {
     fn style_type(&self) -> &'static str {
         "GameCell"
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        Some(&self.id)
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -552,7 +547,8 @@ impl FiveByFiveApp {
         let moves = self.state.moves;
         let filled = self.state.filled_count();
         let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
-        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
+        let _ = app
+            .with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
         let _ = app.with_query_one_mut_as::<WinnerMessage, _>("WinnerMessage", |w| w.hide());
     }
 
@@ -568,7 +564,8 @@ impl FiveByFiveApp {
         let moves = self.state.moves;
         let filled = self.state.filled_count();
         let _ = app.with_query_one_mut_as::<Label, _>("#moves", |l| l.set_text(moves_text(moves)));
-        let _ = app.with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
+        let _ = app
+            .with_query_one_mut_as::<Label, _>("#progress", |l| l.set_text(progress_text(filled)));
     }
 
     /// Update cursor display (clear old, set new).
@@ -743,17 +740,17 @@ mod tests {
     #[test]
     fn game_cell_classes_reflect_state() {
         let cell = GameCell::new(0, 0, false, false);
-        assert!(cell.style_classes().is_empty());
+        assert!(cell.classes().is_empty());
 
         let cell = GameCell::new(1, 1, true, false);
-        assert_eq!(cell.style_classes(), &["filled".to_string()]);
+        assert_eq!(cell.classes(), &["filled".to_string()]);
 
         let cell = GameCell::new(2, 2, false, true);
-        assert_eq!(cell.style_classes(), &["cursor".to_string()]);
+        assert_eq!(cell.classes(), &["cursor".to_string()]);
 
         let cell = GameCell::new(3, 3, true, true);
         assert_eq!(
-            cell.style_classes(),
+            cell.classes(),
             &["filled".to_string(), "cursor".to_string()]
         );
     }
@@ -762,7 +759,7 @@ mod tests {
     fn game_cell_id_format() {
         assert_eq!(GameCell::id_for(2, 3), "cell-2-3");
         let cell = GameCell::new(2, 3, false, false);
-        assert_eq!(cell.style_id(), Some("cell-2-3"));
+        assert_eq!(cell.css_id(), Some("cell-2-3"));
     }
 
     #[test]

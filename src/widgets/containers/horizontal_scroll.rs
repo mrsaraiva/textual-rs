@@ -10,11 +10,9 @@ pub struct HorizontalScroll {
 
 impl HorizontalScroll {
     pub fn new() -> Self {
-        let mut inner = ScrollableContainer::new();
-        if let Some(styles) = inner.styles_mut() {
-            styles.style.overflow_x = Some(Overflow::Auto);
-            styles.style.overflow_y = Some(Overflow::Hidden);
-        }
+        let inner = ScrollableContainer::new()
+            .with_overflow_x(Overflow::Auto)
+            .with_overflow_y(Overflow::Hidden);
         Self { inner }
     }
 

@@ -10,7 +10,7 @@ use super::{
     NodeSeed, Widget,
     helpers::{
         adjust_line_length_no_bg, clamp_with_constraints, constraints_from_style,
-        margin_from_style, merge_constraints, pad_lines_to_width,
+        margin_from_style, pad_lines_to_width,
     },
 };
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -95,20 +95,13 @@ impl Widget for CollapsibleTitle {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
+        self.hovered = new.hovered;
     }
 
     fn is_active(&self) -> bool {
@@ -152,8 +145,8 @@ impl Widget for CollapsibleTitle {
         out
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -183,6 +176,7 @@ impl Collapsible {
         let title_str = title.into();
         let mut seed = NodeSeed::default();
         seed.classes.push("collapsible".to_string());
+        seed.classes.push("-collapsed".to_string());
         Self {
             title_widget: CollapsibleTitle::new(title_str, "\u{25b6}", "\u{25bc}", true),
             collapsed: true,
@@ -196,6 +190,13 @@ impl Collapsible {
     pub fn collapsed(mut self, collapsed: bool) -> Self {
         self.collapsed = collapsed;
         self.title_widget.set_collapsed(collapsed);
+        if collapsed {
+            if !self.seed.classes.contains(&"-collapsed".to_string()) {
+                self.seed.classes.push("-collapsed".to_string());
+            }
+        } else {
+            self.seed.classes.retain(|c| c != "-collapsed");
+        }
         self
     }
 
@@ -271,7 +272,14 @@ impl Collapsible {
     fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
         self.collapsed = !self.collapsed;
         self.title_widget.set_collapsed(self.collapsed);
-        ctx.post_message(CollapsibleToggled { collapsed: self.collapsed });
+        if self.collapsed {
+            ctx.add_class("-collapsed");
+        } else {
+            ctx.remove_class("-collapsed");
+        }
+        ctx.post_message(CollapsibleToggled {
+            collapsed: self.collapsed,
+        });
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -290,22 +298,14 @@ impl Widget for Collapsible {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-        self.title_widget.set_focus(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        self.title_widget.set_hovered(hovered);
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
+        self.hovered = new.hovered;
+        self.title_widget.on_node_state_changed(_old, new);
     }
 
     fn is_active(&self) -> bool {
@@ -445,7 +445,7 @@ impl Widget for Collapsible {
                 let resolved = css::resolve_style(child.as_ref(), &meta);
                 let margin = margin_from_style(&resolved);
                 let style_constraints = constraints_from_style(&resolved);
-                let constraints = merge_constraints(style_constraints, child.layout_constraints());
+                let constraints = style_constraints;
                 let available_width = width
                     .saturating_sub(margin.left as usize + margin.right as usize)
                     .max(1);
@@ -540,35 +540,8 @@ impl Widget for Collapsible {
         Some(total.max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        use std::sync::OnceLock;
-        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
-        static C_COLLAPSED: OnceLock<Vec<String>> = OnceLock::new();
-        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
-        static C_FOCUSED_COLLAPSED: OnceLock<Vec<String>> = OnceLock::new();
-        match (self.focused, self.collapsed) {
-            (false, false) => C_BASE.get_or_init(|| vec!["collapsible".to_string()]),
-            (false, true) => C_COLLAPSED
-                .get_or_init(|| vec!["collapsible".to_string(), "-collapsed".to_string()]),
-            (true, false) => {
-                C_FOCUSED.get_or_init(|| vec!["collapsible".to_string(), "focused".to_string()])
-            }
-            (true, true) => C_FOCUSED_COLLAPSED.get_or_init(|| {
-                vec![
-                    "collapsible".to_string(),
-                    "focused".to_string(),
-                    "-collapsed".to_string(),
-                ]
-            }),
-        }
-    }
-
-    fn styles(&self) -> Option<&crate::widgets::WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut crate::widgets::WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -652,7 +625,12 @@ mod tests {
     #[test]
     fn collapsible_title_style_classes() {
         let title = CollapsibleTitle::new("Test", ">", "v", true);
-        assert_eq!(title.style_classes(), &["collapsible--title".to_string()]);
+        assert!(
+            title
+                .seed
+                .classes
+                .contains(&"collapsible--title".to_string())
+        );
     }
 
     #[test]
@@ -748,23 +726,49 @@ mod tests {
 
     #[test]
     fn collapsible_focus_syncs_to_title_widget() {
+        use crate::widgets::NodeState;
         let mut c = Collapsible::new("Section");
         assert!(!c.title_widget().focused);
-        c.set_focus(true);
-        assert!(c.has_focus());
+        c.on_node_state_changed(
+            NodeState::default(),
+            NodeState {
+                focused: true,
+                ..Default::default()
+            },
+        );
+        assert!(c.focused);
         assert!(c.title_widget().focused);
-        c.set_focus(false);
+        c.on_node_state_changed(
+            NodeState {
+                focused: true,
+                ..Default::default()
+            },
+            NodeState::default(),
+        );
         assert!(!c.title_widget().focused);
     }
 
     #[test]
     fn collapsible_hover_syncs_to_title_widget() {
+        use crate::widgets::NodeState;
         let mut c = Collapsible::new("Section");
         assert!(!c.title_widget().hovered);
-        c.set_hovered(true);
-        assert!(c.is_hovered());
+        c.on_node_state_changed(
+            NodeState::default(),
+            NodeState {
+                hovered: true,
+                ..Default::default()
+            },
+        );
+        assert!(c.hovered);
         assert!(c.title_widget().hovered);
-        c.set_hovered(false);
+        c.on_node_state_changed(
+            NodeState {
+                hovered: true,
+                ..Default::default()
+            },
+            NodeState::default(),
+        );
         assert!(!c.title_widget().hovered);
     }
 }

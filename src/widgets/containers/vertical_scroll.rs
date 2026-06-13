@@ -10,11 +10,9 @@ pub struct VerticalScroll {
 
 impl VerticalScroll {
     pub fn new() -> Self {
-        let mut inner = ScrollableContainer::new();
-        if let Some(styles) = inner.styles_mut() {
-            styles.style.overflow_x = Some(Overflow::Hidden);
-            styles.style.overflow_y = Some(Overflow::Auto);
-        }
+        let inner = ScrollableContainer::new()
+            .with_overflow_x(Overflow::Hidden)
+            .with_overflow_y(Overflow::Auto);
         Self { inner }
     }
 
@@ -87,12 +85,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         vs.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 7.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 7.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
 

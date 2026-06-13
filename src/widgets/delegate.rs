@@ -21,7 +21,6 @@
 /// impl Widget for MarkdownViewer {
 ///     // Your overrides — only the methods with custom logic
 ///     fn style_type(&self) -> &'static str { "MarkdownViewer" }
-///     fn style_classes(&self) -> &[String] { &self.classes }
 ///     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
 ///         /* custom handling, then self.inner.on_message(message, ctx) */
 ///     }
@@ -30,19 +29,17 @@
 ///     delegate_widget_method!(inner, [
 ///         render, render_with_debug, render_line, render_lines,
 ///         compose, take_composed_children,
-///         focusable, can_focus, can_focus_children, set_focus, has_focus,
+///         focusable, can_focus, can_focus_children,
 ///         on_mount, on_unmount, on_tick, on_resize, on_layout,
 ///         set_virtual_content_size,
 ///         on_event_capture, on_event,
 ///         on_mouse_scroll, on_mouse_move,
 ///         scroll_offset, scroll_offset_f32, scroll_viewport_size,
 ///         scroll_virtual_content_size, clips_descendants_to_content,
-///         layout_height, content_width, layout_constraints,
+///         layout_height, content_width,
 ///         bindings, binding_hints, execute_action,
 ///         action_namespace, action_registry,
-///         styles, styles_mut, style_id, set_style_id,
-///         is_disabled, set_disabled_state,
-///         is_hovered, set_hovered, is_active,
+///         is_active,
 ///         mouse_interactive, preserve_underlay,
 ///         border_title, border_subtitle,
 ///         tooltip, tooltip_anchor,
@@ -137,12 +134,10 @@ macro_rules! delegate_widget_method {
         fn can_focus_children(&self) -> bool { self.$field.can_focus_children() }
     };
 
-    ($field:ident, set_focus) => {
-        fn set_focus(&mut self, focused: bool) { self.$field.set_focus(focused); }
-    };
-
-    ($field:ident, has_focus) => {
-        fn has_focus(&self) -> bool { self.$field.has_focus() }
+    ($field:ident, on_node_state_changed) => {
+        fn on_node_state_changed(&mut self, old: crate::widgets::NodeState, new: crate::widgets::NodeState) {
+            self.$field.on_node_state_changed(old, new);
+        }
     };
 
     // ── Lifecycle ──────────────────────────────────────────────────────
@@ -328,12 +323,6 @@ macro_rules! delegate_widget_method {
         fn content_width(&self) -> Option<usize> { self.$field.content_width() }
     };
 
-    ($field:ident, layout_constraints) => {
-        fn layout_constraints(&self) -> crate::widgets::LayoutConstraints {
-            self.$field.layout_constraints()
-        }
-    };
-
     ($field:ident, preserve_underlay) => {
         fn preserve_underlay(&self) -> bool { self.$field.preserve_underlay() }
     };
@@ -368,13 +357,19 @@ macro_rules! delegate_widget_method {
 
     // ── Styles ─────────────────────────────────────────────────────────
 
-    ($field:ident, styles) => {
-        fn styles(&self) -> Option<&crate::widgets::WidgetStyles> { self.$field.styles() }
+    ($field:ident, style) => {
+        fn style(&self) -> Option<crate::style::Style> { self.$field.style() }
     };
 
-    ($field:ident, styles_mut) => {
-        fn styles_mut(&mut self) -> Option<&mut crate::widgets::WidgetStyles> {
-            self.$field.styles_mut()
+    ($field:ident, set_inline_style) => {
+        fn set_inline_style(&mut self, style: crate::style::Style) {
+            self.$field.set_inline_style(style);
+        }
+    };
+
+    ($field:ident, take_node_seed) => {
+        fn take_node_seed(&mut self) -> crate::widgets::NodeSeed {
+            self.$field.take_node_seed()
         }
     };
 
@@ -386,18 +381,6 @@ macro_rules! delegate_widget_method {
         fn style_type_aliases(&self) -> &[&'static str] { self.$field.style_type_aliases() }
     };
 
-    ($field:ident, style_id) => {
-        fn style_id(&self) -> Option<&str> { self.$field.style_id() }
-    };
-
-    ($field:ident, style_classes) => {
-        fn style_classes(&self) -> &[String] { self.$field.style_classes() }
-    };
-
-    ($field:ident, set_style_id) => {
-        fn set_style_id(&mut self, id: Option<String>) { self.$field.set_style_id(id); }
-    };
-
     ($field:ident, border_title) => {
         fn border_title(&self) -> Option<&str> { self.$field.border_title() }
     };
@@ -407,30 +390,6 @@ macro_rules! delegate_widget_method {
     };
 
     // ── State queries ──────────────────────────────────────────────────
-
-    ($field:ident, is_disabled) => {
-        fn is_disabled(&self) -> bool { self.$field.is_disabled() }
-    };
-
-    ($field:ident, set_disabled_state) => {
-        fn set_disabled_state(&mut self, disabled: bool) { self.$field.set_disabled_state(disabled); }
-    };
-
-    ($field:ident, is_loading) => {
-        fn is_loading(&self) -> bool { self.$field.is_loading() }
-    };
-
-    ($field:ident, set_loading_state) => {
-        fn set_loading_state(&mut self, loading: bool) { self.$field.set_loading_state(loading); }
-    };
-
-    ($field:ident, is_hovered) => {
-        fn is_hovered(&self) -> bool { self.$field.is_hovered() }
-    };
-
-    ($field:ident, set_hovered) => {
-        fn set_hovered(&mut self, hovered: bool) { self.$field.set_hovered(hovered); }
-    };
 
     ($field:ident, is_active) => {
         fn is_active(&self) -> bool { self.$field.is_active() }
@@ -540,7 +499,7 @@ macro_rules! delegate_renderable {
 /// If this changes, update the expected value and audit partial delegation sites:
 /// `rg -n "delegate-audit:" src/widgets`
 #[cfg(test)]
-const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 70;
+const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 60;
 
 /// Generate a complete `impl Widget + impl Renderable` block forwarding
 /// **every** method to `self.$field`. Use for thin wrappers with zero
@@ -562,12 +521,11 @@ macro_rules! delegate_widget_to {
                     // Composition
                     compose,
                     take_composed_children,
-                    // Focus
+                    // Focus / node state
                     focusable,
                     can_focus,
                     can_focus_children,
-                    set_focus,
-                    has_focus,
+                    on_node_state_changed,
                     // Lifecycle
                     on_mount,
                     on_unmount,
@@ -598,7 +556,6 @@ macro_rules! delegate_widget_to {
                     tree_child_content_inset,
                     layout_height,
                     content_width,
-                    layout_constraints,
                     preserve_underlay,
                     // Actions / bindings
                     bindings,
@@ -606,21 +563,13 @@ macro_rules! delegate_widget_to {
                     execute_action,
                     action_namespace,
                     action_registry,
-                    // Styles
-                    styles,
-                    styles_mut,
-                    style_id,
-                    style_classes,
-                    set_style_id,
+                    // Styles / seed
+                    style,
+                    set_inline_style,
+                    take_node_seed,
                     border_title,
                     border_subtitle,
                     // State
-                    is_disabled,
-                    set_disabled_state,
-                    is_loading,
-                    set_loading_state,
-                    is_hovered,
-                    set_hovered,
                     is_active,
                     mouse_interactive,
                     // Tooltip / help

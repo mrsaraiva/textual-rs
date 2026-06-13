@@ -11,10 +11,7 @@ use crate::widgets::markdown_model::{
     MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
 };
 
-use super::{
-    NodeSeed, Vertical, Widget, WidgetStyles,
-    helpers::border_spacing_from_style,
-};
+use super::{NodeSeed, Vertical, Widget, helpers::border_spacing_from_style};
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +128,14 @@ impl Label {
         }
     }
 
+    /// Mutable access to the pre-mount `NodeSeed` (css_id, classes, inline styles).
+    ///
+    /// Valid until the widget is mounted into the arena tree; after mount the
+    /// node record is the single source of truth and seed changes have no effect.
+    pub fn seed_mut(&mut self) -> &mut NodeSeed {
+        &mut self.seed
+    }
+
     fn intrinsic_height(&self) -> usize {
         let width = self.layout_width;
         let mut lines = 0usize;
@@ -191,22 +196,20 @@ impl Widget for Label {
         Some(self.intrinsic_height())
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
+    fn style(&self) -> Option<crate::style::Style> {
+        if self.seed.styles.style != Default::default() {
+            Some(self.seed.styles.style.clone())
+        } else {
+            None
+        }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.classes = seed.classes.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -672,28 +675,11 @@ impl Widget for MarkdownHeadingBlock {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(rendered_plain_height(
-            &self.text,
-            self.layout_width.max(1),
-        ))
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+        Some(rendered_plain_height(&self.text, self.layout_width.max(1)))
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.classes = seed.classes.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -1141,10 +1127,6 @@ impl Widget for MarkdownTableCell {
         &["MarkdownBlock"]
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
@@ -1212,18 +1194,8 @@ impl Widget for MarkdownTableCell {
         Some((x, 0))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.classes = seed.classes.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -1558,14 +1530,6 @@ impl Widget for MarkdownTableContentBlock {
         std::mem::take(&mut self.children)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -1876,14 +1840,6 @@ impl Widget for Markdown {
         None
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -2173,7 +2129,7 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             ],
         );
 
-        let style = content.styles().expect("table content styles").style.clone();
+        let style = content.seed.styles.style.clone();
         let columns = style.grid_columns.as_ref().expect("grid columns");
         assert_eq!(columns.len(), 4);
         let first_weight = match columns.first().expect("first column") {

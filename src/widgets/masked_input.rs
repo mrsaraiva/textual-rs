@@ -8,8 +8,8 @@ use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use super::{
-    Widget, WidgetStyles, NodeSeed, NodeState,
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
+    NodeSeed, NodeState, Widget,
+    helpers::adjust_line_length_no_bg,
     input_chrome::InputChrome,
     text_edit::{
         EditCommand, MoveUnit, byte_index_from_cell_x, edit_command_from_key, first_clipboard_line,
@@ -1098,25 +1098,15 @@ impl Widget for MaskedInput {
         let meta = crate::css::selector_meta_generic(self);
         let base_style = crate::css::resolve_style(self, &meta);
         let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
+        Some(default_height)
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn get_selection(&self) -> Option<String> {
@@ -1150,7 +1140,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]

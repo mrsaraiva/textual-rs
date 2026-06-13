@@ -9,9 +9,9 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use super::helpers::{adjust_line_length_no_bg, fixed_height_from_constraints};
+use super::helpers::adjust_line_length_no_bg;
 
-use super::{NodeSeed, ScrollBar, ScrollView, Widget, WidgetStyles};
+use super::{NodeSeed, ScrollBar, ScrollView, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 pub(crate) const RICH_LOG_VSCROLLBAR_ID: &str = "__rich_log_vscrollbar";
@@ -732,7 +732,6 @@ impl Widget for RichLog {
         true
     }
 
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         if let Event::Action(action) = event {
             let before = self.offset_y;
@@ -774,22 +773,12 @@ impl Widget for RichLog {
         false
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
@@ -942,9 +931,12 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut log = RichLog::new();
-        let children = log.take_composed_children();
+        let mut children = log.take_composed_children();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].style_id(), Some(RICH_LOG_VSCROLLBAR_ID));
+        assert_eq!(
+            children[0].take_node_seed().css_id.as_deref(),
+            Some(RICH_LOG_VSCROLLBAR_ID)
+        );
     }
 
     #[test]
@@ -961,12 +953,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         log.on_message(
-            &MessageEvent::new(crate::node_id::NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 1.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                crate::node_id::NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 1.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
         assert!(ctx.handled());

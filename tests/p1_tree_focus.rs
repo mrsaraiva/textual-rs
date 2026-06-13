@@ -33,6 +33,16 @@ impl TreeFocusProbe {
             sink,
         }
     }
+
+    fn set_focus(&mut self, focused: bool) {
+        if self.focused != focused {
+            self.focused = focused;
+            self.sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("{}:{focused}", self.id));
+        }
+    }
 }
 
 impl Widget for TreeFocusProbe {
@@ -46,20 +56,6 @@ impl Widget for TreeFocusProbe {
 
     fn focusable(&self) -> bool {
         true
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        if self.focused != focused {
-            self.focused = focused;
-            self.sink
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(format!("{}:{focused}", self.id));
-        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -99,6 +95,16 @@ impl TreeHoverProbe {
             sink,
         }
     }
+
+    fn set_hovered(&mut self, hovered: bool) {
+        if self.hovered != hovered {
+            self.hovered = hovered;
+            self.sink
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(format!("{}:{hovered}", self.id));
+        }
+    }
 }
 
 impl Widget for TreeHoverProbe {
@@ -116,20 +122,6 @@ impl Widget for TreeHoverProbe {
 
     fn mouse_interactive(&self) -> bool {
         true
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        if self.hovered != hovered {
-            self.hovered = hovered;
-            self.sink
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(format!("{}:{hovered}", self.id));
-        }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -755,6 +747,10 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
                 keys,
             }
         }
+
+        fn set_focus(&mut self, focused: bool) {
+            self.focused = focused;
+        }
     }
 
     impl Widget for KeyProbe {
@@ -766,12 +762,6 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
         }
         fn focusable(&self) -> bool {
             true
-        }
-        fn has_focus(&self) -> bool {
-            self.focused
-        }
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
         }
         fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
             match event {

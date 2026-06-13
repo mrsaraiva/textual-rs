@@ -15,7 +15,7 @@ use crate::message::{
 use super::containers::VerticalScroll;
 use super::delegate::{delegate_renderable, delegate_widget_method};
 use super::markdown_model::parse_markdown_headings_with_lines;
-use super::{Markdown, NodeSeed, Tree, TreeNode, Widget, WidgetStyles};
+use super::{Markdown, NodeSeed, Tree, TreeNode, Widget};
 
 // ---------------------------------------------------------------------------
 // MarkdownTableOfContents
@@ -439,6 +439,9 @@ pub struct MarkdownViewer {
     content_map: HashMap<String, String>,
     /// Whether a TOC-updated message should be emitted on the next event turn.
     toc_dirty: bool,
+    /// Pending TOC visibility class change to apply on the next event turn.
+    /// Some(true) means add `-show-table-of-contents`; Some(false) means remove it.
+    toc_class_pending: Option<bool>,
     /// One-shot identity/style payload consumed at mount.
     seed: NodeSeed,
 }
@@ -471,6 +474,7 @@ impl MarkdownViewer {
             navigator,
             content_map,
             toc_dirty: true,
+            toc_class_pending: None,
             seed: NodeSeed::default(),
         }
     }
@@ -478,8 +482,7 @@ impl MarkdownViewer {
     /// Set a CSS id for this viewer (for query routing via `#id` selectors).
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
         let id = id.into();
-        self.seed.css_id = Some(id.clone());
-        self.seed.styles.style_id = Some(id);
+        self.seed.css_id = Some(id);
         self
     }
 
@@ -495,12 +498,20 @@ impl MarkdownViewer {
 
     pub fn set_show_table_of_contents(&mut self, show: bool) {
         const CLASS: &str = "-show-table-of-contents";
+        let was_showing = self.classes.iter().any(|c| c == CLASS);
         if show {
-            if !self.classes.iter().any(|c| c == CLASS) {
+            if !was_showing {
                 self.classes.push(CLASS.to_string());
             }
         } else {
             self.classes.retain(|c| c != CLASS);
+        }
+        // Queue a class op to propagate to the arena node on the next event turn.
+        // (The widget struct's `classes` field is consumed by take_node_seed at mount;
+        // after mount, CSS resolution reads from the arena node record, so we must
+        // push class changes through EventCtx on the next event.)
+        if show != was_showing {
+            self.toc_class_pending = Some(show);
         }
     }
 
@@ -587,6 +598,11 @@ impl MarkdownViewer {
     }
 
     fn flush_toc_message(&mut self, ctx: &mut EventCtx) {
+        // Flush any pending TOC class change into the arena node record.
+        if let Some(show) = self.toc_class_pending.take() {
+            const CLASS: &str = "-show-table-of-contents";
+            ctx.set_class(show, CLASS);
+        }
         if !self.toc_dirty {
             return;
         }
@@ -719,24 +735,31 @@ impl Widget for MarkdownViewer {
         "MarkdownViewer"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.seed.styles.style_id.as_deref()
-    }
-
     fn style_classes(&self) -> &[String] {
         &self.classes
     }
 
+    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
+        if let Some(show) = self.toc_class_pending.take() {
+            vec![("-show-table-of-contents".to_string(), show)]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        let mut seed = std::mem::take(&mut self.seed);
+        // Push runtime-accumulated classes into the seed so the tree node gets them at mount.
+        for class in &self.classes {
+            if !seed.classes.contains(class) {
+                seed.classes.push(class.clone());
+            }
+        }
+        seed
     }
 
     fn focusable(&self) -> bool {
@@ -958,7 +981,7 @@ mod tests {
         let viewer = MarkdownViewer::new("# Test");
         assert!(
             viewer
-                .style_classes()
+                .classes
                 .iter()
                 .any(|c| c == "-show-table-of-contents"),
             "expected -show-table-of-contents class"
@@ -971,7 +994,7 @@ mod tests {
         viewer.set_show_table_of_contents(false);
         assert!(
             !viewer
-                .style_classes()
+                .classes
                 .iter()
                 .any(|c| c == "-show-table-of-contents"),
             "class should be removed when TOC is hidden"
@@ -1317,7 +1340,9 @@ mod tests {
 
         let msg = MessageEvent::new(
             crate::node_id::NodeId::default(),
-            MarkdownTableOfContentsSelected { block_id: "second".to_string() },
+            MarkdownTableOfContentsSelected {
+                block_id: "second".to_string(),
+            },
         );
         let mut ctx = crate::event::EventCtx::default();
         viewer.on_message(&msg, &mut ctx);

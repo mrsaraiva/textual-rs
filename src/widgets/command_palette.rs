@@ -17,8 +17,7 @@ use crate::action::ParsedAction;
 
 use super::{
     BindingDecl, Input, KeyPanel, ListView, NodeSeed, NodeState, Overlay, Spacer, Widget,
-    WidgetRenderable, helpers,
-    helpers::adjust_line_length_no_bg,
+    WidgetRenderable, helpers, helpers::adjust_line_length_no_bg,
 };
 
 // ---------------------------------------------------------------------------
@@ -373,6 +372,10 @@ impl Widget for SearchIcon {
         line.into_iter().collect()
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -446,13 +449,19 @@ impl Widget for CommandInput {
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let state = NodeState { focused: self.focused, ..Default::default() };
+        let state = NodeState {
+            focused: self.focused,
+            ..Default::default()
+        };
         let _guard = set_dispatch_recipient(self.input.node_id(), state);
         self.input.on_event_capture(event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let state = NodeState { focused: self.focused, ..Default::default() };
+        let state = NodeState {
+            focused: self.focused,
+            ..Default::default()
+        };
         let _guard = set_dispatch_recipient(self.input.node_id(), state);
         self.input.on_event(event, ctx);
     }
@@ -473,19 +482,17 @@ impl Widget for CommandInput {
         self.input.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        let old = NodeState { focused: self.focused, ..Default::default() };
-        self.focused = focused;
-        let new = NodeState { focused, ..Default::default() };
+    fn on_node_state_changed(
+        &mut self,
+        old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
         self.input.on_node_state_changed(old, new);
     }
 
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn style_classes(&self) -> &[String] {
-        self.input.style_classes()
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -727,10 +734,6 @@ impl Widget for CommandList {
         "CommandList"
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.classes
-    }
-
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let help_style_override = self
             .help_style_override
@@ -799,10 +802,8 @@ impl Widget for CommandList {
         false
     }
 
-    fn set_focus(&mut self, _focused: bool) {}
-
-    fn has_focus(&self) -> bool {
-        false
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -833,6 +834,9 @@ pub struct CommandPalette {
     panel_visible: bool,
     panel_render_y: f32,
     previously_focused_child: Option<NodeId>,
+    /// In non-tree (inline) mode, tracks whether we defocused the child widget
+    /// on palette open so we can restore focus on close.
+    child_defocused_inline: bool,
     layout_width: usize,
     layout_height: usize,
     last_render_width: AtomicUsize,
@@ -887,6 +891,7 @@ impl CommandPalette {
             panel_visible: false,
             panel_render_y: 0.0,
             previously_focused_child: None,
+            child_defocused_inline: false,
             layout_width: 1,
             layout_height: 1,
             last_render_width: AtomicUsize::new(1),
@@ -1172,16 +1177,35 @@ impl CommandPalette {
         true
     }
 
-    fn focused_widget_id(widget: &dyn Widget) -> Option<NodeId> {
-        if widget.has_focus() {
-            return Some(widget.node_id());
-        }
+    fn focused_widget_id(_widget: &dyn Widget) -> Option<NodeId> {
+        // After RA-2: focus state lives in the node record, not the widget.
+        // In tree mode, the arena tracks focus; for inline mode this is not needed.
         None
     }
 
     fn restore_child_focus(&mut self) {
+        // Tree mode: arena previously tracked a focused child node.
         if self.previously_focused_child.take().is_some() {
-            self.child.set_focus(true);
+            self.child.on_node_state_changed(
+                crate::widgets::NodeState::default(),
+                crate::widgets::NodeState {
+                    focused: true,
+                    ..Default::default()
+                },
+            );
+        }
+        // Non-tree (inline) mode: we defocused the child on open; restore it now.
+        if self.child_defocused_inline {
+            self.child_defocused_inline = false;
+            if !self.is_tree_mode() {
+                self.child.on_node_state_changed(
+                    crate::widgets::NodeState::default(),
+                    crate::widgets::NodeState {
+                        focused: true,
+                        ..Default::default()
+                    },
+                );
+            }
         }
     }
 
@@ -1217,13 +1241,38 @@ impl CommandPalette {
             self.panel_visible = true;
             self.previously_focused_child = Self::focused_widget_id(self.child.as_ref());
             if self.previously_focused_child.is_some() {
-                self.child.set_focus(false);
+                self.child.on_node_state_changed(
+                    crate::widgets::NodeState {
+                        focused: true,
+                        ..Default::default()
+                    },
+                    crate::widgets::NodeState::default(),
+                );
+            } else if !self.is_tree_mode() {
+                // Non-tree (inline) mode: defocus the child widget directly so that
+                // on_node_state_changed callbacks fire (focus lives in the widget in
+                // inline mode, not in an arena node). Track that we did this so we
+                // can restore on close.
+                self.child_defocused_inline = true;
+                self.child.on_node_state_changed(
+                    crate::widgets::NodeState {
+                        focused: true,
+                        ..Default::default()
+                    },
+                    crate::widgets::NodeState::default(),
+                );
             }
             for provider in &mut self.providers {
                 provider.startup();
             }
             self.query.set_text("");
-            self.query.set_focus(true);
+            self.query.on_node_state_changed(
+                crate::widgets::NodeState::default(),
+                crate::widgets::NodeState {
+                    focused: true,
+                    ..Default::default()
+                },
+            );
             self.list.set_visible(true);
             self.list.set_populating(false);
             self.rebuild_results(true);
@@ -1239,7 +1288,13 @@ impl CommandPalette {
             for provider in &mut self.providers {
                 provider.shutdown();
             }
-            self.query.set_focus(false);
+            self.query.on_node_state_changed(
+                crate::widgets::NodeState {
+                    focused: true,
+                    ..Default::default()
+                },
+                crate::widgets::NodeState::default(),
+            );
             self.list.set_visible(false);
             self.list.set_populating(false);
             self.restore_child_focus();
@@ -1621,9 +1676,22 @@ impl Widget for CommandPalette {
         self.open = false;
         self.panel_visible = false;
         self.panel_render_y = Self::CLOSED_PANEL_Y;
-        self.query.set_focus(false);
-        self.list.set_focus(false);
+        self.query.on_node_state_changed(
+            crate::widgets::NodeState {
+                focused: true,
+                ..Default::default()
+            },
+            crate::widgets::NodeState::default(),
+        );
+        self.list.on_node_state_changed(
+            crate::widgets::NodeState {
+                focused: true,
+                ..Default::default()
+            },
+            crate::widgets::NodeState::default(),
+        );
         self.previously_focused_child = None;
+        self.child_defocused_inline = false;
     }
 
     fn on_tick(&mut self, tick: u64) {
@@ -2113,6 +2181,10 @@ impl Widget for CommandPalette {
         }
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -2238,12 +2310,12 @@ mod tests {
             true
         }
 
-        fn set_focus(&mut self, focused: bool) {
-            self.focused.store(focused, Ordering::Relaxed);
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused.load(Ordering::Relaxed)
+        fn on_node_state_changed(
+            &mut self,
+            _old: crate::widgets::NodeState,
+            new: crate::widgets::NodeState,
+        ) {
+            self.focused.store(new.focused, Ordering::Relaxed);
         }
     }
 
@@ -2300,7 +2372,11 @@ mod tests {
         palette.on_event(&Event::Key(key), &mut execute_ctx);
 
         let messages = execute_ctx.take_messages();
-        assert!(messages.iter().any(|event| event.is::<CommandPaletteCommandSelected>()));
+        assert!(
+            messages
+                .iter()
+                .any(|event| event.is::<CommandPaletteCommandSelected>())
+        );
         assert!(!palette.is_open());
     }
 
@@ -2366,9 +2442,15 @@ mod tests {
                 .any(|event| event.is::<crate::message::AppShowHelpPanel>())
         );
         assert!(messages.iter().any(|event| {
-            event.downcast_ref::<CommandPaletteCommandSelected>().is_some_and(|m| m.id == "keys")
+            event
+                .downcast_ref::<CommandPaletteCommandSelected>()
+                .is_some_and(|m| m.id == "keys")
         }));
-        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
+        assert!(
+            messages
+                .iter()
+                .any(|event| event.is::<CommandPaletteClosed>())
+        );
         assert!(!palette.is_open());
     }
 
@@ -2391,7 +2473,9 @@ mod tests {
         assert!(execute_ctx.stop_requested());
         let messages = execute_ctx.take_messages();
         let selected_idx = messages.iter().position(|event| {
-            event.downcast_ref::<CommandPaletteCommandSelected>().is_some_and(|m| m.id == "quit")
+            event
+                .downcast_ref::<CommandPaletteCommandSelected>()
+                .is_some_and(|m| m.id == "quit")
         });
         let close_idx = messages
             .iter()
@@ -2577,8 +2661,8 @@ mod tests {
 
     #[test]
     fn command_palette_restores_child_focus_on_close() {
-        // This test verifies palette open/close lifecycle and focus-tracking
-        // state. Full focus delegation tests require tree-based focus management.
+        // In non-tree (inline) mode, CommandPalette defocuses the child on open
+        // and restores focus on close via on_node_state_changed callbacks.
         let child_focus = Arc::new(AtomicBool::new(true));
         let child = FocusProbe::new(child_focus.clone());
         let mut palette = CommandPalette::new(child);
@@ -2586,14 +2670,18 @@ mod tests {
         let mut open_ctx = EventCtx::default();
         palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
         assert!(palette.is_open());
-        // focused_widget_id detects the focused child and records it.
-        assert_eq!(palette.previously_focused_child, Some(NodeId::default()));
+        // In non-tree mode, previously_focused_child is None (no arena node id),
+        // but child_defocused_inline tracks that we called on_node_state_changed.
+        assert_eq!(palette.previously_focused_child, None);
+        assert!(palette.child_defocused_inline);
+        assert!(!child_focus.load(Ordering::Relaxed));
 
         let mut close_ctx = EventCtx::default();
         palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
         assert!(!palette.is_open());
-        // previously_focused_child is consumed by restore_child_focus.
-        assert!(palette.previously_focused_child.is_none());
+        // Focus restored: child_defocused_inline is cleared, child focus is back.
+        assert!(!palette.child_defocused_inline);
+        assert!(child_focus.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2616,7 +2704,11 @@ mod tests {
         );
         assert!(!palette.is_open());
         let messages = transition_ctx.take_messages();
-        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
+        assert!(
+            messages
+                .iter()
+                .any(|event| event.is::<CommandPaletteClosed>())
+        );
     }
 
     #[test]
@@ -2630,7 +2722,11 @@ mod tests {
         palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
         assert!(!palette.is_open());
         let messages = focus_ctx.take_messages();
-        assert!(messages.iter().any(|event| event.is::<CommandPaletteClosed>()));
+        assert!(
+            messages
+                .iter()
+                .any(|event| event.is::<CommandPaletteClosed>())
+        );
     }
 
     #[test]
@@ -2740,7 +2836,11 @@ mod tests {
         assert!(click_ctx.handled());
         assert!(!palette.is_open());
         let messages = click_ctx.take_messages();
-        assert!(messages.iter().any(|event| event.is::<CommandPaletteCommandSelected>()));
+        assert!(
+            messages
+                .iter()
+                .any(|event| event.is::<CommandPaletteCommandSelected>())
+        );
     }
 
     #[test]

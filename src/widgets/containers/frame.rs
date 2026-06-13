@@ -4,10 +4,7 @@ use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
-use crate::widgets::{
-    NodeSeed, Spacer, Widget, WidgetStyles,
-    helpers::{apply_debug_box, fixed_height_from_constraints},
-};
+use crate::widgets::{NodeSeed, Spacer, Widget, helpers::apply_debug_box};
 
 pub struct Frame {
     child: Box<dyn Widget>,
@@ -299,26 +296,17 @@ impl Widget for Frame {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         self.child
             .layout_height()
             .map(|h| h + self.padding * 2 + if self.border { 2 } else { 0 })
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn focusable(&self) -> bool {
@@ -326,12 +314,6 @@ impl Widget for Frame {
             return false;
         }
         self.child.focusable()
-    }
-
-    fn set_focus(&mut self, focused: bool) {
-        if !self.child_extracted {
-            self.child.set_focus(focused);
-        }
     }
 }
 

@@ -7,10 +7,7 @@ use crate::message::*;
 
 use crate::action::ParsedAction;
 
-use super::{
-    BindingDecl, NodeSeed, ScrollView, Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
-};
+use super::{BindingDecl, NodeSeed, ScrollView, Widget, helpers::adjust_line_length_no_bg};
 
 /// A wrapper for items in a [`ListView`], matching Python Textual's `ListItem(Label(...))`.
 ///
@@ -632,7 +629,7 @@ impl Widget for ListView {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.items.len().max(1)))
+        Some(self.items.len().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -653,18 +650,12 @@ impl Widget for ListView {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -692,7 +683,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -717,11 +711,17 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<ListViewItemActivated>());
         assert_eq!(
-            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().index,
+            messages[0]
+                .downcast_ref::<ListViewItemActivated>()
+                .unwrap()
+                .index,
             1
         );
         assert_eq!(
-            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().item,
+            messages[0]
+                .downcast_ref::<ListViewItemActivated>()
+                .unwrap()
+                .item,
             "two"
         );
     }
@@ -761,11 +761,17 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<ListViewItemActivated>());
         assert_eq!(
-            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().index,
+            messages[0]
+                .downcast_ref::<ListViewItemActivated>()
+                .unwrap()
+                .index,
             0
         );
         assert_eq!(
-            messages[0].downcast_ref::<ListViewItemActivated>().unwrap().item,
+            messages[0]
+                .downcast_ref::<ListViewItemActivated>()
+                .unwrap()
+                .item,
             "one"
         );
     }

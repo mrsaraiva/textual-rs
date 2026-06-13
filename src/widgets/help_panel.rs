@@ -246,6 +246,10 @@ impl Widget for HelpPanel {
         "HelpPanel"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }

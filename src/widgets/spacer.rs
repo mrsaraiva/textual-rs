@@ -45,6 +45,10 @@ impl Widget for Spacer {
         Some(self.width_hint.unwrap_or(1).max(1))
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }

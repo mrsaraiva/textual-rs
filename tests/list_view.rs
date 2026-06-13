@@ -11,7 +11,10 @@ fn make_node_id() -> NodeId {
 }
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -27,7 +30,7 @@ fn list_view_renders_selection() {
         "two".to_string(),
         "three".to_string(),
     ]);
-    list.set_focus(true);
+    list.on_node_state_changed(NodeState::default(), focused_state());
     list.set_selected(1);
 
     let buf = FrameBuffer::from_renderable(&console, &options, &list, None);

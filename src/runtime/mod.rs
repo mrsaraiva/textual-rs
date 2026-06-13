@@ -701,12 +701,13 @@ impl App {
         } else {
             Some(self.app_title.clone())
         };
-        self.pending_app_messages.push(
-            MessageEvent::new(NodeId::default(), ScreenTitleChanged {
+        self.pending_app_messages.push(MessageEvent::new(
+            NodeId::default(),
+            ScreenTitleChanged {
                 title,
                 sub_title: self.app_sub_title.clone(),
-            }),
-        );
+            },
+        ));
     }
 
     /// Drain messages enqueued by `set_title()` / `set_sub_title()`.
@@ -1613,9 +1614,23 @@ impl App {
         node_id: NodeId,
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
-        self.active_widget_tree_mut()?
-            .get_mut(node_id)
-            .map(|node| f(node.widget.as_mut()))
+        let tree = self.active_widget_tree_mut()?;
+        let node = tree.get_mut(node_id)?;
+        let result = f(node.widget.as_mut());
+        // Drain any pending class ops that widget methods may have staged on the
+        // widget struct (e.g. MarkdownViewer.toc_class_pending). These are ops the
+        // widget cannot apply itself because it has no EventCtx reference.
+        let pending = node.widget.drain_pending_class_ops();
+        if !pending.is_empty() {
+            for (class, add) in pending {
+                if add {
+                    tree.add_class(node_id, &class);
+                } else {
+                    tree.remove_class(node_id, &class);
+                }
+            }
+        }
+        Some(result)
     }
 
     /// Borrow a widget mutably by node id and downcast to `T`.
@@ -1782,8 +1797,11 @@ impl App {
 
     pub(super) fn clipboard_message_event(target: NodeId, text: String) -> MessageEvent {
         let sender = Self::clipboard_message_sender();
-        MessageEvent::new(sender, crate::message::TextEditClipboardPaste { target, text })
-            .with_control(sender)
+        MessageEvent::new(
+            sender,
+            crate::message::TextEditClipboardPaste { target, text },
+        )
+        .with_control(sender)
     }
 
     pub fn driver(&self) -> &TerminalDriver {
@@ -2278,19 +2296,15 @@ impl App {
                 self.hovered.map(node_id_to_ffi),
                 hovered.map(node_id_to_ffi)
             ));
-            // Update hover state through the tree (dual-write keeps widget in sync).
+            // Update hover state through the tree.
             if let Some(old_id) = self.hovered {
                 if let Some(tree) = self.active_widget_tree_mut() {
                     tree.set_hover_state(old_id, false);
-                } else {
-                    let _ = self.with_widget_mut(old_id, |widget| widget.set_hovered(false));
                 }
             }
             if let Some(new_id) = hovered {
                 if let Some(tree) = self.active_widget_tree_mut() {
                     tree.set_hover_state(new_id, true);
-                } else {
-                    let _ = self.with_widget_mut(new_id, |widget| widget.set_hovered(true));
                 }
             }
             self.hovered = hovered;
@@ -2319,8 +2333,7 @@ impl App {
         let tree = self.active_widget_tree()?;
         let root = tree.root()?;
         tree.walk_depth_first(root).into_iter().find(|node_id| {
-            tree.get(*node_id)
-                .and_then(|node| node.css_id.as_deref().or_else(|| node.widget.style_id()))
+            tree.css_id(*node_id)
                 .is_some_and(|id| id == SYSTEM_TOOLTIP_STYLE_ID)
         })
     }
@@ -2571,8 +2584,7 @@ impl App {
                 return None;
             }
             if tree
-                .get(target)
-                .and_then(|node| node.css_id.as_deref().or_else(|| node.widget.style_id()))
+                .css_id(target)
                 .is_some_and(|id| id == SYSTEM_TOOLTIP_STYLE_ID)
             {
                 return None;
@@ -2867,6 +2879,18 @@ pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> 
     let mut tree = WidgetTree::new();
     let root_node_id = tree.set_root(Box::new(TreeStubWidget::from_widget(root)));
 
+    // Propagate the real root widget's CSS identity (id/classes) to the tree
+    // root node so node_selector_meta() and CSS combinator rules (.panel > ...)
+    // see the correct ancestor metadata during layout and rendering.
+    {
+        let root_classes: Vec<String> = root.style_classes().to_vec();
+        let root_css_id: Option<String> = root.style_id().map(|s| s.to_string());
+        for class in &root_classes {
+            tree.add_class(root_node_id, class);
+        }
+        tree.set_css_id(root_node_id, root_css_id);
+    }
+
     App::extract_children_to_tree(&mut tree, root_node_id, root);
 
     let declarations = root.compose();
@@ -2879,6 +2903,29 @@ pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> 
     }
 
     let _ = tree.drain_lifecycle();
+
+    // Propagate the real root widget's initial focused state to the tree so
+    // that CSS `:focus` rules and `node.state.focused` are correct from the
+    // very first render pass (mirrors how `is_initially_disabled` works for
+    // `:disabled`).
+    //
+    // If the root is directly focusable, focus it. If the root is not
+    // focusable (e.g. TabbedContent delegates focus to a ContentTabs child),
+    // focus the first focusable descendant instead — mirroring what the real
+    // runtime does when navigating focus to a non-focusable container.
+    if root.is_initially_focused() {
+        if root.focusable() {
+            tree.set_focus_state(root_node_id, true);
+        } else {
+            let first_focusable = crate::runtime::helpers::collect_focus_chain_tree(&tree)
+                .into_iter()
+                .next();
+            if let Some(focus_id) = first_focusable {
+                tree.set_focus_state(focus_id, true);
+            }
+        }
+    }
+
     Some(tree)
 }
 
@@ -3187,7 +3234,12 @@ mod tests {
         let (focused, hovered) = app
             .widget_tree
             .as_ref()
-            .map(|tree| (tree.node_state(target).focused, tree.node_state(target).hovered))
+            .map(|tree| {
+                (
+                    tree.node_state(target).focused,
+                    tree.node_state(target).hovered,
+                )
+            })
             .unwrap_or((false, false));
         assert!(focused);
         assert!(hovered);
@@ -3835,18 +3887,12 @@ mod tests {
             .refresh();
 
         let tree = app.widget_tree.as_ref().expect("tree should exist");
-        let first_node = tree.get(first).expect("first exists");
-        let second_node = tree.get(second).expect("second exists");
         assert!(
-            first_node
-                .widget
-                .styles()
+            tree.styles(first)
                 .is_some_and(|styles| styles.style.bold == Some(true))
         );
         assert!(
-            second_node
-                .widget
-                .styles()
+            tree.styles(second)
                 .is_some_and(|styles| styles.style.bold == Some(true))
         );
         assert!(!tree.is_displayed(first));
@@ -3941,30 +3987,11 @@ mod tests {
     #[test]
     fn dom_query_mut_set_supports_disabled_and_loading() {
         #[derive(Default)]
-        struct StateProbe {
-            disabled: bool,
-            loading: bool,
-        }
+        struct StateProbe;
 
         impl Widget for StateProbe {
             fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
                 Segments::new()
-            }
-
-            fn is_disabled(&self) -> bool {
-                self.disabled
-            }
-
-            fn set_disabled_state(&mut self, disabled: bool) {
-                self.disabled = disabled;
-            }
-
-            fn is_loading(&self) -> bool {
-                self.loading
-            }
-
-            fn set_loading_state(&mut self, loading: bool) {
-                self.loading = loading;
             }
         }
 
@@ -3979,65 +4006,41 @@ mod tests {
             .set(None, None, Some(true), Some(true));
 
         let tree = app.widget_tree.as_ref().expect("tree exists");
-        let node = tree.get(probe).expect("probe exists");
-        assert!(node.widget.is_disabled());
-        assert!(node.widget.is_loading());
+        let state = tree.node_state(probe);
+        assert!(state.disabled);
+        assert!(state.loading);
     }
 
     #[test]
     fn dom_query_focus_and_blur_follow_first_match_semantics() {
-        struct FocusProbe {
-            id: String,
-            focused: bool,
-        }
-
-        impl FocusProbe {
-            fn new(id: &str) -> Self {
-                Self {
-                    id: id.to_string(),
-                    focused: false,
-                }
-            }
-        }
+        struct FocusProbe;
 
         impl Widget for FocusProbe {
             fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
                 Segments::new()
             }
 
-            fn style_id(&self) -> Option<&str> {
-                Some(self.id.as_str())
-            }
-
             fn focusable(&self) -> bool {
                 true
-            }
-
-            fn set_focus(&mut self, focused: bool) {
-                self.focused = focused;
-            }
-
-            fn has_focus(&self) -> bool {
-                self.focused
             }
         }
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        let first = tree.mount(root, Box::new(FocusProbe::new("first")));
-        let second = tree.mount(root, Box::new(FocusProbe::new("second")));
+        let first = tree.mount(root, Box::new(FocusProbe));
+        let second = tree.mount(root, Box::new(FocusProbe));
         tree.set_focus_state(second, true);
         let mut app = App::new().expect("app should initialize");
         app.widget_tree = Some(tree);
 
         app.query_mut("FocusProbe").expect("query").focus();
         let tree = app.widget_tree.as_ref().expect("tree exists");
-        assert!(tree.get(first).expect("first exists").widget.has_focus());
-        assert!(!tree.get(second).expect("second exists").widget.has_focus());
+        assert!(tree.node_state(first).focused);
+        assert!(!tree.node_state(second).focused);
         app.query_mut("FocusProbe").expect("query").blur();
         let tree = app.widget_tree.as_ref().expect("tree exists");
-        assert!(!tree.get(first).expect("first exists").widget.has_focus());
-        assert!(!tree.get(second).expect("second exists").widget.has_focus());
+        assert!(!tree.node_state(first).focused);
+        assert!(!tree.node_state(second).focused);
     }
 
     #[test]
@@ -4072,39 +4075,15 @@ mod tests {
 
     #[test]
     fn app_action_helpers_cover_representative_direct_paths() {
-        struct FocusProbe {
-            id: String,
-            focused: bool,
-        }
-
-        impl FocusProbe {
-            fn new(id: &str) -> Self {
-                Self {
-                    id: id.to_string(),
-                    focused: false,
-                }
-            }
-        }
+        struct FocusProbe;
 
         impl Widget for FocusProbe {
             fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
                 Segments::new()
             }
 
-            fn style_id(&self) -> Option<&str> {
-                Some(self.id.as_str())
-            }
-
             fn focusable(&self) -> bool {
                 true
-            }
-
-            fn set_focus(&mut self, focused: bool) {
-                self.focused = focused;
-            }
-
-            fn has_focus(&self) -> bool {
-                self.focused
             }
         }
 
@@ -4117,8 +4096,10 @@ mod tests {
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        let first = tree.mount(root, Box::new(FocusProbe::new("first")));
-        let second = tree.mount(root, Box::new(FocusProbe::new("second")));
+        let first = tree.mount(root, Box::new(FocusProbe));
+        let second = tree.mount(root, Box::new(FocusProbe));
+        tree.set_css_id(first, Some("first".to_string()));
+        tree.set_css_id(second, Some("second".to_string()));
         tree.set_focus_state(first, true);
 
         let mut app = App::new().expect("app should initialize");
@@ -4160,11 +4141,7 @@ mod tests {
         assert!(app.action_pop_screen() || app.action_pop_screen());
 
         let tree = app.widget_tree.as_ref().expect("tree exists");
-        assert!(
-            tree.get(second)
-                .map(|node| node.widget.has_focus())
-                .unwrap_or(false)
-        );
+        assert!(tree.node_state(second).focused);
     }
 
     #[test]
@@ -4393,11 +4370,13 @@ mod tests {
         let first = buttons.ids()[0];
         let second = buttons.ids()[1];
         assert_eq!(
-            app.active_widget_tree().map(|t| t.node_state(first).focused),
+            app.active_widget_tree()
+                .map(|t| t.node_state(first).focused),
             Some(true)
         );
         assert_eq!(
-            app.active_widget_tree().map(|t| t.node_state(second).focused),
+            app.active_widget_tree()
+                .map(|t| t.node_state(second).focused),
             Some(false)
         );
     }
@@ -4452,37 +4431,15 @@ mod tests {
         app.set_sub_title("some/path");
         let msgs = app.drain_pending_app_messages();
         // Second message carries both title and subtitle.
-        let m = msgs[1].downcast_ref::<ScreenTitleChanged>().expect("expected ScreenTitleChanged message");
+        let m = msgs[1]
+            .downcast_ref::<ScreenTitleChanged>()
+            .expect("expected ScreenTitleChanged message");
         assert_eq!(m.title.as_deref(), Some("My App"));
         assert_eq!(m.sub_title.as_deref(), Some("some/path"));
     }
 
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {
-        struct IdWrapper {
-            id: String,
-            inner: Box<dyn Widget>,
-        }
-
-        impl Widget for IdWrapper {
-            fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-                self.inner.render(console, options)
-            }
-
-            fn style_type(&self) -> &'static str {
-                self.inner.style_type()
-            }
-
-            fn style_id(&self) -> Option<&str> {
-                Some(self.id.as_str())
-            }
-        }
-
-        if let Some(node_ref) = tree.get_mut(node) {
-            let inner = std::mem::replace(&mut node_ref.widget, Box::new(Label::new("tmp")));
-            node_ref.widget = Box::new(IdWrapper {
-                id: id.to_string(),
-                inner,
-            });
-        }
+        // CSS id is stored in the node record only; no wrapper struct needed.
+        tree.set_css_id(node, Some(id.to_string()));
     }
 }

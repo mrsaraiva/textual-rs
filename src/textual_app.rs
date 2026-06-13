@@ -100,8 +100,10 @@ pub trait TextualApp: Send + 'static {
     ///     });
     /// }
     /// ```
-    fn register_message_handlers(&mut self, _handlers: &mut crate::message_handlers::MessageHandlers<Self>)
-    where
+    fn register_message_handlers(
+        &mut self,
+        _handlers: &mut crate::message_handlers::MessageHandlers<Self>,
+    ) where
         Self: Sized,
     {
     }
@@ -929,7 +931,9 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             if ctx.handled() {
                 return;
             }
-        } else if let Some(m) = message.downcast_ref::<crate::message::CommandPaletteCommandSelected>() {
+        } else if let Some(m) =
+            message.downcast_ref::<crate::message::CommandPaletteCommandSelected>()
+        {
             let id = m.id.clone();
             let title = m.title.clone();
             self.handle_command_palette_selection(&id, ctx);
@@ -1401,7 +1405,11 @@ mod tests {
         );
         assert_eq!(state.startup_count.load(Ordering::SeqCst), 1);
         let open_messages = open_ctx.take_messages();
-        assert!(open_messages.iter().any(|event| event.is::<crate::message::CommandPaletteSetCommands>()));
+        assert!(
+            open_messages
+                .iter()
+                .any(|event| event.is::<crate::message::CommandPaletteSetCommands>())
+        );
 
         let mut select_ctx = EventCtx::default();
         adapter.on_message(
@@ -1485,7 +1493,8 @@ mod tests {
         let open_commands = open_messages
             .iter()
             .find_map(|event| {
-                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                event
+                    .downcast_ref::<crate::message::CommandPaletteSetCommands>()
                     .map(|m| m.commands.clone())
             })
             .expect("open should publish command palette commands");
@@ -1513,7 +1522,8 @@ mod tests {
         let show_commands = show_messages
             .iter()
             .find_map(|event| {
-                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                event
+                    .downcast_ref::<crate::message::CommandPaletteSetCommands>()
                     .map(|m| m.commands.clone())
             })
             .expect("show-help should republish command palette commands while open");
@@ -1533,7 +1543,8 @@ mod tests {
         let hide_commands = hide_messages
             .iter()
             .find_map(|event| {
-                event.downcast_ref::<crate::message::CommandPaletteSetCommands>()
+                event
+                    .downcast_ref::<crate::message::CommandPaletteSetCommands>()
                     .map(|m| m.commands.clone())
             })
             .expect("hide-help should republish command palette commands while open");
@@ -1562,31 +1573,50 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
 
         let typed_events = vec![
-            MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
-                description: "ok".to_string(),
-                button_id: None,
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::InputChanged {
-                value: "42".to_string(),
-                validation: ValidationResult::success(),
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::InputSubmitted {
-                value: "submit".to_string(),
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::TextAreaChanged {
-                value: "textarea".to_string(),
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::CheckboxChanged {
-                checked: true,
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::ListViewSelectionChanged {
-                index: 2,
-                item: "gamma".to_string(),
-            }),
-            MessageEvent::new(NodeId::default(), crate::message::ListViewItemActivated {
-                index: 3,
-                item: "delta".to_string(),
-            }),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::ButtonPressed {
+                    description: "ok".to_string(),
+                    button_id: None,
+                },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::InputChanged {
+                    value: "42".to_string(),
+                    validation: ValidationResult::success(),
+                },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::InputSubmitted {
+                    value: "submit".to_string(),
+                },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::TextAreaChanged {
+                    value: "textarea".to_string(),
+                },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::CheckboxChanged { checked: true },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::ListViewSelectionChanged {
+                    index: 2,
+                    item: "gamma".to_string(),
+                },
+            ),
+            MessageEvent::new(
+                NodeId::default(),
+                crate::message::ListViewItemActivated {
+                    index: 3,
+                    item: "delta".to_string(),
+                },
+            ),
         ];
         for event in typed_events {
             let mut ctx = EventCtx::default();
@@ -1719,24 +1749,36 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 6);
-        assert!(messages[0]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == first && m.visible));
-        assert!(messages[1]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == first && !m.visible));
-        assert!(messages[2]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == second && m.visible));
-        assert!(messages[3]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == second && !m.visible));
-        assert!(messages[4]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == first && m.visible));
-        assert!(messages[5]
-            .downcast_ref::<crate::message::OverlaySetVisible>()
-            .is_some_and(|m| m.overlay == first && !m.visible));
+        assert!(
+            messages[0]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == first && m.visible)
+        );
+        assert!(
+            messages[1]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == first && !m.visible)
+        );
+        assert!(
+            messages[2]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == second && m.visible)
+        );
+        assert!(
+            messages[3]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == second && !m.visible)
+        );
+        assert!(
+            messages[4]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == first && m.visible)
+        );
+        assert!(
+            messages[5]
+                .downcast_ref::<crate::message::OverlaySetVisible>()
+                .is_some_and(|m| m.overlay == first && !m.visible)
+        );
     }
 
     #[test]
@@ -2149,8 +2191,16 @@ mod tests {
         assert!(messages.iter().any(|m| m.is::<crate::message::AppBell>()));
         assert!(messages.iter().any(|m| m.is::<crate::message::AppFocus>()));
         assert!(messages.iter().any(|m| m.is::<crate::message::AppNotify>()));
-        assert!(messages.iter().any(|m| m.is::<crate::message::AppSwitchMode>()));
-        assert!(messages.iter().any(|m| m.is::<crate::message::AppToggleDark>()));
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.is::<crate::message::AppSwitchMode>())
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.is::<crate::message::AppToggleDark>())
+        );
     }
 
     #[test]
@@ -2528,10 +2578,13 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
         let mut ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
-                description: "test".to_string(),
-                button_id: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                crate::message::ButtonPressed {
+                    description: "test".to_string(),
+                    button_id: None,
+                },
+            ),
             &mut ctx,
         );
         let guard = app.lock().unwrap();
@@ -2545,10 +2598,13 @@ mod tests {
         let mut adapter = TextualAppAdapter::new(app.clone(), NoopWidget::new());
         let mut ctx = EventCtx::default();
         adapter.on_message(
-            &MessageEvent::new(NodeId::default(), crate::message::ButtonPressed {
-                description: "test".to_string(),
-                button_id: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                crate::message::ButtonPressed {
+                    description: "test".to_string(),
+                    button_id: None,
+                },
+            ),
             &mut ctx,
         );
         let guard = app.lock().unwrap();

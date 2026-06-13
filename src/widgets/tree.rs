@@ -7,10 +7,7 @@ use crate::message::*;
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use super::{
-    BindingDecl, NodeSeed, ScrollView, Widget, WidgetStyles,
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
-};
+use super::{BindingDecl, NodeSeed, ScrollView, Widget, helpers::adjust_line_length_no_bg};
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -1553,8 +1550,7 @@ impl Widget for Tree {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.visible_count().max(1)))
+        Some(self.visible_count().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -1569,18 +1565,12 @@ impl Widget for Tree {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -1632,7 +1622,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1700,11 +1693,17 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<TreeNodeActivated>());
         assert_eq!(
-            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().index,
+            messages[0]
+                .downcast_ref::<TreeNodeActivated>()
+                .unwrap()
+                .index,
             0
         );
         assert_eq!(
-            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().label,
+            messages[0]
+                .downcast_ref::<TreeNodeActivated>()
+                .unwrap()
+                .label,
             "Root"
         );
 
@@ -1743,10 +1742,18 @@ mod tests {
             messages[0].downcast_ref::<TreeNodeToggled>().unwrap().index,
             0
         );
-        assert!(!messages[0].downcast_ref::<TreeNodeToggled>().unwrap().expanded);
+        assert!(
+            !messages[0]
+                .downcast_ref::<TreeNodeToggled>()
+                .unwrap()
+                .expanded
+        );
         assert!(messages[1].is::<TreeNodeCollapsed>());
         assert_eq!(
-            messages[1].downcast_ref::<TreeNodeCollapsed>().unwrap().index,
+            messages[1]
+                .downcast_ref::<TreeNodeCollapsed>()
+                .unwrap()
+                .index,
             0
         );
     }
@@ -1787,11 +1794,17 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<TreeNodeActivated>());
         assert_eq!(
-            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().index,
+            messages[0]
+                .downcast_ref::<TreeNodeActivated>()
+                .unwrap()
+                .index,
             1
         );
         assert_eq!(
-            messages[0].downcast_ref::<TreeNodeActivated>().unwrap().label,
+            messages[0]
+                .downcast_ref::<TreeNodeActivated>()
+                .unwrap()
+                .label,
             "Second"
         );
     }
@@ -1799,14 +1812,12 @@ mod tests {
     #[test]
     fn app_focus_loss_clears_hover_state() {
         let mut tree = Tree::new(vec![TreeNode::new("Root")]);
-        tree.set_hovered(true);
         assert!(tree.on_mouse_move(0, 0));
         assert_eq!(tree.hovered_index, Some(0));
 
         let mut ctx = EventCtx::default();
         tree.on_event(&Event::AppFocus(false), &mut ctx);
 
-        assert!(!tree.is_hovered());
         assert_eq!(tree.hovered_index, None);
         assert!(ctx.repaint_requested());
     }
@@ -1855,7 +1866,6 @@ mod tests {
     fn execute_action_handles_cursor_down() {
         use crate::action::ParsedAction;
         let mut tree = Tree::new(vec![TreeNode::new("Child A"), TreeNode::new("Child B")]);
-        tree.set_focus(true);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,

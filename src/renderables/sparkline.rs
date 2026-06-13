@@ -2,9 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 use crate::style::Color;
-use crate::widgets::{
-    Widget, WidgetStyles, adjust_line_length_no_bg, fixed_height_from_constraints,
-};
+use crate::widgets::{NodeSeed, Widget, adjust_line_length_no_bg};
 
 /// Unicode bar characters for sparkline rendering (8 levels, bottom to top).
 const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -75,20 +73,20 @@ pub struct Sparkline {
     min_color: Option<Color>,
     /// Explicit max color override (bypasses CSS component class).
     max_color: Option<Color>,
-    classes: Vec<String>,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Sparkline {
     /// Create a new `Sparkline` with the given data.
     pub fn new(data: Vec<f64>) -> Self {
+        let mut seed = NodeSeed::default();
+        seed.classes.push("sparkline".to_string());
         Self {
             data,
             summary_function: summary_max,
             min_color: None,
             max_color: None,
-            classes: vec!["sparkline".to_string()],
-            styles: WidgetStyles::default(),
+            seed,
         }
     }
 
@@ -318,23 +316,19 @@ impl Widget for Sparkline {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
+        Some(1)
     }
 
     fn style_type(&self) -> &'static str {
         "Sparkline"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

@@ -3525,8 +3525,8 @@ mod tests {
     fn border_type_name_round_trip() {
         use BorderType::*;
         let all = [
-            Solid, Heavy, Block, Tall, Outer, HKey, VKey,
-            Ascii, Blank, Dashed, Double, Inner, Panel, Round, Tab, Thick, Wide,
+            Solid, Heavy, Block, Tall, Outer, HKey, VKey, Ascii, Blank, Dashed, Double, Inner,
+            Panel, Round, Tab, Thick, Wide,
         ];
         for t in all {
             assert_eq!(

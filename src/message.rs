@@ -842,7 +842,7 @@ impl Clone for Box<dyn Message> {
 macro_rules! impl_message {
     ($T:ty) => {
         impl $crate::message::Message for $T {
-            fn as_any(&self) -> &dyn::std::any::Any {
+            fn as_any(&self) -> &dyn ::std::any::Any {
                 self
             }
             fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Message> {
@@ -852,7 +852,7 @@ macro_rules! impl_message {
     };
     ($T:ty, replaceable) => {
         impl $crate::message::Message for $T {
-            fn as_any(&self) -> &dyn::std::any::Any {
+            fn as_any(&self) -> &dyn ::std::any::Any {
                 self
             }
             fn clone_box(&self) -> ::std::boxed::Box<dyn $crate::message::Message> {
@@ -1140,7 +1140,9 @@ mod tests {
     #[test]
     fn message_returns_button_pressed_payload() {
         let env = MessageEnvelope::new(test_event());
-        let bp = env.downcast_ref::<ButtonPressed>().expect("expected ButtonPressed");
+        let bp = env
+            .downcast_ref::<ButtonPressed>()
+            .expect("expected ButtonPressed");
         assert_eq!(bp.description, "ok");
     }
 
@@ -1256,10 +1258,13 @@ mod tests {
     #[test]
     fn explicit_control_preserved_by_envelope() {
         let other = node_id_from_ffi(42);
-        let evt = MessageEvent::new(node_id_from_ffi(1), ButtonPressed {
-            description: "ctrl".into(),
-            button_id: None,
-        })
+        let evt = MessageEvent::new(
+            node_id_from_ffi(1),
+            ButtonPressed {
+                description: "ctrl".into(),
+                button_id: None,
+            },
+        )
         .with_control(other);
         let env = MessageEnvelope::new(evt);
         // Envelope should use the explicit control, not sender.
@@ -1293,8 +1298,14 @@ mod tests {
 
     #[test]
     fn non_replaceable_trait_impl_returns_false() {
-        let x = ButtonPressed { description: "x".into(), button_id: None };
-        let y = ButtonPressed { description: "y".into(), button_id: None };
+        let x = ButtonPressed {
+            description: "x".into(),
+            button_id: None,
+        };
+        let y = ButtonPressed {
+            description: "y".into(),
+            button_id: None,
+        };
         // ButtonPressed is plain impl_message! — can_replace defaults to false
         assert!(!x.can_replace(&y));
     }
@@ -1305,7 +1316,10 @@ mod tests {
             value: "a".into(),
             validation: ValidationResult::success(),
         };
-        let b = ButtonPressed { description: "x".into(), button_id: None };
+        let b = ButtonPressed {
+            description: "x".into(),
+            button_id: None,
+        };
         // Different types — never replace each other
         assert!(!b.can_replace(&a));
         assert!(!a.can_replace(&b));

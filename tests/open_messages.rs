@@ -116,7 +116,11 @@ fn t5_1_ping_bubbles_from_child_to_parent() {
     dispatch_message_queue_tree(&mut tree, messages);
 
     let entries = log.lock().unwrap();
-    assert_eq!(entries.len(), 2, "both child and parent should see the Ping");
+    assert_eq!(
+        entries.len(),
+        2,
+        "both child and parent should see the Ping"
+    );
     assert!(entries[0].is_ping);
     assert!(entries[1].is_ping);
     // Bubble order: child first, then parent.
@@ -258,9 +262,7 @@ fn t5_4_with_control_override_observed() {
     let mut tree = WidgetTree::new();
     let root_id = tree.set_root(Box::new(Recorder::new(log.clone())));
 
-    let messages = vec![
-        MessageEvent::new(root_id, Ping { n: 4 }).with_control(explicit_control)
-    ];
+    let messages = vec![MessageEvent::new(root_id, Ping { n: 4 }).with_control(explicit_control)];
     dispatch_message_queue_tree(&mut tree, messages);
 
     let entries = log.lock().unwrap();

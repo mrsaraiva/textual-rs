@@ -34,9 +34,9 @@ mod tests {
         parse_duration, parse_style_body, parse_transition_shorthand, parse_transition_timing,
     };
     use super::resolver::{
-        begin_style_render_pass, computed_style_cache_stats_for_tests,
-        reset_computed_style_cache_for_tests, resolve_style, selector_meta_generic,
-        take_layout_affected_style_changes, with_style_stack,
+        begin_style_render_pass, computed_style_cache_stats_for_tests, node_selector_meta,
+        reset_computed_style_cache_for_tests, resolve_node_style, resolve_style,
+        selector_meta_generic, take_layout_affected_style_changes, with_style_stack,
     };
     use super::segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
     use crate::css::{StyleSheet, default_widget_stylesheet};
@@ -46,19 +46,11 @@ mod tests {
     use rich_rs::{Segment, Segments};
     use std::time::Duration;
 
-    struct ProbeWidget {
-        classes: Vec<String>,
-        style_id: Option<String>,
-        focused: bool,
-    }
+    struct ProbeWidget;
 
     impl ProbeWidget {
         fn new() -> Self {
-            Self {
-                classes: Vec::new(),
-                style_id: None,
-                focused: false,
-            }
+            Self
         }
     }
 
@@ -73,18 +65,6 @@ mod tests {
 
         fn style_type(&self) -> &'static str {
             "Probe"
-        }
-
-        fn style_id(&self) -> Option<&str> {
-            self.style_id.as_deref()
-        }
-
-        fn style_classes(&self) -> &[String] {
-            &self.classes
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
         }
     }
 
@@ -290,12 +270,21 @@ mod tests {
     fn disabled_primary_button_uses_text_opacity() {
         // Python-aligned: disabled buttons dim via text-opacity inside the variant
         // block (.-style-default:disabled { text-opacity: 60%; }), not widget-level opacity.
+        use crate::widget_tree::WidgetTree;
         let _guard = super::context::set_style_context(default_widget_stylesheet());
-        let enabled = Button::primary("Primary!");
-        let disabled = Button::primary("Primary!").disabled(true);
+        let _active = super::context::set_app_active(true);
 
-        let enabled_style = resolve_style(&enabled, &selector_meta_generic(&enabled));
-        let disabled_style = resolve_style(&disabled, &selector_meta_generic(&disabled));
+        let mut enabled_tree = WidgetTree::new();
+        let enabled_id = enabled_tree.set_root(Box::new(Button::primary("Primary!")));
+        let enabled_meta = node_selector_meta(&enabled_tree, enabled_id);
+        let enabled_style = resolve_node_style(&enabled_tree, enabled_id, &enabled_meta);
+
+        let mut disabled_tree = WidgetTree::new();
+        let disabled_id =
+            disabled_tree.set_root(Box::new(Button::primary("Primary!").disabled(true)));
+        disabled_tree.set_disabled(disabled_id, true);
+        let disabled_meta = node_selector_meta(&disabled_tree, disabled_id);
+        let disabled_style = resolve_node_style(&disabled_tree, disabled_id, &disabled_meta);
 
         assert_eq!(
             enabled_style.fg_auto.map(|value| value.alpha_percent),
@@ -311,12 +300,20 @@ mod tests {
 
     #[test]
     fn disabled_button_matches_global_disabled_can_focus_opacity_rule() {
+        use crate::widget_tree::WidgetTree;
         let _guard = super::context::set_style_context(default_widget_stylesheet());
-        let enabled = Button::new("Default");
-        let disabled = Button::new("Default").disabled(true);
+        let _active = super::context::set_app_active(true);
 
-        let enabled_style = resolve_style(&enabled, &selector_meta_generic(&enabled));
-        let disabled_style = resolve_style(&disabled, &selector_meta_generic(&disabled));
+        let mut enabled_tree = WidgetTree::new();
+        let enabled_id = enabled_tree.set_root(Box::new(Button::new("Default")));
+        let enabled_meta = node_selector_meta(&enabled_tree, enabled_id);
+        let enabled_style = resolve_node_style(&enabled_tree, enabled_id, &enabled_meta);
+
+        let mut disabled_tree = WidgetTree::new();
+        let disabled_id = disabled_tree.set_root(Box::new(Button::new("Default").disabled(true)));
+        disabled_tree.set_disabled(disabled_id, true);
+        let disabled_meta = node_selector_meta(&disabled_tree, disabled_id);
+        let disabled_style = resolve_node_style(&disabled_tree, disabled_id, &disabled_meta);
 
         assert_eq!(enabled_style.opacity, None);
         assert_eq!(disabled_style.opacity, Some(70));
@@ -360,17 +357,21 @@ mod tests {
 
     #[test]
     fn computed_style_cache_hits_for_stable_widget() {
+        use super::resolver::resolve_node_style;
+        use crate::widget_tree::WidgetTree;
         reset_computed_style_cache_for_tests();
         let _guard = super::context::set_style_context(StyleSheet::parse(
             "Probe#target.on { fg: #ff00aa; }",
         ));
-        let mut widget = ProbeWidget::new();
-        widget.style_id = Some("target".to_string());
-        widget.classes.push("on".to_string());
-        let meta = selector_meta_generic(&widget);
+        // Build a real tree node so the node-record cache is exercised.
+        let mut tree = WidgetTree::new();
+        let node_id = tree.set_root(Box::new(ProbeWidget::new()));
+        tree.set_css_id(node_id, Some("target".to_string()));
+        tree.add_class(node_id, "on");
+        let meta = super::resolver::node_selector_meta(&tree, node_id);
 
-        let first = resolve_style(&widget, &meta);
-        let second = resolve_style(&widget, &meta);
+        let first = resolve_node_style(&tree, node_id, &meta);
+        let second = resolve_node_style(&tree, node_id, &meta);
 
         assert_eq!(first.fg, second.fg);
         let (hits, misses) = computed_style_cache_stats_for_tests();
@@ -385,23 +386,24 @@ mod tests {
             "Probe.panel Probe.child { fg: #00ffaa; }",
         ));
 
-        let mut parent = ProbeWidget::new();
-        parent.classes.push("panel".to_string());
-        let mut child = ProbeWidget::new();
-        child.classes.push("child".to_string());
+        let parent = ProbeWidget::new();
+        let child = ProbeWidget::new();
+        // Build meta with classes directly (node-record owned after RA-2 step 6).
+        let child_meta =
+            super::ast::SelectorMeta::new("Probe".to_string(), None, vec!["child".to_string()]);
 
-        let parent_meta = selector_meta_generic(&parent);
+        let parent_meta =
+            super::ast::SelectorMeta::new("Probe".to_string(), None, vec!["panel".to_string()]);
         let parent_style = resolve_style(&parent, &parent_meta);
-        let child_with_panel = with_style_stack(parent_meta.clone(), parent_style, || {
-            resolve_style(&child, &selector_meta_generic(&child))
+        let child_with_panel = with_style_stack(parent_meta, parent_style, || {
+            resolve_style(&child, &child_meta)
         });
 
-        parent.classes.clear();
-        parent.classes.push("other".to_string());
-        let parent_meta_changed = selector_meta_generic(&parent);
+        let parent_meta_changed =
+            super::ast::SelectorMeta::new("Probe".to_string(), None, vec!["other".to_string()]);
         let parent_style_changed = resolve_style(&parent, &parent_meta_changed);
         let child_with_other = with_style_stack(parent_meta_changed, parent_style_changed, || {
-            resolve_style(&child, &selector_meta_generic(&child))
+            resolve_style(&child, &child_meta)
         });
 
         assert_ne!(child_with_panel.fg, child_with_other.fg);
@@ -466,20 +468,26 @@ mod tests {
 
     #[test]
     fn layout_affecting_computed_style_change_is_tracked_in_pass() {
+        use crate::widget_tree::WidgetTree;
+
         reset_computed_style_cache_for_tests();
         let _guard = super::context::set_style_context(StyleSheet::parse(
             "Probe { min-width: 1; } Probe:focus { min-width: 12; }",
         ));
-        let mut widget = ProbeWidget::new();
-        widget.focused = false;
+        let _active = super::context::set_app_active(true);
+        let mut tree = WidgetTree::new();
+        let node_id = tree.set_root(Box::new(ProbeWidget::new()));
 
         begin_style_render_pass();
-        let _ = resolve_style(&widget, &selector_meta_generic(&widget));
+        let meta = node_selector_meta(&tree, node_id);
+        let _ = resolve_node_style(&tree, node_id, &meta);
         assert!(!take_layout_affected_style_changes());
 
-        widget.focused = true;
+        // Simulate focus via node-record state (node-record owned after RA-2 step 6).
+        tree.set_focus_state(node_id, true);
         begin_style_render_pass();
-        let focused = resolve_style(&widget, &selector_meta_generic(&widget));
+        let meta = node_selector_meta(&tree, node_id);
+        let focused = resolve_node_style(&tree, node_id, &meta);
         assert_eq!(focused.min_width, Some(crate::style::Scalar::Cells(12)));
         assert!(take_layout_affected_style_changes());
     }
@@ -574,9 +582,10 @@ mod tests {
     fn display_none_in_stylesheet_resolves() {
         let _guard =
             super::context::set_style_context(StyleSheet::parse("Probe.hidden { display: none; }"));
-        let mut widget = ProbeWidget::new();
-        widget.classes.push("hidden".to_string());
-        let meta = selector_meta_generic(&widget);
+        let widget = ProbeWidget::new();
+        // Build meta with class directly (node-record owned after RA-2 step 6).
+        let meta =
+            super::ast::SelectorMeta::new("Probe".to_string(), None, vec!["hidden".to_string()]);
         let style = resolve_style(&widget, &meta);
         assert_eq!(style.display, Some(crate::style::Display::None));
     }

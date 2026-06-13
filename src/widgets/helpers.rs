@@ -18,13 +18,6 @@ pub(crate) fn merge_constraints(
     }
 }
 
-pub(crate) fn fixed_height_from_constraints(constraints: LayoutConstraints) -> Option<usize> {
-    match (constraints.min_height, constraints.max_height) {
-        (Some(min), Some(max)) if min == max => Some(min),
-        _ => None,
-    }
-}
-
 pub(crate) fn clamp_with_constraints(
     value: usize,
     min: Option<usize>,
@@ -68,12 +61,6 @@ pub(crate) fn pad_lines_to_width(lines: Vec<Vec<Segment>>, width: usize) -> Vec<
         .into_iter()
         .map(|line| adjust_line_length_no_bg(&line, width))
         .collect()
-}
-
-pub(crate) fn empty_classes() -> &'static [String] {
-    use std::sync::OnceLock;
-    static EMPTY: OnceLock<Vec<String>> = OnceLock::new();
-    EMPTY.get_or_init(Vec::new)
 }
 
 pub(crate) fn crop_line_horizontal(line: &[Segment], start: usize, width: usize) -> Vec<Segment> {

@@ -5,7 +5,7 @@ use crate::event::{Event, EventCtx};
 use crate::message::MessageEvent;
 
 use crate::widgets::{
-    LayoutConstraints, NodeSeed, Spacer, Widget, WidgetStyles,
+    LayoutConstraints, NodeSeed, Spacer, Widget,
     helpers::{clamp_with_constraints, merge_constraints},
 };
 
@@ -49,6 +49,10 @@ impl Constrained {
         self.constraints = self.constraints.max_height(value);
         self
     }
+
+    fn seed_constraints(&self) -> LayoutConstraints {
+        merge_constraints(self.seed.styles.layout, self.constraints)
+    }
 }
 
 impl Widget for Constrained {
@@ -71,7 +75,7 @@ impl Widget for Constrained {
         if self.child_extracted {
             return Segments::new();
         }
-        let constraints = self.layout_constraints();
+        let constraints = self.seed_constraints();
         let width = clamp_with_constraints(
             options.size.0.max(1),
             constraints.min_width,
@@ -129,7 +133,7 @@ impl Widget for Constrained {
         if self.child_extracted {
             return;
         }
-        let constraints = self.layout_constraints();
+        let constraints = self.seed_constraints();
         let width = clamp_with_constraints(
             usize::from(width.max(1)),
             constraints.min_width,
@@ -167,14 +171,8 @@ impl Widget for Constrained {
         !self.child_extracted && self.child.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        if !self.child_extracted {
-            self.child.set_focus(focused);
-        }
-    }
-
     fn layout_height(&self) -> Option<usize> {
-        let constraints = self.layout_constraints();
+        let constraints = self.seed_constraints();
         let child_height = if self.child_extracted {
             self.extracted_child_layout_height
         } else {
@@ -196,22 +194,12 @@ impl Widget for Constrained {
         self.child.content_width()
     }
 
-    fn layout_constraints(&self) -> LayoutConstraints {
-        merge_constraints(self.seed.styles.layout, self.constraints)
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

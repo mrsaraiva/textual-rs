@@ -262,6 +262,10 @@ impl Widget for BindingsTable {
         Some(self.line_count())
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -398,7 +402,7 @@ impl Widget for KeyPanel {
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 1);
-        vbar.set_style_id(Some(KEY_PANEL_VSCROLLBAR_ID.to_string()));
+        vbar.seed.css_id = Some(KEY_PANEL_VSCROLLBAR_ID.to_string());
         vec![Box::new(vbar)]
     }
 
@@ -493,6 +497,10 @@ impl Widget for KeyPanel {
         None
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -566,9 +574,10 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<KeyPanelBindingsUpdated>()
-            .map_or(false, |k| k.count == 1)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<KeyPanelBindingsUpdated>()
+                .map_or(false, |k| k.count == 1)
+        }));
     }
 
     #[test]
@@ -630,12 +639,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         panel.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 2.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
         assert!(ctx.handled());
@@ -646,9 +658,10 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut panel = KeyPanel::new();
-        let children = panel.take_composed_children();
+        let mut children = panel.take_composed_children();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].style_id(), Some(KEY_PANEL_VSCROLLBAR_ID));
+        let seed = children[0].take_node_seed();
+        assert_eq!(seed.css_id.as_deref(), Some(KEY_PANEL_VSCROLLBAR_ID));
     }
 
     #[test]
@@ -665,12 +678,15 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         panel.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 2.0,
-                animate: false,
-                scroll_duration: None,
-            }),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 2.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
             &mut ctx,
         );
         assert!(ctx.handled());

@@ -5,10 +5,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use super::{
-    helpers::fixed_height_from_constraints,
-    NodeSeed, Widget, WidgetStyles,
-};
+use super::{NodeSeed, Widget};
 
 /// The visual width of the switch slider track (in cells).
 const SWITCH_WIDTH: usize = 8;
@@ -172,14 +169,6 @@ impl Widget for Switch {
         !self.disabled
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
     fn is_active(&self) -> bool {
         self.pressed && self.node_state().hovered
     }
@@ -332,29 +321,19 @@ impl Widget for Switch {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
+        Some(1)
     }
 
     fn style_type(&self) -> &'static str {
         "Switch"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -381,7 +360,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -396,9 +378,11 @@ mod tests {
         assert!(widget.value());
         assert!(ctx.handled());
         let messages = ctx.take_messages();
-        assert!(messages
-            .iter()
-            .any(|m| m.downcast_ref::<SwitchChanged>().is_some_and(|s| s.value)));
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.downcast_ref::<SwitchChanged>().is_some_and(|s| s.value))
+        );
     }
 
     #[test]

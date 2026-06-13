@@ -441,7 +441,7 @@ fn header_mouse_up_toggles_tall_outside_icon() {
 
     assert!(ctx.handled());
     assert_eq!(header.layout_height(), Some(3));
-    assert!(header.style_classes().iter().any(|class| class == "-tall"));
+    assert!(header.get_tall());
 }
 
 #[test]
@@ -474,7 +474,7 @@ fn header_icon_click_does_not_toggle_tall() {
 
     assert!(ctx.handled());
     assert_eq!(header.layout_height(), Some(1));
-    assert!(!header.style_classes().iter().any(|class| class == "-tall"));
+    assert!(!header.get_tall());
 }
 
 #[test]

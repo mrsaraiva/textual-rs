@@ -8,6 +8,7 @@ use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 use textual::style::parse_color_like;
+use textual::widgets::NodeState;
 
 fn render_tabbed_frame(tabs: &mut TabbedContent, width: u16, height: u16) -> FrameBuffer {
     let console = Console::new();
@@ -30,7 +31,13 @@ fn tabbed_content_keyboard_changes_active_pane() {
     let mut tabs = TabbedContent::new()
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     let key = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,
         crossterm::event::KeyModifiers::NONE,
@@ -117,7 +124,13 @@ fn tabbed_content_default_css_focus_styles_active_tab_and_underline() {
     let mut tabs = TabbedContent::new()
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     tabs.on_layout(24, 2);
 
     let buf = render_tabbed_frame(&mut tabs, 24, 2);
@@ -188,7 +201,13 @@ fn tabbed_content_ansi_uses_bright_blue_underline_and_no_active_tab_bg() {
     let mut tabs = TabbedContent::new()
         .with_pane(TabPane::new("One", Label::new("first")).id("one"))
         .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
     tabs.on_layout(24, 2);
 
     let buf = render_tabbed_frame(&mut tabs, 24, 2);
@@ -218,7 +237,13 @@ fn tabbed_content_keyboard_navigation_skips_disabled_and_hidden_panes() {
         .with_pane(TabPane::new("Four", Label::new("fourth")).id("four"));
     assert!(tabs.disable_pane("two"));
     assert!(tabs.hide_pane("three"));
-    tabs.set_focus(true);
+    tabs.on_node_state_changed(
+        NodeState::default(),
+        NodeState {
+            focused: true,
+            ..Default::default()
+        },
+    );
 
     let right = KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Right,

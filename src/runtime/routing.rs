@@ -108,8 +108,7 @@ pub fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
         if let Some(node) = tree.get(node_id) {
             if node.display
                 && node.visibility == crate::style::Visibility::Visible
-                // Dual-write: merge node.state.focused with legacy widget getter.
-                && (node.state.focused || node.widget.has_focus())
+                && node.state.focused
             {
                 return Some(node_id);
             }
@@ -192,6 +191,10 @@ pub fn dispatch_event_tree(
 /// Dispatch an event to a specific `target` node using the arena tree.
 ///
 /// Capture phase runs root→target, then bubble phase runs target→root.
+///
+/// Side-effect: `Event::Focus` and `Event::Blur` events additionally update
+/// the target node's `state.focused` flag so that `focused_node_id_tree`
+/// reflects the change without requiring a separate `set_focus_state` call.
 pub fn dispatch_event_to_target_tree(
     tree: &mut WidgetTree,
     target: NodeId,
@@ -224,6 +227,14 @@ pub fn dispatch_event_to_target_tree(
                 break;
             }
         }
+    }
+
+    // Keep node.state.focused in sync with Focus/Blur events so that
+    // focused_node_id_tree() correctly reflects the current focus.
+    match event {
+        Event::Focus(_) => tree.set_focus_state(target, true),
+        Event::Blur(_) => tree.set_focus_state(target, false),
+        _ => {}
     }
 
     DispatchOutcome {
@@ -561,8 +572,7 @@ pub(crate) fn focused_help_metadata_tree(tree: &WidgetTree) -> Option<(NodeId, S
     let root = tree.root()?;
     for node_id in tree.walk_depth_first(root) {
         let node = tree.get(node_id)?;
-        // Dual-write: merge node.state.focused with legacy widget getter.
-        if node.state.focused || node.widget.has_focus() {
+        if node.state.focused {
             let help = node.widget.help_markup().map(str::trim).unwrap_or_default();
             if !help.is_empty() {
                 return Some((node_id, help.to_string()));
@@ -765,15 +775,13 @@ mod message_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct HintNode {
-        focused: bool,
         hints: Vec<BindingHint>,
         help_markup: Option<String>,
     }
 
     impl HintNode {
-        fn new(focused: bool, hints: Vec<BindingHint>) -> Self {
+        fn new(_focused: bool, hints: Vec<BindingHint>) -> Self {
             Self {
-                focused,
                 hints,
                 help_markup: None,
             }
@@ -796,14 +804,6 @@ mod message_tests {
 
         fn help_markup(&self) -> Option<&str> {
             self.help_markup.as_deref()
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
         }
     }
 
@@ -1080,13 +1080,12 @@ mod message_tests {
     }
 
     struct ScrollSink {
-        focused: bool,
         hits: Arc<AtomicUsize>,
     }
 
     impl ScrollSink {
-        fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
-            Self { focused, hits }
+        fn new(_focused: bool, hits: Arc<AtomicUsize>) -> Self {
+            Self { hits }
         }
     }
 
@@ -1097,14 +1096,6 @@ mod message_tests {
 
         fn focusable(&self) -> bool {
             true
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
         }
 
         fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -1126,10 +1117,11 @@ mod message_tests {
             root_id,
             Box::new(ScrollSink::new(false, first_hits.clone())),
         );
-        let _second_id = tree.mount(
+        let second_id = tree.mount(
             root_id,
             Box::new(ScrollSink::new(true, second_hits.clone())),
         );
+        tree.set_focus_state(second_id, true);
 
         let outcome = dispatch_scroll_action_tree(&mut tree, Action::ScrollDown, None);
         assert!(outcome.handled);
@@ -1194,6 +1186,7 @@ mod message_tests {
                 vec![BindingHint::new("enter", "activate")],
             )),
         );
+        tree.set_focus_state(_leaf_id, true);
 
         let (hints, _sources) = active_binding_hints_tree(&tree);
         assert_eq!(
@@ -1241,6 +1234,7 @@ mod message_tests {
                     .with_help("## Focused help\nUse enter"),
             ),
         );
+        tree.set_focus_state(_child_id, true);
 
         let focused = focused_help_metadata_tree(&tree);
         assert!(matches!(
@@ -1281,6 +1275,7 @@ mod message_tests {
                 vec![BindingHint::new("left/right", "switch tab")],
             )),
         );
+        tree.set_focus_state(child_id, true);
 
         let (first, _) = active_binding_hints_tree(&tree);
         assert_eq!(
@@ -1317,6 +1312,7 @@ mod message_tests {
                     .with_help("## First"),
             ),
         );
+        tree.set_focus_state(_child_id, true);
 
         let first = focused_help_metadata_tree(&tree);
         assert!(matches!(
@@ -1329,6 +1325,7 @@ mod message_tests {
         let _root_id2 = tree2.set_root(Box::new(
             HintNode::new(true, vec![BindingHint::new("tab", "next focus")]).with_help("## Second"),
         ));
+        tree2.set_focus_state(_root_id2, true);
         let _child_id2 = tree2.mount(
             _root_id2,
             Box::new(
@@ -1362,6 +1359,7 @@ mod message_tests {
                 vec![BindingHint::new("enter", "activate")],
             )),
         );
+        tree.set_focus_state(_leaf_id, true);
 
         let (hints, sources) = active_binding_hints_tree(&tree);
         assert_eq!(
@@ -1399,27 +1397,18 @@ mod message_tests {
     }
 
     struct BindingEventProbe {
-        focused: bool,
         hits: Arc<AtomicUsize>,
     }
 
     impl BindingEventProbe {
-        fn new(focused: bool, hits: Arc<AtomicUsize>) -> Self {
-            Self { focused, hits }
+        fn new(_focused: bool, hits: Arc<AtomicUsize>) -> Self {
+            Self { hits }
         }
     }
 
     impl Widget for BindingEventProbe {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
         }
 
         fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
@@ -1466,6 +1455,7 @@ mod message_tests {
             vec![BindingHint::new("a", "Add node")],
         )));
         let _tree_id = tree.mount(root_id, Box::new(HintNode::new(true, vec![])));
+        tree.set_focus_state(_tree_id, true);
 
         let (hints, sources) = active_binding_hints_tree(&tree);
         assert!(
@@ -2243,15 +2233,14 @@ mod binding_tests {
 
     // -- match_binding_tree tests --
 
-    /// Minimal widget that declares bindings and reports focus state.
+    /// Minimal widget that declares bindings (focus state is managed by the tree).
     struct BindingWidget {
-        focused: bool,
         decls: Vec<BindingDecl>,
     }
 
     impl BindingWidget {
-        fn new(focused: bool, decls: Vec<BindingDecl>) -> Self {
-            Self { focused, decls }
+        fn new(_focused: bool, decls: Vec<BindingDecl>) -> Self {
+            Self { decls }
         }
     }
 
@@ -2266,14 +2255,6 @@ mod binding_tests {
 
         fn focusable(&self) -> bool {
             true
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
         }
     }
 
@@ -2298,6 +2279,7 @@ mod binding_tests {
                 vec![BindingDecl::new("enter", "submit", "Submit")],
             )),
         );
+        tree.set_focus_state(_child_id, true);
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
         let result = match_binding_tree(&tree, &key);
@@ -2344,6 +2326,7 @@ mod binding_tests {
                 vec![BindingDecl::new("escape", "cancel", "Cancel")],
             )),
         );
+        tree.set_focus_state(_child_id, true);
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Esc, KeyModifiers::empty()));
         let result = match_binding_tree(&tree, &key);
@@ -2369,6 +2352,7 @@ mod binding_tests {
                 vec![BindingDecl::new("escape", "cancel", "Cancel")],
             )),
         );
+        tree2.set_focus_state(child_id2, true);
 
         let result2 = match_binding_tree(&tree2, &key);
         assert!(result2.is_some());
@@ -2386,6 +2370,7 @@ mod binding_tests {
             vec![BindingDecl::new("enter", "submit", "Submit")],
         )));
         let _child_id = tree.mount(root_id, Box::new(BindingWidget::new(true, vec![])));
+        tree.set_focus_state(_child_id, true);
 
         let key =
             KeyEventData::from_crossterm(key_event(KeyCode::Char('z'), KeyModifiers::empty()));
@@ -2428,6 +2413,7 @@ mod binding_tests {
                 ],
             )),
         );
+        tree.set_focus_state(_child_id, true);
 
         let (hints, _sources) = active_binding_hints_tree(&tree);
         // Root has 1 binding, child has 2 bindings = 3 total hints.

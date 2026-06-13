@@ -30,18 +30,13 @@ impl Widget for ContentTabs {
         Widget::render(&self.inner, console, options)
     }
 
-    fn style_id(&self) -> Option<&str> {
-        self.inner.style_id()
-    }
-
     delegate_widget_method!(
         inner,
         [
             render_with_debug,
             compose,
             focusable,
-            set_focus,
-            has_focus,
+            on_node_state_changed,
             on_mount,
             on_unmount,
             on_tick,
@@ -51,11 +46,16 @@ impl Widget for ContentTabs {
             on_event,
             on_message,
             layout_height,
-            style_classes,
-            is_hovered,
-            set_hovered,
         ]
     );
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.inner.set_inline_style(style);
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        self.inner.take_node_seed()
+    }
 }
 
 delegate_renderable!(ContentTabs);
@@ -101,8 +101,7 @@ impl TabPane {
     pub fn id(mut self, pane_id: impl Into<String>) -> Self {
         let id = pane_id.into();
         self.pane_id = Some(id.clone());
-        self.seed.css_id = Some(id.clone());
-        self.seed.styles.style_id = Some(id);
+        self.seed.css_id = Some(id);
         self
     }
 
@@ -129,8 +128,7 @@ impl TabPane {
     fn assign_id(&mut self, id: String) {
         if self.pane_id.is_none() {
             self.pane_id = Some(id.clone());
-            self.seed.css_id = Some(id.clone());
-            self.seed.styles.style_id = Some(id);
+            self.seed.css_id = Some(id);
         }
     }
 }
@@ -204,16 +202,16 @@ impl Widget for TabPane {
         "TabPane"
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.disabled = new.disabled;
     }
 
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.seed.styles.style_id.as_deref()
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -489,7 +487,6 @@ impl TabbedContent {
             }
         }
         tabs.set_dock(crate::style::Dock::Top);
-        tabs.set_focus(self.focused);
         if let Some(initial) = self.initial.as_deref().or(self.active.as_deref()) {
             let _ = tabs.set_active_id(&Self::content_tab_id(initial), None);
         }
@@ -620,20 +617,17 @@ impl Widget for TabbedContent {
         false
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
+        self.hovered = new.hovered;
     }
 
-    fn has_focus(&self) -> bool {
+    fn is_initially_focused(&self) -> bool {
         self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
     }
 
     fn on_mount(&mut self) {
@@ -650,7 +644,6 @@ impl Widget for TabbedContent {
             .expect("tabbed tabs handle lock")
             .as_mut()
         {
-            tabs.set_focus(self.focused);
             tabs.on_layout(width, 2);
         }
     }
@@ -764,7 +757,15 @@ impl Widget for TabbedContent {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1).min(2);
         let mut tabs = self.build_tabs();
-        tabs.set_focus(self.focused);
+        if self.focused {
+            tabs.on_node_state_changed(
+                crate::widgets::NodeState::default(),
+                crate::widgets::NodeState {
+                    focused: true,
+                    ..Default::default()
+                },
+            );
+        }
         tabs.on_layout(width as u16, height as u16);
         let mut tab_options = options.clone();
         tab_options.size = (width, height);
@@ -773,15 +774,8 @@ impl Widget for TabbedContent {
         Widget::render(&tabs, console, &tab_options)
     }
 
-    fn style_classes(&self) -> &[String] {
-        use std::sync::OnceLock;
-        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
-        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
-        if self.focused {
-            C_FOCUSED.get_or_init(|| vec!["tabbed-content".to_string(), "focused".to_string()])
-        } else {
-            C_BASE.get_or_init(|| vec!["tabbed-content".to_string()])
-        }
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -818,7 +812,13 @@ mod tests {
         let mut tabs = TabbedContent::new()
             .with_pane(TabPane::new("One", Label::new("first")).id("one"))
             .with_pane(TabPane::new("Two", Label::new("second")).id("two"));
-        tabs.set_focus(true);
+        tabs.on_node_state_changed(
+            crate::widgets::NodeState::default(),
+            crate::widgets::NodeState {
+                focused: true,
+                ..Default::default()
+            },
+        );
 
         let mut ctx = EventCtx::default();
         tabs.on_event(
@@ -984,10 +984,7 @@ mod tests {
         let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
         let tab_nodes = tree.query("Tabs").expect("Tabs selector should parse");
         let tabs_id = *tab_nodes.first().expect("expected top Tabs node");
-        tree.get_mut(tabs_id)
-            .expect("tabs node should exist")
-            .widget
-            .set_focus(true);
+        tree.set_focus_state(tabs_id, true);
 
         let console = Console::new();
         let before = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);
@@ -1149,10 +1146,7 @@ mod tests {
         let mut tree = build_widget_tree_from_root(&mut tabs).expect("tree should exist");
         let tab_nodes = tree.query("Tabs").expect("Tabs selector should parse");
         let tabs_id = *tab_nodes.first().expect("expected top Tabs node");
-        tree.get_mut(tabs_id)
-            .expect("tabs node should exist")
-            .widget
-            .set_focus(true);
+        tree.set_focus_state(tabs_id, true);
 
         let console = Console::new();
         let frame = render_tree_to_frame(&mut tree, &mut tabs, &console, 60, 8);

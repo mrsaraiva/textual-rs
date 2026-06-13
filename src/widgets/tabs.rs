@@ -26,6 +26,7 @@ pub struct Tab {
     disabled: bool,
     classes: Vec<String>,
     hovered: bool,
+    seed: NodeSeed,
 }
 
 impl Tab {
@@ -36,22 +37,29 @@ impl Tab {
             disabled: false,
             classes: Vec::new(),
             hovered: false,
+            seed: NodeSeed::default(),
         }
     }
 
     pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+        let id = id.into();
+        self.seed.css_id = Some(id.clone());
+        self.id = Some(id);
         self
     }
 
     pub fn class(mut self, class: impl Into<String>) -> Self {
-        self.classes.push(class.into());
+        let class = class.into();
+        self.seed.classes.push(class.clone());
+        self.classes.push(class);
         self
     }
 
     pub fn classes(mut self, classes: impl IntoIterator<Item = impl Into<String>>) -> Self {
         for class in classes {
-            self.classes.push(class.into());
+            let class = class.into();
+            self.seed.classes.push(class.clone());
+            self.classes.push(class);
         }
         self
     }
@@ -79,42 +87,29 @@ impl Widget for Tab {
         true
     }
 
-    fn is_hovered(&self) -> bool {
-        self.hovered
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.hovered = new.hovered;
+        self.disabled = new.disabled;
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        self.id.as_deref()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn content_width(&self) -> Option<usize> {
-        // Mirror Textual sizing: intrinsic tab width includes horizontal padding
-        // from resolved CSS so `width: auto` leaves visual gaps between tabs.
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let pad_lr = usize::from(padding.left.saturating_add(padding.right));
-        Some(
-            rich_rs::cell_len(self.label.as_str())
-                .saturating_add(pad_lr)
-                .max(1),
-        )
+        // Return only the label's cell width (without padding). The layout
+        // layer adds CSS padding on top of content_width() automatically, so
+        // including it here would double-count and misalign the rendered tab
+        // positions relative to what tab_spans() computes.
+        Some(rich_rs::cell_len(self.label.as_str()).max(1))
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -182,6 +177,10 @@ impl Underline {
 impl Widget for Underline {
     fn style_type(&self) -> &'static str {
         "Underline"
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -252,7 +251,6 @@ impl Tabs {
         let auto_id = format!("__tabs-{n}");
         let mut seed = NodeSeed::default();
         seed.css_id = Some(auto_id.clone());
-        seed.styles.style_id = Some(auto_id.clone());
         Self {
             state: Arc::new(Mutex::new(TabsState {
                 tabs: Vec::new(),
@@ -528,19 +526,13 @@ impl Tabs {
     }
 
     fn scoped_tab_selector(&self, tab_id: &str) -> String {
-        if let Some(scope_id) = self.style_id() {
-            format!("#{scope_id} #tabs-list > #{tab_id}")
-        } else {
-            format!("#tabs-list > #{tab_id}")
-        }
+        format!("#{} #tabs-list > #{tab_id}", self.scope_id)
     }
 
     fn request_runtime_focus(&self, ctx: &mut EventCtx) {
-        if let Some(widget_id) = self.style_id() {
-            ctx.post_message(crate::message::AppFocus {
-                widget_id: widget_id.to_string(),
-            });
-        }
+        ctx.post_message(crate::message::AppFocus {
+            widget_id: self.scope_id.clone(),
+        });
     }
 
     fn set_tab_disabled_index(
@@ -1058,23 +1050,20 @@ impl Widget for Tabs {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused = focused;
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
+        self.hovered = new.hovered;
+        if !new.hovered {
             self.hovered_tab = None;
         }
+    }
+
+    fn is_initially_focused(&self) -> bool {
+        self.focused
     }
 
     fn on_mount(&mut self) {
@@ -1084,8 +1073,8 @@ impl Widget for Tabs {
         self.sync_underline_to_active();
     }
 
-    fn style_id(&self) -> Option<&str> {
-        Some(self.scope_id.as_str())
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -1289,17 +1278,6 @@ impl Widget for Tabs {
     fn layout_height(&self) -> Option<usize> {
         Some(2)
     }
-
-    fn style_classes(&self) -> &[String] {
-        use std::sync::OnceLock;
-        static C_BASE: OnceLock<Vec<String>> = OnceLock::new();
-        static C_FOCUSED: OnceLock<Vec<String>> = OnceLock::new();
-        if self.focused {
-            C_FOCUSED.get_or_init(|| vec!["focused".to_string()])
-        } else {
-            C_BASE.get_or_init(Vec::new)
-        }
-    }
 }
 
 impl Renderable for Tabs {
@@ -1365,7 +1343,13 @@ mod tests {
     #[test]
     fn keyboard_activation_posts_message_and_requests_repaint() {
         let mut tabs = Tabs::new().with_tab("One").with_tab("Two");
-        tabs.set_focus(true);
+        tabs.on_node_state_changed(
+            crate::widgets::NodeState::default(),
+            crate::widgets::NodeState {
+                focused: true,
+                ..Default::default()
+            },
+        );
         tabs.on_layout(40, 6);
 
         let mut ctx = EventCtx::default();

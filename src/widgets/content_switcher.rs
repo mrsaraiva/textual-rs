@@ -8,8 +8,8 @@ use crate::widgets::delegate::delegate_widget_method;
 use super::{
     NodeSeed, Widget,
     helpers::{
-        apply_margin, clamp_with_constraints, constraints_from_style,
-        fixed_height_from_constraints, margin_from_style, merge_constraints, pad_lines_to_width,
+        apply_margin, clamp_with_constraints, constraints_from_style, margin_from_style,
+        pad_lines_to_width,
     },
 };
 
@@ -36,8 +36,16 @@ impl Widget for IdTaggedChild {
         self.child.style_type()
     }
 
-    fn style_id(&self) -> Option<&str> {
-        Some(self.id.as_str())
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.child.set_inline_style(style);
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let mut seed = self.child.take_node_seed();
+        if seed.css_id.is_none() {
+            seed.css_id = Some(self.id.clone());
+        }
+        seed
     }
 
     // delegate-audit: 70 methods as of 2026-02-26
@@ -53,8 +61,7 @@ impl Widget for IdTaggedChild {
             focusable,
             can_focus,
             can_focus_children,
-            set_focus,
-            has_focus,
+            on_node_state_changed,
             on_mount,
             on_unmount,
             on_tick,
@@ -80,7 +87,6 @@ impl Widget for IdTaggedChild {
             tree_child_content_inset,
             layout_height,
             content_width,
-            layout_constraints,
             preserve_underlay,
             bindings,
             binding_hints,
@@ -88,15 +94,8 @@ impl Widget for IdTaggedChild {
             action_namespace,
             action_registry,
             style_type_aliases,
-            style_classes,
             border_title,
             border_subtitle,
-            is_disabled,
-            set_disabled_state,
-            is_loading,
-            set_loading_state,
-            is_hovered,
-            set_hovered,
             is_active,
             mouse_interactive,
             tooltip,
@@ -138,13 +137,15 @@ impl ContentSwitcher {
     }
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
-        self.child_ids.push(child.style_id().map(str::to_string));
+        // CSS id is read from the node record after mount; push None as a placeholder.
+        self.child_ids.push(None);
         self.children.push(Box::new(child));
         self
     }
 
     pub fn add_child(&mut self, child: impl Widget + 'static) {
-        self.child_ids.push(child.style_id().map(str::to_string));
+        // CSS id is read from the node record after mount; push None as a placeholder.
+        self.child_ids.push(None);
         self.children.push(Box::new(child));
     }
 
@@ -155,7 +156,6 @@ impl ContentSwitcher {
         id: Option<&str>,
         set_current: bool,
     ) {
-        let original_id = child.style_id().map(str::to_string);
         let child: Box<dyn Widget> = if let Some(id) = id {
             Box::new(IdTaggedChild {
                 id: id.to_string(),
@@ -164,7 +164,7 @@ impl ContentSwitcher {
         } else {
             Box::new(child)
         };
-        let fallback_id = id.map(str::to_string).or(original_id);
+        let fallback_id = id.map(str::to_string);
         self.child_ids.push(fallback_id.clone());
         self.children.push(child);
         if set_current {
@@ -190,21 +190,13 @@ impl ContentSwitcher {
         self.current = current;
     }
 
-    fn query_child_index_by_id(&self, id: &str) -> Option<usize> {
-        self.children
-            .iter()
-            .position(|child| child.style_id() == Some(id))
-    }
-
     fn query_visible_child_index(&self) -> Option<usize> {
-        let current = self.current.as_deref()?;
-        self.query_child_index_by_id(current)
+        self.current_child_index()
     }
 
     /// Returns a reference to the currently visible content widget, if any.
     ///
-    /// The visible child is determined by matching `current` against each
-    /// child's `style_id()`.
+    /// The visible child is determined by matching `current` against the child id index.
     pub fn visible_content(&self) -> Option<&dyn Widget> {
         self.visible_child()
     }
@@ -320,8 +312,7 @@ impl Widget for ContentSwitcher {
         let meta = css::selector_meta_generic(child);
         let resolved = css::resolve_style(child, &meta);
         let margin = margin_from_style(&resolved);
-        let style_constraints = constraints_from_style(&resolved);
-        let constraints = merge_constraints(style_constraints, child.layout_constraints());
+        let constraints = constraints_from_style(&resolved);
         let available_width = width
             .saturating_sub(margin.left as usize + margin.right as usize)
             .max(1);
@@ -379,9 +370,6 @@ impl Widget for ContentSwitcher {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         let child = self.visible_child()?;
         let meta = css::selector_meta_generic(child);
         let resolved = css::resolve_style(child, &meta);
@@ -412,12 +400,8 @@ impl Widget for ContentSwitcher {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn styles(&self) -> Option<&crate::widgets::WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut crate::widgets::WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -449,7 +433,7 @@ mod tests {
         switcher.add_content(Probe, Some("alpha"), true);
         assert_eq!(switcher.current(), Some("alpha"));
         assert_eq!(switcher.children().len(), 1);
-        assert_eq!(switcher.children()[0].style_id(), Some("alpha"));
+        assert_eq!(switcher.child_ids[0].as_deref(), Some("alpha"));
     }
 
     #[test]

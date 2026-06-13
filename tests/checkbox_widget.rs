@@ -7,7 +7,10 @@ use textual::runtime::dispatch_ctx::set_dispatch_recipient;
 use textual::widgets::NodeState;
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -37,7 +40,13 @@ fn checkbox_toggles_from_keyboard_and_emits_message() {
 fn checkbox_click_activates_only_on_mouse_up_over_target() {
     let mut checkbox = Checkbox::new("remember me");
     let id = NodeId::default();
-    let _guard = set_dispatch_recipient(id, NodeState { hovered: true, ..Default::default() });
+    let _guard = set_dispatch_recipient(
+        id,
+        NodeState {
+            hovered: true,
+            ..Default::default()
+        },
+    );
 
     let mut ctx = EventCtx::default();
     checkbox.on_event(

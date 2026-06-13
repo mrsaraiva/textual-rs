@@ -16,11 +16,17 @@ fn make_node_id() -> NodeId {
 }
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 fn hovered_state() -> NodeState {
-    NodeState { hovered: true, ..Default::default() }
+    NodeState {
+        hovered: true,
+        ..Default::default()
+    }
 }
 
 struct TempTreeDir {
@@ -102,9 +108,11 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
     let options = options_for(&console, 60, 8);
     let before_tick = FrameBuffer::from_renderable(&console, &options, &tree, None);
     let before_tick_lines = before_tick.as_plain_lines();
-    assert!(!before_tick_lines
-        .iter()
-        .any(|line| line.contains("leaf.txt")));
+    assert!(
+        !before_tick_lines
+            .iter()
+            .any(|line| line.contains("leaf.txt"))
+    );
 
     tree.on_message(
         &MessageEvent::new(
@@ -306,14 +314,13 @@ fn directory_tree_hover_state_is_forwarded() {
     let temp = TempTreeDir::new("directory-tree-hover");
     let mut tree = DirectoryTree::new(&temp.path);
     tree.on_layout(40, 4);
-    // Hover state is now tracked in the node record, not the widget.
-    // on_node_state_changed clears inner hover when hovered is lost.
-    // Verify that the hook can be called without panic and that is_hovered()
-    // correctly reflects the node-record state (always false outside of dispatch context).
+    // Hover state is tracked in the node record, not the widget.
+    // on_node_state_changed propagates state changes to internal sub-widgets.
+    // node_state().hovered reflects dispatch context (always false outside of dispatch guard).
     tree.on_node_state_changed(hovered_state(), hovered_state());
-    assert!(!tree.is_hovered());
+    assert!(!tree.node_state().hovered);
     tree.on_node_state_changed(hovered_state(), NodeState::default());
-    assert!(!tree.is_hovered());
+    assert!(!tree.node_state().hovered);
 }
 
 #[test]
@@ -325,8 +332,9 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
 
     let mut tree = DirectoryTree::new(&temp.path);
     tree.on_layout(60, 8);
-    tree.set_focus(true);
-    tree.set_hovered(true);
+    // Focus/hover state lives on the node record; simulate with on_node_state_changed.
+    tree.on_node_state_changed(NodeState::default(), focused_state());
+    tree.on_node_state_changed(NodeState::default(), hovered_state());
 
     let mut expand_ctx = EventCtx::default();
     tree.on_message(
@@ -362,8 +370,9 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
         &mut EventCtx::default(),
     );
 
-    assert!(!tree.has_focus());
-    assert!(!tree.is_hovered());
+    // Focus/hover are now in the node record; without a dispatch guard they read as false.
+    assert!(!tree.node_state().focused);
+    assert!(!tree.node_state().hovered);
 
     let console = Console::new();
     let options = options_for(&console, 60, 8);

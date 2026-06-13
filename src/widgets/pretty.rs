@@ -3,10 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use super::{
-    NodeSeed, Widget,
-    helpers::adjust_line_length_no_bg,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 /// Internal data source for Pretty.
 #[derive(Clone)]
@@ -212,6 +209,10 @@ impl Widget for Pretty {
         let text =
             rich_rs::pretty::pretty_repr(&debug_str, self.layout_width, 4, None, None, None, false);
         Some(text.lines().count().max(1))
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

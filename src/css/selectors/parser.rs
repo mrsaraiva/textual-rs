@@ -2550,7 +2550,10 @@ mod tests {
             };
             assert_eq!(style.border_top, expected, "border-top for type={name}");
             assert_eq!(style.border_right, expected, "border-right for type={name}");
-            assert_eq!(style.border_bottom, expected, "border-bottom for type={name}");
+            assert_eq!(
+                style.border_bottom, expected,
+                "border-bottom for type={name}"
+            );
             assert_eq!(style.border_left, expected, "border-left for type={name}");
         }
     }

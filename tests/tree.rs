@@ -13,7 +13,10 @@ fn make_node_id() -> NodeId {
 }
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -36,7 +39,7 @@ fn tree_renders_expanded_and_collapsed_nodes() {
         TreeNode::new("Other"),
     ]);
     let mut tree = tree;
-    tree.set_focus(true);
+    tree.on_node_state_changed(NodeState::default(), focused_state());
     let mut rctx = ReactiveCtx::new(NodeId::default());
     tree.set_selected(1, &mut rctx);
 

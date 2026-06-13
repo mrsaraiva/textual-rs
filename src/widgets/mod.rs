@@ -85,7 +85,6 @@ pub(crate) use helpers::adjust_line_length_no_bg;
 pub(crate) use helpers::border_chars;
 pub(crate) use helpers::border_spacing_from_style;
 pub(crate) use helpers::crop_line_horizontal;
-pub(crate) use helpers::fixed_height_from_constraints;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub(crate) use key_panel::KEY_PANEL_VSCROLLBAR_ID;
 pub use key_panel::{BindingsTable, KeyPanel};

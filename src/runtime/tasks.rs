@@ -6,9 +6,9 @@ use crate::node_id::NodeId;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::Arc;
 
 #[derive(Debug)]
 struct RunningTask {

@@ -3,7 +3,7 @@ use rich_rs::{Segment, Segments};
 use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
 use crate::message::ScrollbarScrollTo;
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
-use crate::widgets::{NodeSeed, Widget, WidgetStyles};
+use crate::widgets::{NodeSeed, Widget};
 
 pub use crate::message::ScrollbarAxis;
 
@@ -858,29 +858,20 @@ impl Widget for ScrollBar {
         };
     }
 
-    fn set_hovered(&mut self, hovered: bool) {
-        self.mouse_over = hovered;
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.mouse_over = new.hovered;
     }
 
-    fn style_id(&self) -> Option<&str> {
-        self.seed
-            .css_id
-            .as_deref()
-            .or_else(|| self.seed.styles.style_id.as_deref())
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -936,18 +927,12 @@ impl Widget for ScrollBarCorner {
         out
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

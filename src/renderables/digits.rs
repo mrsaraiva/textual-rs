@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::style::TextAlign;
-use crate::widgets::{Widget, WidgetStyles};
+use crate::widgets::{NodeSeed, Widget};
 
 /// Characters recognized by the 3×3 digit font.
 const DIGITS: &str = " 0123456789+-^x:ABCDEF$£€()";
@@ -245,14 +245,14 @@ const DIGITS3X3_BOLD: &[&str] = &[
 /// resolved style. Defaults to left-aligned when no CSS rule is set.
 pub struct Digits {
     value: String,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl Digits {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
-            styles: WidgetStyles::default(),
+            seed: NodeSeed::default(),
         }
     }
 
@@ -384,12 +384,12 @@ impl Widget for Digits {
         "Digits"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 

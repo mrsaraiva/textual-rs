@@ -4,13 +4,11 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::render::FrameBuffer;
-use crate::style::{parse_color_like, Constrain, Display, Offset, OffsetValue, Position, Scalar};
+use crate::style::{Constrain, Display, Offset, OffsetValue, Position, Scalar, parse_color_like};
 
 use crate::node_id::NodeId;
 
-use super::{
-    NodeSeed, Overlay, Widget, WidgetRenderable, WidgetStyles,
-};
+use super::{NodeSeed, Overlay, Widget, WidgetRenderable, WidgetStyles};
 
 pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
 
@@ -719,16 +717,20 @@ impl Widget for Tooltip {
         self.child.mouse_interactive()
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.inline_style)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.inline_style)
+    fn style(&self) -> Option<crate::style::Style> {
+        if self.inline_style.style != Default::default() {
+            Some(self.inline_style.style.clone())
+        } else {
+            None
+        }
     }
 
     fn style_type(&self) -> &'static str {
         "Tooltip"
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

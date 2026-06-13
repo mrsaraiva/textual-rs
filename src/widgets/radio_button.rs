@@ -3,11 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use super::{
-    helpers::fixed_height_from_constraints,
-    option_list::toggle_option::BinaryToggleState,
-    NodeSeed, Widget, WidgetStyles,
-};
+use super::{NodeSeed, Widget, option_list::toggle_option::BinaryToggleState};
 
 /// A radio button widget that represents a boolean on/off value.
 ///
@@ -59,6 +55,11 @@ impl RadioButton {
         &self.label
     }
 
+    /// Returns `true` if this button is disabled.
+    pub fn is_disabled(&self) -> bool {
+        self.state.disabled()
+    }
+
     /// Set the value without emitting a message.
     ///
     /// This is used by `RadioSet` to programmatically deselect buttons
@@ -101,24 +102,13 @@ impl Widget for RadioButton {
         self.state.focusable()
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.state.set_focused(focused);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.state.focused()
-    }
-
-    fn is_disabled(&self) -> bool {
-        self.state.disabled()
-    }
-
-    fn is_hovered(&self) -> bool {
-        self.state.hovered()
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.state.set_hovered(hovered);
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.state.set_focused(new.focused);
+        self.state.set_hovered(new.hovered);
     }
 
     fn is_active(&self) -> bool {
@@ -212,29 +202,19 @@ impl Widget for RadioButton {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
+        Some(1)
     }
 
     fn style_type(&self) -> &'static str {
         "RadioButton"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -254,16 +234,23 @@ mod tests {
     fn radio_button_toggle_emits_message() {
         let mut button = RadioButton::new("A");
         // BinaryToggleState uses its own focused field for keyboard routing.
-        button.set_focus(true);
+        button.on_node_state_changed(
+            crate::widgets::NodeState::default(),
+            crate::widgets::NodeState {
+                focused: true,
+                ..Default::default()
+            },
+        );
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         button.on_event(&Event::Key(key), &mut ctx);
         assert!(button.value());
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<RadioButtonChanged>()
-            .is_some_and(|r| r.value)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<RadioButtonChanged>()
+                .is_some_and(|r| r.value)
+        }));
     }
 
     #[test]

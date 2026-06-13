@@ -5,10 +5,7 @@ use crate::css;
 use crate::debug::DebugLayout;
 use crate::event::{Event, EventCtx};
 
-use crate::widgets::{
-    NodeSeed, Widget, WidgetStyles,
-    helpers::{apply_debug_box, fixed_height_from_constraints},
-};
+use crate::widgets::{NodeSeed, Widget, helpers::apply_debug_box};
 
 pub struct Container {
     children: Vec<Box<dyn Widget>>,
@@ -52,6 +49,14 @@ impl Container {
     /// Mutable access to the container's children.
     pub fn children_mut(&mut self) -> &mut Vec<Box<dyn Widget>> {
         &mut self.children
+    }
+
+    /// Mutable access to the pre-mount `NodeSeed` (css_id, classes, inline styles).
+    ///
+    /// Valid until the widget is mounted into the arena tree; after mount the
+    /// node record is the single source of truth and seed changes have no effect.
+    pub fn seed_mut(&mut self) -> &mut NodeSeed {
+        &mut self.seed
     }
 }
 
@@ -151,9 +156,6 @@ impl Widget for Container {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         if self.children_extracted {
             return None;
         }
@@ -183,18 +185,20 @@ impl Widget for Container {
         if saw { Some(max_width.max(1)) } else { None }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
+    fn style(&self) -> Option<crate::style::Style> {
+        if self.seed.styles.style != Default::default() {
+            Some(self.seed.styles.style.clone())
+        } else {
+            None
+        }
     }
 
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -256,7 +260,7 @@ mod tests {
         let mut c = Container::new()
             .with_child(Label::new("hello"))
             .with_child(Label::new("world"));
-        c.styles_mut().unwrap().style.bg = Some(crate::style::Color::rgb(10, 20, 30));
+        c.seed.styles.style.bg = Some(crate::style::Color::rgb(10, 20, 30));
         let _ = c.take_composed_children();
 
         let console = Console::new();

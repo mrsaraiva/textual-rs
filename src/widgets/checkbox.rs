@@ -7,16 +7,13 @@ use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
 use crate::reactive::{
-    enqueue_runtime_reactive_entry, ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget,
-    RuntimeReactiveEntry,
+    ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, RuntimeReactiveEntry,
+    enqueue_runtime_reactive_entry,
 };
 
 use crate::action::ParsedAction;
 
-use super::{
-    helpers::fixed_height_from_constraints,
-    BindingDecl, NodeSeed, Widget, WidgetStyles,
-};
+use super::{BindingDecl, NodeSeed, Widget};
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
@@ -138,14 +135,6 @@ impl Widget for Checkbox {
         !self.disabled
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
     fn is_active(&self) -> bool {
         self.pressed && self.node_state().hovered
     }
@@ -240,25 +229,15 @@ impl Widget for Checkbox {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(1))
+        Some(1)
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -283,7 +262,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -296,9 +278,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         checkbox.on_event(&Event::Key(key), &mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<CheckboxChanged>()
-            .is_some_and(|c| c.checked)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<CheckboxChanged>()
+                .is_some_and(|c| c.checked)
+        }));
     }
 
     #[test]
@@ -322,9 +305,10 @@ mod tests {
         assert!(checkbox.execute_action(&action, &mut ctx));
         assert!(checkbox.checked());
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<CheckboxChanged>()
-            .is_some_and(|c| c.checked)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<CheckboxChanged>()
+                .is_some_and(|c| c.checked)
+        }));
     }
 
     // ── Reactive field tests ────────────────────────────────────────────

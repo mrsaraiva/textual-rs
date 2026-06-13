@@ -40,6 +40,10 @@ impl Widget for IntrinsicWidget {
         Some(self.style.clone())
     }
 
+    fn set_inline_style(&mut self, style: Style) {
+        self.style = style;
+    }
+
     fn content_width(&self) -> Option<usize> {
         Some(self.intrinsic_w)
     }
@@ -82,18 +86,17 @@ fn measure_child_width_with_tree_style(child: Box<dyn Widget>, horizontal: u16) 
 }
 
 fn set_inline_border_box_padding(widget: &mut dyn Widget, horizontal: u16) {
-    let styles = widget
-        .styles_mut()
-        .expect("widget should expose mutable styles for contract test");
-    styles.style = Style::new()
-        .width(Scalar::Auto)
-        .height(Scalar::Auto)
-        .border(false)
-        .padding(Spacing::new(0, horizontal, 0, horizontal));
+    widget.set_inline_style(
+        Style::new()
+            .width(Scalar::Auto)
+            .height(Scalar::Auto)
+            .border(false)
+            .padding(Spacing::new(0, horizontal, 0, horizontal)),
+    );
 }
 
 #[test]
-fn engine_border_box_auto_uses_intrinsic_without_padding_chrome() {
+fn engine_border_box_auto_adds_padding_chrome() {
     let mut tree = WidgetTree::new();
     let root = tree.set_root(Box::new(Container::new()));
     let child = tree.mount(
@@ -111,8 +114,16 @@ fn engine_border_box_auto_uses_intrinsic_without_padding_chrome() {
     resolve_layout(&mut tree, root, Region::new(0, 0, 80, 20), (80, 20));
     let (w, h) = layout_rect_wh(&tree, child);
 
-    // Border-box contract: auto size uses intrinsic outer hint directly.
-    assert_eq!(w, 10);
+    // Post-RA-2 contract: `content_width()` is PURE content (widgets no longer
+    // fold their own chrome into the intrinsic hint — the layout owns chrome),
+    // so `width: auto` adds full horizontal chrome regardless of box-sizing
+    // (box-sizing only governs how an EXPLICIT width is interpreted).
+    // Padding left+right = 4, so outer width = 10 + 4 = 14.
+    assert_eq!(w, 14);
+    // Known asymmetry (tracked follow-up): the height path still adds only
+    // margin to the intrinsic hint, because several real widgets report
+    // `layout_height()` that already includes border/padding (e.g. bordered
+    // grid cells in five_by_five). So vertical padding is not added here.
     assert_eq!(h, 3);
 }
 

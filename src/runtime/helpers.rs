@@ -212,7 +212,7 @@ pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId
         if !node.display || node.visibility != crate::style::Visibility::Visible {
             continue;
         }
-        let node_css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
+        let node_css_id = node.css_id.as_deref();
         if node_css_id == Some(SYSTEM_TOOLTIP_STYLE_ID) {
             continue;
         }
@@ -346,7 +346,7 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };
-    let css_id = node.css_id.as_deref().or_else(|| node.widget.style_id());
+    let css_id = node.css_id.as_deref();
     matches!(
         css_id,
         Some(
@@ -431,8 +431,7 @@ pub(crate) fn pointer_shape_for_hover_tree(
     };
 
     let mouse_interactive = node.widget.mouse_interactive();
-    // Dual-write phase: merge node.state.disabled with legacy widget getter.
-    let disabled = node.state.disabled || node.widget.is_disabled();
+    let disabled = node.state.disabled;
 
     if !mouse_interactive {
         return PointerShape::Default;
@@ -668,9 +667,7 @@ mod tests {
             .children(root_id)
             .iter()
             .copied()
-            .find(|id| {
-                tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
-            })
+            .find(|id| tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID))
             .expect("app root vertical scrollbar child should exist");
 
         assert!(
@@ -694,9 +691,7 @@ mod tests {
             .children(root_id)
             .iter()
             .copied()
-            .find(|id| {
-                tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID)
-            })
+            .find(|id| tree.css_id(*id) == Some(crate::widgets::APP_ROOT_VSCROLLBAR_ID))
             .expect("app root vertical scrollbar child should exist");
 
         if let Some(root_node) = tree.get_mut(root_id) {
@@ -715,12 +710,15 @@ mod tests {
             app_root.set_virtual_content_size(114, 50);
             let mut ctx = EventCtx::default();
             app_root.on_message(
-                &MessageEvent::new(node_id_from_ffi(0), ScrollbarScrollTo {
-                    axis: ScrollbarAxis::Vertical,
-                    offset: 16.0,
-                    animate: false,
-                    scroll_duration: None,
-                }),
+                &MessageEvent::new(
+                    node_id_from_ffi(0),
+                    ScrollbarScrollTo {
+                        axis: ScrollbarAxis::Vertical,
+                        offset: 16.0,
+                        animate: false,
+                        scroll_duration: None,
+                    },
+                ),
                 &mut ctx,
             );
         }

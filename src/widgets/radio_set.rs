@@ -5,10 +5,8 @@ use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
-    option_list::toggle_option::OptionCursorState,
-    radio_button::RadioButton,
-    NodeSeed, Widget, WidgetStyles,
+    NodeSeed, Widget, helpers::adjust_line_length_no_bg,
+    option_list::toggle_option::OptionCursorState, radio_button::RadioButton,
 };
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -174,7 +172,7 @@ impl RadioSet {
         if self
             .buttons
             .get(index)
-            .map(Widget::is_disabled)
+            .map(|b| b.is_disabled())
             .unwrap_or(true)
         {
             return;
@@ -242,16 +240,12 @@ impl Widget for RadioSet {
         !self.disabled && self.has_enabled_button()
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        self.disabled = disabled;
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_index = None;
         }
     }
@@ -427,7 +421,7 @@ impl Widget for RadioSet {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.buttons.len().max(1)))
+        Some(self.buttons.len().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -451,26 +445,16 @@ impl Widget for RadioSet {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
     fn style_type(&self) -> &'static str {
         "RadioSet"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -498,7 +482,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -517,9 +504,10 @@ mod tests {
         set.on_event(&Event::Key(space), &mut ctx2);
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<RadioSetChanged>()
-            .is_some_and(|r| r.index == 1)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<RadioSetChanged>()
+                .is_some_and(|r| r.index == 1)
+        }));
     }
 
     #[test]

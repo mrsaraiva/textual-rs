@@ -116,14 +116,20 @@ fn help_panel_show_help_class_tracks_app_focus_state() {
     // AppFocus(false) should request a repaint (runtime applies class op).
     let mut ctx = EventCtx::default();
     panel.on_event(&Event::AppFocus(false), &mut ctx);
-    assert!(ctx.repaint_requested(), "focus change should request repaint");
+    assert!(
+        ctx.repaint_requested(),
+        "focus change should request repaint"
+    );
     // Help state remains (it's the focus gate that changes, not the content).
     assert!(panel.showing_help());
 
     // AppFocus(true) should request a repaint too.
     let mut ctx2 = EventCtx::default();
     panel.on_event(&Event::AppFocus(true), &mut ctx2);
-    assert!(ctx2.repaint_requested(), "focus restore should request repaint");
+    assert!(
+        ctx2.repaint_requested(),
+        "focus restore should request repaint"
+    );
 }
 
 #[test]
@@ -149,7 +155,9 @@ fn help_panel_help_can_be_driven_via_messages() {
     panel.on_message(
         &MessageEvent::new(
             NodeId::default(),
-            HelpPanelClearHelp { panel: NodeId::default() },
+            HelpPanelClearHelp {
+                panel: NodeId::default(),
+            },
         ),
         &mut clear_ctx,
     );

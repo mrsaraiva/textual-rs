@@ -136,6 +136,18 @@ pub(crate) fn extract_child_spec(
         .as_ref()
         .map(|s| resolve_scalar_to_cells(s, parent_width, viewport.0));
 
+    // Full horizontal chrome (margin + border + padding), independent of
+    // box-sizing. For `width: auto` the intrinsic `content_width()` represents
+    // PURE content (post-RA-2: widgets no longer fold their own padding/border
+    // into intrinsic width — the layout side owns chrome). So an auto width edge
+    // is always `content + full chrome`, regardless of box-sizing (box-sizing
+    // only changes how an EXPLICIT width is interpreted, handled by the `_ =>`
+    // scalar arm below). Height keeps its existing margin-only behavior:
+    // `layout_height()` already accounts for border/padding chrome for the
+    // widgets that report it, and changing it regresses bordered grid cells
+    // (e.g. five_by_five GameCell).
+    let full_h_chrome = horizontal_chrome(&margin, &padding, border_left, border_right);
+
     // Build height edge for 1D resolver.
     //
     // For `height: auto`, prefer widget intrinsic layout height when available.
@@ -167,20 +179,13 @@ pub(crate) fn extract_child_spec(
     // Build width edge for 1D resolver.
     //
     // For `width: auto`, prefer widget intrinsic content width when available.
-    // `content_width()` represents natural content width, so only horizontal
-    // chrome is added to compute the outer edge size.
+    // `content_width()` is pure content width, so full horizontal chrome is
+    // added to compute the outer edge size (see `full_h_chrome` note above).
     let width_edge = match style.width.as_ref() {
         None | Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_width {
                 let min_size = min_w_cells.saturating_add(h_chrome);
-                let auto_size = if box_sizing == BoxSizing::BorderBox {
-                    // Border-box width already includes border+padding.
-                    intrinsic
-                        .saturating_add(margin.left + margin.right)
-                        .max(min_size)
-                } else {
-                    intrinsic.saturating_add(h_chrome).max(min_size)
-                };
+                let auto_size = intrinsic.saturating_add(full_h_chrome).max(min_size);
                 Edge {
                     size: Some(auto_size),
                     fraction: 1,

@@ -518,11 +518,12 @@ fn p2g32_link_hover_applies_hover_css() {
 
     // Hover state is managed by the runtime node record (NodeState).
     // Use set_dispatch_recipient to inject hover state for render tests.
-    let hovered_state = NodeState { hovered: true, ..Default::default() };
-    let _dispatch_guard = textual::runtime::dispatch_ctx::set_dispatch_recipient(
-        NodeId::default(),
-        hovered_state,
-    );
+    let hovered_state = NodeState {
+        hovered: true,
+        ..Default::default()
+    };
+    let _dispatch_guard =
+        textual::runtime::dispatch_ctx::set_dispatch_recipient(NodeId::default(), hovered_state);
 
     let console = Console::new();
     let mut opts = console.options().clone();
@@ -556,8 +557,8 @@ fn p2g32_link_normal_does_not_use_hover_css() {
     let _guard = set_style_context(sheet);
 
     let link = Link::new("hello").with_url("https://example.com");
-    // NOT hovered.
-    assert!(!link.is_hovered());
+    // NOT hovered (no dispatch guard active → node_state() returns defaults).
+    assert!(!link.node_state().hovered);
 
     let console = Console::new();
     let mut opts = console.options().clone();

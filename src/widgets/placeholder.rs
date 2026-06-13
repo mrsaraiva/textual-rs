@@ -95,7 +95,9 @@ impl Placeholder {
         let old_class = self.variant.class_name().to_string();
         self.seed.classes.retain(|c| c != &old_class);
         self.variant = variant;
-        self.seed.classes.push(self.variant.class_name().to_string());
+        self.seed
+            .classes
+            .push(self.variant.class_name().to_string());
         self
     }
 
@@ -269,6 +271,10 @@ impl Widget for Placeholder {
         "Placeholder"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -403,7 +409,10 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<PlaceholderVariantChanged>());
         assert_eq!(
-            messages[0].downcast_ref::<PlaceholderVariantChanged>().unwrap().variant,
+            messages[0]
+                .downcast_ref::<PlaceholderVariantChanged>()
+                .unwrap()
+                .variant,
             "size"
         );
     }
@@ -437,8 +446,14 @@ mod tests {
         assert_eq!(ph.variant(), PlaceholderVariant::Size);
         // Class ops should reflect the variant change.
         let ops = ctx.take_class_ops();
-        assert!(ops.iter().any(|(_id, op)| matches!(op, crate::event::ClassOp::Remove(c) if c == "-default")));
-        assert!(ops.iter().any(|(_id, op)| matches!(op, crate::event::ClassOp::Add(c) if c == "-size")));
+        assert!(
+            ops.iter()
+                .any(|(_id, op)| matches!(op, crate::event::ClassOp::Remove(c) if c == "-default"))
+        );
+        assert!(
+            ops.iter()
+                .any(|(_id, op)| matches!(op, crate::event::ClassOp::Add(c) if c == "-size"))
+        );
     }
 }
 

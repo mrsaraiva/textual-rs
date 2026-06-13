@@ -117,12 +117,12 @@ impl Widget for HeaderIcon {
         self.pressed
     }
 
-    fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.hovered = hovered;
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.hovered = new.hovered;
     }
 
     fn tooltip(&self) -> Option<String> {
@@ -144,6 +144,10 @@ impl Widget for HeaderIcon {
         let mut out = Segments::new();
         out.push(Segment::new(self.icon.clone()));
         out
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -197,11 +201,13 @@ impl Widget for HeaderTitle {
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
-            self.title = m.title
+            self.title = m
+                .title
                 .as_deref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.default_title.clone());
-            self.subtitle = m.sub_title
+            self.subtitle = m
+                .sub_title
                 .as_deref()
                 .map(|s| Some(s.to_string()))
                 .unwrap_or_else(|| self.default_subtitle.clone());
@@ -213,6 +219,10 @@ impl Widget for HeaderTitle {
         let mut out = Segments::new();
         out.push(Segment::new(self.line_text()));
         out
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -252,6 +262,10 @@ impl Widget for HeaderClockSpace {
 
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -329,6 +343,10 @@ impl Widget for HeaderClock {
     fn is_active(&self) -> bool {
         let current = Self::current_clock_seconds();
         current != self.last_clock_second.load(Ordering::Relaxed)
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -494,6 +512,13 @@ impl Header {
 
     pub fn tall(mut self, tall: bool) -> Self {
         self.tall = tall;
+        if tall {
+            if !self.seed.classes.contains(&"-tall".to_string()) {
+                self.seed.classes.push("-tall".to_string());
+            }
+        } else {
+            self.seed.classes.retain(|c| c != "-tall");
+        }
         self
     }
 
@@ -566,6 +591,11 @@ impl Widget for Header {
                 let release_in_toggle_zone = mouse.x > 1;
                 if self.press_in_toggle_zone && release_in_toggle_zone {
                     self.tall = !self.tall;
+                    if self.tall {
+                        ctx.add_class("-tall");
+                    } else {
+                        ctx.remove_class("-tall");
+                    }
                     ctx.post_message(HeaderToggled { tall: self.tall });
                     ctx.request_layout_invalidation();
                     ctx.request_repaint();
@@ -588,11 +618,13 @@ impl Widget for Header {
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             // Direct field assignment (internal call site — not reactive setter).
-            self.title = m.title
+            self.title = m
+                .title
                 .as_deref()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| self.default_title.clone());
-            self.subtitle = m.sub_title
+            self.subtitle = m
+                .sub_title
                 .as_deref()
                 .map(|s| Some(s.to_string()))
                 .unwrap_or_else(|| self.default_subtitle.clone());
@@ -618,17 +650,16 @@ impl Widget for Header {
         Some(if self.tall { 3 } else { 1 })
     }
 
-    fn style_classes(&self) -> &[String] {
-        if self.tall {
-            static TALL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-            TALL.get_or_init(|| vec!["-tall".to_string()])
-        } else {
-            &self.seed.classes
-        }
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        let mut seed = std::mem::take(&mut self.seed);
+        if self.tall && !seed.classes.contains(&"-tall".to_string()) {
+            seed.classes.push("-tall".to_string());
+        }
+        seed
     }
 }
 
@@ -833,12 +864,25 @@ mod tests {
         use crate::css::{
             default_widget_stylesheet, resolve_style, selector_meta_generic, set_style_context,
         };
+        use crate::node_id::node_id_from_ffi;
+        use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+        use crate::widgets::NodeState;
 
         let _style_guard = set_style_context(default_widget_stylesheet());
-        let mut icon = HeaderIcon::new("⭘");
+        let icon = HeaderIcon::new("⭘");
+        let dummy_id = node_id_from_ffi(1);
+
         let normal = resolve_style(&icon, &selector_meta_generic(&icon)).bg;
-        icon.set_hovered(true);
-        let hovered = resolve_style(&icon, &selector_meta_generic(&icon)).bg;
+        let hovered = {
+            let _hover_guard = set_dispatch_recipient(
+                dummy_id,
+                NodeState {
+                    hovered: true,
+                    ..NodeState::default()
+                },
+            );
+            resolve_style(&icon, &selector_meta_generic(&icon)).bg
+        };
         assert_ne!(hovered, normal);
         assert!(hovered.is_some());
     }
@@ -1055,7 +1099,10 @@ mod tests {
         // Then, revert screen title.
         let msg2 = MessageEvent::new(
             node_id_from_ffi(0),
-            ScreenTitleChanged { title: None, sub_title: None },
+            ScreenTitleChanged {
+                title: None,
+                sub_title: None,
+            },
         );
         let mut ctx2 = EventCtx::default();
         header.on_message(&msg2, &mut ctx2);

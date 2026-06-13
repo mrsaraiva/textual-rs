@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
 
-use crate::widgets::{Label, Node, NodeSeed, Widget, WidgetStyles};
+use crate::widgets::{Label, Node, NodeSeed, Widget};
 
 /// Holds the display content of a [`Static`] widget.
 enum StaticContent {
@@ -146,12 +146,8 @@ impl Widget for Static {
         self.label.content_width()
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        self.label.styles()
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        self.label.styles_mut()
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.label.set_inline_style(style);
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

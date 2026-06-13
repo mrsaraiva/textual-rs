@@ -40,16 +40,16 @@ fn tree_render_with_css(
 
 struct FillWidget {
     style_type_name: &'static str,
-    styles: WidgetStyles,
+    seed: NodeSeed,
 }
 
 impl FillWidget {
     fn new(style_type_name: &'static str, style: Style) -> Self {
-        let mut styles = WidgetStyles::default();
-        styles.style = style;
+        let mut seed = NodeSeed::default();
+        seed.styles.style = style;
         Self {
             style_type_name,
-            styles,
+            seed,
         }
     }
 }
@@ -72,15 +72,18 @@ impl Widget for FillWidget {
         self.style_type_name
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.styles)
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
 /// Build a bordered 10×4 frame: Container(FillWidget with all four border edges set).
 fn bordered_lines(border_type: BorderType) -> (FrameBuffer, Vec<String>) {
     let red = Color::parse("red").unwrap();
-    let edge = BorderEdge::Edge { border_type, color: red };
+    let edge = BorderEdge::Edge {
+        border_type,
+        color: red,
+    };
     let mut style = Style::new();
     style.border_top = edge;
     style.border_right = edge;
@@ -101,11 +104,7 @@ fn render_round_border_glyphs() {
     let (_frame, lines) = bordered_lines(BorderType::Round);
     // top row: ╭──────────╮ (width 10: corner + 8 dashes + corner)
     let top = &lines[0];
-    assert_eq!(
-        top.chars().next().unwrap(),
-        '╭',
-        "top-left corner: {top:?}"
-    );
+    assert_eq!(top.chars().next().unwrap(), '╭', "top-left corner: {top:?}");
     assert_eq!(
         top.chars().last().unwrap(),
         '╮',
@@ -134,7 +133,10 @@ fn render_double_border_glyphs() {
     assert_eq!(top.chars().next().unwrap(), '╔');
     assert_eq!(top.chars().last().unwrap(), '╗');
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '═'), "double top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '═'),
+        "double top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '║');
     assert_eq!(mid.chars().last().unwrap(), '║');
@@ -150,7 +152,10 @@ fn render_dashed_border_glyphs() {
     assert_eq!(top.chars().next().unwrap(), '┏');
     assert_eq!(top.chars().last().unwrap(), '┓');
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '╍'), "dashed top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '╍'),
+        "dashed top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '╏');
     assert_eq!(mid.chars().last().unwrap(), '╏');
@@ -166,7 +171,10 @@ fn render_ascii_border_glyphs() {
     assert_eq!(top.chars().next().unwrap(), '+');
     assert_eq!(top.chars().last().unwrap(), '+');
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '-'), "ascii top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '-'),
+        "ascii top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '|');
     assert_eq!(mid.chars().last().unwrap(), '|');
@@ -182,7 +190,10 @@ fn render_inner_border_glyphs() {
     assert_eq!(top.chars().next().unwrap(), '▗', "inner top-left: {top:?}");
     assert_eq!(top.chars().last().unwrap(), '▖', "inner top-right: {top:?}");
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '▄'), "inner top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '▄'),
+        "inner top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '▐', "inner mid-left: {mid:?}");
     assert_eq!(mid.chars().last().unwrap(), '▌', "inner mid-right: {mid:?}");
@@ -198,7 +209,10 @@ fn render_thick_border_glyphs() {
     assert_eq!(top.chars().next().unwrap(), '█', "thick top-left: {top:?}");
     assert_eq!(top.chars().last().unwrap(), '█', "thick top-right: {top:?}");
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '▀'), "thick top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '▀'),
+        "thick top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '█', "thick mid-left: {mid:?}");
     assert_eq!(mid.chars().last().unwrap(), '█', "thick mid-right: {mid:?}");
@@ -207,7 +221,10 @@ fn render_thick_border_glyphs() {
     assert_eq!(bot.chars().last().unwrap(), '█', "thick bot-right: {bot:?}");
     // bottom interior
     let bot_interior: String = bot.chars().skip(1).take(8).collect();
-    assert!(bot_interior.chars().all(|c| c == '▄'), "thick bot interior: {bot_interior:?}");
+    assert!(
+        bot_interior.chars().all(|c| c == '▄'),
+        "thick bot interior: {bot_interior:?}"
+    );
 }
 
 #[test]
@@ -218,7 +235,10 @@ fn render_panel_border_glyphs() {
     assert_eq!(top.chars().last().unwrap(), '▎', "panel top-right: {top:?}");
     // top interior is '█'
     let interior: String = top.chars().skip(1).take(8).collect();
-    assert!(interior.chars().all(|c| c == '█'), "panel top interior: {interior:?}");
+    assert!(
+        interior.chars().all(|c| c == '█'),
+        "panel top interior: {interior:?}"
+    );
     let mid = &lines[1];
     assert_eq!(mid.chars().next().unwrap(), '▊', "panel mid-left: {mid:?}");
     assert_eq!(mid.chars().last().unwrap(), '▎', "panel mid-right: {mid:?}");
@@ -238,8 +258,16 @@ fn render_tab_and_wide_border_glyphs() {
             "{btype:?} top row should be all ▁: {top:?}"
         );
         let mid = &lines[1];
-        assert_eq!(mid.chars().next().unwrap(), '▎', "{btype:?} mid-left: {mid:?}");
-        assert_eq!(mid.chars().last().unwrap(), '▊', "{btype:?} mid-right: {mid:?}");
+        assert_eq!(
+            mid.chars().next().unwrap(),
+            '▎',
+            "{btype:?} mid-left: {mid:?}"
+        );
+        assert_eq!(
+            mid.chars().last().unwrap(),
+            '▊',
+            "{btype:?} mid-right: {mid:?}"
+        );
         let bot = &lines[3];
         // bottom row is all '▔'
         assert!(
@@ -335,11 +363,19 @@ fn render_outline_uses_table_chars() {
     // top outline → chars[0][1] = '▀'
     assert_eq!(frame2.get(5, 0).text, "▀", "outer top outline should be ▀");
     // bottom outline → chars[2][1] = '▄' (NEW: different from old '▀')
-    assert_eq!(frame2.get(5, 5).text, "▄", "outer bottom outline should be ▄");
+    assert_eq!(
+        frame2.get(5, 5).text,
+        "▄",
+        "outer bottom outline should be ▄"
+    );
     // left outline → chars[1][0] = '▌'
     assert_eq!(frame2.get(0, 2).text, "▌", "outer left outline should be ▌");
     // right outline → chars[1][2] = '▐' (NEW: different from old '▌')
-    assert_eq!(frame2.get(11, 2).text, "▐", "outer right outline should be ▐");
+    assert_eq!(
+        frame2.get(11, 2).text,
+        "▐",
+        "outer right outline should be ▐"
+    );
 }
 
 #[test]
@@ -360,7 +396,7 @@ fn render_panel_title_flip() {
 
     struct PanelCaptionWidget {
         title: &'static str,
-        styles: WidgetStyles,
+        seed: NodeSeed,
     }
     impl Widget for PanelCaptionWidget {
         fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -381,22 +417,21 @@ fn render_panel_title_flip() {
         fn border_title(&self) -> Option<&str> {
             Some(self.title)
         }
-        fn styles(&self) -> Option<&WidgetStyles> {
-            Some(&self.styles)
+        fn take_node_seed(&mut self) -> NodeSeed {
+            std::mem::take(&mut self.seed)
         }
     }
 
-    let mut styles = WidgetStyles::default();
-    styles.style = style;
-    let panel_widget = PanelCaptionWidget {
-        title: "T",
-        styles,
-    };
+    let mut seed = NodeSeed::default();
+    seed.styles.style = style;
+    let panel_widget = PanelCaptionWidget { title: "T", seed };
     let mut root = Container::new().with_child(panel_widget);
     let (_tree, frame, lines) = tree_render(&mut root, 12, 4);
 
     // Find the "T" on row 0
-    let title_col = lines[0].find('T').expect("title 'T' should appear on row 0");
+    let title_col = lines[0]
+        .find('T')
+        .expect("title 'T' should appear on row 0");
     let title_cell = frame.get(title_col, 0);
     // With flip, the base style's bg (red for panel border) becomes the cell bgcolor
     let bgcolor = title_cell.style.and_then(|s| s.bgcolor);
@@ -421,7 +456,7 @@ fn render_panel_title_flip() {
 
     struct SolidCaptionWidget {
         title: &'static str,
-        styles: WidgetStyles,
+        seed: NodeSeed,
     }
     impl Widget for SolidCaptionWidget {
         fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -442,20 +477,22 @@ fn render_panel_title_flip() {
         fn border_title(&self) -> Option<&str> {
             Some(self.title)
         }
-        fn styles(&self) -> Option<&WidgetStyles> {
-            Some(&self.styles)
+        fn take_node_seed(&mut self) -> NodeSeed {
+            std::mem::take(&mut self.seed)
         }
     }
 
-    let mut styles2 = WidgetStyles::default();
-    styles2.style = style2;
+    let mut seed2 = NodeSeed::default();
+    seed2.styles.style = style2;
     let solid_widget = SolidCaptionWidget {
         title: "T",
-        styles: styles2,
+        seed: seed2,
     };
     let mut root2 = Container::new().with_child(solid_widget);
     let (_tree2, frame2, lines2) = tree_render(&mut root2, 12, 4);
-    let title_col2 = lines2[0].find('T').expect("solid title 'T' should appear on row 0");
+    let title_col2 = lines2[0]
+        .find('T')
+        .expect("solid title 'T' should appear on row 0");
     let solid_title_cell = frame2.get(title_col2, 0);
     let solid_bgcolor = solid_title_cell.style.and_then(|s| s.bgcolor);
     // For solid, the bgcolor should NOT be red (it's the widget background, not the border color)

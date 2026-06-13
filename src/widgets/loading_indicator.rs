@@ -3,10 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Event, EventCtx};
 use crate::style::{Color, parse_color_like};
 
-use super::{
-    NodeSeed, Widget,
-    helpers::adjust_line_length_no_bg,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 /// An animated loading indicator that displays cycling gradient dots.
 ///
@@ -193,6 +190,10 @@ impl Widget for LoadingIndicator {
 
     fn style_type(&self) -> &'static str {
         "LoadingIndicator"
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

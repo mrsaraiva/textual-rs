@@ -21,8 +21,10 @@ pub fn layout_vertical(
     for &child in children {
         let style = get_node_style(tree, child);
 
-        let width_is_auto =
-            matches!(style.width.as_ref(), None | Some(crate::style::Scalar::Auto));
+        let width_is_auto = matches!(
+            style.width.as_ref(),
+            None | Some(crate::style::Scalar::Auto)
+        );
         // Intrinsic content-width hint, used to (a) widen the height-measurement seed and
         // (b) let auto-width children overflow a horizontally-scrollable parent.
         let pre_intrinsic_w = tree

@@ -1018,11 +1018,14 @@ fn snapshot_for(
             .any(|alias| *alias == "Screen");
     SelectorSnapshot {
         type_name: widget.style_type().to_string(),
-        style_id: widget.style_id().map(str::to_string),
-        classes: widget.style_classes().to_vec(),
-        disabled: widget.is_disabled(),
-        focused: (widget.has_focus() || is_screen) && app_active,
-        hovered: widget.is_hovered(),
+        // Step 6: identity/state now lives on the node record; this off-tree
+        // path (root-only fallback when no arena tree exists) has no node record,
+        // so use safe defaults.
+        style_id: None,
+        classes: Vec::new(),
+        disabled: false,
+        focused: is_screen && app_active,
+        hovered: false,
         active: widget.is_active(),
         inline: app_pseudos.inline,
         ansi: app_pseudos.ansi,
@@ -1032,8 +1035,8 @@ fn snapshot_for(
 
 /// Node-record-based variant of [`snapshot_for`] for tree-mode paths.
 ///
-/// Reads css_id, classes, and interaction state from the `WidgetNode` record
-/// (dual-write phase: merges node.state.* with legacy widget getters).
+/// Reads css_id, classes, and interaction state exclusively from the
+/// `WidgetNode` record (Step 6: legacy widget getters deleted).
 fn snapshot_for_node(
     node: &crate::widget_tree::WidgetNode,
     _node_id: NodeId,
@@ -1046,25 +1049,15 @@ fn snapshot_for_node(
             .style_type_aliases()
             .iter()
             .any(|alias| *alias == "Screen");
-    // Dual-write: prefer node record but fall back to legacy widget getters.
-    let style_id = node
-        .css_id
-        .clone()
-        .or_else(|| widget.style_id().map(str::to_string));
-    let mut classes: Vec<String> = widget.style_classes().to_vec();
-    for c in &node.classes {
-        if !classes.iter().any(|existing| existing == c) {
-            classes.push(c.clone());
-        }
-    }
-    let focused_flag = node.state.focused || widget.has_focus();
+    let style_id = node.css_id.clone();
+    let classes: Vec<String> = node.classes.iter().cloned().collect();
     SelectorSnapshot {
         type_name: widget.style_type().to_string(),
         style_id,
         classes,
-        disabled: node.state.disabled || widget.is_disabled(),
-        focused: (focused_flag || is_screen) && app_active,
-        hovered: node.state.hovered || widget.is_hovered(),
+        disabled: node.state.disabled,
+        focused: (node.state.focused || is_screen) && app_active,
+        hovered: node.state.hovered,
         active: widget.is_active(),
         inline: app_pseudos.inline,
         ansi: app_pseudos.ansi,
@@ -1732,8 +1725,8 @@ impl App {
                     };
                     let depth = tree.ancestors(node_id).len();
                     let widget = node.widget.as_ref();
-                    // Dual-write: prefer node.state.focused over legacy widget getter.
-                    let is_focused = (node.state.focused || widget.has_focus()) && self.app_active;
+                    // Step 6: read focus, id, classes, disabled from node record only.
+                    let is_focused = node.state.focused && self.app_active;
 
                     // Layout rect from hit-test map.
                     let layout_rect = self.hit_test.rect(node_id);
@@ -1751,27 +1744,18 @@ impl App {
                         format!("{},{},{},{}", cr.x0, cr.y0, cr.x1, cr.y1)
                     };
 
-                    // Dual-write: prefer node.css_id over legacy widget getter.
                     let style_id = node
                         .css_id
                         .as_deref()
-                        .or_else(|| widget.style_id())
                         .map(sanitize_snapshot_field)
                         .unwrap_or_else(|| "-".to_string());
 
-                    // Merge widget-level + tree-level classes.
-                    let mut classes: Vec<String> = widget
-                        .style_classes()
+                    let classes_field = node
+                        .classes
                         .iter()
                         .map(|c| sanitize_snapshot_field(c))
-                        .collect();
-                    for c in &node.classes {
-                        let sanitized = sanitize_snapshot_field(c);
-                        if !classes.contains(&sanitized) {
-                            classes.push(sanitized);
-                        }
-                    }
-                    let classes_field = classes.join(",");
+                        .collect::<Vec<_>>()
+                        .join(",");
 
                     // Parent / children IDs.
                     let parent_field = node
@@ -1803,8 +1787,7 @@ impl App {
                         bool_flag(is_focused),
                         bool_flag(self.hovered == Some(node_id)),
                         bool_flag(widget.is_active()),
-                        // Dual-write: prefer node.state.disabled.
-                        bool_flag(node.state.disabled || widget.is_disabled()),
+                        bool_flag(node.state.disabled),
                         layout_rect_field,
                         content_rect_field,
                         bool_flag(node.display),
@@ -1824,33 +1807,24 @@ impl App {
         } else {
             // Root-only fallback: just the root widget (limited info).
             let widget = root as &dyn Widget;
-            let is_focused = widget.has_focus() && self.app_active;
+            // Step 6: no node record for off-tree root; identity/state defaults to empty/false.
+            let is_focused = false;
             let rect = self.hit_test.rect(NodeId::default());
             let rect_field = if let Some(r) = rect {
                 format!("{},{},{},{}", r.x0, r.y0, r.x1, r.y1)
             } else {
                 "-".to_string()
             };
-            let style_id = widget
-                .style_id()
-                .map(sanitize_snapshot_field)
-                .unwrap_or_else(|| "-".to_string());
-            let classes = widget
-                .style_classes()
-                .iter()
-                .map(|c| sanitize_snapshot_field(c))
-                .collect::<Vec<_>>()
-                .join(",");
             let line = format!(
                 "widget\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t-\t1\tvisible\t1\t1\t1\t-\t-",
                 node_id_to_ffi(NodeId::default()),
                 sanitize_snapshot_field(widget.style_type()),
-                style_id,
-                classes,
+                "-",
+                "",
                 bool_flag(is_focused),
                 bool_flag(self.hovered == Some(NodeId::default())),
                 bool_flag(widget.is_active()),
-                bool_flag(widget.is_disabled()),
+                bool_flag(false),
                 rect_field,
             );
             widget_lines.push(line);
@@ -2267,6 +2241,21 @@ impl App {
                             );
                             if msg_outcome.stop_requested {
                                 break 'event_loop;
+                            }
+                        }
+                        // Apply any class ops queued by on_app_key handlers (e.g. via
+                        // widget methods that stage ClassOps for the next event turn).
+                        let app_key_class_ops = app_key_ctx.take_class_ops();
+                        if !app_key_class_ops.is_empty() {
+                            if let Some(tree) = self.active_widget_tree_mut() {
+                                for (node, op) in app_key_class_ops {
+                                    match op {
+                                        crate::event::ClassOp::Add(c) => tree.add_class(node, &c),
+                                        crate::event::ClassOp::Remove(c) => {
+                                            tree.remove_class(node, &c)
+                                        }
+                                    }
+                                }
                             }
                         }
                         if app_key_handled {
@@ -4911,10 +4900,6 @@ mod tests {
         fn focusable(&self) -> bool {
             true
         }
-
-        fn has_focus(&self) -> bool {
-            true
-        }
     }
 
     struct SimulatedKeyBindingHost {
@@ -4929,10 +4914,6 @@ mod tests {
         }
 
         fn focusable(&self) -> bool {
-            true
-        }
-
-        fn has_focus(&self) -> bool {
             true
         }
 
@@ -5037,17 +5018,12 @@ mod tests {
     }
 
     struct TreeEventProbe {
-        focused: bool,
         capture_hits: Arc<AtomicUsize>,
     }
 
     impl Widget for TreeEventProbe {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
             Segments::new()
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
         }
 
         fn on_event_capture(&mut self, event: &Event, _ctx: &mut EventCtx) {
@@ -5084,16 +5060,15 @@ mod tests {
 
         let mut tree = crate::widget_tree::WidgetTree::new();
         let tree_root = tree.set_root(Box::new(TreeEventProbe {
-            focused: false,
             capture_hits: Arc::clone(&tree_root_capture_hits),
         }));
-        tree.mount(
+        let tree_focused = tree.mount(
             tree_root,
             Box::new(TreeEventProbe {
-                focused: true,
                 capture_hits: Arc::clone(&tree_focused_capture_hits),
             }),
         );
+        tree.set_focus_state(tree_focused, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = RootHookProbe {
@@ -5132,16 +5107,15 @@ mod tests {
 
         let mut tree = crate::widget_tree::WidgetTree::new();
         let tree_root = tree.set_root(Box::new(TreeEventProbe {
-            focused: false,
             capture_hits: Arc::clone(&tree_root_capture_hits),
         }));
-        tree.mount(
+        let tree_focused = tree.mount(
             tree_root,
             Box::new(TreeEventProbe {
-                focused: true,
                 capture_hits: Arc::clone(&tree_focused_capture_hits),
             }),
         );
+        tree.set_focus_state(tree_focused, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = RootHookProbe {
@@ -5179,10 +5153,10 @@ mod tests {
         let tree_capture_hits = Arc::new(AtomicUsize::new(0));
 
         let mut tree = crate::widget_tree::WidgetTree::new();
-        tree.set_root(Box::new(TreeEventProbe {
-            focused: true,
+        let probe_root = tree.set_root(Box::new(TreeEventProbe {
             capture_hits: Arc::clone(&tree_capture_hits),
         }));
+        tree.set_focus_state(probe_root, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = RootHookProbe {
@@ -5212,10 +5186,10 @@ mod tests {
         let app_action_hits = Arc::new(AtomicUsize::new(0));
 
         let mut tree = crate::widget_tree::WidgetTree::new();
-        tree.set_root(Box::new(TreeEventProbe {
-            focused: true,
+        let probe_root = tree.set_root(Box::new(TreeEventProbe {
             capture_hits: Arc::new(AtomicUsize::new(0)),
         }));
+        tree.set_focus_state(probe_root, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = RootHookProbe {
@@ -5257,10 +5231,10 @@ mod tests {
         }
 
         let mut tree = crate::widget_tree::WidgetTree::new();
-        tree.set_root(Box::new(TreeEventProbe {
-            focused: true,
+        let probe_root = tree.set_root(Box::new(TreeEventProbe {
             capture_hits: Arc::new(AtomicUsize::new(0)),
         }));
+        tree.set_focus_state(probe_root, true);
 
         let mut app = test_app_with_tree(tree);
         let key_hits = Arc::new(AtomicUsize::new(0));
@@ -5526,11 +5500,12 @@ mod tests {
         let hits_p = Arc::new(AtomicUsize::new(0));
 
         let mut tree = crate::widget_tree::WidgetTree::new();
-        tree.set_root(Box::new(SimulatedKeyBindingHost {
+        let host_root = tree.set_root(Box::new(SimulatedKeyBindingHost {
             hits_l: Arc::clone(&hits_l),
             hits_j: Arc::clone(&hits_j),
             hits_p: Arc::clone(&hits_p),
         }));
+        tree.set_focus_state(host_root, true);
 
         let mut app = test_app_with_tree(tree);
         let mut runtime_root = StyleNode::new("RuntimeRoot");
@@ -5732,20 +5707,19 @@ mod tests {
             self.type_name
         }
 
-        fn style_id(&self) -> Option<&str> {
-            self.style_id.as_deref()
-        }
-
-        fn style_classes(&self) -> &[String] {
-            &self.classes
-        }
-
-        fn has_focus(&self) -> bool {
-            self.focused
+        fn take_node_seed(&mut self) -> crate::widgets::NodeSeed {
+            crate::widgets::NodeSeed {
+                css_id: self.style_id.take(),
+                classes: std::mem::take(&mut self.classes),
+                styles: Default::default(),
+            }
         }
     }
 
     /// Build a `WidgetTree` from a `StyleNode` hierarchy for testing.
+    ///
+    /// Applies each node's `focused` field as `set_focus_state` on the tree after
+    /// mounting (Step 6: focus lives on the node record, not the widget).
     fn build_tree_from_style_node(node: StyleNode) -> (crate::widget_tree::WidgetTree, NodeId) {
         let mut tree = crate::widget_tree::WidgetTree::new();
         fn insert(
@@ -5753,12 +5727,16 @@ mod tests {
             mut node: StyleNode,
             parent: Option<NodeId>,
         ) -> NodeId {
+            let focused = node.focused;
             let children = std::mem::take(&mut node.children);
             let id = if let Some(p) = parent {
                 tree.mount(p, Box::new(node))
             } else {
                 tree.set_root(Box::new(node))
             };
+            if focused {
+                tree.set_focus_state(id, true);
+            }
             for child in children {
                 insert(tree, child, Some(id));
             }
@@ -6488,15 +6466,11 @@ mod tests {
 
     struct FocusIdProbe {
         id: String,
-        focused: bool,
     }
 
     impl FocusIdProbe {
         fn new(id: &str) -> Self {
-            Self {
-                id: id.to_string(),
-                focused: false,
-            }
+            Self { id: id.to_string() }
         }
     }
 
@@ -6505,20 +6479,16 @@ mod tests {
             Segments::new()
         }
 
-        fn style_id(&self) -> Option<&str> {
-            Some(&self.id)
-        }
-
         fn focusable(&self) -> bool {
             true
         }
 
-        fn has_focus(&self) -> bool {
-            self.focused
-        }
-
-        fn set_focus(&mut self, focused: bool) {
-            self.focused = focused;
+        fn take_node_seed(&mut self) -> crate::widgets::NodeSeed {
+            crate::widgets::NodeSeed {
+                css_id: Some(self.id.clone()),
+                classes: Vec::new(),
+                styles: Default::default(),
+            }
         }
     }
 
@@ -6536,7 +6506,9 @@ mod tests {
         assert!(!app.app_active);
         assert_eq!(app.last_focused_on_app_blur, Some(first));
         let first_focused = app
-            .with_widget_mut(first, |widget| widget.has_focus())
+            .active_widget_tree()
+            .and_then(|t| t.get(first))
+            .map(|n| n.state.focused)
             .expect("first widget should exist");
         assert!(!first_focused);
     }
@@ -6556,10 +6528,14 @@ mod tests {
         assert!(app.app_active);
         assert_eq!(app.last_focused_on_app_blur, None);
         let first_focused = app
-            .with_widget_mut(first, |widget| widget.has_focus())
+            .active_widget_tree()
+            .and_then(|t| t.get(first))
+            .map(|n| n.state.focused)
             .expect("first widget should exist");
         let second_focused = app
-            .with_widget_mut(second, |widget| widget.has_focus())
+            .active_widget_tree()
+            .and_then(|t| t.get(second))
+            .map(|n| n.state.focused)
             .expect("second widget should exist");
         assert!(first_focused);
         assert!(!second_focused);
@@ -6745,7 +6721,7 @@ mod tests {
         assert!(
             tree.walk_depth_first(tree.root().expect("root exists"))
                 .into_iter()
-                .any(|id| tree.get(id).is_some_and(|node| node.widget.has_focus())),
+                .any(|id| tree.get(id).is_some_and(|node| node.state.focused)),
             "one probe widget should stay focused"
         );
         assert!(app.screen_count() >= 1);
@@ -7146,9 +7122,7 @@ mod tests {
         use std::sync::Mutex;
 
         // A widget tree node with a declarative binding x->frob but no action_registry entry.
-        struct FrobBindingNode {
-            focused: bool,
-        }
+        struct FrobBindingNode;
 
         impl Widget for FrobBindingNode {
             fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
@@ -7157,10 +7131,6 @@ mod tests {
 
             fn focusable(&self) -> bool {
                 true
-            }
-
-            fn has_focus(&self) -> bool {
-                self.focused
             }
 
             fn bindings(&self) -> Vec<BindingDecl> {
@@ -7190,7 +7160,8 @@ mod tests {
         }
 
         let mut tree = crate::widget_tree::WidgetTree::new();
-        tree.set_root(Box::new(FrobBindingNode { focused: true }));
+        let frob_root = tree.set_root(Box::new(FrobBindingNode));
+        tree.set_focus_state(frob_root, true);
 
         let mut app = test_app_with_tree(tree);
         let recorded = Arc::new(Mutex::new(None::<String>));

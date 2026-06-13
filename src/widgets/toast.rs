@@ -3,10 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use super::{
-    NodeSeed, Widget, WidgetStyles,
-    helpers::adjust_line_length_no_bg,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 /// Severity level for toast notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,23 +219,16 @@ impl Widget for Toast {
         Some(content_lines.saturating_add(chrome_height))
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn style_type(&self) -> &'static str {
         "Toast"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        // Preserve the inline style so post-mount style() queries remain accurate.
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

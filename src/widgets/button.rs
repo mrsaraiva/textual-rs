@@ -10,12 +10,9 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 
 use crate::action::ParsedAction;
 
-use super::{
-    helpers::fixed_height_from_constraints,
-    BindingDecl, NodeSeed, Widget,
-};
 #[cfg(test)]
 use super::NodeState;
+use super::{BindingDecl, NodeSeed, Widget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonVariant {
@@ -41,6 +38,13 @@ pub struct Button {
     flat: bool,
     compact: bool,
     seed: NodeSeed,
+    /// CSS id cached from the seed at `take_node_seed` time so `ButtonPressed.button_id`
+    /// can include it after the seed is consumed at mount.
+    css_id: Option<String>,
+    /// CSS classes mirrored from `seed.classes` but NOT consumed by `take_node_seed`.
+    /// Used by `style_classes()` so that `layout_height()` and component-style resolution
+    /// continue to work correctly after mount (when `seed.classes` is empty).
+    layout_classes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,6 +94,8 @@ impl Button {
             flat: false,
             compact: false,
             seed: NodeSeed::default(),
+            css_id: None,
+            layout_classes: Vec::new(),
         }
         .rebuild_classes()
     }
@@ -141,7 +147,7 @@ impl Button {
     pub fn id(mut self, id: impl Into<String>) -> Self {
         let id = id.into();
         self.seed.css_id = Some(id.clone());
-        self.seed.styles.style_id = Some(id);
+        self.css_id = Some(id);
         self
     }
 
@@ -334,7 +340,7 @@ impl Button {
         } else {
             ctx.post_message(ButtonPressed {
                 description: self.describe(),
-                button_id: self.style_id().map(str::to_string),
+                button_id: self.css_id.clone(),
             });
         }
     }
@@ -382,6 +388,7 @@ impl Button {
         if self.disabled {
             classes.push("disabled".to_string());
         }
+        self.layout_classes = classes.clone();
         self.seed.classes = classes;
     }
 }
@@ -437,13 +444,13 @@ impl Widget for Button {
         true
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_disabled_state(&mut self, disabled: bool) {
-        if self.disabled != disabled {
-            self.disabled = disabled;
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if self.disabled != new.disabled {
+            self.disabled = new.disabled;
             self.rebuild_classes_in_place();
         }
     }
@@ -459,6 +466,14 @@ impl Widget for Button {
             PressedState::Mouse => self.node_state().hovered,
             _ => true,
         }
+    }
+
+    fn is_initially_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.layout_classes
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -624,29 +639,32 @@ impl Widget for Button {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let meta = crate::css::selector_meta_generic(self);
+        // Include the button's own classes (e.g. `-style-default`) so that
+        // CSS rules nested under class selectors (border-top, border-bottom) match.
+        //
+        // `self.seed.classes` may be empty if `take_node_seed()` already consumed
+        // it (tree-mount path), so we rebuild the class list from the button's
+        // current fields which is the same deterministic logic as `rebuild_classes_in_place`.
+        let mut classes = vec!["button"];
+        if self.flat {
+            classes.push("-style-flat");
+        } else {
+            classes.push("-style-default");
+        }
+        let meta = crate::css::selector_meta_component("Button", &classes);
         let base_style = crate::css::resolve_style(self, &meta);
         let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
+        Some(default_height)
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&super::WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut super::WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
         let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        // Restore classes so style_classes() stays accurate for post-mount rendering.
-        self.rebuild_classes_in_place();
+        // Cache the CSS id so ButtonPressed.button_id can include it post-mount.
+        self.css_id = seed.css_id.clone();
         seed
     }
 }
@@ -671,7 +689,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -829,7 +850,8 @@ mod tests {
         // After RA-2, active state is signalled via ctx.add_class rather than a widget field.
         let ops = ctx.take_class_ops();
         assert!(
-            ops.iter().any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-active")),
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-active")),
             "mouse down should queue -active class add"
         );
     }
@@ -1000,7 +1022,10 @@ mod tests {
     fn compact_builder_adds_textual_compact_class() {
         let button = Button::new("X").compact(true);
         assert!(
-            button.seed.classes.contains(&"-textual-compact".to_string()),
+            button
+                .seed
+                .classes
+                .contains(&"-textual-compact".to_string()),
             "compact(true) should add -textual-compact class"
         );
     }
@@ -1009,7 +1034,10 @@ mod tests {
     fn compact_false_has_no_textual_compact_class() {
         let button = Button::new("X");
         assert!(
-            !button.seed.classes.contains(&"-textual-compact".to_string()),
+            !button
+                .seed
+                .classes
+                .contains(&"-textual-compact".to_string()),
             "default button should not have -textual-compact class"
         );
     }
@@ -1024,7 +1052,12 @@ mod tests {
         let changes = ctx.take_changes();
         assert_eq!(changes[0].field_name, "compact");
         button.reactive_dispatch(&changes, &mut ctx);
-        assert!(button.seed.classes.contains(&"-textual-compact".to_string()));
+        assert!(
+            button
+                .seed
+                .classes
+                .contains(&"-textual-compact".to_string())
+        );
     }
 
     #[test]

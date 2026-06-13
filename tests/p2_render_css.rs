@@ -84,10 +84,6 @@ impl Widget for BorderCaptionWidget {
         Some(self.subtitle)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -125,10 +121,6 @@ impl Widget for FillWidget {
 
     fn style_type(&self) -> &'static str {
         self.style_type_name
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -695,16 +687,16 @@ fn p2_28_outline_paints_outside_border_box() {
     };
 
     let mut label = Label::new("hi");
-    label.set_width(2);
-    label.styles_mut().unwrap().style.outline_top = outline_edge;
-    label.styles_mut().unwrap().style.outline_bottom = outline_edge;
-    label.styles_mut().unwrap().style.outline_left = outline_edge;
-    label.styles_mut().unwrap().style.outline_right = outline_edge;
+    label.seed_mut().styles.set_width(2);
+    label.seed_mut().styles.style.outline_top = outline_edge;
+    label.seed_mut().styles.style.outline_bottom = outline_edge;
+    label.seed_mut().styles.style.outline_left = outline_edge;
+    label.seed_mut().styles.style.outline_right = outline_edge;
 
     // Nested: outer Container (root, no style) > inner Container (padding 3) > Label.
     let mut inner = Container::new().with_child(label);
-    inner.set_width(20);
-    inner.styles_mut().unwrap().style.padding = Some(Spacing::all(3));
+    inner.seed_mut().styles.set_width(20);
+    inner.seed_mut().styles.style.padding = Some(Spacing::all(3));
     let mut root = Container::new().with_child(inner);
 
     let (_tree, frame, _lines) = tree_render(&mut root, 20, 8);
@@ -741,14 +733,14 @@ fn p2_28_outline_clipped_at_viewport_edge() {
     };
 
     let mut label = Label::new("edge");
-    label.set_width(4);
-    label.styles_mut().unwrap().style.outline_top = outline_edge;
-    label.styles_mut().unwrap().style.outline_bottom = outline_edge;
-    label.styles_mut().unwrap().style.outline_left = outline_edge;
-    label.styles_mut().unwrap().style.outline_right = outline_edge;
+    label.seed_mut().styles.set_width(4);
+    label.seed_mut().styles.style.outline_top = outline_edge;
+    label.seed_mut().styles.style.outline_bottom = outline_edge;
+    label.seed_mut().styles.style.outline_left = outline_edge;
+    label.seed_mut().styles.style.outline_right = outline_edge;
 
     let mut root = Container::new().with_child(label);
-    root.set_width(10);
+    root.seed_mut().styles.set_width(10);
     let (_tree, frame, _lines) = tree_render(&mut root, 10, 3);
 
     // Label "edge" has content_width=4, so layout rect is (0, 0, 4, 1).
@@ -774,7 +766,7 @@ fn p2_34_hatch_fills_blank_cells_with_pattern() {
     use textual::style::{Color, Hatch};
 
     let mut label = Label::new("X         "); // 10 chars: 'X' + 9 spaces
-    label.styles_mut().unwrap().style.hatch = Some(Hatch {
+    label.seed_mut().styles.style.hatch = Some(Hatch {
         character: '+',
         color: Color::parse("#ff0000").unwrap(),
     });
@@ -824,15 +816,15 @@ fn p2g34_overlay_screen_blends_with_underlay() {
 #[test]
 fn p2g34_keyline_draws_separator_between_children() {
     let mut keylined = Container::new();
-    keylined.styles_mut().unwrap().style.layout = Some(textual::style::Layout::Vertical);
-    keylined.styles_mut().unwrap().style.keyline = Some(textual::style::Keyline {
+    keylined.seed_mut().styles.style.layout = Some(textual::style::Layout::Vertical);
+    keylined.seed_mut().styles.style.keyline = Some(textual::style::Keyline {
         keyline_type: KeylineType::Thin,
         color: textual::style::Color::parse("red").unwrap(),
     });
     let mut a = Label::new("A");
-    a.styles_mut().unwrap().style.height = Some(Scalar::Cells(1));
+    a.seed_mut().styles.style.height = Some(Scalar::Cells(1));
     let mut b = Label::new("B");
-    b.styles_mut().unwrap().style.height = Some(Scalar::Cells(1));
+    b.seed_mut().styles.style.height = Some(Scalar::Cells(1));
     keylined = keylined.with_child(a).with_child(b);
     let mut root = Container::new().with_child(keylined);
     let (_tree, frame, lines) = tree_render(&mut root, 10, 4);
@@ -895,14 +887,6 @@ impl Widget for WideRenderWidget {
         "WideRenderWidget"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -913,7 +897,7 @@ fn p2_31_nowrap_ellipsis_narrow_pipeline() {
     // Verify tree-level text-overflow truncation wiring.
     // Uses a custom widget that renders text wider than its layout rect.
     let mut widget = WideRenderWidget::new("abcdefghijklmnop"); // 16 chars
-    widget.set_width(8);
+    widget.seed.styles.set_width(8);
     widget.seed.styles.style.text_wrap = Some(TextWrap::NoWrap);
     widget.seed.styles.style.text_overflow = Some(TextOverflow::Ellipsis);
 

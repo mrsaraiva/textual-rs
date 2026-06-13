@@ -5,10 +5,7 @@ use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
 use super::option_list::{OptionItem, OptionList};
-use super::{
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
-    NodeSeed, Widget, WidgetStyles,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
 
@@ -303,13 +300,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         !self.disabled
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        self.inner.set_hovered(hovered);
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_index = None;
         }
     }
@@ -510,8 +506,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-            .or(Some(self.inner.option_count().max(1)))
+        Some(self.inner.option_count().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -528,26 +523,16 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
     fn style_type(&self) -> &'static str {
         "SelectionList"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 

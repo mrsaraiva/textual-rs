@@ -7,10 +7,7 @@ use crate::message::*;
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
 
-use super::{
-    helpers::{adjust_line_length_no_bg, fixed_height_from_constraints},
-    NodeSeed, Widget, WidgetStyles,
-};
+use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 use toggle_option::OptionCursorState;
 pub use toggle_option::{OptionId, OptionItem};
 
@@ -371,12 +368,12 @@ impl Widget for OptionList {
         !self.disabled
     }
 
-    fn is_disabled(&self) -> bool {
-        self.disabled
-    }
-
-    fn set_hovered(&mut self, hovered: bool) {
-        if !hovered {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
             self.hovered_index = None;
         }
     }
@@ -608,7 +605,7 @@ impl Widget for OptionList {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(self.items.len().max(1)))
+        Some(self.items.len().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -641,26 +638,16 @@ impl Widget for OptionList {
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
     fn style_type(&self) -> &'static str {
         "OptionList"
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -684,7 +671,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -758,9 +748,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         list.confirm_selection(&mut ctx);
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<OptionSelected>()
-            .is_some_and(|s| s.index == 0)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<OptionSelected>()
+                .is_some_and(|s| s.index == 0)
+        }));
     }
 
     #[test]

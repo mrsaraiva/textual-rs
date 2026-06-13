@@ -5,6 +5,8 @@ use crate::message::*;
 use crate::render::FrameBuffer;
 
 use crate::node_id::NodeId;
+use crate::runtime::dispatch_ctx::set_dispatch_recipient;
+use crate::widgets::NodeState;
 
 use super::{Button, ButtonVariant, Markdown, NodeSeed, Widget};
 
@@ -158,11 +160,16 @@ impl Widget for Welcome {
             }
             Event::Action(_) | Event::Key(_) if focused => {
                 // Welcome acts as a proxy for the close button when focused.
-                // Temporarily promote the close button to focused so it handles
-                // keyboard events correctly (Button.on_event checks self.focused).
-                self.close.set_focus(true);
+                // Temporarily promote the close button to focused via dispatch context
+                // so it handles keyboard events correctly (Button.on_event checks node_state().focused).
+                let _guard = set_dispatch_recipient(
+                    NodeId::default(),
+                    NodeState {
+                        focused: true,
+                        ..Default::default()
+                    },
+                );
                 self.close.on_event(event, ctx);
-                self.close.set_focus(false);
             }
             _ => {}
         }
@@ -257,6 +264,10 @@ impl Widget for Welcome {
 
     fn style_type(&self) -> &'static str {
         "Welcome"
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

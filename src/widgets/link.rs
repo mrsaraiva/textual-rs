@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta}
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
-use super::{NodeSeed, Widget, WidgetStyles};
+use super::{NodeSeed, Widget};
 
 /// A simple clickable text widget that posts a message with a URL when activated.
 ///
@@ -81,7 +81,9 @@ impl Link {
             if let Err(err) = open::that(&self.url) {
                 eprintln!("Link: failed to open URL {:?}: {}", self.url, err);
             }
-            ctx.post_message(LinkClicked { url: self.url.clone() });
+            ctx.post_message(LinkClicked {
+                url: self.url.clone(),
+            });
         }
         ctx.request_repaint();
         ctx.set_handled();
@@ -227,24 +229,16 @@ impl Widget for Link {
         Some(1)
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
-    }
-
     fn style_type(&self) -> &'static str {
         "Link"
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        // Preserve the inline style in the seed remainder so that post-mount
-        // calls to style() / content_width() still read the correct inline style.
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -376,7 +370,10 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<LinkClicked>());
-        assert_eq!(messages[0].downcast_ref::<LinkClicked>().unwrap().url, "https://example.com");
+        assert_eq!(
+            messages[0].downcast_ref::<LinkClicked>().unwrap().url,
+            "https://example.com"
+        );
     }
 
     #[test]

@@ -9,21 +9,20 @@ use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::event::{Event, EventCtx};
 use crate::message::*;
-use crate::style::{parse_color_like, Color, Style};
+use crate::style::{Color, Style, parse_color_like};
 use crate::{Error, Result};
 
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{
-    helpers::fixed_height_from_constraints,
+    BindingDecl, NodeSeed, NodeState, Widget,
     text_edit::{
-        byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
+        EditCommand, MoveUnit, byte_index_from_cell_x as grapheme_byte_index_from_cell_x,
         cell_len_prefix as grapheme_cell_len_prefix, clamp_grapheme_boundary,
         edit_command_from_key, grapheme_cell_width as grapheme_width, next_grapheme_boundary,
-        next_word_boundary, prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
+        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     },
-    BindingDecl, NodeSeed, NodeState, Widget, WidgetStyles,
 };
 
 #[derive(Debug, Clone)]
@@ -1740,7 +1739,8 @@ impl Widget for TextArea {
         let mut out = Segments::new();
         for y in 0..height {
             let row = self.scroll_row + y;
-            let is_cursor_line = self.node_state().focused && self.app_active && row == self.cursor.row;
+            let is_cursor_line =
+                self.node_state().focused && self.app_active && row == self.cursor.row;
             let line_bg_style = if is_cursor_line {
                 Some(cursor_line_style.clone())
             } else {
@@ -1904,26 +1904,12 @@ impl Widget for TextArea {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        fixed_height_from_constraints(self.layout_constraints())
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn get_selection(&self) -> Option<String> {
@@ -1996,7 +1982,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]

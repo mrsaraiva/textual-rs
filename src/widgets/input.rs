@@ -7,20 +7,19 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
-use crate::style::{parse_color_like, Color};
+use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use crate::action::ParsedAction;
 
 use super::{
-    helpers::fixed_height_from_constraints,
+    BindingDecl, NodeSeed, NodeState, Widget,
     input_chrome::InputChrome,
     text_edit::{
-        byte_index_from_cell_x, clamp_grapheme_boundary, edit_command_from_key,
-        first_clipboard_line, grapheme_cell_width, next_grapheme_boundary, next_word_boundary,
-        prev_grapheme_boundary, prev_word_boundary, EditCommand, MoveUnit,
+        EditCommand, MoveUnit, byte_index_from_cell_x, clamp_grapheme_boundary,
+        edit_command_from_key, first_clipboard_line, grapheme_cell_width, next_grapheme_boundary,
+        next_word_boundary, prev_grapheme_boundary, prev_word_boundary,
     },
-    BindingDecl, NodeSeed, NodeState, Widget, WidgetStyles,
 };
 
 // ---------------------------------------------------------------------------
@@ -677,6 +676,10 @@ impl Widget for Input {
         self.chrome.is_active()
     }
 
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
     fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
         if !self.chrome.is_mouse_down() {
             return false;
@@ -1079,8 +1082,9 @@ impl Widget for Input {
                 break;
             }
 
-            let is_cursor =
-                self.node_state().focused && self.chrome.cursor_visible() && byte_idx == self.cursor;
+            let is_cursor = self.node_state().focused
+                && self.chrome.cursor_visible()
+                && byte_idx == self.cursor;
             let in_sel = byte_idx >= sel_lo && byte_idx < sel_hi;
             let style = if is_cursor {
                 Some(cursor_style)
@@ -1180,25 +1184,15 @@ impl Widget for Input {
         let meta = crate::css::selector_meta_generic(self);
         let base_style = crate::css::resolve_style(self, &meta);
         let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
-        fixed_height_from_constraints(self.layout_constraints()).or(Some(default_height))
+        Some(default_height)
     }
 
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn get_selection(&self) -> Option<String> {
@@ -1228,7 +1222,10 @@ mod tests {
     }
 
     fn focused_state() -> NodeState {
-        NodeState { focused: true, ..Default::default() }
+        NodeState {
+            focused: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1304,9 +1301,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0]
-            .downcast_ref::<InputChanged>()
-            .is_some_and(|m| m.value == "a"));
+        assert!(
+            messages[0]
+                .downcast_ref::<InputChanged>()
+                .is_some_and(|m| m.value == "a")
+        );
     }
 
     #[test]
@@ -1324,9 +1323,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0]
-            .downcast_ref::<InputSubmitted>()
-            .is_some_and(|m| m.value == "done"));
+        assert!(
+            messages[0]
+                .downcast_ref::<InputSubmitted>()
+                .is_some_and(|m| m.value == "done")
+        );
     }
 
     #[test]
@@ -1426,10 +1427,12 @@ mod tests {
             &mut ctx,
         );
         let copy_messages = ctx.take_messages();
-        assert!(copy_messages
-            .first()
-            .and_then(|m| m.downcast_ref::<TextEditClipboardCopyRequested>())
-            .is_some_and(|m| m.text == "hello" && !m.cut));
+        assert!(
+            copy_messages
+                .first()
+                .and_then(|m| m.downcast_ref::<TextEditClipboardCopyRequested>())
+                .is_some_and(|m| m.text == "hello" && !m.cut)
+        );
 
         let mut ctx = EventCtx::default();
         input.on_event(
@@ -1465,10 +1468,12 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(messages
-            .first()
-            .and_then(|m| m.downcast_ref::<TextEditClipboardPasteRequested>())
-            .is_some_and(|m| m.target == id));
+        assert!(
+            messages
+                .first()
+                .and_then(|m| m.downcast_ref::<TextEditClipboardPasteRequested>())
+                .is_some_and(|m| m.target == id)
+        );
 
         let mut ctx = EventCtx::default();
         input.on_message(
@@ -1737,9 +1742,21 @@ mod tests {
     #[test]
     fn focus_change_clears_suggestion() {
         let mut input = Input::new().with_suggester(SuggestFromList::new(vec!["Portugal"], false));
-        input.on_node_state_changed(NodeState::default(), NodeState { focused: true, ..Default::default() });
+        input.on_node_state_changed(
+            NodeState::default(),
+            NodeState {
+                focused: true,
+                ..Default::default()
+            },
+        );
         input.suggestion = "Portugal".to_string();
-        input.on_node_state_changed(NodeState { focused: true, ..Default::default() }, NodeState::default());
+        input.on_node_state_changed(
+            NodeState {
+                focused: true,
+                ..Default::default()
+            },
+            NodeState::default(),
+        );
         assert!(input.suggestion.is_empty());
     }
 
@@ -1791,9 +1808,11 @@ mod tests {
         );
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0]
-            .downcast_ref::<InputChanged>()
-            .is_some_and(|m| m.value == "Portugal"));
+        assert!(
+            messages[0]
+                .downcast_ref::<InputChanged>()
+                .is_some_and(|m| m.value == "Portugal")
+        );
     }
 
     // ── Reactive field tests ────────────────────────────────────────────

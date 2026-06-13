@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::message::MessageEvent;
@@ -24,12 +24,8 @@ impl Widget for FocusProbe {
         true
     }
 
-    fn set_focus(&mut self, focused: bool) {
-        self.focused.store(focused, Ordering::Relaxed);
-    }
-
-    fn has_focus(&self) -> bool {
-        self.focused.load(Ordering::Relaxed)
+    fn on_node_state_changed(&mut self, _old: NodeState, new: NodeState) {
+        self.focused.store(new.focused, Ordering::Relaxed);
     }
 }
 

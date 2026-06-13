@@ -14,10 +14,7 @@ use crate::event::{
 use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
-use crate::widgets::{
-    NodeSeed, ScrollBar, ScrollBarCorner, Widget, WidgetStyles,
-    helpers::fixed_height_from_constraints, scrollbar_max_offset,
-};
+use crate::widgets::{NodeSeed, ScrollBar, ScrollBarCorner, Widget, scrollbar_max_offset};
 
 pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
@@ -498,9 +495,6 @@ impl Widget for AppRoot {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         None
     }
 
@@ -550,18 +544,12 @@ impl Widget for AppRoot {
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn style_type(&self) -> &'static str {
@@ -818,12 +806,16 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 24.0,
-                animate: false,
-                scroll_duration: None,
-            }).with_control(NodeId::default()),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 24.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            )
+            .with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -850,12 +842,16 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 24.5,
-                animate: true,
-                scroll_duration: None,
-            }).with_control(NodeId::default()),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 24.5,
+                    animate: true,
+                    scroll_duration: None,
+                },
+            )
+            .with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -881,12 +877,16 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 999.0,
-                animate: false,
-                scroll_duration: None,
-            }).with_control(NodeId::default()),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 999.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            )
+            .with_control(NodeId::default()),
             &mut ctx,
         );
 
@@ -906,12 +906,16 @@ mod focus_tests {
 
         let mut ctx = EventCtx::default();
         root.on_message(
-            &MessageEvent::new(NodeId::default(), ScrollbarScrollTo {
-                axis: ScrollbarAxis::Vertical,
-                offset: 24.5,
-                animate: false,
-                scroll_duration: None,
-            }).with_control(NodeId::default()),
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 24.5,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            )
+            .with_control(NodeId::default()),
             &mut ctx,
         );
 

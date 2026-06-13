@@ -1,4 +1,4 @@
-use crate::node_id::{NodeId, node_id_from_ffi};
+use crate::node_id::NodeId;
 use crate::style::{Display, Style, Visibility};
 use crate::widget_tree::{WidgetNode, WidgetTree};
 use crate::widgets::Widget;
@@ -11,16 +11,6 @@ use super::context::{
 use super::debug::{style_debug_matches, style_debug_meta_label, style_debug_summary};
 use super::matching::rule_specificity;
 
-/// Derive a cache key from a widget reference.
-///
-/// Uses the data pointer of the widget reference as a unique identifier.
-/// This is valid because widgets are pinned in memory during style resolution
-/// and the cache is cleared per render pass.
-fn widget_cache_id<T: Widget + ?Sized>(w: &T) -> NodeId {
-    let ptr = (w as *const T).cast::<()>() as u64;
-    node_id_from_ffi(ptr)
-}
-
 fn widget_is_screen<T: Widget + ?Sized>(widget: &T) -> bool {
     widget.style_type() == "Screen"
         || widget
@@ -29,10 +19,37 @@ fn widget_is_screen<T: Widget + ?Sized>(widget: &T) -> bool {
             .any(|alias| *alias == "Screen")
 }
 
-fn widget_focused_state<T: Widget + ?Sized>(widget: &T) -> bool {
-    // Python parity: active screen style behaves as :focus when app is active
-    // even though keyboard focus may be on a descendant widget.
-    (widget.has_focus() || widget_is_screen(widget)) && app_is_active()
+/// Interaction states for type-only/off-tree meta, sourced from the dispatch
+/// context (the widget no longer owns state). Screen rule: an active screen
+/// behaves as `:focus` while the app is active (Python parity).
+///
+/// Off-tree fallback: when no dispatch context is active (e.g. inside
+/// `layout_height()` or a `FrameBuffer::from_renderable` render), the widget's
+/// own `is_hovered()` override is consulted so that per-widget state (e.g.
+/// `FooterKey.hovered`) participates in CSS resolution.
+fn dispatch_states<T: Widget + ?Sized>(widget: &T) -> SelectorStates {
+    let pseudos = app_runtime_pseudos();
+    let ctx_state = crate::runtime::dispatch_ctx::dispatch_node_state();
+    let state = ctx_state.unwrap_or_default();
+    let focused = (state.focused || widget_is_screen(widget)) && app_is_active();
+    // When dispatch context is absent, fall back to the widget's own hover signal.
+    let hovered = if ctx_state.is_some() {
+        state.hovered
+    } else {
+        widget.is_hovered()
+    };
+    SelectorStates {
+        disabled: state.disabled,
+        focused,
+        hovered,
+        active: widget.is_active(),
+        dark: pseudos.dark,
+        inline: pseudos.inline,
+        ansi: pseudos.ansi,
+        nocolor: pseudos.nocolor,
+        can_focus: widget.can_focus(),
+        ..Default::default()
+    }
 }
 
 impl StyleSheet {
@@ -81,8 +98,13 @@ impl StyleSheet {
     }
 }
 
+/// Type-only selector meta for off-tree paths (component styles, legacy
+/// widget-to-widget rendering, resolver unit tests). DOM identity (id/classes)
+/// lives on the node record in tree-mode; for off-tree use the widget's
+/// `style_classes()` override is consulted so that component-style rules like
+/// `Button.-primary { ... }` and `Input.command-palette--input > .input--placeholder`
+/// resolve correctly without an active arena node.
 pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
-    let pseudos = app_runtime_pseudos();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
         type_aliases: widget
@@ -90,20 +112,9 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
-        id: widget.style_id().map(|value| value.to_string()),
+        id: widget.style_id().map(|s| s.to_string()),
         classes: widget.style_classes().to_vec(),
-        states: SelectorStates {
-            disabled: widget.is_disabled(),
-            focused: widget_focused_state(widget),
-            hovered: widget.is_hovered(),
-            active: widget.is_active(),
-            dark: pseudos.dark,
-            inline: pseudos.inline,
-            ansi: pseudos.ansi,
-            nocolor: pseudos.nocolor,
-            can_focus: widget.can_focus(),
-            ..Default::default()
-        },
+        states: dispatch_states(widget),
     }
 }
 
@@ -121,7 +132,6 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
     widget: &T,
     classes: &[&str],
 ) -> SelectorMeta {
-    let pseudos = app_runtime_pseudos();
     SelectorMeta {
         type_name: widget.style_type().to_string(),
         type_aliases: widget
@@ -131,27 +141,15 @@ pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
             .collect(),
         id: None,
         classes: classes.iter().map(|s| (*s).to_string()).collect(),
-        states: SelectorStates {
-            disabled: widget.is_disabled(),
-            focused: widget_focused_state(widget),
-            hovered: widget.is_hovered(),
-            active: widget.is_active(),
-            dark: pseudos.dark,
-            inline: pseudos.inline,
-            ansi: pseudos.ansi,
-            nocolor: pseudos.nocolor,
-            can_focus: widget.can_focus(),
-            ..SelectorStates::default()
-        },
+        states: dispatch_states(widget),
     }
 }
 
 /// Canonical selector meta for an arena node (§T-7).
 ///
 /// Reads type identity from the widget, id from `node.css_id`, classes from
-/// `node.classes` (merging `widget.style_classes()` during the dual-write
-/// phase), and interaction states from `node.state` plus `widget.is_active()`
-/// and `widget.can_focus()`.
+/// `node.classes`, and interaction states from `node.state` plus
+/// `widget.is_active()` and `widget.can_focus()`.
 ///
 /// # Panics
 /// Panics if `node_id` is not present in `tree`. All callers in render/layout/
@@ -171,19 +169,6 @@ pub(crate) fn node_selector_meta(tree: &WidgetTree, node_id: NodeId) -> Selector
 /// the arena.
 pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -> SelectorMeta {
     let pseudos = app_runtime_pseudos();
-    // id: prefer node record canonical value; fall back to widget legacy during dual-write.
-    let id = node
-        .css_id
-        .as_deref()
-        .or_else(|| node.widget.style_id())
-        .map(str::to_string);
-    // Merge widget-level classes (state-dependent, e.g. Button) with tree-level classes.
-    let mut classes: Vec<String> = node.widget.style_classes().to_vec();
-    for c in &node.classes {
-        if !classes.iter().any(|existing| existing == c) {
-            classes.push(c.clone());
-        }
-    }
     let state = node.state;
     let is_screen = node.widget.style_type() == "Screen"
         || node
@@ -191,10 +176,8 @@ pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -
             .style_type_aliases()
             .iter()
             .any(|alias| *alias == "Screen");
-    // Dual-write phase: merge node.state with legacy widget getters to handle
-    // callers that bypass tree.set_focus_state() and write directly to the widget.
-    let focused_flag = state.focused || node.widget.has_focus();
-    let focused = (focused_flag || is_screen) && app_is_active();
+    // Python parity: an active screen behaves as :focus while the app is active.
+    let focused = (state.focused || is_screen) && app_is_active();
     SelectorMeta {
         type_name: node.widget.style_type().to_string(),
         type_aliases: node
@@ -203,13 +186,12 @@ pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
-        id,
-        classes,
+        id: node.css_id.clone(),
+        classes: node.classes.iter().cloned().collect(),
         states: SelectorStates {
-            // Dual-write phase: merge node.state with legacy widget getters.
-            disabled: state.disabled || node.widget.is_disabled(),
+            disabled: state.disabled,
             focused,
-            hovered: state.hovered || node.widget.is_hovered(),
+            hovered: state.hovered,
             active: node.widget.is_active(),
             dark: pseudos.dark,
             inline: pseudos.inline,
@@ -226,11 +208,7 @@ pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -
 ///
 /// Cache keyed by the real `NodeId`. Combines stylesheet + `widget.style()`
 /// contribution + node inline styles (node wins), then inherits from parent.
-pub(crate) fn resolve_node_style(
-    tree: &WidgetTree,
-    node_id: NodeId,
-    meta: &SelectorMeta,
-) -> Style {
+pub(crate) fn resolve_node_style(tree: &WidgetTree, node_id: NodeId, meta: &SelectorMeta) -> Style {
     let node = tree
         .get(node_id)
         .expect("resolve_node_style called with absent node_id");
@@ -246,9 +224,7 @@ pub(crate) fn resolve_node_style(
         parent_style: STYLE_STACK.with(|stack| stack.borrow().last().cloned()),
         inline_style: node_inline.clone(),
     };
-    if let Some(cached) =
-        COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(node_id, &key))
-    {
+    if let Some(cached) = COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(node_id, &key)) {
         return cached;
     }
     let sheet_style = STYLE_CONTEXT
@@ -322,19 +298,12 @@ pub(crate) fn current_composited_background() -> Option<crate::style::Color> {
     })
 }
 
+/// Resolve a style for off-tree/type-only paths (no arena node, no cache).
+///
+/// Tree-mode rendering uses `resolve_node_style` (cached by real `NodeId`).
+/// This path is reachable only from cold contexts (component styles, legacy
+/// widget-to-widget rendering, unit tests), so it computes directly.
 pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta) -> Style {
-    let widget_id = widget_cache_id(widget);
-    let key = super::context::ComputedStyleKey {
-        meta: meta.clone(),
-        ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),
-        parent_style: STYLE_STACK.with(|stack| stack.borrow().last().cloned()),
-        inline_style: widget.style(),
-    };
-    if let Some(cached) = COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(widget_id, &key))
-    {
-        return cached;
-    }
-
     let sheet_style = STYLE_CONTEXT
         .with(|ctx| {
             ctx.borrow()
@@ -349,14 +318,6 @@ pub(crate) fn resolve_style<T: Widget + ?Sized>(widget: &T, meta: &SelectorMeta)
     if let Some(parent) = STYLE_STACK.with(|stack| stack.borrow().last().cloned()) {
         style = style.inherit_from(&parent);
     }
-    let layout_affected_changed = COMPUTED_STYLE_CACHE
-        .with(|cache| cache.borrow().prior_resolved(widget_id))
-        .is_some_and(|prior| !layout_fields_equal(&prior, &style));
-    COMPUTED_STYLE_CACHE.with(|cache| {
-        cache
-            .borrow_mut()
-            .store(widget_id, key, style.clone(), layout_affected_changed)
-    });
     style
 }
 
@@ -487,11 +448,10 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
     };
 
     // Build the :focus-within set: the focused node + all its ancestors.
-    // Dual-write: merge node.state.focused with legacy widget getter.
     let mut focus_within_ids = std::collections::HashSet::new();
     for node_id in tree.walk_depth_first(root) {
         if let Some(node) = tree.get(node_id) {
-            if node.state.focused || node.widget.has_focus() {
+            if node.state.focused {
                 focus_within_ids.insert(node_id);
                 for ancestor in tree.ancestors(node_id) {
                     focus_within_ids.insert(ancestor);

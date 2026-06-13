@@ -12,7 +12,7 @@ use std::fmt;
 
 use slotmap::SlotMap;
 
-use crate::css::{parse_selector_list, Combinator, SelectorChain, SelectorMeta};
+use crate::css::{Combinator, SelectorChain, SelectorMeta, parse_selector_list};
 use crate::node_id::NodeId;
 use crate::style::Visibility;
 use crate::widgets::{NodeSeed, NodeState, Widget, WidgetStyles};
@@ -129,17 +129,13 @@ pub struct WidgetNode {
 
 impl WidgetNode {
     fn new(widget: Box<dyn Widget>) -> Self {
-        // Dual-write phase: seed node record from legacy widget accessors so
-        // pre-existing builder output is captured (will be removed in Step 6).
-        let css_id = widget.style_id().map(str::to_string);
-        let styles = widget.styles().cloned().unwrap_or_default();
         Self {
             widget,
             parent: None,
             children: Vec::new(),
             classes: HashSet::new(),
-            css_id,
-            styles,
+            css_id: None,
+            styles: WidgetStyles::default(),
             state: NodeState::default(),
             display: true,
             css_display: true,
@@ -257,33 +253,15 @@ impl WidgetTree {
     /// is ignored — though callers should prefer `set_root` for clarity.
     /// Internal helper: build a `WidgetNode` from a boxed widget, consuming its seed.
     fn make_node_from_seed(widget: Box<dyn Widget>, seed: NodeSeed) -> WidgetNode {
+        let initial_disabled = widget.is_initially_disabled();
         let mut node = WidgetNode::new(widget);
-        // Seed fields take priority over the dual-write legacy values captured
-        // in new(). Only override when the seed actually carries a value.
-        if seed.css_id.is_some() {
-            node.css_id = seed.css_id;
-        }
-        if seed.styles.style_id.is_some() {
-            node.styles.style_id = seed.styles.style_id;
-        }
-        // Layout constraints and inline style: apply from seed unconditionally —
-        // in the dual-write phase, take_node_seed() returns NodeSeed::default()
-        // for non-migrated widgets so their zero-value seed never overwrites
-        // the legacy-accessor-seeded values in new(). Widgets that implement
-        // take_node_seed() are responsible for populating the seed fully.
-        let lc = seed.styles.layout;
-        if lc.min_width.is_some()
-            || lc.max_width.is_some()
-            || lc.min_height.is_some()
-            || lc.max_height.is_some()
-        {
-            node.styles.layout = lc;
-        }
-        if seed.styles.style != Default::default() {
-            node.styles.style = seed.styles.style;
-        }
+        node.css_id = seed.css_id;
+        node.styles = seed.styles;
         for class in seed.classes {
             node.classes.insert(class);
+        }
+        if initial_disabled {
+            node.state.disabled = true;
         }
         node
     }
@@ -566,9 +544,7 @@ impl WidgetTree {
     /// Set or clear the CSS id for a node.
     pub fn set_css_id(&mut self, node: NodeId, id: Option<String>) {
         if let Some(n) = self.arena.get_mut(node) {
-            n.css_id = id.clone();
-            // Dual-write: keep legacy widget state in sync.
-            n.widget.set_style_id(id);
+            n.css_id = id;
         }
     }
 
@@ -583,11 +559,6 @@ impl WidgetTree {
     pub fn update_styles(&mut self, node: NodeId, f: impl FnOnce(&mut WidgetStyles)) {
         if let Some(n) = self.arena.get_mut(node) {
             f(&mut n.styles);
-            // Dual-write: keep legacy widget styles in sync.
-            let styles_clone = n.styles.clone();
-            if let Some(w_styles) = n.widget.styles_mut() {
-                *w_styles = styles_clone;
-            }
         }
     }
 
@@ -598,57 +569,49 @@ impl WidgetTree {
         self.arena.get(node).map(|n| n.state).unwrap_or_default()
     }
 
-    /// Set the focused state of a node. Dual-writes to the legacy widget setter.
+    /// Set the focused state of a node and notify the widget.
     pub fn set_focus_state(&mut self, node: NodeId, focused: bool) {
         if let Some(n) = self.arena.get_mut(node) {
             if n.state.focused != focused {
                 let old = n.state;
                 n.state.focused = focused;
                 let new = n.state;
-                // Dual-write phase: call legacy widget setter.
-                n.widget.set_focus(focused);
                 n.widget.on_node_state_changed(old, new);
             }
         }
     }
 
-    /// Set the hovered state of a node. Dual-writes to the legacy widget setter.
+    /// Set the hovered state of a node and notify the widget.
     pub fn set_hover_state(&mut self, node: NodeId, hovered: bool) {
         if let Some(n) = self.arena.get_mut(node) {
             if n.state.hovered != hovered {
                 let old = n.state;
                 n.state.hovered = hovered;
                 let new = n.state;
-                // Dual-write phase: call legacy widget setter.
-                n.widget.set_hovered(hovered);
                 n.widget.on_node_state_changed(old, new);
             }
         }
     }
 
-    /// Set the disabled state of a node. Dual-writes to the legacy widget setter.
+    /// Set the disabled state of a node and notify the widget.
     pub fn set_disabled(&mut self, node: NodeId, disabled: bool) {
         if let Some(n) = self.arena.get_mut(node) {
             if n.state.disabled != disabled {
                 let old = n.state;
                 n.state.disabled = disabled;
                 let new = n.state;
-                // Dual-write phase: call legacy widget setter.
-                n.widget.set_disabled_state(disabled);
                 n.widget.on_node_state_changed(old, new);
             }
         }
     }
 
-    /// Set the loading state of a node. Dual-writes to the legacy widget setter.
+    /// Set the loading state of a node and notify the widget.
     pub fn set_loading(&mut self, node: NodeId, loading: bool) {
         if let Some(n) = self.arena.get_mut(node) {
             if n.state.loading != loading {
                 let old = n.state;
                 n.state.loading = loading;
                 let new = n.state;
-                // Dual-write phase: call legacy widget setter.
-                n.widget.set_loading_state(loading);
                 n.widget.on_node_state_changed(old, new);
             }
         }
@@ -729,26 +692,14 @@ impl WidgetTree {
 
     /// Build a lightweight `SelectorMeta` for a node.
     ///
-    /// Merges the widget's own `style_classes()` with the tree-level classes
-    /// added via `add_class()`.  Pseudo-class states default to inactive
-    /// (DOM queries don't evaluate `:focus`, `:hover`, etc.).
+    /// Identity comes from the node record (`css_id`, `classes`); the widget
+    /// only contributes its type identity. Pseudo-class states default to
+    /// inactive (DOM queries don't evaluate `:focus`, `:hover`, etc.).
     fn node_selector_meta(&self, node: NodeId) -> Option<SelectorMeta> {
         let n = self.arena.get(node)?;
         let type_name = n.widget.style_type().to_string();
-        // Use canonical css_id from node record; fall back to widget legacy accessor
-        // during the dual-write phase (both should be in sync).
-        let id = n
-            .css_id
-            .as_deref()
-            .or_else(|| n.widget.style_id())
-            .map(str::to_string);
-        // Merge widget-level classes with tree-level classes.
-        let mut classes: Vec<String> = n.widget.style_classes().to_vec();
-        for c in &n.classes {
-            if !classes.iter().any(|existing| existing == c) {
-                classes.push(c.clone());
-            }
-        }
+        let id = n.css_id.clone();
+        let classes: Vec<String> = n.classes.iter().cloned().collect();
         Some(SelectorMeta::new(type_name, id, classes))
     }
 
@@ -1376,9 +1327,11 @@ mod tests {
         );
         let events = tree.drain_lifecycle();
         assert_eq!(events.len(), 3);
-        assert!(events
-            .iter()
-            .all(|e| matches!(e, LifecycleEvent::Mount { .. })));
+        assert!(
+            events
+                .iter()
+                .all(|e| matches!(e, LifecycleEvent::Mount { .. }))
+        );
     }
 
     #[test]
@@ -1458,22 +1411,22 @@ mod tests {
 
     // -- DOM queries (P1-07) -------------------------------------------------
 
-    /// Widget for query tests — supports configurable type name and style id.
+    /// Widget for query tests — supports configurable type name and CSS id (via seed).
     struct QueryWidget {
         type_name: &'static str,
-        style_id: Option<String>,
+        seed: NodeSeed,
     }
 
     impl QueryWidget {
         fn new(type_name: &'static str) -> Self {
             Self {
                 type_name,
-                style_id: None,
+                seed: NodeSeed::default(),
             }
         }
 
         fn with_id(mut self, id: &str) -> Self {
-            self.style_id = Some(id.to_string());
+            self.seed.css_id = Some(id.to_string());
             self
         }
 
@@ -1493,8 +1446,8 @@ mod tests {
         fn style_type(&self) -> &'static str {
             self.type_name
         }
-        fn style_id(&self) -> Option<&str> {
-            self.style_id.as_deref()
+        fn take_node_seed(&mut self) -> NodeSeed {
+            std::mem::take(&mut self.seed)
         }
     }
 
@@ -1687,20 +1640,12 @@ mod tests {
     }
 
     impl SeededWidget {
-        fn boxed(
-            css_id: Option<&str>,
-            classes: Vec<&str>,
-            style_id: Option<&str>,
-        ) -> Box<dyn Widget> {
-            let styles = WidgetStyles {
-                style_id: style_id.map(str::to_string),
-                ..Default::default()
-            };
+        fn boxed(css_id: Option<&str>, classes: Vec<&str>) -> Box<dyn Widget> {
             Box::new(Self {
                 seed: NodeSeed {
                     css_id: css_id.map(str::to_string),
                     classes: classes.into_iter().map(str::to_string).collect(),
-                    styles,
+                    styles: WidgetStyles::default(),
                 },
             })
         }
@@ -1719,7 +1664,7 @@ mod tests {
     #[test]
     fn mount_consumes_node_seed() {
         let mut tree = WidgetTree::new();
-        let root = tree.set_root(SeededWidget::boxed(Some("my-id"), vec!["foo", "bar"], None));
+        let root = tree.set_root(SeededWidget::boxed(Some("my-id"), vec!["foo", "bar"]));
         let node = tree.get(root).unwrap();
         // css_id from seed lands on the record.
         assert_eq!(node.css_id.as_deref(), Some("my-id"));
@@ -1762,7 +1707,7 @@ mod tests {
     }
 
     #[test]
-    fn set_focus_state_dual_writes_widget() {
+    fn set_focus_state_updates_node_record() {
         let mut tree = WidgetTree::new();
         let root = tree.set_root(TestWidget::boxed("Root"));
         assert!(!tree.node_state(root).focused);

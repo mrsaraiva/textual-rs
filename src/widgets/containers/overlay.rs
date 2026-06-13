@@ -6,10 +6,7 @@ use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
 use crate::node_id::NodeId;
-use crate::widgets::{
-    helpers::fixed_height_from_constraints, NodeSeed, Spacer, Widget, WidgetRenderable,
-    WidgetStyles,
-};
+use crate::widgets::{NodeSeed, Spacer, Widget, WidgetRenderable};
 
 pub struct Overlay {
     base: Box<dyn Widget>,
@@ -320,24 +317,15 @@ impl Widget for Overlay {
         }
     }
 
-    fn styles(&self) -> Option<&WidgetStyles> {
-        Some(&self.seed.styles)
-    }
-
-    fn styles_mut(&mut self) -> Option<&mut WidgetStyles> {
-        Some(&mut self.seed.styles)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        self.seed.styles = seed.styles.clone();
-        seed
+        std::mem::take(&mut self.seed)
     }
 
     fn layout_height(&self) -> Option<usize> {
-        if let Some(fixed) = fixed_height_from_constraints(self.layout_constraints()) {
-            return Some(fixed);
-        }
         if self.visible {
             match (self.base.layout_height(), self.modal.layout_height()) {
                 (Some(base), Some(modal)) => Some(base.max(modal)),

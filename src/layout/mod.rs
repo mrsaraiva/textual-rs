@@ -220,14 +220,14 @@ pub fn resolve_layout(
     // Widgets may reserve internal chrome before child layout (for example
     // tab bars). Convert that chrome into an inset child-available region.
     let child_available = if let Some(node_ref) = tree.get(node) {
-        let (top, right, bottom, left) = node_ref.widget.tree_child_content_inset();
-        let x = available.x.saturating_add(left);
-        let y = available.y.saturating_add(top);
-        let horizontal = left.saturating_add(right);
-        let vertical = top.saturating_add(bottom);
+        let (ct, cr, cb, cl) = node_ref.widget.tree_child_content_inset();
+        let x = available.x.saturating_add(cl);
+        let y = available.y.saturating_add(ct);
+        let horizontal = cl.saturating_add(cr);
+        let vertical = ct.saturating_add(cb);
         let width = available.width.saturating_sub(horizontal);
         let height = available.height.saturating_sub(vertical);
-        Region::new(x, y, width, height)
+        Region::new(x, y, width.max(1), height.max(1))
     } else {
         available
     };

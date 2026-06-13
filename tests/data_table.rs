@@ -11,7 +11,10 @@ fn make_node_id() -> NodeId {
 }
 
 fn focused_state() -> NodeState {
-    NodeState { focused: true, ..Default::default() }
+    NodeState {
+        focused: true,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -29,7 +32,7 @@ fn data_table_renders_header_and_rows() {
             vec!["Beta".into(), "2".into()],
         ],
     );
-    table.set_focus(true);
+    table.on_node_state_changed(NodeState::default(), focused_state());
     let mut rctx = ReactiveCtx::new(NodeId::default());
     table.set_selected(1, &mut rctx);
 
@@ -49,7 +52,7 @@ fn data_table_keeps_selected_row_visible_after_large_jumps() {
         .map(|idx| vec![format!("Row {idx}"), idx.to_string()])
         .collect::<Vec<_>>();
     let mut table = DataTable::new(vec!["Name".into(), "Value".into()], rows);
-    table.set_focus(true);
+    table.on_node_state_changed(NodeState::default(), focused_state());
     let mut rctx = ReactiveCtx::new(NodeId::default());
 
     table.set_selected(19, &mut rctx);
@@ -77,7 +80,7 @@ fn data_table_fixed_rows_remain_visible_with_scrolled_selection() {
     let mut table = DataTable::new(vec!["Name".into(), "Value".into()], rows);
     let mut rctx = ReactiveCtx::new(NodeId::default());
     table.set_fixed_rows(1, &mut rctx);
-    table.set_focus(true);
+    table.on_node_state_changed(NodeState::default(), focused_state());
     table.set_selected(7, &mut rctx);
 
     let buf = FrameBuffer::from_renderable(&console, &options, &table, None);

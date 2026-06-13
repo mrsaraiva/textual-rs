@@ -215,6 +215,14 @@ impl Widget for FooterKey {
         self.render_segments()
     }
 
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.hovered = new.hovered;
+    }
+
     fn style_classes(&self) -> &[String] {
         &self.classes
     }
@@ -223,8 +231,18 @@ impl Widget for FooterKey {
         self.hovered
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        let mut seed = std::mem::take(&mut self.seed);
+        for class in &self.classes {
+            if !seed.classes.contains(class) {
+                seed.classes.push(class.clone());
+            }
+        }
+        seed
     }
 }
 
@@ -261,6 +279,10 @@ impl FooterLabel {
 impl Widget for FooterLabel {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         self.render_segments()
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -564,7 +586,9 @@ impl Footer {
                 self.hovered_item = None;
             }
         }
-        ctx.post_message(FooterBindingsUpdated { count: self.bindings.len() });
+        ctx.post_message(FooterBindingsUpdated {
+            count: self.bindings.len(),
+        });
         ctx.request_repaint();
     }
 
@@ -907,6 +931,10 @@ impl Widget for Footer {
         self.hovered_item = None;
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
@@ -957,9 +985,10 @@ mod tests {
             &mut ctx,
         );
         let messages = ctx.take_messages();
-        assert!(messages.iter().any(|m| m
-            .downcast_ref::<FooterBindingsUpdated>()
-            .map_or(false, |f| f.count == 1)));
+        assert!(messages.iter().any(|m| {
+            m.downcast_ref::<FooterBindingsUpdated>()
+                .map_or(false, |f| f.count == 1)
+        }));
     }
 
     #[test]
@@ -1020,7 +1049,13 @@ mod tests {
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
-        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 2);
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<FooterBindingsUpdated>()
+                .unwrap()
+                .count,
+            2
+        );
         assert!(focus_ctx.repaint_requested());
     }
 
@@ -1040,7 +1075,13 @@ mod tests {
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
-        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 1);
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<FooterBindingsUpdated>()
+                .unwrap()
+                .count,
+            1
+        );
     }
 
     #[test]
@@ -1058,7 +1099,13 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
-        assert_eq!(messages[0].downcast_ref::<FooterBindingsUpdated>().unwrap().count, 1);
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<FooterBindingsUpdated>()
+                .unwrap()
+                .count,
+            1
+        );
     }
 
     // ── WP-22: Footer Signal subscription + click-to-invoke ─────────────
