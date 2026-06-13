@@ -9,6 +9,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use slotmap::SlotMap;
 
@@ -30,6 +31,16 @@ pub enum QueryError {
     TooManyMatches(usize),
     /// The selector string could not be parsed.
     ParseError(String),
+    /// Typed-handle target is not mounted: node removed, handle from a
+    /// different tree (e.g. another screen), or no tree built yet.
+    Unmounted,
+    /// Typed access found a widget of a different concrete type.
+    /// `expected` is the Rust type path (`std::any::type_name`),
+    /// `actual` the widget's CSS type (`Widget::style_type`).
+    TypeMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
 }
 
 impl fmt::Display for QueryError {
@@ -38,6 +49,10 @@ impl fmt::Display for QueryError {
             QueryError::NoMatch => write!(f, "no matching nodes found"),
             QueryError::TooManyMatches(n) => write!(f, "expected 1 match, found {n}"),
             QueryError::ParseError(msg) => write!(f, "selector parse error: {msg}"),
+            QueryError::Unmounted => write!(f, "widget is not mounted (stale handle)"),
+            QueryError::TypeMismatch { expected, actual } => {
+                write!(f, "type mismatch: expected {expected}, found widget of type {actual}")
+            }
         }
     }
 }
@@ -152,6 +167,8 @@ impl WidgetNode {
 // Tree
 // ---------------------------------------------------------------------------
 
+static NEXT_TREE_ID: AtomicU64 = AtomicU64::new(1);
+
 /// Runtime-owned arena that holds the entire widget hierarchy.
 ///
 /// No `Rc`, no `RefCell`, no circular references — the `SlotMap` provides
@@ -164,6 +181,8 @@ pub struct WidgetTree {
     /// The runtime drains these after each mutation batch and dispatches the
     /// corresponding widget callbacks (`on_mount` / `on_unmount`).
     pending_lifecycle: Vec<LifecycleEvent>,
+    /// Process-unique tree identity (handles are scoped to one tree).
+    tree_id: u64,
 }
 
 impl WidgetTree {
@@ -173,7 +192,13 @@ impl WidgetTree {
             arena: SlotMap::new(),
             root: None,
             pending_lifecycle: Vec::new(),
+            tree_id: NEXT_TREE_ID.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// Process-unique identity of this tree.
+    pub fn tree_id(&self) -> u64 {
+        self.tree_id
     }
 
     // -- Accessors ----------------------------------------------------------
@@ -1739,5 +1764,34 @@ mod tests {
                 // id selectors may not be implemented in parse_selector_list yet; skip
             }
         }
+    }
+
+    // -- Step 1 (RA-4): tree_id and new QueryError variants ------------------
+
+    #[test]
+    fn tree_ids_are_unique_per_tree() {
+        let t1 = WidgetTree::new();
+        let t2 = WidgetTree::new();
+        assert_ne!(t1.tree_id(), 0, "tree_id must be non-zero");
+        assert_ne!(t2.tree_id(), 0, "tree_id must be non-zero");
+        assert_ne!(t1.tree_id(), t2.tree_id(), "different trees must have different ids");
+    }
+
+    #[test]
+    fn query_error_display_new_variants() {
+        let unmounted = QueryError::Unmounted;
+        assert_eq!(
+            unmounted.to_string(),
+            "widget is not mounted (stale handle)"
+        );
+
+        let mismatch = QueryError::TypeMismatch {
+            expected: "textual::widgets::Button",
+            actual: "Input",
+        };
+        assert_eq!(
+            mismatch.to_string(),
+            "type mismatch: expected textual::widgets::Button, found widget of type Input"
+        );
     }
 }
