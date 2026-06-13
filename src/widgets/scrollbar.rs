@@ -247,7 +247,10 @@ impl ScrollbarPolicy {
             && !matches!(self.overflow_x, Overflow::Hidden);
         let allow_v = !matches!(self.visibility, ScrollbarVisibility::Hidden)
             && !matches!(self.overflow_y, Overflow::Hidden);
-        let force_visible = matches!(self.visibility, ScrollbarVisibility::Visible);
+        let force_visible_v = matches!(self.visibility, ScrollbarVisibility::Visible)
+            || matches!(self.overflow_y, Overflow::Scroll);
+        let force_visible_h = matches!(self.visibility, ScrollbarVisibility::Visible)
+            || matches!(self.overflow_x, Overflow::Scroll);
         let force_gutter = matches!(self.gutter, ScrollbarGutter::Stable);
 
         let mut show_v = false;
@@ -271,8 +274,8 @@ impl ScrollbarPolicy {
                     0
                 })
                 .max(1);
-            let next_show_v = allow_v && (content_height > next_viewport_h || force_visible);
-            let next_show_h = allow_h && (content_width > next_viewport_w || force_visible);
+            let next_show_v = allow_v && (content_height > next_viewport_h || force_visible_v);
+            let next_show_h = allow_h && (content_width > next_viewport_w || force_visible_h);
             viewport_width = next_viewport_w;
             viewport_height = next_viewport_h;
             if next_show_v == show_v && next_show_h == show_h {

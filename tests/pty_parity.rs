@@ -185,7 +185,10 @@ const CASES: &[Case] = &[
              ScrollView overflow out of `seed.styles.style` into dedicated policy \
              fields — regresses `layout_info_sets_vertical_scroll_virtual_content_\
              in_tree_mode` because the off-tree VerticalScroll virtual-sizing path \
-             reads overflow back from `seed.styles.style`. \
+             reads overflow back from `seed.styles.style`; approach (b) now \
+             attempted after fixing those tests, but did not resolve the core \
+             issue: the hatch area remains absent because `host_content_extent` \
+             still uses layout extent. \
              CORRECT FIX (future): `host_content_extent` must use NATURAL content \
              size for `width:auto`/`height:auto` scroll children instead of layout \
              extent, so the scrollbar floors can stay AND empty `width:auto` \

@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (fix(scrollbar): `overflow: scroll` now force-shows the corresponding scrollbar)
+
+- **fix(scrollbar): split `force_visible` into `force_visible_v`/`force_visible_h`**
+  - `ScrollbarPolicy::resolve()` (`src/widgets/scrollbar.rs`) and both render paths in
+    `ScrollView::render()` (`src/widgets/containers/scroll_view.rs`) previously used a single
+    `force_visible` flag that fired only when `scrollbar-visibility: visible`. This caused
+    `overflow-y: scroll` / `overflow-x: scroll` to NOT force the corresponding scrollbar visible
+    when content was shorter than the viewport.
+  - Split into `force_visible_v = ScrollbarVisibility::Visible || Overflow::Scroll on Y` and
+    `force_visible_h = ScrollbarVisibility::Visible || Overflow::Scroll on X`. Both the
+    iterative `ScrollbarPolicy::resolve()` loop and the tree-mode / non-tree-mode inline
+    loops in `ScrollView` now use the independent flags.
+  - Effect: widgets with `overflow-y: scroll` (e.g. `RichLog`) now unconditionally show the
+    vertical scrollbar, matching Python Textual behavior.
+- **test(snapshot): update `keys_preview_layout_snapshot`**
+  - `RichLog` has `overflow-y: scroll` in its default CSS; after the scrollbar fix, it now
+    correctly shows a vertical scrollbar thumb on the initial layout. Snapshot updated via
+    `INSTA_UPDATE=always` to reflect the correct behavior (`▁▁` on row 5).
+
 ### 2026-06-13 (SPEC-RA5 Step 2: GameCell containment rewrite)
 
 - **refactor(example/five_by_five): rewrite `GameCell` via Button containment (SPEC-RA5 Step 2)**

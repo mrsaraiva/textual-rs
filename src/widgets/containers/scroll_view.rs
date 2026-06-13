@@ -694,7 +694,10 @@ impl Widget for ScrollView {
             let v_scrollbar_size = sb.v_size;
             let h_scrollbar_size = sb.h_size;
             let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
-            let force_visible = matches!(sb.visibility, ScrollbarVisibility::Visible);
+            let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
+                || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
+            let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
+                || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
             let mut show_v = false;
             let mut show_h = false;
             let mut content_viewport_w = width;
@@ -712,8 +715,8 @@ impl Widget for ScrollView {
                 let vp_h = viewport_height
                     .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
                     .max(1);
-                let next_show_v = allow_scrollbars_v && (content_h > vp_h || force_visible);
-                let next_show_h = allow_scrollbars_h && (content_w > vp_w || force_visible);
+                let next_show_v = allow_scrollbars_v && (content_h > vp_h || force_visible_v);
+                let next_show_h = allow_scrollbars_h && (content_w > vp_w || force_visible_h);
                 content_viewport_w = vp_w;
                 content_viewport_h = vp_h;
                 if next_show_v == show_v && next_show_h == show_h {
@@ -786,7 +789,10 @@ impl Widget for ScrollView {
         let v_scrollbar_size = sb.v_size;
         let h_scrollbar_size = sb.h_size;
         let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
-        let force_visible = matches!(sb.visibility, ScrollbarVisibility::Visible);
+        let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
+            || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
+        let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
+            || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
         let mut show_v = false;
         let mut show_h = false;
         let mut content_viewport_w = width;
@@ -864,8 +870,8 @@ impl Widget for ScrollView {
                 .unwrap_or(viewport_w)
                 .max(viewport_w);
             let next_show_v =
-                allow_scrollbars_v && (candidate_height > viewport_h || force_visible);
-            let next_show_h = allow_scrollbars_h && (candidate_width > viewport_w || force_visible);
+                allow_scrollbars_v && (candidate_height > viewport_h || force_visible_v);
+            let next_show_h = allow_scrollbars_h && (candidate_width > viewport_w || force_visible_h);
 
             lines = candidate;
             content_width = candidate_width;
