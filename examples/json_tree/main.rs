@@ -15,11 +15,15 @@ const FOOD_JSON: &str = include_str!("food.json");
 
 struct JsonTreeApp {
     json_data: Option<Value>,
+    tree: HandleSlot<Tree>,
 }
 
 impl JsonTreeApp {
     fn new() -> Self {
-        Self { json_data: None }
+        Self {
+            json_data: None,
+            tree: HandleSlot::new(),
+        }
     }
 }
 
@@ -40,7 +44,7 @@ impl TextualApp for JsonTreeApp {
         let tree = Tree::new(vec![TreeNode::new("Root").allow_expand(true)]);
         AppRoot::new()
             .with_child(Header::new())
-            .with_child(tree)
+            .with_child_handle(tree, &self.tree)
             .with_child(Footer::new())
     }
 
@@ -56,12 +60,14 @@ impl TextualApp for JsonTreeApp {
                 //         tree.root.expand()
                 if let Some(ref json) = self.json_data {
                     let json_clone = json.clone();
-                    let _ = app.with_query_one_mut_as::<Tree, _>("Tree", |tree| {
-                        if let Some(root) = tree.root_mut() {
-                            let json_node = root.add_child(TreeNode::new("JSON"));
-                            add_json(json_node, "JSON", &json_clone);
-                            root.expand();
-                        }
+                    let _ = self.tree.handle().and_then(|h| {
+                        h.update(app, |tree, _ctx| {
+                            if let Some(root) = tree.root_mut() {
+                                let json_node = root.add_child(TreeNode::new("JSON"));
+                                add_json(json_node, "JSON", &json_clone);
+                                root.expand();
+                            }
+                        })
                     });
                 }
                 ctx.set_handled();
@@ -69,16 +75,20 @@ impl TextualApp for JsonTreeApp {
             }
             "clear" => {
                 // Python: tree.clear() — preserves root, clears children.
-                let _ = app.with_query_one_mut_as::<Tree, _>("Tree", |tree| {
-                    tree.clear();
+                let _ = self.tree.handle().and_then(|h| {
+                    h.update(app, |tree, _ctx| {
+                        tree.clear();
+                    })
                 });
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "toggle_root" => {
                 // Python: tree.show_root = not tree.show_root
-                let _ = app.with_query_one_mut_as::<Tree, _>("Tree", |tree| {
-                    tree.toggle_show_root();
+                let _ = self.tree.handle().and_then(|h| {
+                    h.update(app, |tree, _ctx| {
+                        tree.toggle_show_root();
+                    })
                 });
                 ctx.set_handled();
                 ctx.request_repaint();
