@@ -7,6 +7,48 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-13 (SPEC-RA3 Steps 1-6: Signals-first reactive framework additions)
+
+- **feat(reactive): ReactiveCtx invalidation-request API (G2b)**
+  - `ReactiveCtx` gains `styles_requested` field and `request_repaint()`,
+    `request_layout()`, `request_styles()`, `needs_styles()` methods for watcher
+    side-effect signalling without recording a field change.
+  - `reset_flags()`/`clear_flags()` clear the new `styles_requested` flag.
+
+- **feat(reactive): ReactiveWidget trait additions — `reactive_dispatch_with_app` and `reactive_record_init` (G1/G3)**
+  - `reactive_dispatch_with_app`: like `reactive_dispatch` but receives `&mut App`,
+    enabling watchers to query/mutate widgets (Python watcher parity). Default
+    delegates to `reactive_dispatch` so existing code needs no change.
+  - `reactive_record_init`: records synthetic old==new changes for all init=true
+    fields at mount, mirroring Python's `Reactive._initialize_object`.
+
+- **feat(reactive): Python-parity `var()` init default flip + `var_no_init()` (G4)**
+  - `ReactiveFlags::var()` now has `init: true` (was `false`). Matches Python
+    `var` default (`init=True`, `reactive.py:489`).
+  - Added `ReactiveFlags::var_no_init()` constructor for explicit init opt-out.
+
+- **feat(macros): derive macro — `watch_with_app`, `#[var(...)]` args, `reactive_record_init` codegen (G1/G3/G4)**
+  - `#[reactive(watch_with_app)]` — watcher receives `&mut App`; triggers override
+    of `reactive_dispatch_with_app` in the generated impl.
+  - `#[var]` now accepts arguments: `watch`, `watch_with_app`, `init = false`.
+  - `reactive_dispatch` dispatches only plain `watch` arms; `reactive_dispatch_with_app`
+    dispatches both plain and `watch_with_app` arms.
+  - `reactive_record_init` generated for any struct with init=true fields.
+  - `flags_expr` uses `var_no_init()` for `#[var(init = false)]`.
+
+- **feat(app-bridge): iterative dispatch + init-phase watcher firing (G2/G3)**
+  - `dispatch_app_reactive` replaced with a bounded iterative loop
+    (up to `MAX_REACTIVE_ITERATIONS`) that calls `reactive_dispatch_with_app` and
+    feeds chained watcher changes back for re-processing. Cycle guard matches
+    widget-level `run_reactive_phase_with_dispatch`.
+  - `on_app_mount` now calls `reactive_record_init` + `dispatch_app_reactive`
+    **before** `on_mount_with_app`, matching Python's init-phase ordering.
+  - `needs_styles()` from the dispatch ctx propagates to `EventCtx::request_style_invalidation`.
+
+- **feat(prelude): reactive types exported from `textual::prelude`**
+  - `ReactiveChange`, `ReactiveCtx`, `ReactiveFlags`, `ReactiveWidget`, and the
+    `Reactive` derive macro are now re-exported from `textual::prelude`.
+
 ### 2026-06-13 (RA-2 complete: behavior-only Widget trait — BREAKING)
 
 - **refactor(core)!: the arena node record is the sole owner of widget identity/style/state**

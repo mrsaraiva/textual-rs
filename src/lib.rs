@@ -72,8 +72,10 @@ pub mod prelude {
         run_layout_pass,
     };
     pub use crate::screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
+    pub use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
     pub use crate::signal::{Signal, SignalResponse};
     pub use crate::style::{Color, Style, Theme};
+    pub use textual_macros::Reactive;
     pub use crate::textual_app::{
         OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,
         run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_textual_app,
