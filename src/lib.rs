@@ -13,6 +13,7 @@ pub mod demo_snapshot;
 pub mod driver;
 mod error;
 pub mod event;
+pub mod handle;
 pub mod keys;
 pub mod layout;
 pub mod message;
@@ -33,6 +34,7 @@ pub mod worker;
 
 pub use error::{Error, Result};
 pub use event::BindingHint;
+pub use handle::{Handle, HandleSlot};
 pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use reactive::ReactiveCtx;
@@ -55,6 +57,7 @@ pub mod prelude {
     pub use crate::action::{ActionDecl, ActionHandler, ParsedAction, parse_action};
     pub use crate::animation::{Animator, animation_level_from_env};
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
+    pub use crate::handle::{Handle, HandleSink, HandleSlot};
     pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
     pub use crate::debug::DebugLayout;
     pub use crate::event::{

@@ -68,6 +68,8 @@ pub struct ChildDecl {
     pub(crate) id: Option<String>,
     /// Initial CSS classes (set via `.with_classes()`).
     pub(crate) classes: Vec<String>,
+    /// Sink fired with the mounted node's identity (set via `HandleSlot::bind`).
+    pub(crate) handle_sink: Option<crate::handle::HandleSink>,
 }
 
 impl ChildDecl {
@@ -78,6 +80,7 @@ impl ChildDecl {
             children: Vec::new(),
             id: None,
             classes: Vec::new(),
+            handle_sink: None,
         }
     }
 
@@ -110,6 +113,7 @@ impl std::fmt::Debug for ChildDecl {
             .field("children", &self.children.len())
             .field("id", &self.id)
             .field("classes", &self.classes)
+            .field("handle_sink", &self.handle_sink.is_some())
             .finish()
     }
 }
