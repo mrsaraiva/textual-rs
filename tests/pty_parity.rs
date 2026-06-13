@@ -151,6 +151,84 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // ---- Phase 1A: interactive docs/examples (separate workspace, docs_ prefix) ----
+    // Built from docs/examples/ and located in its target dir. Goldens generated
+    // from the Python docs examples (../textual/docs/examples/widgets/<name>.py).
+    // Start as XFail "unverified"; promote each to Pass once confirmed matching.
+    Case {
+        name: "docs_text_area_extended",
+        example: "text_area_extended",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_content_switcher",
+        example: "content_switcher",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "Initial-frame layout mismatch: Rust renders the ContentSwitcher tab \
+             bar + panes; the Python golden's initial content differs (initial \
+             active-pane/alignment). Needs content-switcher initial-render triage.",
+        ),
+    },
+    Case {
+        name: "docs_data_table",
+        example: "data_table",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "DataTable row/layout rendering differs from Python (golden shows the \
+             full swimmer table with aligned columns; Rust output diverges in row \
+             content/spacing). Real rendering gap.",
+        ),
+    },
+    Case {
+        name: "docs_selection_list_selected",
+        example: "selection_list_selected",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "Two gaps: (1) app title 'textual-rs' vs Python 'SelectionListApp' \
+             (example should set TITLE); (2) SelectionList bordered-panel layout \
+             (two side-by-side bordered panels with titles) renders differently.",
+        ),
+    },
+    Case {
+        name: "docs_select_widget",
+        example: "select_widget",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "Two gaps: (1) app title 'textual-rs' vs Python 'SelectApp' (example \
+             should set TITLE); (2) the Select overlay box horizontal position/ \
+             alignment differs from Python (centered vs left).",
+        ),
+    },
+    Case {
+        name: "docs_tabs",
+        example: "tabs",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::XFail(
+            "Two gaps: (1) Footer binding row ('a Add tab  r Remove active tab  \
+             c Clear tabs') is missing in Rust; (2) tab content area height differs \
+             by one row. Real footer + layout gaps.",
+        ),
+    },
     Case {
         name: "code_browser_initial",
         example: "code_browser",
@@ -205,24 +283,52 @@ fn ensure_examples_built() {
     static BUILD: Once = Once::new();
     BUILD.call_once(|| {
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-        let status = std::process::Command::new(cargo)
+        let status = std::process::Command::new(&cargo)
             .args(["build", "--examples"])
             .current_dir(repo_root())
             .status()
             .expect("failed to spawn cargo build --examples");
         assert!(status.success(), "cargo build --examples failed");
+
+        // The docs examples live in a separate workspace (docs/examples/) with
+        // its own target dir; build them too so `docs_*` parity cases can run.
+        let docs_status = std::process::Command::new(&cargo)
+            .args(["build", "--workspace", "--examples", "--keep-going"])
+            .current_dir(repo_root().join("docs/examples"))
+            .status()
+            .expect("failed to spawn docs/examples build");
+        assert!(docs_status.success(), "docs/examples build failed");
     });
 }
 
-fn example_binary(example: &str) -> PathBuf {
-    // Tests and examples share the same profile directory; the test binary
-    // lives in target/<profile>/deps/, examples in target/<profile>/examples/.
-    let mut dir = std::env::current_exe().expect("current_exe");
-    dir.pop(); // strip test binary name
-    if dir.ends_with("deps") {
-        dir.pop();
-    }
-    let bin = dir.join("examples").join(example);
+/// Resolve the profile dir name (debug/release) from the running test binary.
+fn profile_dir_name() -> String {
+    let exe = std::env::current_exe().expect("current_exe");
+    // .../target/<profile>/deps/<test-bin>
+    exe.parent()
+        .and_then(|p| if p.ends_with("deps") { p.parent() } else { Some(p) })
+        .and_then(|p| p.file_name())
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "debug".to_string())
+}
+
+fn example_binary(case: &Case) -> PathBuf {
+    let bin = if case.name.starts_with("docs_") {
+        // Docs examples build into the separate docs/examples workspace target.
+        repo_root()
+            .join("docs/examples/target")
+            .join(profile_dir_name())
+            .join("examples")
+            .join(case.example)
+    } else {
+        // Main-crate examples share the test binary's profile dir.
+        let mut dir = std::env::current_exe().expect("current_exe");
+        dir.pop(); // strip test binary name
+        if dir.ends_with("deps") {
+            dir.pop();
+        }
+        dir.join("examples").join(case.example)
+    };
     assert!(
         bin.exists(),
         "example binary missing after build: {}",
@@ -284,7 +390,7 @@ fn wait_for_stable(parser: &Arc<Mutex<vt100::Parser>>, label: &str) -> String {
 
 fn run_case(case: &Case) -> String {
     ensure_examples_built();
-    let bin = example_binary(case.example);
+    let bin = example_binary(case);
 
     let pty = native_pty_system()
         .openpty(PtySize {
@@ -440,6 +546,12 @@ pty_case!(five_by_five_initial, "five_by_five_initial");
 pty_case!(five_by_five_after_move, "five_by_five_after_move");
 pty_case!(five_by_five_help, "five_by_five_help");
 pty_case!(json_tree_toggle_root, "json_tree_toggle_root");
+pty_case!(docs_content_switcher, "docs_content_switcher");
+pty_case!(docs_data_table, "docs_data_table");
+pty_case!(docs_selection_list_selected, "docs_selection_list_selected");
+pty_case!(docs_select_widget, "docs_select_widget");
+pty_case!(docs_tabs, "docs_tabs");
+pty_case!(docs_text_area_extended, "docs_text_area_extended");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
