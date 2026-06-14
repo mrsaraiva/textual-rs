@@ -172,18 +172,21 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "Active pane now RENDERS (fixed: Node arena-child sizing + \
-             ContentSwitcher child_ids visibility) with the round border + fill \
-             (example CSS ported from content_switcher.tcss). Remaining gap is \
-             alignment fundamentals: (1) buttons Horizontal needs `#buttons { \
-             width: auto }` to shrink so `Screen { align: center middle }` can \
-             position it next to the switcher — but a `width: auto` Node-wrapped \
-             container currently flex-fills instead of measuring its arena child \
-             bottom-up (Node::content_width returns None post-extraction); (2) the \
-             `height: 1fr` ContentSwitcher under `align: center middle` is sized \
-             to content and vertically centered (rows 16-29) instead of filling \
-             from row 5. Needs 1fr-under-align fill + bottom-up auto-size arena \
-             measurement; finicky layout work, deferred.",
+            "Mostly parity. FIXED: active pane renders (Node arena-child sizing + \
+             ContentSwitcher child_ids visibility), round border + fill (CSS ported \
+             from content_switcher.tcss), and vertical layout — buttons height:3 \
+             + ContentSwitcher height:1fr now fills rows 4-29 (the Horizontal \
+             default is height:1fr, so it must be pinned or it splits 50/50). \
+             Remaining (2 framework gaps, both regression-prone foundational work): \
+             (1) buttons sit at col 1 not col 7 — needs `Horizontal { width: auto }` \
+             which requires BOTTOM-UP intrinsic measurement of auto-size drained \
+             containers (they currently report content_width=None -> flex-fill to \
+             full width) PLUS block-wise (single-offset) cross-axis align in \
+             apply_parent_align (currently centers each child independently); the \
+             two are coupled. (2) DataTable columns don't expand to fill the pane \
+             width (Rust table ~26 wide vs golden filling ~104). Deferred: these \
+             are core layout-engine features with broad blast radius, not example \
+             tweaks.",
         ),
     },
     Case {
