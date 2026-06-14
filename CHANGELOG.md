@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (chore(deps): rich-rs 1.1.1; move Pretty quote fix into the engine)
+
+- **chore(deps): bump `rich-rs` to 1.1.1**
+  - Updates the dependency across the crate and all `docs/examples` workspaces. rich-rs 1.1.1
+    renders pretty-printed strings in Python `repr` style (single quotes) at the printer level,
+    plus a `Progress` `max_refresh` parity fix and `Columns`/`Measurement` improvements.
+- **refactor(Pretty): drop the local quote normalizer**
+  - `Pretty::debug_str()` (`src/widgets/pretty.rs`) no longer rewrites Rust `Debug` double quotes
+    to single quotes — that now happens in the `rich-rs` pretty printer (single source of truth).
+    `debug_str()` returns the raw debug output again; the single-quoted rendering is verified by
+    the `docs_selection_list_selected` PTY parity case and rich-rs's own tests.
+
 ### 2026-06-14 (fix(SelectionList/Pretty): toggle glyph, auto-height chrome, Python-repr quotes)
 
 - **fix(SelectionList): toggle button always renders the `X` glyph**
