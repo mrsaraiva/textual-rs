@@ -35,6 +35,13 @@ comedic genre films directed by Edgar Wright.
 "#;
 
 // Ported from Python's `content_switcher.tcss`.
+//
+// `Horizontal { height: 3 }` mirrors Python's `#buttons { height: 3 }` (the
+// buttons are the only Horizontal here). It overrides the Horizontal default
+// (`height: 1fr`) so the buttons row does not compete as a flex edge with the
+// ContentSwitcher's `1fr` (which would split the screen 50/50).
+// NOTE: the textual CSS parser does not support `/* */` comments — keep this
+// stylesheet comment-free.
 const CSS: &str = r#"
 Screen {
     align: center middle;
@@ -42,7 +49,7 @@ Screen {
 }
 
 Horizontal {
-    height: auto;
+    height: 3;
 }
 
 ContentSwitcher {
