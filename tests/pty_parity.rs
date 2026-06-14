@@ -178,24 +178,17 @@ const CASES: &[Case] = &[
         ),
     },
     Case {
+        // Fixed: DataTable cell-padding (Python cell_padding=1 leading space) +
+        // content_width + scroll_virtual_content_size (no spurious scrollbar).
+        // Matches Python; 26 data_table unit tests green; snapshot legitimately
+        // updated to reflect the corrected padding.
         name: "docs_data_table",
         example: "data_table",
         args: &[],
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "DataTable rendering, 3 diagnosed bugs (agent; fix reverted because it \
-             re-blessed a snapshot + risked unit-test regression — redo carefully): \
-             (1) emit_row_per_cell omits the leading cell-padding space (Python \
-             cell_padding=1 renders [1sp]cell[2sp]cell…); (2) content_width() \
-             doesn't include that padding, so layout allocates one col too few and \
-             truncates the 'time' column; (3) scroll_virtual_content_size() returns \
-             content_height seeded from the full PTY viewport, triggering a spurious \
-             vertical scrollbar in apply_host_scrollbar_layout that steals 2 cols + \
-             1 row (hides a row, truncates 'time'->'tim'). The scrollbar floor \
-             interaction is the same family as code_browser_initial.",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "docs_selection_list_selected",

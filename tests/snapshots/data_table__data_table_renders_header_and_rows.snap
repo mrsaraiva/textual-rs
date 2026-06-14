@@ -1,11 +1,11 @@
 ---
 source: tests/data_table.rs
-assertion_line: 24
+assertion_line: 40
 expression: buf.debug_dump()
 ---
 lines:
-0: "Name   Value    "
-1: "Alpha  1        "
-2: "Beta   2        "
+0: " Name   Value   "
+1: " Alpha  1       "
+2: " Beta   2       "
 3: "                "
 meta:

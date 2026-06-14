@@ -1,12 +1,13 @@
-use rich_rs::{Segment, Segments};
-use textual::message::{DataTableCellActivated, DataTableCursorMoved, DataTableHeaderSelected};
 use textual::prelude::*;
-use textual::style::{Color, parse_color_like};
 
 /// Mirrors Python Textual's `docs/examples/widgets/data_table.py`.
-struct DataTableApp;
+struct TableApp;
 
-impl TextualApp for DataTableApp {
+impl TextualApp for TableApp {
+    fn title(&self) -> &'static str {
+        "TableApp"
+    }
+
     fn compose(&mut self) -> AppRoot {
         let mut table = DataTable::empty();
         table.add_columns(&["lane", "swimmer", "country", "time"]);
@@ -21,76 +22,7 @@ impl TextualApp for DataTableApp {
             &["1", "Aleksandr Sadovnikov", "Russia", "51.84"],
             &["10", "Darren Burns", "Scotland", "51.84"],
         ]);
-
-        let status_line = Styled::new(
-            StatusLine::new(),
-            Style::new()
-                .line_pad(1)
-                .bg(parse_color_like("$panel").unwrap_or(Color::parse("#303a43").unwrap()))
-                .border_top(Color::parse("#44cc44").unwrap())
-                .border_right(Color::parse("#44cc44").unwrap())
-                .border_bottom(Color::parse("#44cc44").unwrap())
-                .border_left(Color::parse("#44cc44").unwrap()),
-        );
-
-        AppRoot::new().with_child(
-            Dock::new()
-                .push_fill(ScrollView::new(table))
-                .push_bottom(Some(3), status_line),
-        )
-    }
-
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        let text = if let Some(DataTableCursorMoved { row, column }) =
-            message.downcast_ref::<DataTableCursorMoved>()
-        {
-            format!("cursor=({row},{column})")
-        } else if let Some(DataTableHeaderSelected { column }) =
-            message.downcast_ref::<DataTableHeaderSelected>()
-        {
-            format!("header=({column})")
-        } else if let Some(DataTableCellActivated { row, column }) =
-            message.downcast_ref::<DataTableCellActivated>()
-        {
-            format!("activated=({row},{column})")
-        } else {
-            return;
-        };
-        let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status_line| {
-            status_line.set_text(text);
-        });
-        ctx.request_repaint();
-        ctx.set_handled();
-    }
-}
-
-struct StatusLine {
-    text: String,
-}
-
-impl StatusLine {
-    fn new() -> Self {
-        Self {
-            text: String::new(),
-        }
-    }
-
-    fn set_text(&mut self, text: String) {
-        self.text = text;
-    }
-}
-
-impl Widget for StatusLine {
-    fn style_type(&self) -> &'static str {
-        "StatusLine"
-    }
-
-    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let line = rich_rs::set_cell_size(&format!("Events: {}", self.text), width);
-        let mut out = Segments::new();
-        out.push(Segment::new(line));
-        out
+        AppRoot::new().with_child(table)
     }
 }
 
@@ -98,5 +30,5 @@ fn main() -> Result<()> {
     if cfg!(test) {
         return Ok(());
     }
-    run_sync(DataTableApp)
+    run_sync(TableApp)
 }

@@ -588,6 +588,8 @@ impl DataTable {
         if width == 0 {
             return false;
         }
+        // Columns start after the leading CELL_PADDING space.
+        let usable = width.saturating_sub(CELL_PADDING);
         let columns = self.rendered_column_indices_with_offset(offset);
         let mut pos = 0usize;
         for (idx, col) in columns.iter().enumerate() {
@@ -598,7 +600,8 @@ impl DataTable {
             let start = pos;
             let end = start.saturating_add(col_width);
             if *col == column {
-                return start < width && end > 0;
+                // Fully visible: column starts within usable space and ends within it.
+                return start < usable && end <= usable;
             }
             pos = end;
         }
@@ -642,6 +645,8 @@ impl DataTable {
         if rendered_columns.is_empty() {
             return 0;
         }
+        // Adjust for leading CELL_PADDING space.
+        let x = x.saturating_sub(CELL_PADDING);
         let mut pos = 0usize;
         for (idx, col) in rendered_columns.iter().enumerate() {
             if idx > 0 {
@@ -1695,7 +1700,11 @@ impl Widget for DataTable {
         let widths = self.column_widths();
         let cells_width = widths.iter().copied().sum::<usize>();
         let gaps_width = columns.saturating_sub(1).saturating_mul(2);
-        let content_width = cells_width.saturating_add(gaps_width).max(1);
+        // Add CELL_PADDING for the leading 1-space left pad (matches Python DataTable.cell_padding=1).
+        let content_width = cells_width
+            .saturating_add(gaps_width)
+            .saturating_add(CELL_PADDING)
+            .max(1);
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
         let padding = resolved.effective_padding();
@@ -1751,12 +1760,17 @@ impl Widget for DataTable {
 
     fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
         let width = self.content_width as usize;
-        let height = self.content_height as usize;
+        // Use layout_height() for virtual height so that the scrollbar policy
+        // does not see an inflated height from the seed on_layout call (which uses
+        // the full viewport height) and incorrectly reserve a vertical scrollbar lane.
+        // DataTable manages its own row offset internally; the virtual content height
+        // equals the number of rendered rows (header + data), not the seed viewport.
+        let virtual_h = self.layout_height().unwrap_or(1).max(1);
         if let Some(state) = self.horizontal_scrollbar_state(width) {
-            Some((state.content_width.max(1), height.max(1)))
+            Some((state.content_width.max(1), virtual_h))
         } else {
             let content_w = self.content_width().unwrap_or(width.max(1)).max(1);
-            Some((content_w, height.max(1)))
+            Some((content_w, virtual_h))
         }
     }
 }
@@ -1766,6 +1780,10 @@ impl Renderable for DataTable {
         Widget::render(self, console, options)
     }
 }
+
+/// Cell padding: 1 space on each side of each cell, matching Python DataTable.cell_padding = 1.
+/// Visual layout: [1 space][cell][2 spaces][cell][2 spaces]...[cell][fill to total_width]
+const CELL_PADDING: usize = 1;
 
 /// Emit a row where each cell can have a different style determined by `style_for_col`.
 fn emit_row_per_cell(
@@ -1777,10 +1795,20 @@ fn emit_row_per_cell(
     gap_style: rich_rs::Style,
     out: &mut Segments,
 ) {
+    if rendered_columns.is_empty() {
+        if total_width > 0 {
+            out.push(Segment::styled(" ".repeat(total_width), gap_style));
+        }
+        return;
+    }
     let mut used = 0usize;
+    // Leading space (left pad of first cell).
+    out.push(Segment::styled(" ".repeat(CELL_PADDING), gap_style));
+    used += CELL_PADDING;
     for (i, col_idx) in rendered_columns.iter().copied().enumerate() {
         let col_w = column_widths.get(col_idx).copied().unwrap_or(0);
         if i > 0 {
+            // Inter-cell gap = right pad of previous + left pad of next = 2 spaces.
             out.push(Segment::styled("  ", gap_style));
             used += 2;
         }
@@ -1789,7 +1817,7 @@ fn emit_row_per_cell(
         out.push(Segment::styled(cell_text, style_for_col(col_idx)));
         used += col_w;
     }
-    // Pad remainder to full width.
+    // Pad remainder to full width (absorbs trailing right-pad of last cell).
     if used < total_width {
         out.push(Segment::styled(" ".repeat(total_width - used), gap_style));
     }
@@ -1869,13 +1897,15 @@ mod tests {
         table.on_mouse_move(0, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
 
-        table.on_mouse_move(4, 0);
+        // With cell_padding=1, col0 occupies render x=1..4. x=5 maps to x_adj=4 which is
+        // past col0's end (4), landing in col1.
+        table.on_mouse_move(5, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
 
         table.on_mouse_move(0, 1);
         assert_eq!(table.hover_coordinate, Some((0, 0)));
 
-        table.on_mouse_move(4, 2);
+        table.on_mouse_move(5, 2);
         assert_eq!(table.hover_coordinate, Some((1, 1)));
     }
 
@@ -1900,13 +1930,14 @@ mod tests {
             vec![vec!["x".into(), "y".into()]],
         );
 
-        // First header uses two display cells; x=0..1 should still map to col 0.
+        // First header uses two display cells; x=0..2 should still map to col 0.
         table.on_mouse_move(0, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
-        table.on_mouse_move(1, 0);
+        table.on_mouse_move(2, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
-        // x=2 enters the inter-column gap, x=3 reaches second column.
-        table.on_mouse_move(3, 0);
+        // With cell_padding=1, col0 occupies render x=1..3 (width=3, x_adj=0..2).
+        // x=4 maps to x_adj=3 which is past col0's end, entering col1.
+        table.on_mouse_move(4, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
     }
 
@@ -1927,9 +1958,10 @@ mod tests {
         );
         table.on_mouse_move(0, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
-        table.on_mouse_move(3, 0);
-        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
         table.on_mouse_move(4, 0);
+        assert_eq!(table.hover_coordinate, Some((usize::MAX, 0)));
+        // With cell_padding=1, x=5 maps to x_adj=4 which is past col0's end (4), landing in col1.
+        table.on_mouse_move(5, 0);
         assert_eq!(table.hover_coordinate, Some((usize::MAX, 1)));
     }
 
@@ -2016,12 +2048,14 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<DataTableHeaderSelected>());
+        // With cell_padding=1, the scroll offset adjusts so C3 (cursor target) is fully visible.
+        // C2 is scrolled past. x=4 falls past C0 and lands in C3 (the next visible scrolled column).
         assert_eq!(
             messages[0]
                 .downcast_ref::<DataTableHeaderSelected>()
                 .unwrap()
                 .column,
-            2
+            3
         );
     }
 
