@@ -172,9 +172,18 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "Initial-frame layout mismatch: Rust renders the ContentSwitcher tab \
-             bar + panes; the Python golden's initial content differs (initial \
-             active-pane/alignment). Needs content-switcher initial-render triage.",
+            "Active pane now RENDERS (fixed: Node arena-child sizing + \
+             ContentSwitcher child_ids visibility) with the round border + fill \
+             (example CSS ported from content_switcher.tcss). Remaining gap is \
+             alignment fundamentals: (1) buttons Horizontal needs `#buttons { \
+             width: auto }` to shrink so `Screen { align: center middle }` can \
+             position it next to the switcher — but a `width: auto` Node-wrapped \
+             container currently flex-fills instead of measuring its arena child \
+             bottom-up (Node::content_width returns None post-extraction); (2) the \
+             `height: 1fr` ContentSwitcher under `align: center middle` is sized \
+             to content and vertically centered (rows 16-29) instead of filling \
+             from row 5. Needs 1fr-under-align fill + bottom-up auto-size arena \
+             measurement; finicky layout work, deferred.",
         ),
     },
     Case {

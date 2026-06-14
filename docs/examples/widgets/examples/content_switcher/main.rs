@@ -34,9 +34,21 @@ comedic genre films directed by Edgar Wright.
 | Mint | 2013-07-19 | Edgar Wright |
 "#;
 
+// Ported from Python's `content_switcher.tcss`.
 const CSS: &str = r#"
+Screen {
+    align: center middle;
+    padding: 1;
+}
+
 Horizontal {
     height: auto;
+}
+
+ContentSwitcher {
+    border: round $primary;
+    width: 90%;
+    height: 1fr;
 }
 "#;
 
