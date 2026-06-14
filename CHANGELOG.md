@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (feat(layout): block-wise align + bottom-up auto-size container measurement)
+
+- **feat(layout): `align` translates the whole arrangement by a single offset (block centering)**
+  - `apply_parent_align` (`src/layout/mod.rs`) centered each child independently on the cross
+    axis. It now computes one bounding box over all (margin-grown) children and applies a single
+    `dx`/`dy` to every child, matching Python Textual's `_arrange.py`
+    (`WidgetPlacement.get_bounds` + `Styles._align_size` → one `placement_offset`). Children keep
+    their relative positions, so e.g. a narrow buttons row and a wide content box both shift to the
+    same left edge instead of each being centered separately. (Margin-grown bounds retained.)
+- **feat(layout): bottom-up intrinsic measurement for explicitly auto-sized drained containers**
+  - A container whose renderable children are drained into the arena tree reports
+    `content_width()`/`layout_height()` == `None`, so `width: auto`/`height: auto` was treated as a
+    flex edge (filled its slot) instead of sizing to content. `src/layout/common.rs` adds
+    `measure_intrinsic_content_width`/`_height` (sum children's outer extents along the layout axis,
+    max across; `fr` children contribute their min, matching Python `get_content_*`), wired into
+    `layout_horizontal`/`layout_vertical` ONLY when the dimension is explicitly `Scalar::Auto`
+    (an UNSET dimension keeps flex-fill, so `Screen` and default `1fr` containers are unaffected —
+    narrow blast radius).
+- **test(parity): promote `docs_content_switcher` to `Status::Pass`**
+  - With the above (plus the earlier Node/ContentSwitcher fixes and the ported example CSS), the
+    `content_switcher` docs example matches the Python golden: buttons + switcher block-aligned, the
+    active DataTable filling the rounded `1fr` ContentSwitcher box.
+
 ### 2026-06-14 (fix(layout): Node/ContentSwitcher arena-child sizing + visibility)
 
 - **fix(containers/Node): report the real arena child's size after extraction**

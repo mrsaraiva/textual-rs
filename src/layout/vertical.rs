@@ -2,7 +2,10 @@ use crate::node_id::NodeId;
 use crate::style::BoxSizing;
 use crate::widget_tree::WidgetTree;
 
-use super::common::{ChildSpec, extract_child_spec, get_node_style};
+use super::common::{
+    ChildSpec, extract_child_spec, get_node_style, measure_intrinsic_content_height,
+    measure_intrinsic_content_width,
+};
 use super::region::Region;
 use super::resolve_1d::{Edge, layout_resolve_1d};
 pub fn layout_vertical(
@@ -89,14 +92,32 @@ pub fn layout_vertical(
             node.widget.on_layout(seed_content_w.max(1), seed_content_h);
         }
 
-        let intrinsic_height = tree
+        let mut intrinsic_height = tree
             .get(child)
             .and_then(|node| node.widget.layout_height())
             .and_then(|h| u16::try_from(h).ok());
-        let intrinsic_width = tree
+        let mut intrinsic_width = tree
             .get(child)
             .and_then(|node| node.widget.content_width())
             .and_then(|w| u16::try_from(w).ok());
+
+        // Bottom-up intrinsic measurement for EXPLICITLY auto-sized containers
+        // whose renderable children were drained into the arena tree
+        // (`content_width()`/`layout_height()` == None). Only an explicit
+        // `width: auto` / `height: auto` opts in — an UNSET dimension (None)
+        // keeps the prior flex-fill behaviour so default `1fr` containers and
+        // the Screen still fill. This narrows the blast radius to deliberately
+        // author-marked `auto` containers.
+        let width_is_explicit_auto =
+            matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
+        let height_is_explicit_auto =
+            matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
+        if intrinsic_width.is_none() && width_is_explicit_auto {
+            intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
+        }
+        if intrinsic_height.is_none() && height_is_explicit_auto {
+            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport);
+        }
         let mut spec = extract_child_spec(
             &style,
             available.width,

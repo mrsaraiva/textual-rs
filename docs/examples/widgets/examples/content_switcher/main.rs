@@ -50,6 +50,7 @@ Screen {
 
 Horizontal {
     height: 3;
+    width: auto;
 }
 
 ContentSwitcher {
@@ -103,7 +104,9 @@ impl TextualApp for ContentSwitcherApp {
         let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
             table.add_columns(["Book", "Year"]);
             for (title, year) in &books {
-                table.add_row(vec![title.to_string(), year.to_string()]);
+                // Mirror Python's `title.ljust(35)` so the "Book" column
+                // content-width matches the reference snapshot.
+                table.add_row(vec![format!("{:<35}", title), year.to_string()]);
             }
         });
     }

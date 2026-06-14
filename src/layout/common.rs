@@ -226,6 +226,203 @@ pub(crate) fn extract_child_spec(
     }
 }
 
+/// Bottom-up intrinsic measurement for auto-sized containers.
+///
+/// A container that had its renderable children drained into the arena tree by
+/// `take_composed_children` reports `content_width()`/`layout_height()` == None,
+/// because the widget itself no longer holds content to measure. For
+/// EXPLICITLY auto-sized containers this means `extract_child_spec` would treat
+/// them as a flex edge (fill) instead of sizing them to their content.
+///
+/// These helpers reconstruct the intrinsic CONTENT size from the node's arena
+/// children, mirroring Python `Widget.get_content_width`/`get_content_height`
+/// (which sum/max child outer sizes according to the layout axis). Fractional
+/// (`fr`) children contribute their minimum size, not a fill — Python's
+/// content-size measurement uses each child's minimum on the flex axis.
+///
+/// The returned value is PURE CONTENT width/height (chrome added by the caller
+/// via `extract_child_spec`'s `full_h_chrome`/margin handling), so it slots
+/// directly into the `intrinsic_width`/`intrinsic_height` parameters.
+pub(crate) fn measure_intrinsic_content_width(
+    tree: &WidgetTree,
+    node: NodeId,
+    viewport: (u16, u16),
+) -> Option<u16> {
+    let node_ref = tree.get(node)?;
+    // Prefer the widget's own report when available.
+    if let Some(w) = node_ref
+        .widget
+        .content_width()
+        .and_then(|w| u16::try_from(w).ok())
+    {
+        return Some(w);
+    }
+    let children: Vec<NodeId> = tree.children(node).to_vec();
+    if children.is_empty() {
+        return None;
+    }
+    let style = get_node_style(tree, node);
+    let layout = style.layout.unwrap_or(crate::style::Layout::Vertical);
+
+    let mut horizontal_sum: u16 = 0;
+    let mut vertical_max: u16 = 0;
+    let mut any = false;
+    for child in children {
+        let Some(child_ref) = tree.get(child) else {
+            continue;
+        };
+        if !child_ref.display {
+            continue;
+        }
+        let child_style = get_node_style(tree, child);
+        if child_style.display == Some(crate::style::Display::None) {
+            continue;
+        }
+        let outer = measure_child_outer_width(tree, child, &child_style, viewport);
+        any = true;
+        horizontal_sum = horizontal_sum.saturating_add(outer);
+        vertical_max = vertical_max.max(outer);
+    }
+    if !any {
+        return None;
+    }
+    Some(match layout {
+        crate::style::Layout::Horizontal => horizontal_sum,
+        _ => vertical_max,
+    })
+}
+
+pub(crate) fn measure_intrinsic_content_height(
+    tree: &WidgetTree,
+    node: NodeId,
+    viewport: (u16, u16),
+) -> Option<u16> {
+    let node_ref = tree.get(node)?;
+    if let Some(h) = node_ref
+        .widget
+        .layout_height()
+        .and_then(|h| u16::try_from(h).ok())
+    {
+        return Some(h);
+    }
+    let children: Vec<NodeId> = tree.children(node).to_vec();
+    if children.is_empty() {
+        return None;
+    }
+    let style = get_node_style(tree, node);
+    let layout = style.layout.unwrap_or(crate::style::Layout::Vertical);
+
+    let mut vertical_sum: u16 = 0;
+    let mut horizontal_max: u16 = 0;
+    let mut any = false;
+    for child in children {
+        let Some(child_ref) = tree.get(child) else {
+            continue;
+        };
+        if !child_ref.display {
+            continue;
+        }
+        let child_style = get_node_style(tree, child);
+        if child_style.display == Some(crate::style::Display::None) {
+            continue;
+        }
+        let outer = measure_child_outer_height(tree, child, &child_style, viewport);
+        any = true;
+        vertical_sum = vertical_sum.saturating_add(outer);
+        horizontal_max = horizontal_max.max(outer);
+    }
+    if !any {
+        return None;
+    }
+    Some(match layout {
+        crate::style::Layout::Horizontal => horizontal_max,
+        _ => vertical_sum,
+    })
+}
+
+/// Outer (margin+border+padding included) width of a child for intrinsic
+/// container measurement. Explicit cell widths use their value; `fr`/`auto`
+/// children use their intrinsic content (recursively) — `fr` is treated as its
+/// minimum/content contribution, never a fill, per Python's content-size model.
+fn measure_child_outer_width(
+    tree: &WidgetTree,
+    node: NodeId,
+    style: &Style,
+    viewport: (u16, u16),
+) -> u16 {
+    let margin = style.effective_margin();
+    let (_, _, bl, br) = border_spacing(style);
+    let padding = style.effective_padding();
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
+    let h_chrome = margin.left + margin.right + bl + br + padding.left + padding.right;
+
+    let content = match style.width.as_ref() {
+        Some(Scalar::Cells(n)) => {
+            // border-box: n already includes border+padding.
+            if box_sizing == BoxSizing::BorderBox {
+                return n.saturating_add(margin.left + margin.right);
+            }
+            *n
+        }
+        None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
+            measure_intrinsic_content_width(tree, node, viewport).unwrap_or(0)
+        }
+        Some(other) => resolve_scalar_to_cells(other, 0, viewport.0),
+    };
+    let mut outer = content.saturating_add(h_chrome);
+    // Respect min/max-width: Textual treats these as outer-size bounds for the
+    // common (border-box) widgets that drive auto-container measurement (e.g. a
+    // Button's `min-width: 16`). Without the min clamp a narrow label would make
+    // its auto-width parent under-size and clip the widget.
+    if let Some(min_w) = style.min_width.as_ref() {
+        outer = outer.max(resolve_scalar_to_cells(min_w, 0, viewport.0));
+    }
+    if let Some(max_w) = style.max_width.as_ref() {
+        let max = resolve_scalar_to_cells(max_w, 0, viewport.0);
+        if max > 0 {
+            outer = outer.min(max);
+        }
+    }
+    outer
+}
+
+fn measure_child_outer_height(
+    tree: &WidgetTree,
+    node: NodeId,
+    style: &Style,
+    viewport: (u16, u16),
+) -> u16 {
+    let margin = style.effective_margin();
+    let (bt, bb, _, _) = border_spacing(style);
+    let padding = style.effective_padding();
+    let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
+    let v_chrome = margin.top + margin.bottom + bt + bb + padding.top + padding.bottom;
+
+    let content = match style.height.as_ref() {
+        Some(Scalar::Cells(n)) => {
+            if box_sizing == BoxSizing::BorderBox {
+                return n.saturating_add(margin.top + margin.bottom);
+            }
+            *n
+        }
+        None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
+            measure_intrinsic_content_height(tree, node, viewport).unwrap_or(0)
+        }
+        Some(other) => resolve_scalar_to_cells(other, 0, viewport.1),
+    };
+    let mut outer = content.saturating_add(v_chrome);
+    if let Some(min_h) = style.min_height.as_ref() {
+        outer = outer.max(resolve_scalar_to_cells(min_h, 0, viewport.1));
+    }
+    if let Some(max_h) = style.max_height.as_ref() {
+        let max = resolve_scalar_to_cells(max_h, 0, viewport.1);
+        if max > 0 {
+            outer = outer.min(max);
+        }
+    }
+    outer
+}
+
 /// Convert a CSS [`Scalar`] size into an [`Edge`] for the 1D resolver.
 ///
 /// `chrome` is the total border+padding+margin for this axis.

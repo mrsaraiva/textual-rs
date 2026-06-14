@@ -71,6 +71,9 @@ fn apply_parent_align(
     if children.is_empty() {
         return;
     }
+    if strategy == Layout::Grid {
+        return;
+    }
 
     // Per-child margins, resolved once. Python's `WidgetPlacement.get_bounds`
     // grows each placement region by its margin before aligning, so the
@@ -82,125 +85,68 @@ fn apply_parent_align(
         .map(|&child| get_node_style(tree, child).effective_margin())
         .collect();
 
-    match strategy {
-        Layout::Vertical => {
-            // Horizontal alignment per child (cross axis): center the
-            // margin-grown box so asymmetric margins are respected.
-            for (idx, &child) in children.iter().enumerate() {
-                let Some(node) = tree.get(child) else {
-                    continue;
-                };
-                let margin = margins[idx];
-                let layout = node.layout_rect;
-                let width = layout.x1.saturating_sub(layout.x0);
-                let mbox_w = width.saturating_add(margin.left + margin.right);
-                // Left edge of the margin box (border box minus left margin).
-                let mbox_x0 = layout.x0.saturating_sub(margin.left);
-                let target_mbox_x0 = match align.horizontal {
-                    HorizontalAlign::Left => available.x,
-                    HorizontalAlign::Center => available
-                        .x
-                        .saturating_add(available.width.saturating_sub(mbox_w) / 2),
-                    HorizontalAlign::Right => available
-                        .x
-                        .saturating_add(available.width.saturating_sub(mbox_w)),
-                };
-                let dx = target_mbox_x0 as i32 - mbox_x0 as i32;
-                if dx != 0
-                    && let Some(node) = tree.get_mut(child)
-                {
+    // Python parity (`_arrange.py`): alignment translates the WHOLE arrangement
+    // by a SINGLE offset, not each child independently. The offset is derived
+    // from the bounding box of all (margin-grown) placements vs the parent
+    // region (`Styles._align_size`). Computing one offset for both axes and
+    // applying it to every child preserves children's relative positions — so a
+    // narrow buttons row and a wide content box both shift by the same dx and
+    // stay left-aligned with each other (block centering), instead of each being
+    // independently centered on the cross axis.
+    let mut min_x = u16::MAX;
+    let mut min_y = u16::MAX;
+    let mut max_x = 0u16;
+    let mut max_y = 0u16;
+    for (idx, &child) in children.iter().enumerate() {
+        if let Some(node) = tree.get(child) {
+            let margin = margins[idx];
+            let layout = node.layout_rect;
+            min_x = min_x.min(layout.x0.saturating_sub(margin.left));
+            min_y = min_y.min(layout.y0.saturating_sub(margin.top));
+            max_x = max_x.max(layout.x1.saturating_add(margin.right));
+            max_y = max_y.max(layout.y1.saturating_add(margin.bottom));
+        }
+    }
+    if min_x == u16::MAX {
+        return;
+    }
+    let used_w = max_x.saturating_sub(min_x);
+    let used_h = max_y.saturating_sub(min_y);
+
+    let dx = match align.horizontal {
+        HorizontalAlign::Left => 0i32,
+        HorizontalAlign::Center => {
+            (available.x as i32 + (available.width.saturating_sub(used_w) / 2) as i32)
+                - min_x as i32
+        }
+        HorizontalAlign::Right => {
+            (available.x as i32 + available.width.saturating_sub(used_w) as i32) - min_x as i32
+        }
+    };
+    let dy = match align.vertical {
+        VerticalAlign::Top => 0i32,
+        VerticalAlign::Middle => {
+            (available.y as i32 + (available.height.saturating_sub(used_h) / 2) as i32)
+                - min_y as i32
+        }
+        VerticalAlign::Bottom => {
+            (available.y as i32 + available.height.saturating_sub(used_h) as i32) - min_y as i32
+        }
+    };
+
+    if dx != 0 || dy != 0 {
+        for &child in children {
+            if let Some(node) = tree.get_mut(child) {
+                if dx != 0 {
                     node.layout_rect = shift_rect_x(node.layout_rect, dx);
                     node.content_rect = shift_rect_x(node.content_rect, dx);
                 }
-            }
-
-            // Vertical alignment for the stacked block (margin-inclusive bounds).
-            let mut min_y = u16::MAX;
-            let mut max_y = 0u16;
-            for (idx, &child) in children.iter().enumerate() {
-                if let Some(node) = tree.get(child) {
-                    let margin = margins[idx];
-                    min_y = min_y.min(node.layout_rect.y0.saturating_sub(margin.top));
-                    max_y = max_y.max(node.layout_rect.y1.saturating_add(margin.bottom));
-                }
-            }
-            if min_y == u16::MAX {
-                return;
-            }
-            let used_h = max_y.saturating_sub(min_y);
-            let dy = match align.vertical {
-                VerticalAlign::Top => 0i32,
-                VerticalAlign::Middle => (available.height.saturating_sub(used_h) / 2) as i32,
-                VerticalAlign::Bottom => available.height.saturating_sub(used_h) as i32,
-            };
-            if dy != 0 {
-                for &child in children {
-                    if let Some(node) = tree.get_mut(child) {
-                        node.layout_rect = shift_rect_y(node.layout_rect, dy);
-                        node.content_rect = shift_rect_y(node.content_rect, dy);
-                    }
-                }
-            }
-        }
-        Layout::Horizontal => {
-            // Vertical alignment per child (cross axis): center the
-            // margin-grown box so asymmetric margins are respected.
-            for (idx, &child) in children.iter().enumerate() {
-                let Some(node) = tree.get(child) else {
-                    continue;
-                };
-                let margin = margins[idx];
-                let layout = node.layout_rect;
-                let height = layout.y1.saturating_sub(layout.y0);
-                let mbox_h = height.saturating_add(margin.top + margin.bottom);
-                let mbox_y0 = layout.y0.saturating_sub(margin.top);
-                let target_mbox_y0 = match align.vertical {
-                    VerticalAlign::Top => available.y,
-                    VerticalAlign::Middle => available
-                        .y
-                        .saturating_add(available.height.saturating_sub(mbox_h) / 2),
-                    VerticalAlign::Bottom => available
-                        .y
-                        .saturating_add(available.height.saturating_sub(mbox_h)),
-                };
-                let dy = target_mbox_y0 as i32 - mbox_y0 as i32;
-                if dy != 0
-                    && let Some(node) = tree.get_mut(child)
-                {
+                if dy != 0 {
                     node.layout_rect = shift_rect_y(node.layout_rect, dy);
                     node.content_rect = shift_rect_y(node.content_rect, dy);
                 }
             }
-
-            // Horizontal alignment for the row block (margin-inclusive bounds).
-            let mut min_x = u16::MAX;
-            let mut max_x = 0u16;
-            for (idx, &child) in children.iter().enumerate() {
-                if let Some(node) = tree.get(child) {
-                    let margin = margins[idx];
-                    min_x = min_x.min(node.layout_rect.x0.saturating_sub(margin.left));
-                    max_x = max_x.max(node.layout_rect.x1.saturating_add(margin.right));
-                }
-            }
-            if min_x == u16::MAX {
-                return;
-            }
-            let used_w = max_x.saturating_sub(min_x);
-            let dx = match align.horizontal {
-                HorizontalAlign::Left => 0i32,
-                HorizontalAlign::Center => (available.width.saturating_sub(used_w) / 2) as i32,
-                HorizontalAlign::Right => available.width.saturating_sub(used_w) as i32,
-            };
-            if dx != 0 {
-                for &child in children {
-                    if let Some(node) = tree.get_mut(child) {
-                        node.layout_rect = shift_rect_x(node.layout_rect, dx);
-                        node.content_rect = shift_rect_x(node.content_rect, dx);
-                    }
-                }
-            }
         }
-        Layout::Grid => {}
     }
 }
 
