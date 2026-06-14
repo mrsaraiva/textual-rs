@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (fix(layout): `align` includes child margins; `Tabs` nav bindings hidden)
+
+- **fix(layout): container `align` now grows alignment bounds by child margins**
+  - `apply_parent_align()` (`src/layout/mod.rs`) computed the aligned block extent from each
+    child's `layout_rect` (border box, margin-excluded). A child with `margin` + `height: 100%`
+    (or `width: 100%`) was therefore shifted by half its own margins — the gap it already
+    occupied was double-counted, pushing it off-center by a row/column.
+  - Now both the block-axis bounds and the per-child cross-axis centering use the
+    margin-grown box, mirroring Python Textual's `WidgetPlacement.get_bounds()`
+    (`region.grow(margin)`). A margin-only child that fills its container produces zero
+    alignment offset, matching Python.
+- **fix(layout): explicit percentage size resolves against container minus margins**
+  - `extract_child_spec()` (`src/layout/common.rs`) now resolves an explicit `height`
+    (`100%`, `vh`, etc.) against `parent_height - (margin.top + margin.bottom)`, matching
+    Python's `_get_box_model` (`styles_width.resolve(container - margin.totals, …)`).
+    Margin-free widgets (e.g. five_by_five `GameCell`) are unaffected.
+- **fix(widgets/Tabs): nav bindings hidden from the footer**
+  - `Tabs::bindings()` (`src/widgets/tabs.rs`) now marks the `left/h previous` and
+    `right/l next` bindings `.hidden()`, matching Python's `Binding(..., show=False)`.
+    They remain functional; they just no longer leak into the `Footer` hint row.
+- **test(parity): promote `docs_tabs` to `Status::Pass`**
+  - The `tabs` docs example now matches the Python golden pixel-for-pixel (footer hints +
+    centered bordered label). Locked in via the real-PTY parity harness.
+
 ### 2026-06-13 (fix(scrollbar): `overflow: scroll` now force-shows the corresponding scrollbar)
 
 - **fix(scrollbar): split `force_visible` into `force_visible_v`/`force_visible_h`**

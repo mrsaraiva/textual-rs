@@ -236,17 +236,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "Two gaps: (1) FIXABLE: Tabs::bindings() declares left/right nav \
-             bindings with show=true so they leak into the footer; add .hidden() \
-             to them (src/widgets/tabs.rs) so the footer shows only 'a Add tab  \
-             r Remove active tab  c Clear tabs' (Python uses show=False). \
-             (2) SHARED-LAYOUT: tab label renders 2 rows too tall — border-box \
-             `height: 100%` resolves against full parent_height instead of \
-             parent_height - margin.top - margin.bottom. Fix in \
-             src/layout/common.rs::extract_child_spec (same fix unblocks \
-             selection_list). Both diagnosed by agent; not landed (infra).",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "code_browser_initial",
@@ -325,7 +315,13 @@ fn profile_dir_name() -> String {
     let exe = std::env::current_exe().expect("current_exe");
     // .../target/<profile>/deps/<test-bin>
     exe.parent()
-        .and_then(|p| if p.ends_with("deps") { p.parent() } else { Some(p) })
+        .and_then(|p| {
+            if p.ends_with("deps") {
+                p.parent()
+            } else {
+                Some(p)
+            }
+        })
         .and_then(|p| p.file_name())
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "debug".to_string())

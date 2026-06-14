@@ -167,9 +167,13 @@ pub(crate) fn extract_child_spec(
                 scalar_to_edge(None, parent_height, viewport.1, min_h_cells, v_chrome)
             }
         }
+        // Explicit height. A percentage resolves against the space available
+        // AFTER this widget's own vertical margins (Python parity): `height:
+        // 100%; margin: 1` in 27 rows is 25 (=27-2), not 27. Margin-free
+        // widgets (e.g. five_by_five GameCell) are unaffected.
         _ => scalar_to_edge(
             style.height.as_ref(),
-            parent_height,
+            parent_height.saturating_sub(margin.top + margin.bottom),
             viewport.1,
             min_h_cells,
             v_chrome,

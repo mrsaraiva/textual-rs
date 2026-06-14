@@ -1118,9 +1118,11 @@ impl Widget for Tabs {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
+        // Nav bindings are hidden from the footer (Python declares them with
+        // show=False); they remain functional, just not shown as hints.
         vec![
-            BindingDecl::new("left,h", "previous", "Previous tab"),
-            BindingDecl::new("right,l", "next", "Next tab"),
+            BindingDecl::new("left,h", "previous", "Previous tab").hidden(),
+            BindingDecl::new("right,l", "next", "Next tab").hidden(),
         ]
     }
 
