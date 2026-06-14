@@ -185,9 +185,16 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "DataTable row/layout rendering differs from Python (golden shows the \
-             full swimmer table with aligned columns; Rust output diverges in row \
-             content/spacing). Real rendering gap.",
+            "DataTable rendering, 3 diagnosed bugs (agent; fix reverted because it \
+             re-blessed a snapshot + risked unit-test regression — redo carefully): \
+             (1) emit_row_per_cell omits the leading cell-padding space (Python \
+             cell_padding=1 renders [1sp]cell[2sp]cell…); (2) content_width() \
+             doesn't include that padding, so layout allocates one col too few and \
+             truncates the 'time' column; (3) scroll_virtual_content_size() returns \
+             content_height seeded from the full PTY viewport, triggering a spurious \
+             vertical scrollbar in apply_host_scrollbar_layout that steals 2 cols + \
+             1 row (hides a row, truncates 'time'->'tim'). The scrollbar floor \
+             interaction is the same family as code_browser_initial.",
         ),
     },
     Case {
@@ -198,9 +205,14 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "Two gaps: (1) app title 'textual-rs' vs Python 'SelectionListApp' \
-             (example should set TITLE); (2) SelectionList bordered-panel layout \
-             (two side-by-side bordered panels with titles) renders differently.",
+            "Three gaps (agent-diagnosed): (1) example: set title()='SelectionListApp' \
+             + on_mount Pretty.update of initial selection (partially done). \
+             (2) SHARED: border titles need filler dashes ('─ Title ─────') — \
+             overlay_border_text in src/widgets/helpers.rs doesn't pad. (3) SHARED: \
+             Pretty/SelectionList `height: auto` in a Horizontal clips content \
+             (shows 2/5 Pretty lines, 5/9 list items) — extract_child_spec \
+             (src/layout/common.rs) must add border chrome to auto-height. Same \
+             extract_child_spec area as docs_tabs gap 2.",
         ),
     },
     Case {
@@ -211,9 +223,16 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "Two gaps: (1) app title 'textual-rs' vs Python 'SelectApp' (example \
-             should set TITLE); (2) the Select overlay box horizontal position/ \
-             alignment differs from Python (centered vs left).",
+            "FIXABLE (diagnosed, not yet landed — infra blocked the fix run). \
+             Three gaps: (1) example: set TextualApp::title()='SelectApp'; \
+             (2) example: Select should use allow_blank=true (Python default) so it \
+             shows the prompt, not the auto-selected first option; (3) widget: \
+             `Select` default CSS lacks `border: tall $border-blurred` + \
+             `padding: 0 2` (src/css/defaults/select.rs) and layout_height() must \
+             add the border rows + render_closed() must reserve 1 cell for the \
+             arrow without an internal leading space (src/widgets/select.rs). \
+             A complete fix was authored and verified-matching by an agent but \
+             reverted in the infra cleanup; redo on stable storage.",
         ),
     },
     Case {
@@ -224,9 +243,15 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "Two gaps: (1) Footer binding row ('a Add tab  r Remove active tab  \
-             c Clear tabs') is missing in Rust; (2) tab content area height differs \
-             by one row. Real footer + layout gaps.",
+            "Two gaps: (1) FIXABLE: Tabs::bindings() declares left/right nav \
+             bindings with show=true so they leak into the footer; add .hidden() \
+             to them (src/widgets/tabs.rs) so the footer shows only 'a Add tab  \
+             r Remove active tab  c Clear tabs' (Python uses show=False). \
+             (2) SHARED-LAYOUT: tab label renders 2 rows too tall — border-box \
+             `height: 100%` resolves against full parent_height instead of \
+             parent_height - margin.top - margin.bottom. Fix in \
+             src/layout/common.rs::extract_child_spec (same fix unblocks \
+             selection_list). Both diagnosed by agent; not landed (infra).",
         ),
     },
     Case {
