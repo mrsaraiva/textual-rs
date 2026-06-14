@@ -31,6 +31,11 @@ Select {
 struct SelectApp;
 
 impl TextualApp for SelectApp {
+    // Python `App` derives the title from the class name ("SelectApp").
+    fn title(&self) -> &'static str {
+        "SelectApp"
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())
@@ -41,7 +46,9 @@ impl TextualApp for SelectApp {
             .iter()
             .map(|line| (line.to_string(), line.to_string()))
             .collect();
-        let select = Select::new(options, "Select a line...");
+        // Python `Select(...)` defaults allow_blank=True (shows the "Select"
+        // prompt rather than auto-selecting the first option).
+        let select = Select::new(options, "Select").with_allow_blank(true);
         AppRoot::new().with_child(Header::new()).with_child(select)
     }
 

@@ -216,16 +216,17 @@ const CASES: &[Case] = &[
         keys: "",
         golden_replacements: &[],
         status: Status::XFail(
-            "FIXABLE (diagnosed, not yet landed — infra blocked the fix run). \
-             Three gaps: (1) example: set TextualApp::title()='SelectApp'; \
-             (2) example: Select should use allow_blank=true (Python default) so it \
-             shows the prompt, not the auto-selected first option; (3) widget: \
-             `Select` default CSS lacks `border: tall $border-blurred` + \
-             `padding: 0 2` (src/css/defaults/select.rs) and layout_height() must \
-             add the border rows + render_closed() must reserve 1 cell for the \
-             arrow without an internal leading space (src/widgets/select.rs). \
-             A complete fix was authored and verified-matching by an agent but \
-             reverted in the infra cleanup; redo on stable storage.",
+            "Gaps 1+2 FIXED at example level (title()='SelectApp', allow_blank=true \
+             so the 'Select' prompt shows). Remaining gap (3): the closed Select \
+             has no border box. Adding `border: tall` to the Select{} default + \
+             border rows in layout_height() draws the TOP border but the content \
+             row does not inset into the box and the bottom border is not drawn — \
+             because Select::render_closed (src/widgets/select.rs) emits a flat \
+             full-width single line that the framework border compositor does not \
+             wrap correctly. Real fix: make the closed-display render cooperate \
+             with the box-model border compositor (or render its own tall border). \
+             Framework attempt reverted to avoid a half-drawn border; verified \
+             diagnosis stands.",
         ),
     },
     Case {
