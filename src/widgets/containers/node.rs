@@ -91,7 +91,24 @@ impl Widget for Node {
                 return Some(min);
             }
         }
+        // After `take_composed_children`, the real child is moved into the arena
+        // tree and `self.child` is a placeholder `Spacer(1)`. Reporting the
+        // placeholder's height (1) would clip the arena child to a single row.
+        // Mirror `Container`: defer to the arena layout (which sizes this node
+        // from its real tree child) by reporting no intrinsic height.
+        if self.child_extracted {
+            return None;
+        }
         self.child.layout_height()
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        // Same rationale as `layout_height`: once the real child is in the arena
+        // tree, don't report the placeholder Spacer's width.
+        if self.child_extracted {
+            return None;
+        }
+        self.child.content_width()
     }
 
     fn style(&self) -> Option<Style> {

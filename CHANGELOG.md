@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (fix(layout): Node/ContentSwitcher arena-child sizing + visibility)
+
+- **fix(containers/Node): report the real arena child's size after extraction**
+  - `Node::take_composed_children` moves the real child into the arena tree and leaves a
+    placeholder `Spacer(1)` behind. `Node::layout_height()`/`content_width()` then returned the
+    placeholder's dimensions (height 1), clipping every `Node`-wrapped arena child to a single
+    row. Now, once extracted, `Node` reports no intrinsic size (mirroring `Container`), so the
+    arena layout sizes it from its real tree child.
+- **fix(widgets/ContentSwitcher): populate child ids before draining children**
+  - `with_child` pushed `None` id placeholders; the ids (often on a wrapping `Node`) were never
+    synced, so `current_child_index()` matched nothing and `child_display_for_tree` hid EVERY
+    pane (empty ContentSwitcher). `take_composed_children` now fills any unset `child_ids` from
+    each child's `style_id()` before draining, so the active pane is shown.
+
 ### 2026-06-14 (feat(Select): SelectCurrent child owns the tall border (Python composition))
 
 - **feat(widgets/Select): rearchitect the closed bar into a `SelectCurrent` widget**

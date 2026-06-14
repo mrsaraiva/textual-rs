@@ -229,6 +229,26 @@ impl Widget for ContentSwitcher {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        // Capture each child's CSS id from its `style_id()` before the children
+        // are drained into the arena tree. `current_child_index()` (and thus
+        // `child_display_for_tree`) matches `current` against `child_ids` AFTER
+        // extraction, when the children are gone. `with_child` pushes `None`
+        // placeholders (the id may live on a wrapping `Node`), so fill any unset
+        // ids here while the children — and their `style_id()` — are still
+        // available. Without this, `current` never matches and ALL panes are
+        // hidden (empty ContentSwitcher).
+        for (idx, child) in self.children.iter().enumerate() {
+            if self
+                .child_ids
+                .get(idx)
+                .map(Option::is_none)
+                .unwrap_or(false)
+            {
+                if let Some(id) = child.style_id() {
+                    self.child_ids[idx] = Some(id.to_string());
+                }
+            }
+        }
         self.children_extracted = true;
         std::mem::take(&mut self.children)
     }
