@@ -428,10 +428,13 @@ fn render_panel_title_flip() {
     let mut root = Container::new().with_child(panel_widget);
     let (_tree, frame, lines) = tree_render(&mut root, 12, 4);
 
-    // Find the "T" on row 0
-    let title_col = lines[0]
+    // Find the "T" on row 0. `str::find` returns a BYTE offset, but the border
+    // edge contains multi-byte glyphs (corners/fill), so convert to a cell
+    // column via the cell width of the text preceding the title.
+    let title_byte = lines[0]
         .find('T')
         .expect("title 'T' should appear on row 0");
+    let title_col = rich_rs::cell_len(&lines[0][..title_byte]);
     let title_cell = frame.get(title_col, 0);
     // With flip, the base style's bg (red for panel border) becomes the cell bgcolor
     let bgcolor = title_cell.style.and_then(|s| s.bgcolor);
@@ -490,9 +493,10 @@ fn render_panel_title_flip() {
     };
     let mut root2 = Container::new().with_child(solid_widget);
     let (_tree2, frame2, lines2) = tree_render(&mut root2, 12, 4);
-    let title_col2 = lines2[0]
+    let title_byte2 = lines2[0]
         .find('T')
         .expect("solid title 'T' should appear on row 0");
+    let title_col2 = rich_rs::cell_len(&lines2[0][..title_byte2]);
     let solid_title_cell = frame2.get(title_col2, 0);
     let solid_bgcolor = solid_title_cell.style.and_then(|s| s.bgcolor);
     // For solid, the bgcolor should NOT be red (it's the widget background, not the border color)

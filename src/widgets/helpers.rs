@@ -731,21 +731,76 @@ fn overlay_border_text(
         return;
     }
     let inner_w = width - left_w - right_w;
-    let clipped = rich_rs::set_cell_size(text, inner_w);
-    let text_w = rich_rs::cell_len(&clipped);
-    if text_w == 0 {
+
+    // Python `_border.render_border_label` pads the title with one blank on each
+    // side that has a corner; `render_row` then fills the remaining edge with the
+    // border character (NOT spaces). The title may use at most
+    // `inner_w - (pad_left + pad_right)` cells before padding.
+    let pad_left = left_w;
+    let pad_right = right_w;
+    let max_title_w = inner_w.saturating_sub(pad_left + pad_right);
+    if max_title_w == 0 {
         return;
     }
-    let start = match align {
-        crate::style::HorizontalAlign::Left => 0,
-        crate::style::HorizontalAlign::Center => inner_w.saturating_sub(text_w) / 2,
-        crate::style::HorizontalAlign::Right => inner_w.saturating_sub(text_w),
+    let truncated = if rich_rs::cell_len(text) > max_title_w {
+        rich_rs::set_cell_size(text, max_title_w)
+    } else {
+        text.to_string()
     };
-    let prefix = " ".repeat(start);
-    let suffix = " ".repeat(inner_w.saturating_sub(start + text_w));
+    let title_w = rich_rs::cell_len(&truncated);
+    if title_w == 0 {
+        return;
+    }
+    // Padded label = blank + title + blank (per present corner).
+    let padded_title = format!(
+        "{}{}{}",
+        " ".repeat(pad_left),
+        truncated,
+        " ".repeat(pad_right)
+    );
+    let padded_w = title_w + pad_left + pad_right;
+    let space_available = inner_w.saturating_sub(padded_w);
 
-    let mut middle_style = row
-        .get(usize::from(has_left))
+    // Fill character + style come from the existing border-line middle segment
+    // (the repeated `─`/`━`/etc.), so the dashes keep the border color.
+    let middle_idx = usize::from(has_left);
+    let middle_seg = row.get(middle_idx).cloned();
+    let fill_char: String = middle_seg
+        .as_ref()
+        .and_then(|s| s.text.chars().next())
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "─".to_string());
+    let make_fill = |count: usize| -> Option<Segment> {
+        if count == 0 {
+            return None;
+        }
+        let text = fill_char.repeat(count);
+        Some(match middle_seg.as_ref() {
+            Some(seg) => {
+                let mut s = seg.clone();
+                s.text = text.into();
+                s
+            }
+            None => Segment::new(text),
+        })
+    };
+    // For left/right alignment Python reserves one fill char on the "anchor"
+    // side and puts the rest on the other side. Center splits evenly.
+    let (before, after) = match align {
+        crate::style::HorizontalAlign::Left => {
+            (space_available.min(1), space_available.saturating_sub(1))
+        }
+        crate::style::HorizontalAlign::Right => {
+            (space_available.saturating_sub(1), space_available.min(1))
+        }
+        crate::style::HorizontalAlign::Center => {
+            let left = space_available / 2;
+            (left, space_available - left)
+        }
+    };
+
+    let mut middle_style = middle_seg
+        .as_ref()
         .and_then(|s| s.style)
         .unwrap_or_default();
     if flip {
@@ -764,16 +819,19 @@ fn overlay_border_text(
         apply_text_style_flags(&mut middle_style, f);
     }
 
-    let mut rebuilt: Vec<Segment> = Vec::with_capacity(3);
+    let mut rebuilt: Vec<Segment> = Vec::with_capacity(5);
     if has_left {
         if let Some(left) = row.first().cloned() {
             rebuilt.push(left);
         }
     }
-    rebuilt.push(Segment::styled(
-        format!("{prefix}{clipped}{suffix}"),
-        middle_style,
-    ));
+    if let Some(seg) = make_fill(before) {
+        rebuilt.push(seg);
+    }
+    rebuilt.push(Segment::styled(padded_title, middle_style));
+    if let Some(seg) = make_fill(after) {
+        rebuilt.push(seg);
+    }
     if has_right {
         if let Some(right) = row.last().cloned() {
             rebuilt.push(right);

@@ -326,7 +326,10 @@ fn p2g29_border_title_subtitle_render_on_edges() {
         "bottom border should contain subtitle"
     );
 
-    let title_x = lines[0].find("TITLE").expect("title should be present");
+    // `str::find` returns a BYTE offset; the border edge has multi-byte glyphs,
+    // so convert to a cell column via the cell width of the preceding text.
+    let title_byte = lines[0].find("TITLE").expect("title should be present");
+    let title_x = rich_rs::cell_len(&lines[0][..title_byte]);
     let title_cell = frame.get(title_x, 0);
     let title_fg = title_cell.style.and_then(|s| s.color).map(|c| c);
     assert_eq!(

@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (fix(border): titles/subtitles fill the edge with the border character)
+
+- **fix(border): border title/subtitle now fill the edge with the border glyph**
+  - `overlay_border_text()` (`src/widgets/helpers.rs`) previously overwrote the whole inner
+    edge with a space-padded title, erasing the border line (`┌Title      ┐`). It now mirrors
+    Python's `_border.render_row`: the title is padded with one blank per present corner and
+    the remaining edge is filled with the border character (`┌─ Title ─────┐`). Left/right
+    alignment reserves one fill glyph on the anchor side; center splits evenly. Fill segments
+    keep the border style; only the padded title carries the title style (and BORDER_TITLE_FLIP
+    reverse for panel/tab borders).
+  - Affects every titled bordered widget (panels, frames, `SelectionList`, etc.).
+- **test: convert byte-offset title lookups to cell columns**
+  - `render_panel_title_flip` (`tests/border_types_render.rs`) and
+    `p2g29_border_title_subtitle_render_on_edges` (`tests/p2_render_css.rs`) used `str::find`
+    (a byte offset) as a cell column. That coincidentally worked only while the whole edge was
+    one styled segment; with the tight title segment it must be converted via
+    `cell_len(&line[..byte])`. Behavior under test is unchanged.
+
 ### 2026-06-14 (fix(layout): `align` includes child margins; `Tabs` nav bindings hidden)
 
 - **fix(layout): container `align` now grows alignment bounds by child margins**
