@@ -69,6 +69,14 @@ SelectCurrent {
         border: none !important;
     }
 
+    /* Python raises the border via `Select:focus > SelectCurrent`. Since the
+       Rust `SelectCurrent` is rendered internally by `Select` (not mounted as a
+       DOM child), `Select` tags it with a `-focus` class when focused so this
+       rule applies. */
+    &.-focus {
+        border: tall $border;
+    }
+
     &:ansi {
         border: tall ansi_blue;
         color: ansi_default;

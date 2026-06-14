@@ -206,19 +206,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "Gaps 1+2 FIXED at example level (title()='SelectApp', allow_blank=true \
-             so the 'Select' prompt shows). Remaining gap (3): the closed Select \
-             has no border box. Adding `border: tall` to the Select{} default + \
-             border rows in layout_height() draws the TOP border but the content \
-             row does not inset into the box and the bottom border is not drawn — \
-             because Select::render_closed (src/widgets/select.rs) emits a flat \
-             full-width single line that the framework border compositor does not \
-             wrap correctly. Real fix: make the closed-display render cooperate \
-             with the box-model border compositor (or render its own tall border). \
-             Framework attempt reverted to avoid a half-drawn border; verified \
-             diagnosis stands.",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "docs_tabs",

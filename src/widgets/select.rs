@@ -7,9 +7,9 @@ use crate::render::{Cell, FrameBuffer};
 use crate::runtime::dispatch_ctx::set_dispatch_recipient;
 use crate::widgets::NodeState;
 
-use super::helpers::adjust_line_length_no_bg;
 use super::option_list::toggle_option::OptionCursorState;
 use super::option_list::{OptionItem, OptionList};
+use super::select_current::SelectCurrent;
 use crate::action::ParsedAction;
 
 use super::{BindingDecl, NodeSeed, Widget};
@@ -300,7 +300,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     /// Geometry for the dropdown overlay panel.
     fn dropdown_geometry(&self) -> (usize, usize, usize, usize) {
         let panel_x = 0usize;
-        let panel_y = 1usize; // directly below the closed-state line
+        // Directly below the closed-state bar (which is now a 3-row tall-bordered
+        // box owned by SelectCurrent, not a single line).
+        let panel_y = self.make_current().layout_height().unwrap_or(3);
         let panel_width = self.viewport_width.max(1);
         let available_height = self.viewport_height.saturating_sub(panel_y).max(1);
         let desired = self.options.len().max(1);
@@ -308,48 +310,23 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         (panel_x, panel_y, panel_width, panel_height)
     }
 
-    /// Render the closed state: "  Selected Label   ▼" or "  Prompt...   ▼".
-    fn render_closed(&self, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let mut classes = vec!["select--current-value"];
-        if self.node_state().focused {
-            classes.push("-focus");
-        }
-        if self.node_state().hovered {
-            classes.push("-hover");
-        }
-        let label_style = crate::css::resolve_component_style(self, &classes)
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+    /// The label of the current value, or `None` when nothing is selected
+    /// (the placeholder/prompt is shown instead).
+    fn current_label(&self) -> Option<String> {
+        self.cursor
+            .selected()
+            .map(|index| self.options[index].0.clone())
+    }
 
-        let arrow_classes = if self.open {
-            vec!["select--arrow", "-open"]
-        } else {
-            vec!["select--arrow"]
-        };
-        let arrow_style = crate::css::resolve_component_style(self, &arrow_classes)
-            .to_rich()
-            .unwrap_or(label_style);
-
-        let label_text = if let Some(index) = self.cursor.selected() {
-            self.options[index].0.as_str()
-        } else {
-            &self.prompt
-        };
-
-        let arrow = if self.open { "▲" } else { "▼" };
-        // Reserve 2 cells for the arrow (space + arrow char).
-        let label_width = width.saturating_sub(2).max(1);
-        let label_seg = Segment::styled(
-            rich_rs::set_cell_size(&format!(" {label_text}"), label_width),
-            label_style,
-        );
-        let arrow_seg = Segment::styled(format!(" {arrow}"), arrow_style);
-
-        let line = adjust_line_length_no_bg(&[label_seg, arrow_seg], width);
-        let mut out = Segments::new();
-        out.extend(line);
-        out
+    /// Build the closed-state bar widget ([`SelectCurrent`]) configured from the
+    /// current state. `SelectCurrent` owns the `tall` border + padding chrome via
+    /// CSS (Python parity: the border lives on `SelectCurrent`, not `Select`), so
+    /// the framework's `render_styled` pipeline draws the bordered box around it.
+    fn make_current(&self) -> SelectCurrent {
+        SelectCurrent::new(self.prompt.clone())
+            .with_label(self.current_label())
+            .with_focused(self.node_state().focused)
+            .with_expanded(self.open)
     }
 
     /// Handle a character typed for type-to-search when the dropdown is open.
@@ -625,27 +602,35 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        // The closed-state bar is a `SelectCurrent` widget that owns the tall
+        // border via CSS. Render it through the styled pipeline (which draws the
+        // border) tagged with THIS Select's node id so the bar remains
+        // hit-testable (click-to-open targets the Select).
+        let current = self.make_current();
+        let bar_height = current.layout_height().unwrap_or(3);
+
         if !self.open {
-            return self.render_closed(options);
+            return current.render_styled_dyn_obj(console, options, None, self.node_id());
         }
 
-        // Open state: render closed bar + dropdown overlay below it.
+        // Open state: render the bordered bar at the top + dropdown overlay below.
         let (width, height) = options.size;
         let width = width.max(1);
         let height = height.max(1);
 
-        // Render the closed-state line into the top row of a full-height buffer.
-        let mut closed_options = options.clone();
-        closed_options.size = (width, 1);
-        closed_options.max_width = width;
-        closed_options.max_height = 1;
-        let closed_segments = self.render_closed(&closed_options);
-        let closed_lines =
-            Segment::split_and_crop_lines(closed_segments, width, None, false, false);
-        let closed_buf = FrameBuffer::from_lines(&closed_lines, width, 1, None);
+        let mut bar_options = options.clone();
+        bar_options.size = (width, bar_height);
+        bar_options.max_width = width;
+        bar_options.max_height = bar_height;
+        let bar_segments =
+            current.render_styled_dyn_obj(console, &bar_options, None, self.node_id());
+        let bar_lines = Segment::split_and_crop_lines(bar_segments, width, None, false, false);
+        let bar_buf = FrameBuffer::from_lines(&bar_lines, width, bar_height, None);
         let mut merged = FrameBuffer::new(width, height, None);
-        for x in 0..width.min(closed_buf.width) {
-            merged.set_cell(x, 0, closed_buf.get(x, 0).clone());
+        for y in 0..bar_height.min(height).min(bar_buf.height) {
+            for x in 0..width.min(bar_buf.width) {
+                merged.set_cell(x, y, bar_buf.get(x, y).clone());
+            }
         }
 
         // Render the dropdown OptionList.
@@ -692,12 +677,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // When closed, 1 line. When open, 1 + dropdown height.
+        // Closed: the SelectCurrent bar's outer height (border + 1 content row).
+        // Open: bar height + dropdown height.
+        let bar_height = self.make_current().layout_height().unwrap_or(3);
         if self.open {
             let (_, _, _, ph) = self.dropdown_geometry();
-            Some(1 + ph)
+            Some(bar_height + ph)
         } else {
-            Some(1)
+            Some(bar_height)
         }
     }
 

@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (feat(Select): SelectCurrent child owns the tall border (Python composition))
+
+- **feat(widgets/Select): rearchitect the closed bar into a `SelectCurrent` widget**
+  - New `SelectCurrent` widget (`src/widgets/select_current.rs`) owns the closed-state bar and
+    its `border: tall` + `padding: 0 2` chrome via CSS (`style_type() == "SelectCurrent"`),
+    mirroring Python Textual's composition where the border lives on `SelectCurrent`, not
+    `Select`. `Select` builds a configured `SelectCurrent` (`make_current()`) and renders it
+    through the styled pipeline, so the framework's border compositor draws a proper 3-row
+    tall-bordered box — replacing the previous flat single-line `render_closed`. The bar is
+    rendered tagged with the `Select` node id so click-to-open hit-testing still works.
+  - `Select::layout_height` now reports the bar's outer height (3 closed; bar + dropdown when
+    open); the dropdown overlay is positioned below the full bar height.
+  - Focus parity: `SelectCurrent` carries a `-focus` class when the `Select` is focused, with a
+    new `SelectCurrent.-focus { border: tall $border; }` default mirroring Python's
+    `Select:focus > SelectCurrent`.
+- **test(parity): promote `docs_select_widget` to `Status::Pass`**
+  - The `select` docs example now matches the Python golden (closed Select renders the tall
+    bordered box with the prompt + arrow).
+
 ### 2026-06-14 (chore(deps): rich-rs 1.1.1; move Pretty quote fix into the engine)
 
 - **chore(deps): bump `rich-rs` to 1.1.1**

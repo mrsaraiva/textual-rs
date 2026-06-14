@@ -35,6 +35,7 @@ mod rich_log;
 mod rule;
 mod scrollbar;
 mod select;
+mod select_current;
 mod selection_list;
 mod spacer;
 mod switch;
