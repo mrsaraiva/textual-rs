@@ -7,8 +7,8 @@
 ///
 /// Python: `@on(Mount)` + `@on(SelectionList.SelectedChanged)` both call
 /// `Pretty.update(SelectionList.selected)`.
-/// Rust: `on_mount_with_app` and `on_message_with_app` both collect
-/// `selected_values()` and call `Pretty::update_str()`.
+/// Rust: `on_mount_with_app` and `on_message_with_app` both call `refresh_pretty`,
+/// which collects `selected_values()` and calls `Pretty::update()`.
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -35,13 +35,27 @@ Pretty {
 
 struct SelectionListApp;
 
-/// Collect selected game values from the SelectionList and format them for Pretty.
-fn selected_debug(values: Vec<&String>) -> String {
-    let strs: Vec<&str> = values.iter().map(|s| s.as_str()).collect();
-    format!("{:?}", strs)
+/// Query the current selection and push it into the `Pretty` widget, mirroring
+/// Python's `Pretty.update(SelectionList.selected)`.
+fn refresh_pretty(app: &mut App) {
+    let selected = app
+        .with_query_one_mut_as::<SelectionList<String>, _>("SelectionList", |sl| {
+            sl.selected_values()
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let _ = app.with_query_one_mut_as::<Pretty, _>("Pretty", |pretty| {
+        pretty.update(&selected);
+    });
 }
 
 impl TextualApp for SelectionListApp {
+    fn title(&self) -> &'static str {
+        "SelectionListApp"
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())
@@ -60,11 +74,8 @@ impl TextualApp for SelectionListApp {
             Selection::selected("Fighter Combat".to_string(), "fighter_combat".to_string()),
         ])
         .with_border_title("Shall we play some games?");
-        let pretty = Pretty::new(&Vec::<String>::new())
-            .with_border_title("Selected games");
-        let row = Horizontal::new()
-            .with_child(games)
-            .with_child(pretty);
+        let pretty = Pretty::new(&Vec::<String>::new()).with_border_title("Selected games");
+        let row = Horizontal::new().with_child(games).with_child(pretty);
         AppRoot::new()
             .with_child(Header::new())
             .with_child(row)
@@ -72,31 +83,16 @@ impl TextualApp for SelectionListApp {
     }
 
     fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
-        // Mirror Python's @on(Mount): show initial selection.
-        // We show empty initially; SelectionListSelectedChanged syncs it after mount.
-        let _ = app.with_query_one_mut_as::<Pretty, _>("Pretty", |pretty| {
-            pretty.update_str("[]");
-        });
+        // Mirror Python's @on(Mount): show the initial selection.
+        refresh_pretty(app);
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        _ctx: &mut EventCtx,
-    ) {
-        if message.downcast_ref::<SelectionListSelectedChanged>().is_some() {
-            // Collect selected values and update Pretty.
-            let selected = app
-                .with_query_one_mut_as::<SelectionList<String>, _>(
-                    "SelectionList",
-                    |sl| sl.selected_values().iter().map(|v| v.to_string()).collect::<Vec<_>>(),
-                )
-                .unwrap_or_default();
-            let debug = format!("{:?}", selected);
-            let _ = app.with_query_one_mut_as::<Pretty, _>("Pretty", |pretty| {
-                pretty.update_str(debug.clone());
-            });
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+        if message
+            .downcast_ref::<SelectionListSelectedChanged>()
+            .is_some()
+        {
+            refresh_pretty(app);
         }
     }
 }

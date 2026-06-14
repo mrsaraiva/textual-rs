@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (fix(SelectionList/Pretty): toggle glyph, auto-height chrome, Python-repr quotes)
+
+- **fix(SelectionList): toggle button always renders the `X` glyph**
+  - `SelectionList` (`src/widgets/selection_list.rs`) drew `▐ ▌` for unselected and `▐X▌` for
+    selected items. Python's `ToggleButton` always renders `BUTTON_INNER = "X"`; selected vs.
+    deselected is conveyed only by the button foreground color. Rust now matches (always `▐X▌`,
+    color-driven state).
+- **fix(layout): `SelectionList`/`Pretty` `layout_height` include border/padding chrome**
+  - `extract_child_spec` adds only margin on top of a widget's reported auto height, so
+    `layout_height()` must report the OUTER height (content + own border + padding). `SelectionList`
+    and `Pretty` returned content-only heights, so an example that added `border`/`padding` (e.g.
+    `selection_list_selected.tcss`) clipped its rows / collapsed the panel. Both now resolve the
+    cascaded style and add vertical chrome, matching `Input`'s existing behavior and the documented
+    contract.
+- **fix(Pretty): render strings Python-`repr` style (single quotes)**
+  - `Pretty` (`src/widgets/pretty.rs`) fed Rust `Debug` output (double-quoted strings) straight to
+    the pretty printer, so it showed `"value"` where Python Textual (via Rich) shows `'value'`.
+    `debug_str()` now normalizes double-quoted string literals to single quotes (using CPython's
+    quote-selection rule: double quotes only when the string has a `'` and no `"`). The transform
+    is a quote-aware scan over the debug output and is idempotent.
+- **example(selection_list_selected): app title + on-mount Pretty population**
+  - Adds `title() = "SelectionListApp"` and populates the `Pretty` from the real initial selection
+    on mount (was hardcoded `"[]"`), via a shared `refresh_pretty` helper.
+- **test(parity): promote `docs_selection_list_selected` to `Status::Pass`**
+  - The example now matches the Python golden pixel-for-pixel (header title, all `▐X▌` glyphs,
+    full-height list + Pretty panels with single-quoted values).
+
 ### 2026-06-14 (fix(border): titles/subtitles fill the edge with the border character)
 
 - **fix(border): border title/subtitle now fill the edge with the border glyph**

@@ -5,6 +5,104 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
+/// Convert a single Rust `Debug` string literal (`"..."`, including the quotes)
+/// to Python `repr` style. Prefer single quotes; use double quotes only when the
+/// content has a single quote and no double quote (matching CPython's selection).
+fn double_to_python_quotes(literal: &str) -> String {
+    let bytes = literal.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
+        return literal.to_string();
+    }
+    let inner = &literal[1..literal.len() - 1];
+
+    // Decode the body, unescaping `\"` to a bare `"`. Other escapes (`\n`, `\t`,
+    // `\\`, `\u{..}`) are shared between Rust and Python and kept verbatim.
+    let mut raw = String::with_capacity(inner.len());
+    let mut has_single = false;
+    let mut has_double = false;
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('"') => {
+                    raw.push('"');
+                    has_double = true;
+                }
+                Some(n) => {
+                    raw.push('\\');
+                    raw.push(n);
+                }
+                None => raw.push('\\'),
+            }
+        } else {
+            if c == '\'' {
+                has_single = true;
+            } else if c == '"' {
+                has_double = true;
+            }
+            raw.push(c);
+        }
+    }
+
+    let quote = if has_single && !has_double { '"' } else { '\'' };
+    let mut out = String::with_capacity(raw.len() + 2);
+    out.push(quote);
+    for c in raw.chars() {
+        if c == quote {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push(quote);
+    out
+}
+
+/// Rewrite every double-quoted string literal in a Rust `Debug` output to Python
+/// `repr` quote style, leaving the surrounding structure untouched.
+///
+/// In Rust `Debug` output a `"` only ever delimits a string literal (chars use
+/// `'`), so a simple in-string/out-of-string scan is sufficient and idempotent
+/// (already single-quoted input passes through unchanged).
+fn rust_debug_to_python_quotes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                // Collect the full string literal including both quotes.
+                let mut lit = String::from('"');
+                while let Some(d) = chars.next() {
+                    lit.push(d);
+                    if d == '\\' {
+                        if let Some(e) = chars.next() {
+                            lit.push(e);
+                        }
+                    } else if d == '"' {
+                        break;
+                    }
+                }
+                out.push_str(&double_to_python_quotes(&lit));
+            }
+            '\'' => {
+                // Char literal: copy verbatim through the closing quote.
+                out.push('\'');
+                while let Some(d) = chars.next() {
+                    out.push(d);
+                    if d == '\\' {
+                        if let Some(e) = chars.next() {
+                            out.push(e);
+                        }
+                    } else if d == '\'' {
+                        break;
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Internal data source for Pretty.
 #[derive(Clone)]
 enum PrettySource {
@@ -130,9 +228,14 @@ impl Pretty {
         }
     }
 
-    /// Get the current debug string.
+    /// Get the current debug string, normalized to Python `repr` quote style.
+    ///
+    /// `rich-rs`'s pretty printer renders string literals verbatim, so Rust's
+    /// `Debug` double quotes (`"value"`) would leak through. Python Textual's
+    /// `Pretty` (via Rich) renders strings single-quoted (`'value'`); this
+    /// converts the stored debug output to match before it is pretty-printed.
     fn debug_str(&self) -> String {
-        self.source.read()
+        rust_debug_to_python_quotes(&self.source.read())
     }
 
     /// Build a `rich_rs::pretty::Pretty` renderable for the current state.
@@ -202,13 +305,33 @@ impl Widget for Pretty {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        // Outer auto height = content lines + own border/padding chrome (the
+        // layout side adds only margin). Resolve the cascaded style so a border
+        // added by an example (e.g. `Pretty { border: solid }`) is accounted for.
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (border_top, border_bottom, _, _) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_v =
+            usize::from(padding.top.saturating_add(padding.bottom)) + border_top + border_bottom;
+
         let debug_str = self.debug_str();
-        if debug_str.is_empty() {
-            return Some(1);
-        }
-        let text =
-            rich_rs::pretty::pretty_repr(&debug_str, self.layout_width, 4, None, None, None, false);
-        Some(text.lines().count().max(1))
+        let content_lines = if debug_str.is_empty() {
+            1
+        } else {
+            let text = rich_rs::pretty::pretty_repr(
+                &debug_str,
+                self.layout_width,
+                4,
+                None,
+                None,
+                None,
+                false,
+            );
+            text.lines().count().max(1)
+        };
+        Some(content_lines.saturating_add(chrome_v))
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -259,7 +382,19 @@ mod tests {
         let mut pretty = Pretty::new(&42);
         assert_eq!(pretty.debug_str(), "42");
         pretty.update(&"hello");
-        assert_eq!(pretty.debug_str(), "\"hello\"");
+        // `debug_str()` normalizes Rust `Debug` double quotes to Python `repr`
+        // single quotes (Rich parity).
+        assert_eq!(pretty.debug_str(), "'hello'");
+    }
+
+    #[test]
+    fn pretty_quote_normalization() {
+        let mut pretty = Pretty::new(&Vec::<String>::new());
+        pretty.update(&vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(pretty.debug_str(), "['a', 'b']");
+        // A value containing a single quote (no double quote) uses double quotes.
+        pretty.update(&"it's");
+        assert_eq!(pretty.debug_str(), "\"it's\"");
     }
 
     #[test]

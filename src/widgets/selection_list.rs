@@ -11,8 +11,11 @@ use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 const BUTTON_LEFT: &str = "▐";
 const BUTTON_RIGHT: &str = "▌";
-const BUTTON_INNER_CHECKED: &str = "X";
-const BUTTON_INNER_UNCHECKED: &str = " ";
+// Python's `ToggleButton.BUTTON_INNER = "X"` is rendered for BOTH states; the
+// selected/unselected distinction is conveyed purely by the button foreground
+// color (invisible-ish when unselected because fg ≈ bg), not by swapping the
+// glyph for a space.
+const BUTTON_INNER: &str = "X";
 
 /// A single selection entry for a [`SelectionList`].
 ///
@@ -69,7 +72,9 @@ pub type SelectionListString = SelectionList<String>;
 /// Generic over the value type `T`. Use [`SelectionListString`] for string-valued lists.
 ///
 /// Wraps an inner [`OptionList`] for navigation, adding per-item toggle checkboxes
-/// rendered as `▐X▌` (selected) or `▐ ▌` (deselected) before each option's prompt.
+/// rendered as `▐X▌` before each option's prompt. The `X` glyph is always present
+/// (matching Python's `ToggleButton`); selected vs. deselected is conveyed by the
+/// button foreground color.
 ///
 /// # Messages
 ///
@@ -460,12 +465,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                             .to_rich()
                             .unwrap_or(opt_style);
 
-                        // Build the button prefix: ▐X▌  or ▐ ▌
-                        let inner_char = if selected {
-                            BUTTON_INNER_CHECKED
-                        } else {
-                            BUTTON_INNER_UNCHECKED
-                        };
+                        // Button prefix is always `▐X▌`; `btn_style` color (from
+                        // the resolved component class) conveys selected state.
+                        let inner_char = BUTTON_INNER;
 
                         // Side style: button fg on option bg (for the half-block chars).
                         let side_style = {
@@ -506,7 +508,19 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.inner.option_count().max(1))
+        // `layout_height()` reports the OUTER auto height (content + own
+        // border/padding chrome); the layout side adds only margin on top
+        // (see `extract_child_spec`). Resolve the cascaded style so an example
+        // that adds `border`/`padding` (e.g. selection_list_selected.tcss) is
+        // measured correctly instead of clipping its rows.
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (border_top, border_bottom, _, _) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_v =
+            usize::from(padding.top.saturating_add(padding.bottom)) + border_top + border_bottom;
+        Some(self.inner.option_count().max(1).saturating_add(chrome_v))
     }
 
     fn content_width(&self) -> Option<usize> {

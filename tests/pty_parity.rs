@@ -197,16 +197,7 @@ const CASES: &[Case] = &[
         cwd: None,
         keys: "",
         golden_replacements: &[],
-        status: Status::XFail(
-            "Three gaps (agent-diagnosed): (1) example: set title()='SelectionListApp' \
-             + on_mount Pretty.update of initial selection (partially done). \
-             (2) SHARED: border titles need filler dashes ('─ Title ─────') — \
-             overlay_border_text in src/widgets/helpers.rs doesn't pad. (3) SHARED: \
-             Pretty/SelectionList `height: auto` in a Horizontal clips content \
-             (shows 2/5 Pretty lines, 5/9 list items) — extract_child_spec \
-             (src/layout/common.rs) must add border chrome to auto-height. Same \
-             extract_child_spec area as docs_tabs gap 2.",
-        ),
+        status: Status::Pass,
     },
     Case {
         name: "docs_select_widget",
