@@ -23,6 +23,10 @@ OptionList {
 struct OptionListApp;
 
 impl TextualApp for OptionListApp {
+    fn title(&self) -> &'static str {
+        "OptionListApp"
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())

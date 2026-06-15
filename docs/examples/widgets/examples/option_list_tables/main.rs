@@ -110,11 +110,12 @@ impl TextualApp for OptionListApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        // Pre-render each colony table at a representative width.
-        // Python renders them at the actual widget width at runtime; we use
-        // 80 columns as a reasonable default (the OptionList width is 70% of
-        // 120 = 84 columns, minus borders/padding).
-        let render_width: usize = 80;
+        // Pre-render each colony table at the OptionList content width.
+        // Python renders the tables at the actual widget content width at runtime;
+        // for parity at the 120-col scoreboard size the OptionList is 70% of 120
+        // = 84 columns, minus the `tall` border (2) and `padding: 0 1` (2) and the
+        // vertical scrollbar (1) and the per-option padding gutter (1) → 78 cells.
+        let render_width: usize = 78;
 
         let items: Vec<OptionItem> = COLONIES
             .iter()

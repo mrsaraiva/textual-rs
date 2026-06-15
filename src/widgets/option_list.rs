@@ -169,29 +169,24 @@ impl OptionList {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    /// Visible item range `(start, end)` for the current scroll offset and viewport.
+    /// Render rich [`Text`] option content into one-or-more display lines, applying the
+    /// resolved `line_style` as a base (for highlight/hover/disabled backgrounds)
+    /// underneath the content's own styling.
     ///
-    /// Only items in this range are rendered (virtual scrolling).
-    fn visible_range(&self, viewport_height: usize) -> (usize, usize) {
-        let start = self.offset;
-        let end = (start + viewport_height).min(self.items.len());
-        (start, end)
-    }
-
-    /// Render a rich [`Text`] option line, applying the resolved `line_style` as a base
-    /// (for highlight/hover/disabled backgrounds) underneath the content's own styling.
-    fn render_rich_line(
+    /// Multi-row renderables (for example a `rich` table pre-rendered into a `Text`
+    /// containing newlines) are preserved as multiple lines — mirroring Python
+    /// `OptionList`, where each option occupies as many lines as its visual height.
+    fn render_rich_lines(
         &self,
         content: &Text,
         line_style: rich_rs::Style,
         width: usize,
         console: &Console,
         options: &ConsoleOptions,
-    ) -> Vec<Segment> {
-        let indent_width = 2usize;
-        let content_width = width.saturating_sub(indent_width);
+    ) -> Vec<Vec<Segment>> {
+        let content_width = width;
         let mut content_options = options.clone();
-        content_options.size = (content_width, 1);
+        content_options.size = (content_width, options.size.1.max(1));
         content_options.max_width = content_width;
 
         let rendered: Vec<Segment> = content
@@ -199,22 +194,96 @@ impl OptionList {
             .into_iter()
             .collect();
 
-        // Build segments: 2-char indent + first line of content with merged styles.
-        // Stop at the first newline/control segment to enforce single-row semantics.
-        let mut segments = Vec::with_capacity(rendered.len() + 1);
-        segments.push(Segment::styled("  ", line_style));
+        // Split the rendered segments into display lines. Newlines arrive either as
+        // line-control segments (when rich-rs wraps) or as `\n` characters embedded
+        // inside a single text segment (the unwrapped fast path). Handle both so a
+        // pre-rendered multi-row renderable (for example a table) keeps every line.
+        // Each non-control segment merges `line_style` as a base so the
+        // highlight/hover background paints across the whole option.
+        let mut lines: Vec<Vec<Segment>> = Vec::new();
+        let mut current: Vec<Segment> = Vec::new();
         for seg in &rendered {
-            if seg.is_control() || seg.text.contains('\n') {
-                break; // single-row: stop at first newline / control
+            if seg.is_control() {
+                lines.push(std::mem::take(&mut current));
+                continue;
             }
             if seg.text.is_empty() {
                 continue;
             }
-            // Merge: line_style provides base (bg), segment's own style overrides (fg, bold, …).
             let merged = line_style.combine(&seg.style.unwrap_or_default());
-            segments.push(Segment::styled(seg.text.clone(), merged));
+            if seg.text.contains('\n') {
+                let parts: Vec<&str> = seg.text.split('\n').collect();
+                for (i, part) in parts.iter().enumerate() {
+                    if i > 0 {
+                        lines.push(std::mem::take(&mut current));
+                    }
+                    if !part.is_empty() {
+                        current.push(Segment::styled((*part).to_string(), merged));
+                    }
+                }
+            } else {
+                current.push(Segment::styled(seg.text.clone(), merged));
+            }
         }
-        adjust_line_length_no_bg(&segments, width)
+        if !current.is_empty() || lines.is_empty() {
+            lines.push(current);
+        }
+
+        lines
+            .into_iter()
+            .map(|line| adjust_line_length_no_bg(&line, width))
+            .collect()
+    }
+
+    /// Number of display lines an option occupies.
+    ///
+    /// Rich content height is its newline-separated line count (the example pre-renders
+    /// multi-row renderables into a `Text` with embedded newlines, so this is
+    /// width-independent and keeps layout/scrolling consistent with rendering).
+    /// Plain options and separators are a single line.
+    fn item_height(&self, item: &OptionItem) -> usize {
+        match item {
+            OptionItem::Separator => 1,
+            OptionItem::Option { content, .. } => match content {
+                Some(text) => text.plain_text().split('\n').count().max(1),
+                None => 1,
+            },
+        }
+    }
+
+    /// Total display-line height of all items (sum of per-item heights).
+    fn total_lines(&self) -> usize {
+        self.items.iter().map(|item| self.item_height(item)).sum()
+    }
+
+    /// Flat list of `(item_index, line_offset)` entries, one per display line,
+    /// in order. Mirrors Python `OptionList._lines`.
+    fn line_map(&self) -> Vec<(usize, usize)> {
+        let mut map = Vec::new();
+        for (index, item) in self.items.iter().enumerate() {
+            let height = self.item_height(item);
+            for line_no in 0..height {
+                map.push((index, line_no));
+            }
+        }
+        map
+    }
+
+    /// First display line of `index` within the flattened line map.
+    fn item_first_line(&self, index: usize) -> usize {
+        self.items
+            .iter()
+            .take(index)
+            .map(|item| self.item_height(item))
+            .sum()
+    }
+
+    /// Map a viewport row (relative to the top of the visible area) to the item
+    /// index whose content occupies that line, accounting for the line-based
+    /// scroll offset and multi-line options.
+    fn item_at_row(&self, row: usize) -> Option<usize> {
+        let line = self.offset.saturating_add(row);
+        self.line_map().get(line).map(|(index, _)| *index)
     }
 
     fn first_selectable(&self) -> Option<usize> {
@@ -239,7 +308,7 @@ impl OptionList {
     }
 
     fn max_offset(&self) -> usize {
-        self.items.len().saturating_sub(self.viewport_height.max(1))
+        self.total_lines().saturating_sub(self.viewport_height.max(1))
     }
 
     fn clamp_offsets(&mut self) {
@@ -262,11 +331,19 @@ impl OptionList {
         let Some(highlighted) = self.cursor.highlighted() else {
             return;
         };
+        // Scroll in line space: keep the whole highlighted option visible.
         let viewport = self.viewport_height.max(1);
-        if highlighted < self.offset {
-            self.offset = highlighted;
-        } else if highlighted >= self.offset + viewport {
-            self.offset = highlighted + 1 - viewport;
+        let first_line = self.item_first_line(highlighted);
+        let height = self
+            .items
+            .get(highlighted)
+            .map(|item| self.item_height(item))
+            .unwrap_or(1);
+        let last_line = first_line + height.saturating_sub(1);
+        if first_line < self.offset {
+            self.offset = first_line;
+        } else if last_line >= self.offset + viewport {
+            self.offset = last_line + 1 - viewport;
         }
         self.offset = self.offset.min(self.max_offset());
     }
@@ -389,11 +466,12 @@ impl Widget for OptionList {
         }
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                let index = self.offset.saturating_add(mouse.y as usize);
-                if index < self.items.len() && self.items[index].is_selectable() {
-                    self.highlight_index(index, ctx);
-                    self.confirm_selection(ctx);
-                    ctx.set_handled();
+                if let Some(index) = self.item_at_row(mouse.y as usize) {
+                    if self.items[index].is_selectable() {
+                        self.highlight_index(index, ctx);
+                        self.confirm_selection(ctx);
+                        ctx.set_handled();
+                    }
                 }
             }
             Event::Action(action) if self.node_state().focused => match action {
@@ -491,11 +569,9 @@ impl Widget for OptionList {
         if self.items.is_empty() {
             return false;
         }
-        let index = self.offset.saturating_add(y as usize);
-        let hovered = if index < self.items.len() && self.items[index].is_selectable() {
-            Some(index)
-        } else {
-            None
+        let hovered = match self.item_at_row(y as usize) {
+            Some(index) if self.items[index].is_selectable() => Some(index),
+            _ => None,
         };
         if hovered != self.hovered_index {
             self.hovered_index = hovered;
@@ -530,74 +606,84 @@ impl Widget for OptionList {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
 
-        // Virtual scrolling: only render items in the visible window.
-        let (vis_start, vis_end) = self.visible_range(height);
+        // Flatten options into display lines and render the visible window in
+        // line space (Python parity: a multi-row option occupies multiple lines).
+        let line_map = self.line_map();
+
+        // Render each item's lines once, on first reference, then index into them.
+        let mut rendered_items: std::collections::HashMap<usize, Vec<Vec<Segment>>> =
+            std::collections::HashMap::new();
 
         for row in 0..height {
-            let index = vis_start + row;
+            let line_index = self.offset + row;
 
-            if index >= vis_end {
-                // Past the last item — emit an empty padded line.
-                let line = adjust_line_length_no_bg(&[], width);
-                out.extend(line);
-            } else if let Some(item) = self.items.get(index) {
-                match item {
-                    OptionItem::Separator => {
-                        let sep_style =
-                            crate::css::resolve_component_style(self, &["option-list--separator"])
+            let line = match line_map.get(line_index) {
+                None => {
+                    // Past the last line — emit an empty padded line.
+                    adjust_line_length_no_bg(&[], width)
+                }
+                Some(&(index, line_offset)) => {
+                    let item = &self.items[index];
+                    match item {
+                        OptionItem::Separator => adjust_line_length_no_bg(
+                            &[Segment::styled(
+                                "─".repeat(width),
+                                crate::css::resolve_component_style(
+                                    self,
+                                    &["option-list--separator"],
+                                )
+                                .to_rich()
+                                .unwrap_or(base_style),
+                            )],
+                            width,
+                        ),
+                        OptionItem::Option {
+                            prompt,
+                            content,
+                            disabled,
+                            ..
+                        } => {
+                            let highlighted = self.cursor.highlighted() == Some(index);
+                            let hovered = self.hovered_index == Some(index);
+                            let mut classes = vec!["option-list--option"];
+                            if highlighted {
+                                classes.push("-highlighted");
+                            }
+                            if hovered && !highlighted {
+                                classes.push("-hover");
+                            }
+                            if *disabled {
+                                classes.push("-disabled");
+                            }
+                            if highlighted && self.node_state().focused {
+                                classes.push("-focus");
+                            }
+                            let style = crate::css::resolve_component_style(self, &classes)
                                 .to_rich()
                                 .unwrap_or(base_style);
-                        let line = adjust_line_length_no_bg(
-                            &[Segment::styled("─".repeat(width), sep_style)],
-                            width,
-                        );
-                        out.extend(line);
-                    }
-                    OptionItem::Option {
-                        prompt,
-                        content,
-                        disabled,
-                        ..
-                    } => {
-                        let highlighted = self.cursor.highlighted() == Some(index);
-                        let hovered = self.hovered_index == Some(index);
-                        let mut classes = vec!["option-list--option"];
-                        if highlighted {
-                            classes.push("-highlighted");
-                        }
-                        if hovered && !highlighted {
-                            classes.push("-hover");
-                        }
-                        if *disabled {
-                            classes.push("-disabled");
-                        }
-                        if highlighted && self.node_state().focused {
-                            classes.push("-focus");
-                        }
-                        let style = crate::css::resolve_component_style(self, &classes)
-                            .to_rich()
-                            .unwrap_or(base_style);
 
-                        let line = if let Some(rich) = content {
-                            // Rich content: render Text, apply option style as base.
-                            self.render_rich_line(rich, style, width, console, options)
-                        } else {
-                            // Plain text fallback. No hardcoded indent: the
-                            // `OptionList` default `padding: 0 1` supplies the
-                            // single-space inset (Python parity); a hardcoded
-                            // 2-space prefix double-indented every option.
-                            adjust_line_length_no_bg(
-                                &[Segment::styled(prompt.to_string(), style)],
-                                width,
-                            )
-                        };
-                        out.extend(line);
+                            let lines = rendered_items.entry(index).or_insert_with(|| {
+                                if let Some(rich) = content {
+                                    self.render_rich_lines(rich, style, width, console, options)
+                                } else {
+                                    // Plain text fallback. No hardcoded indent: the
+                                    // `OptionList` default `padding: 0 1` supplies the
+                                    // single-space inset (Python parity).
+                                    vec![adjust_line_length_no_bg(
+                                        &[Segment::styled(prompt.to_string(), style)],
+                                        width,
+                                    )]
+                                }
+                            });
+                            lines
+                                .get(line_offset)
+                                .cloned()
+                                .unwrap_or_else(|| adjust_line_length_no_bg(&[], width))
+                        }
                     }
                 }
-            } else {
-                let line = adjust_line_length_no_bg(&[], width);
-                out.extend(line);
-            }
+            };
+            out.extend(line);
 
             if row + 1 < height {
                 out.push(Segment::line());
@@ -608,7 +694,8 @@ impl Widget for OptionList {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.items.len().max(1))
+        // Sum of per-option display-line heights (multi-row options count fully).
+        Some(self.total_lines().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -950,29 +1037,75 @@ mod tests {
         assert!(text.contains("Hello"));
     }
 
-    // ── WP-27: Virtual scrolling ─────────────────────────────────────
+    // ── WP-27: Line-based virtual scrolling ──────────────────────────
 
     #[test]
-    fn visible_range_clamps_to_item_count() {
+    fn total_lines_counts_single_line_options() {
         let items = vec![OptionItem::new("A"), OptionItem::new("B")];
         let list = OptionList::with_items(items);
-        let (start, end) = list.visible_range(10);
-        assert_eq!(start, 0);
-        assert_eq!(end, 2); // Only 2 items even though viewport is 10
+        assert_eq!(list.total_lines(), 2);
     }
 
     #[test]
-    fn visible_range_respects_offset() {
+    fn line_offset_keeps_highlighted_option_visible() {
         let items: Vec<_> = (0..20)
             .map(|i| OptionItem::new(format!("Item {i}")))
             .collect();
         let mut list = OptionList::with_items(items);
         list.on_layout(40, 5);
         list.set_highlighted(10);
-        let (start, end) = list.visible_range(5);
-        assert!(start <= 10);
-        assert!(end >= 10);
-        assert_eq!(end - start, 5);
+        // The highlighted option's line must lie within the visible line window.
+        let first = list.item_first_line(10);
+        assert!(first >= list.offset);
+        assert!(first < list.offset + 5);
+    }
+
+    // ── Multi-row options (Python parity: each option spans its visual height) ──
+
+    #[test]
+    fn multi_line_rich_option_height_is_line_count() {
+        let content = rich_rs::Text::plain("line1\nline2\nline3");
+        let items = vec![OptionItem::rich("label", content)];
+        let list = OptionList::with_items(items);
+        assert_eq!(list.total_lines(), 3);
+        assert_eq!(list.layout_height(), Some(3));
+    }
+
+    #[test]
+    fn multi_line_rich_option_renders_all_lines() {
+        let content = rich_rs::Text::plain("alpha\nbravo\ncharlie");
+        let items = vec![OptionItem::rich("label", content)];
+        let list = OptionList::with_items(items);
+        let console = rich_rs::Console::new();
+        let options = rich_rs::ConsoleOptions {
+            size: (20, 3),
+            max_width: 20,
+            max_height: 3,
+            ..Default::default()
+        };
+        let segments: Vec<_> = Widget::render(&list, &console, &options)
+            .into_iter()
+            .collect();
+        let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
+        assert!(text.contains("alpha"), "missing first line");
+        assert!(text.contains("bravo"), "missing second line");
+        assert!(text.contains("charlie"), "missing third line");
+    }
+
+    #[test]
+    fn line_map_flattens_multi_row_options() {
+        let items = vec![
+            OptionItem::new("single"),
+            OptionItem::rich("multi", rich_rs::Text::plain("a\nb\nc")),
+            OptionItem::new("last"),
+        ];
+        let list = OptionList::with_items(items);
+        let map = list.line_map();
+        assert_eq!(map.len(), 5); // 1 + 3 + 1
+        assert_eq!(map[0], (0, 0));
+        assert_eq!(map[1], (1, 0));
+        assert_eq!(map[3], (1, 2));
+        assert_eq!(map[4], (2, 0));
     }
 
     // ── OptionItem equality ignores content ──────────────────────────
