@@ -90,8 +90,9 @@ pub mod prelude {
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::widgets::{
-        AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant, Center, CenterMiddle, Checkbox,
-        Collapsible, CollapsibleTitle, CommandPalette, CommandPaletteScreen, Constrained,
+        AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant, CellJustify, Center,
+        CenterMiddle, Checkbox, Collapsible, CollapsibleTitle, CommandPalette, CommandPaletteScreen,
+        Constrained,
         Container, ContentSwitcher, CursorType, DataTable, Digits, DirectoryTree, Dock, Footer,
         FooterBinding, Frame, FuzzyMatcher, Grid, Header, HeaderClock, HeaderClockSpace,
         HeaderIcon, HeaderTitle, HelpPanel, Horizontal, HorizontalGroup, HorizontalScroll, Input,

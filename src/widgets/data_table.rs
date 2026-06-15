@@ -20,6 +20,41 @@ pub enum CursorType {
     None,
 }
 
+/// Horizontal justification of a cell's text within its column width.
+///
+/// Mirrors the `justify` attribute of a Rich `Text` cell in Python Textual
+/// (for example `Text(str(cell), justify="right")`). Default is `Left`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CellJustify {
+    #[default]
+    Left,
+    Right,
+    Center,
+}
+
+impl CellJustify {
+    /// Lay `text` out in `width` cells using this justification, truncating with
+    /// `set_cell_size` when the content is wider than the column.
+    fn render(self, text: &str, width: usize) -> String {
+        let len = rich_rs::cell_len(text);
+        if len >= width {
+            // Truncation (and the trivial exact-fit case) is identical for every
+            // justification: clamp from the left, matching `set_cell_size`.
+            return rich_rs::set_cell_size(text, width);
+        }
+        let pad = width - len;
+        match self {
+            CellJustify::Left => rich_rs::set_cell_size(text, width),
+            CellJustify::Right => format!("{}{}", " ".repeat(pad), text),
+            CellJustify::Center => {
+                let left = pad / 2;
+                let right = pad - left;
+                format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RowKey(String);
 
@@ -55,6 +90,11 @@ pub struct DataTable {
     /// Optional per-row label (parallel to `rows`). When any row has a label and
     /// `show_row_labels` is set, a non-data label column is rendered as a prefix.
     row_labels: Vec<Option<String>>,
+    /// Per-cell horizontal justification (parallel to `rows`/cells). Mirrors the
+    /// `justify` attribute of a Rich `Text` cell in Python. Empty rows / missing
+    /// entries default to `CellJustify::Left`. Headers are never justified here
+    /// (they are added as plain strings via `add_column`).
+    cell_justify: Vec<Vec<CellJustify>>,
     column_widths: Vec<usize>,
     selected: usize,
     offset: usize,
@@ -90,6 +130,7 @@ impl DataTable {
             row_keys: Vec::new(),
             rows: Vec::new(),
             row_labels: Vec::new(),
+            cell_justify: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -182,6 +223,7 @@ impl DataTable {
         self.rows
             .push(row.into_iter().map(|value| value.to_string()).collect());
         self.row_labels.push(None);
+        self.cell_justify.push(Vec::new());
         self.clamp_indices();
         self.recompute_column_widths();
         key
@@ -200,6 +242,7 @@ impl DataTable {
         self.rows
             .push(row.into_iter().map(|value| value.to_string()).collect());
         self.row_labels.push(Some(label.into()));
+        self.cell_justify.push(Vec::new());
         self.clamp_indices();
         self.recompute_column_widths();
         key
@@ -218,9 +261,49 @@ impl DataTable {
         self.rows
             .push(row.into_iter().map(|value| value.to_string()).collect());
         self.row_labels.push(None);
+        self.cell_justify.push(Vec::new());
         self.clamp_indices();
         self.recompute_column_widths();
         Some(key)
+    }
+
+    /// Set the horizontal justification of a single data cell. Mirrors building a
+    /// cell from a Rich `Text(..., justify=…)` in Python. Out-of-range rows are
+    /// ignored; the per-row justify vector is grown to fit the column index.
+    pub fn set_cell_justify(&mut self, row: usize, col: usize, justify: CellJustify) {
+        let Some(row_justify) = self.cell_justify.get_mut(row) else {
+            return;
+        };
+        if row_justify.len() <= col {
+            row_justify.resize(col + 1, CellJustify::Left);
+        }
+        row_justify[col] = justify;
+    }
+
+    /// Apply one justification to every cell in a data row.
+    pub fn set_row_justify(&mut self, row: usize, justify: CellJustify) {
+        let cols = self.headers.len().max(self.rows.get(row).map_or(0, Vec::len));
+        for col in 0..cols {
+            self.set_cell_justify(row, col, justify);
+        }
+    }
+
+    /// Apply one justification to every data cell currently in the table.
+    /// Headers are unaffected (they are plain strings). This mirrors the common
+    /// Python pattern of wrapping every data cell in `Text(..., justify=…)`.
+    pub fn set_all_data_cells_justify(&mut self, justify: CellJustify) {
+        for row in 0..self.rows.len() {
+            self.set_row_justify(row, justify);
+        }
+    }
+
+    /// Justification for a specific data cell (defaults to `Left`).
+    fn cell_justify_at(&self, row: usize, col: usize) -> CellJustify {
+        self.cell_justify
+            .get(row)
+            .and_then(|r| r.get(col))
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn row_key_at(&self, row: usize) -> Option<&RowKey> {
@@ -450,6 +533,9 @@ impl DataTable {
         if index < self.row_labels.len() {
             self.row_labels.remove(index);
         }
+        if index < self.cell_justify.len() {
+            self.cell_justify.remove(index);
+        }
         self.clamp_indices();
         self.recompute_column_widths();
         Some(row_data)
@@ -465,6 +551,9 @@ impl DataTable {
         if index < self.row_labels.len() {
             self.row_labels.remove(index);
         }
+        if index < self.cell_justify.len() {
+            self.cell_justify.remove(index);
+        }
         self.clamp_indices();
         self.recompute_column_widths();
         Some(row_data)
@@ -475,6 +564,7 @@ impl DataTable {
         self.rows.clear();
         self.row_keys.clear();
         self.row_labels.clear();
+        self.cell_justify.clear();
         self.next_row_key = 0;
         if clear_columns {
             self.headers.clear();
@@ -509,6 +599,9 @@ impl DataTable {
         self.row_keys = sorted_keys;
         if self.row_labels.len() == indices.len() {
             self.row_labels = indices.iter().map(|&i| self.row_labels[i].clone()).collect();
+        }
+        if self.cell_justify.len() == indices.len() {
+            self.cell_justify = indices.iter().map(|&i| self.cell_justify[i].clone()).collect();
         }
         self.clamp_indices();
     }
@@ -839,10 +932,15 @@ impl DataTable {
     }
 
     fn recompute_column_widths(&mut self) {
+        // Column width = max(header label width, cell content widths), with a
+        // minimum of 1 (Python `measure(console, renderable, minimum=1)`).
+        // Do NOT impose a larger artificial minimum: Python sizes columns to
+        // their content, so e.g. a single-letter header over 2-digit values
+        // yields width 2, not 3.
         let mut widths: Vec<usize> = self
             .headers
             .iter()
-            .map(|h| rich_rs::cell_len(h).max(3))
+            .map(|h| rich_rs::cell_len(h).max(1))
             .collect();
         for row in &self.rows {
             for (idx, value) in row.iter().enumerate() {
@@ -966,6 +1064,7 @@ impl Default for DataTable {
             row_keys: Vec::new(),
             rows: Vec::new(),
             row_labels: Vec::new(),
+            cell_justify: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -1681,6 +1780,9 @@ impl Widget for DataTable {
                     }
                     header_style
                 },
+                // Headers are plain strings (left-justified), matching Python where
+                // `add_columns` stores the label without a per-cell `justify`.
+                |_col_idx| CellJustify::Left,
                 header_style,
                 &mut out,
             );
@@ -1730,6 +1832,7 @@ impl Widget for DataTable {
                     }
                     base
                 },
+                |col_idx| self.cell_justify_at(row_idx, col_idx),
                 row_base_style,
                 out,
             );
@@ -1756,6 +1859,19 @@ impl Widget for DataTable {
     }
 
     fn content_width(&self) -> Option<usize> {
+        // Python's `DataTable` inherits `width: 1fr` from `ScrollableContainer`
+        // (its DEFAULT_CSS only overrides height), so a `DataTable` with an UNSET
+        // width fills its container horizontally — the column data sits at the left
+        // and the remaining width is surface fill, with the vertical scrollbar in
+        // the right gutter. Reporting `None` here lets layout flex-fill the unset
+        // width (matching that default) instead of shrinking the box to the
+        // intrinsic content width, which would let the scrollbar gutter clip the
+        // rightmost column. An EXPLICIT `width: auto` still shrinks to content via
+        // `auto_content_width()`.
+        None
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
         let columns = self.headers.len().max(1);
         let widths = self.column_widths();
         let cells_width = widths.iter().copied().sum::<usize>();
@@ -1833,7 +1949,7 @@ impl Widget for DataTable {
         if let Some(state) = self.horizontal_scrollbar_state(width) {
             Some((state.content_width.max(1), virtual_h))
         } else {
-            let content_w = self.content_width().unwrap_or(width.max(1)).max(1);
+            let content_w = self.auto_content_width().unwrap_or(width.max(1)).max(1);
             Some((content_w, virtual_h))
         }
     }
@@ -1849,7 +1965,9 @@ impl Renderable for DataTable {
 /// Visual layout: [1 space][cell][2 spaces][cell][2 spaces]...[cell][fill to total_width]
 const CELL_PADDING: usize = 1;
 
-/// Emit a row where each cell can have a different style determined by `style_for_col`.
+/// Emit a row where each cell can have a different style determined by
+/// `style_for_col` and a different justification determined by `justify_for_col`.
+#[allow(clippy::too_many_arguments)]
 fn emit_row_per_cell(
     values: &[String],
     column_widths: &[usize],
@@ -1859,6 +1977,7 @@ fn emit_row_per_cell(
     // `width == 0` means no label column (the common, unlabelled case).
     label: Option<(&str, usize, rich_rs::Style)>,
     style_for_col: impl Fn(usize) -> rich_rs::Style,
+    justify_for_col: impl Fn(usize) -> CellJustify,
     gap_style: rich_rs::Style,
     out: &mut Segments,
 ) {
@@ -1892,7 +2011,7 @@ fn emit_row_per_cell(
             used += 2;
         }
         let val = values.get(col_idx).map(String::as_str).unwrap_or("");
-        let cell_text = rich_rs::set_cell_size(val, col_w);
+        let cell_text = justify_for_col(col_idx).render(val, col_w);
         out.push(Segment::styled(cell_text, style_for_col(col_idx)));
         used += col_w;
     }
@@ -2127,14 +2246,19 @@ mod tests {
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<DataTableHeaderSelected>());
-        // With cell_padding=1, the scroll offset adjusts so C3 (cursor target) is fully visible.
-        // C2 is scrolled past. x=4 falls past C0 and lands in C3 (the next visible scrolled column).
+        // Columns are sized to their content (Python parity): "C0".."C3" headers
+        // over "r0".."r3" cells give width 2 each (not the old artificial min of 3).
+        // With width-2 columns the scroll offset that makes C3 (cursor target)
+        // visible is the minimal one, so the rendered columns are [C0, C2, C3]
+        // (only C1 is scrolled past). Layout: [pad][C0:2][gap][C2:2][gap][C3:2].
+        // screen_x=4 (content x 3) falls within the C2 cell, so the header click
+        // maps to column 2.
         assert_eq!(
             messages[0]
                 .downcast_ref::<DataTableHeaderSelected>()
                 .unwrap()
                 .column,
-            3
+            2
         );
     }
 

@@ -3,9 +3,9 @@ use textual::prelude::*;
 /// Mirrors Python Textual's `docs/examples/widgets/data_table_renderables.py`.
 ///
 /// The Python version adds `rich.text.Text` objects with `style="italic #03AC13"`
-/// and `justify="right"` to every data cell.  The Rust DataTable stores plain
-/// strings only (no per-cell style/justification), so cell styling is not
-/// replicated here — that is a framework gap.
+/// and `justify="right"` to every data cell. In plain-text terms the visible
+/// effect is that every data cell is right-justified within its column (the color
+/// is ignored for parity). We replicate that with `set_all_data_cells_justify`.
 struct TableApp;
 
 impl TextualApp for TableApp {
@@ -23,6 +23,9 @@ impl TextualApp for TableApp {
             &["1", "Aleksandr Sadovnikov", "Russia", "51.84"],
             &["10", "Darren Burns", "Scotland", "51.84"],
         ]);
+        // Python wraps each cell in `Text(..., justify="right")`; the parity-visible
+        // effect is right-justification of every data cell (headers stay left).
+        table.set_all_data_cells_justify(CellJustify::Right);
         AppRoot::new().with_child(table)
     }
 }

@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (feat(widgets): Collapsible arena composition + DataTable cell justify)
+
+- **fix(widgets/Collapsible): compose `CollapsibleTitle` + contents as arena nodes**
+  - `Collapsible` painted its title and children from its own `render()`, but in
+    arena mode a widget that returns `take_composed_children()` is a container
+    whose own render is chrome-only — so the title glyph/label and all content
+    were dropped, leaving only the top border. Now `take_composed_children()`
+    yields `[CollapsibleTitle, CollapsibleContents(children)]` as real arena nodes
+    (mirroring Python's `compose()`); `CollapsibleTitle` renders `symbol + label`
+    and the `&.-collapsed > Contents { display: none }` rule works through the
+    normal CSS/layout path. Fixes collapsible_nested + collapsible_custom_symbol.
+- **feat(widgets/DataTable): per-cell justification (`CellJustify`)**
+  - Added `CellJustify { Left, Right, Center }` and `set_cell_justify` /
+    `set_row_justify` / `set_all_data_cells_justify` (Python `Text(justify=…)`
+    cells). Data cells can now right/center-align within their column (headers
+    stay left). Also: column widths size to content (`max(1)`, was `max(3)`), and
+    `DataTable` flex-fills its container width (`content_width` → None +
+    `auto_content_width` for explicit `width:auto`). Fixes data_table_renderables.
+
 ### 2026-06-15 (fix(widgets/Checkbox): Rich markup labels + content width)
 
 - **fix(widgets/Checkbox): parse the label as Rich markup**
