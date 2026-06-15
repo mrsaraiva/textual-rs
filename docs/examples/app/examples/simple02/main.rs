@@ -1,8 +1,17 @@
+/// Port of Python Textual `docs/examples/app/simple02.py`.
+///
+/// A minimal Textual app with no widgets, no title override, and no CSS.
+/// Mirrors `MyApp(App): pass` — the bare default application.
 use textual::prelude::*;
 
+struct MyApp;
+
+impl TextualApp for MyApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+    }
+}
+
 fn main() -> Result<()> {
-    eprintln!(
-        "TODO: Port docs example 'simple02' from Python source 'app/simple02.py' (category 'app')."
-    );
-    Ok(())
+    run_sync(MyApp)
 }
