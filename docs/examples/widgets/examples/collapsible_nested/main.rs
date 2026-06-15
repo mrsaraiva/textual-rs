@@ -11,11 +11,9 @@ struct CollapsibleApp;
 impl TextualApp for CollapsibleApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
-            Collapsible::new("Collapsible")
+            Collapsible::new("Toggle")
                 .collapsed(false)
-                .with_child(
-                    Collapsible::new("Collapsible").with_child(Label::new("Hello, world.")),
-                ),
+                .with_child(Collapsible::new("Toggle").with_child(Label::new("Hello, world."))),
         )
     }
 }

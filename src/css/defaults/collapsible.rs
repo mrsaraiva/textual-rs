@@ -18,6 +18,12 @@ Collapsible {
     }
 }
 
+Contents {
+    width: 100%;
+    height: auto;
+    padding: 1 0 0 3;
+}
+
 CollapsibleTitle {
     width: auto;
     height: auto;
