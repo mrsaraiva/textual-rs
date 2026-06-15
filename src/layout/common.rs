@@ -525,19 +525,42 @@ fn measure_child_outer_height(
     let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
     let v_chrome = margin.top + margin.bottom + bt + bb + padding.top + padding.bottom;
 
-    let content = match style.height.as_ref() {
+    // `outer` is computed directly per arm so we can avoid double-counting a
+    // leaf's own border/padding chrome:
+    //
+    // - explicit `cells` / percent: value is pure content → add full v_chrome.
+    // - auto/None/fr: `measure_intrinsic_content_height` either returns the
+    //   widget's own `layout_height()` (already an OUTER height that INCLUDES the
+    //   widget's border+padding — true for leaf widgets like Checkbox/Button) or,
+    //   when the widget reports None (a drained/auto container), the summed
+    //   children CONTENT. For the former we must add ONLY margin; for the latter
+    //   we add the full vertical chrome (border+padding+margin). Adding the full
+    //   chrome unconditionally double-counts a leaf's border/padding (Checkbox
+    //   `border: tall` → 3, was inflated to 5).
+    let mut outer = match style.height.as_ref() {
         Some(Scalar::Cells(n)) => {
             if box_sizing == BoxSizing::BorderBox {
                 return n.saturating_add(margin.top + margin.bottom);
             }
-            *n
+            (*n).saturating_add(v_chrome)
         }
         None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
-            measure_intrinsic_content_height(tree, node, viewport, 0).unwrap_or(0)
+            // Does the widget report its own (OUTER) layout height directly?
+            let own_outer = tree
+                .get(node)
+                .and_then(|n| n.widget.layout_height())
+                .and_then(|h| u16::try_from(h).ok());
+            if let Some(h) = own_outer {
+                // Already OUTER (content + own border/padding) → add only margin.
+                h.saturating_add(margin.top + margin.bottom)
+            } else {
+                // Children-sum CONTENT → add full vertical chrome.
+                let content = measure_intrinsic_content_height(tree, node, viewport, 0).unwrap_or(0);
+                content.saturating_add(v_chrome)
+            }
         }
-        Some(other) => resolve_scalar_to_cells(other, 0, viewport.1),
+        Some(other) => resolve_scalar_to_cells(other, 0, viewport.1).saturating_add(v_chrome),
     };
-    let mut outer = content.saturating_add(v_chrome);
     if let Some(min_h) = style.min_height.as_ref() {
         outer = outer.max(resolve_scalar_to_cells(min_h, 0, viewport.1));
     }

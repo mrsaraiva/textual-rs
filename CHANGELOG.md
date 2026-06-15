@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout): don't double-count a bordered auto-height leaf's chrome)
+
+- **fix(layout): auto-height measurement adds only margin to a leaf's outer height**
+  - `measure_child_outer_height` added the full vertical chrome (margin+border+
+    padding) on top of a child's measured height — but for a LEAF widget that
+    height came from `layout_height()`, which already includes the widget's own
+    border/padding (OUTER height). So a bordered `height: auto` leaf was inflated
+    by its border (e.g. a `Checkbox` measured 5 rows instead of 3), making an auto
+    container over-measure and spuriously overflow. Now: if the child reports its
+    own `layout_height()` (leaf, already OUTER) add only margin; only the
+    children-sum CONTENT path (drained/auto containers) adds the full chrome. The
+    width side is unchanged (its `content_width()` is pure content by contract).
+    Fixes `checkbox` (VerticalScroll no longer over-measures → no phantom
+    app-root scrollbar).
+
 ### 2026-06-15 (fix(scrollbar): re-expand content when a reserved gutter is unneeded)
 
 - **fix(runtime): scrollbar gutter converges (re-expands when not needed)**
