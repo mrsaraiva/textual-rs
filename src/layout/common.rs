@@ -5,6 +5,75 @@ use crate::widget_tree::WidgetTree;
 use super::region::border_spacing;
 use super::resolve_1d::Edge;
 
+/// For a transparent styling wrapper (`Node`, from `.id()`/`.class()`), report
+/// whether its wrapped arena child wants auto-sizing on `(width, height)`.
+///
+/// Python applies `#id`/`.class` styles directly to the target widget, so a
+/// wrapper whose own axis is UNSET must inherit that axis's sizing intent from
+/// the widget it stands in for: shrink-to-content when the wrapped widget is
+/// `auto` (e.g. `Static { height: auto }`), but flex-fill when the wrapped
+/// widget defaults to `1fr` (e.g. `Static`/`Widget` width). Returns `(false,
+/// false)` for non-wrappers or wrappers with no resolvable child.
+pub(crate) fn wrapper_child_auto_axes(tree: &WidgetTree, wrapper: NodeId) -> (bool, bool) {
+    let is_wrapper = tree
+        .get(wrapper)
+        .map(|n| n.widget.is_transparent_wrapper())
+        .unwrap_or(false);
+    if !is_wrapper {
+        return (false, false);
+    }
+    let children = tree.children(wrapper);
+    let Some(&child) = children.first() else {
+        return (false, false);
+    };
+    let child_style = get_node_style(tree, child);
+    // Only an explicit `auto` on the child's resolved axis (including via a type
+    // default such as `Static { height: auto }` / `Label { width: auto }`) means
+    // shrink-to-content. An UNSET axis (None) keeps the leaf's flex-fill default
+    // (e.g. `Static`/`Widget` width fills), so the wrapper fills that axis too.
+    let width_auto = matches!(child_style.width.as_ref(), Some(Scalar::Auto));
+    let height_auto = matches!(child_style.height.as_ref(), Some(Scalar::Auto));
+    (width_auto, height_auto)
+}
+
+/// Seed width-dependent intrinsic measurement for the children of a transparent
+/// styling wrapper (`Node`). The wrapper's own `on_layout` is a no-op, so its
+/// drained child never learns the real content width before the layout asks for
+/// its intrinsic height — leaving wrapping widgets (Static/Label) measuring at a
+/// stale, too-wide width and under-reporting their line count. This walks the
+/// wrapper's subtree and calls `on_layout` with the width that each level will
+/// actually receive (parent content width minus that child's own chrome).
+pub(crate) fn seed_wrapper_subtree_widths(
+    tree: &mut WidgetTree,
+    wrapper: NodeId,
+    content_width: u16,
+    content_height: u16,
+) {
+    let is_wrapper = tree
+        .get(wrapper)
+        .map(|n| n.widget.is_transparent_wrapper())
+        .unwrap_or(false);
+    if !is_wrapper {
+        return;
+    }
+    let children: Vec<NodeId> = tree.children(wrapper).to_vec();
+    for child in children {
+        let child_style = get_node_style(tree, child);
+        let margin = child_style.effective_margin();
+        let (_, _, bl, br) = border_spacing(&child_style);
+        let padding = child_style.effective_padding();
+        let outer_inset = margin.left + margin.right;
+        let inner_inset = (bl as u16) + (br as u16) + padding.left + padding.right;
+        let child_outer_w = content_width.saturating_sub(outer_inset).max(1);
+        let child_content_w = child_outer_w.saturating_sub(inner_inset).max(1);
+        if let Some(node) = tree.get_mut(child) {
+            node.widget.on_layout(child_content_w, content_height);
+        }
+        // Recurse in case of nested wrappers (e.g. `.id().class()`).
+        seed_wrapper_subtree_widths(tree, child, child_content_w, content_height);
+    }
+}
+
 pub(crate) fn get_node_style(tree: &WidgetTree, node: NodeId) -> Style {
     if tree.get(node).is_none() {
         return Style::default();
@@ -196,9 +265,14 @@ pub(crate) fn extract_child_spec(
 
     // Build width edge for 1D resolver.
     //
-    // For `width: auto`, prefer widget intrinsic content width when available.
-    // `content_width()` is pure content width, so full horizontal chrome is
-    // added to compute the outer edge size (see `full_h_chrome` note above).
+    // For `width: auto` (and an UNSET width when an `intrinsic_width` hint is
+    // supplied by the caller), size to the widget's intrinsic content width.
+    // `content_width()` is pure content, so the full horizontal chrome is added
+    // to compute the outer edge size (see `full_h_chrome` note above). The arena
+    // flow layouts decide WHICH widgets contribute an `intrinsic_width` for the
+    // unset case (only `width: auto` widgets and measured auto containers — never
+    // a fill leaf like a bare `Static`), so passing `None` here means "no hint →
+    // flex-fill", matching Python's `1fr` default for an unset width.
     let width_edge = match style.width.as_ref() {
         None | Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_width {
@@ -263,10 +337,13 @@ pub(crate) fn measure_intrinsic_content_width(
     viewport: (u16, u16),
 ) -> Option<u16> {
     let node_ref = tree.get(node)?;
-    // Prefer the widget's own report when available.
+    // Prefer the widget's own report when available. Use `auto_content_width()`
+    // (which defaults to `content_width()`) so widgets that shrink-to-content
+    // under `width: auto` but flex-fill when unset (Label/Static) still measure
+    // correctly here without leaking a fill-default content-width hint elsewhere.
     if let Some(w) = node_ref
         .widget
-        .content_width()
+        .auto_content_width()
         .and_then(|w| u16::try_from(w).ok())
     {
         return Some(w);

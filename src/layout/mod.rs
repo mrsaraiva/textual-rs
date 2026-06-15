@@ -285,17 +285,37 @@ pub fn resolve_layout(
                 style.overflow_x.or(style.overflow),
                 Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
             );
+            // Transparent styling wrappers (`Node`, from `.id()`/`.class()`) stand
+            // in for the styled widget itself. Python applies `content-align`
+            // directly to that widget to position its (shrink-to-content) content
+            // within its content box. In the wrapper split, the content IS the
+            // single drained child, so the wrapper's `content-align` becomes the
+            // child alignment (mapped to `align`) when no explicit `align` is set.
+            let is_transparent_wrapper = tree
+                .get(node)
+                .map(|n| n.widget.is_transparent_wrapper())
+                .unwrap_or(false);
+            let effective_align = style.align.or_else(|| {
+                if is_transparent_wrapper {
+                    style.content_align.map(|ca| crate::style::Align {
+                        horizontal: ca.horizontal,
+                        vertical: ca.vertical,
+                    })
+                } else {
+                    None
+                }
+            });
             match strategy {
                 Layout::Vertical => {
                     layout_vertical(tree, &flow, inner, viewport, allow_h_overflow);
-                    apply_parent_align(tree, &flow, inner, Layout::Vertical, style.align);
+                    apply_parent_align(tree, &flow, inner, Layout::Vertical, effective_align);
                 }
                 Layout::Grid => {
                     layout_grid(tree, &flow, inner, viewport, &style);
                 }
                 Layout::Horizontal => {
                     layout_horizontal(tree, &flow, inner, viewport);
-                    apply_parent_align(tree, &flow, inner, Layout::Horizontal, style.align);
+                    apply_parent_align(tree, &flow, inner, Layout::Horizontal, effective_align);
                 }
             }
         }

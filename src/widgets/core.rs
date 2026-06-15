@@ -636,6 +636,18 @@ pub trait Widget: Send + Sync + Any {
     fn preserve_underlay(&self) -> bool {
         false
     }
+    /// Whether this widget is a transparent styling wrapper (e.g. `Node`, created
+    /// by `Static::id(..)` / `Widget::class(..)`) that drains a single child into
+    /// the arena tree and carries CSS identity on the wrapper itself.
+    ///
+    /// Python Textual applies `#id`/`.class` styles directly to the widget, so a
+    /// wrapper with an UNSET width/height must size to its wrapped child's content
+    /// (shrink-to-content), exactly like the widget it stands in for — rather than
+    /// flex-filling the parent. The layout uses this to opt unset dimensions into
+    /// the same intrinsic content measurement that explicit `auto` triggers.
+    fn is_transparent_wrapper(&self) -> bool {
+        false
+    }
     /// Drain pending class add/remove ops that were staged by widget methods called
     /// outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///
@@ -653,6 +665,18 @@ pub trait Widget: Send + Sync + Any {
     /// This should return the width of the widget's *content* (excluding margins and borders).
     fn content_width(&self) -> Option<usize> {
         None
+    }
+    /// Intrinsic content width used specifically for `width: auto` measurement
+    /// (e.g. via `measure_intrinsic_content_width` for drained-container
+    /// wrappers). Defaults to `content_width()`.
+    ///
+    /// Widgets whose `width: auto` should shrink-to-content but whose UNSET width
+    /// must still flex-fill (Python's `1fr` default) override this WITHOUT
+    /// reporting a `content_width()` hint — so a bare instance (unset width)
+    /// fills, while an explicit `width: auto` (or an auto wrapper measuring it)
+    /// sizes to content. Example: `Label`/`Static`.
+    fn auto_content_width(&self) -> Option<usize> {
+        self.content_width()
     }
     /// Intrinsic content height only. Size constraints from CSS/node styles are
     /// applied by layout callsites (which read `tree.styles(node).layout`) before
@@ -798,6 +822,19 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
     content_options.size = (content_width, content_height);
     content_options.max_width = content_width;
     content_options.max_height = content_height;
+
+    // Generic `text-align` propagation: feed the resolved CSS `text-align` into
+    // the text renderer's justify so Label/Static (and any text widget) honor
+    // `text-align: center|right|justify` exactly like Python Textual. Widgets
+    // that need bespoke justify behavior may still override inside render().
+    if let Some(text_align) = resolved.text_align {
+        content_options.justify = Some(match text_align {
+            crate::style::TextAlign::Left => rich_rs::JustifyMethod::Left,
+            crate::style::TextAlign::Center => rich_rs::JustifyMethod::Center,
+            crate::style::TextAlign::Right => rich_rs::JustifyMethod::Right,
+            crate::style::TextAlign::Justify => rich_rs::JustifyMethod::Full,
+        });
+    }
 
     let segments = crate::css::with_style_stack(meta.clone(), resolved.clone(), || match debug {
         Some(debug) => widget.render_with_debug(console, &content_options, debug),

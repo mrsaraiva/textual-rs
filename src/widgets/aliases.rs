@@ -146,6 +146,10 @@ impl Widget for Static {
         self.label.content_width()
     }
 
+    fn auto_content_width(&self) -> Option<usize> {
+        self.label.auto_content_width()
+    }
+
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.label.set_inline_style(style);
     }

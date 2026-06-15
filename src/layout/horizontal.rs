@@ -22,7 +22,24 @@ pub fn layout_horizontal(
     let specs: Vec<ChildSpec> = children
         .iter()
         .map(|&child| {
-            let style = get_node_style(tree, child);
+            let mut style = get_node_style(tree, child);
+            // Transparent wrappers (`Node`): adopt the wrapped child's auto-sizing
+            // on any unset axis (see vertical.rs for rationale).
+            let (wrapper_w_auto_pre, wrapper_h_auto_pre) =
+                super::common::wrapper_child_auto_axes(tree, child);
+            if wrapper_w_auto_pre && style.width.is_none() {
+                style.width = Some(crate::style::Scalar::Auto);
+            }
+            if wrapper_h_auto_pre && style.height.is_none() {
+                style.height = Some(crate::style::Scalar::Auto);
+            }
+            // `style.width`/`style.height` were normalized to `Some(Auto)` above
+            // for transparent wrappers with auto children, so a plain `Some(Auto)`
+            // check covers both real auto widgets and those wrappers.
+            let width_is_auto =
+                matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
+            let height_is_auto =
+                matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
             let mut intrinsic_height = tree
                 .get(child)
                 .and_then(|node| node.widget.layout_height())
@@ -31,24 +48,14 @@ pub fn layout_horizontal(
                 .get(child)
                 .and_then(|node| node.widget.content_width())
                 .and_then(|w| u16::try_from(w).ok());
-
-            // Bottom-up intrinsic measurement for EXPLICITLY auto-sized
-            // containers whose renderable children were drained into the arena
-            // tree (`content_width()`/`layout_height()` == None). Without this an
-            // auto-width container is treated as a flex edge and fills the row.
-            //
-            // Only `width: auto` / `height: auto` (explicit) opt in — an UNSET
-            // width (None) keeps the prior flex-fill behaviour (e.g. Screen and
-            // default `1fr` containers must still fill), so the blast radius is
-            // limited to containers the author deliberately marked `auto`.
-            let width_is_auto = matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
-            let height_is_auto = matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
-            // Add the container's OWN border+padding to the measured (children-only)
-            // intrinsic so it is chrome-inclusive (see vertical.rs for rationale).
-            let (own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
+            // `extract_child_spec` adds the FULL horizontal chrome on the
+            // auto-WIDTH arm but only margin on the auto-HEIGHT arm, so pre-add
+            // only the container's own vertical chrome to the measured height
+            // (see vertical.rs for the full rationale). Pre-adding horizontal
+            // chrome here would double-count against the width arm.
+            let (_own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
             if intrinsic_width.is_none() && width_is_auto {
-                intrinsic_width = measure_intrinsic_content_width(tree, child, viewport)
-                    .map(|w| w.saturating_add(own_h_chrome));
+                intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
             }
             if intrinsic_height.is_none() && height_is_auto {
                 intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)

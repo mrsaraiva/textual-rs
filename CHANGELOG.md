@@ -7,6 +7,28 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout/text): text-align + transparent-wrapper auto-sizing)
+
+- **fix(widgets): `text-align: center/right/justify` now honored for Label/Static**
+  - The render path only fed a hardcoded justify for `Button`; all other widgets ignored the
+    resolved `text_align`. `render_widget_with_meta` now maps `resolved.text_align` →
+    `content_options.justify` generically, so text alignment works for every widget.
+- **fix(layout): transparent styling wrappers (`Node` from `.id()`/`.class()`) adopt the wrapped
+  widget's auto-sizing instead of flex-filling**
+  - `Static::id(..)`/`.class(..)` wrap the widget in a transparent `Node`, and the CSS (`#id`/
+    `.class`) lands on the `Node`. With no sizing defaults the wrapper filled the screen. Added
+    `Widget::is_transparent_wrapper()` + `wrapper_child_auto_axes()`: when the wrapped child is
+    `auto` on an axis and the wrapper's axis is unset, the wrapper shrinks-to-content; an unset
+    axis otherwise keeps `1fr` fill. `content-align` on such a wrapper maps to the child's `align`.
+- **fix(widgets): Label/Static `width: auto` sizes to rendered text width**
+  - Added `Widget::auto_content_width()` (consumed only by the `width: auto` measurement) so an
+    explicit `width: auto` sizes to content; an UNSET width still fills (`content_width()` stays
+    `None`, so `1fr` fill is unaffected).
+- **fix(layout): drop double-counted horizontal chrome on measured-auto width**
+  - `extract_child_spec`'s auto-WIDTH arm already adds full horizontal chrome; the vertical/
+    horizontal layout no longer pre-adds it (height arm still adds vertical chrome). Width-
+    dependent auto height now seeds the wrapped subtree at the real content width before measuring.
+
 ### 2026-06-15 (fix(DataTable): nav bindings hidden from the Footer)
 
 - **fix(widgets/DataTable): cursor/select bindings no longer leak into the Footer**

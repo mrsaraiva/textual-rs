@@ -22,7 +22,22 @@ pub fn layout_vertical(
     // Phase 1: collect style specs (immutable borrow of tree).
     let mut specs: Vec<ChildSpec> = Vec::with_capacity(children.len());
     for &child in children {
-        let style = get_node_style(tree, child);
+        let mut style = get_node_style(tree, child);
+
+        // Transparent styling wrappers (`Node`) stand in for the wrapped widget,
+        // so an UNSET axis must adopt that widget's sizing intent: when the
+        // wrapped child is `width:auto`/`height:auto`, make the wrapper behave as
+        // `auto` (shrink-to-content) on that axis; otherwise it keeps the `1fr`
+        // fill of an unset dimension. Done before spec extraction so the auto
+        // arms (which size to the measured intrinsic) are selected correctly.
+        let (wrapper_w_auto_pre, wrapper_h_auto_pre) =
+            super::common::wrapper_child_auto_axes(tree, child);
+        if wrapper_w_auto_pre && style.width.is_none() {
+            style.width = Some(crate::style::Scalar::Auto);
+        }
+        if wrapper_h_auto_pre && style.height.is_none() {
+            style.height = Some(crate::style::Scalar::Auto);
+        }
 
         let width_is_auto = matches!(
             style.width.as_ref(),
@@ -91,6 +106,17 @@ pub fn layout_vertical(
         if let Some(node) = tree.get_mut(child) {
             node.widget.on_layout(seed_content_w.max(1), seed_content_h);
         }
+        // Transparent wrappers (`Node`) pass their content box straight through to
+        // their single drained child, but `on_layout` on the wrapper is a no-op.
+        // Seed the wrapped subtree with the wrapper's content width so width-
+        // dependent intrinsic height (e.g. a wrapping Static/Label) measures at
+        // the correct width instead of its stale full-viewport width.
+        super::common::seed_wrapper_subtree_widths(
+            tree,
+            child,
+            seed_content_w.max(1),
+            seed_content_h,
+        );
 
         let mut intrinsic_height = tree
             .get(child)
@@ -108,19 +134,27 @@ pub fn layout_vertical(
         // keeps the prior flex-fill behaviour so default `1fr` containers and
         // the Screen still fill. This narrows the blast radius to deliberately
         // author-marked `auto` containers.
+        //
+        // `style.width`/`style.height` were already normalized to `Some(Auto)`
+        // above for transparent wrappers whose wrapped child is auto-sized, so a
+        // plain `Some(Auto)` check now covers both real auto widgets and those
+        // wrappers.
         let width_is_explicit_auto =
             matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
         let height_is_explicit_auto =
             matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
-        // The measured value is the children's content extent; add the
-        // container's OWN border+padding so the intrinsic is chrome-inclusive
-        // (matching what a conforming `layout_height()`/`content_width()` would
-        // report). Without this, a measured auto container with its own border
-        // (e.g. RadioSet `border: tall`) is clipped by that border.
-        let (own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
+        // The measured value is the children's content extent (the container's
+        // OWN border+padding are NOT included). `extract_child_spec` adds chrome
+        // asymmetrically: the auto-WIDTH arm adds the FULL horizontal chrome
+        // (margin+border+padding), while the auto-HEIGHT arm adds ONLY margin.
+        // So we pre-add the container's own vertical chrome (border+padding) to
+        // the measured HEIGHT — otherwise a measured auto container with its own
+        // border (e.g. RadioSet `border: tall`) is clipped — but we must NOT
+        // pre-add horizontal chrome, or it would be double-counted against the
+        // width arm's `full_h_chrome` (e.g. a bordered `width: auto` Static box).
+        let (_own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
         if intrinsic_width.is_none() && width_is_explicit_auto {
-            intrinsic_width = measure_intrinsic_content_width(tree, child, viewport)
-                .map(|w| w.saturating_add(own_h_chrome));
+            intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
         }
         if intrinsic_height.is_none() && height_is_explicit_auto {
             intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)

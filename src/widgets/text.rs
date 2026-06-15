@@ -187,8 +187,22 @@ impl Widget for Label {
         } else if self.shrink {
             Some(self.intrinsic_content_width())
         } else {
-            // Neither expand nor shrink — no width hint.
+            // Neither expand nor shrink — no width hint. (See `auto_content_width`
+            // for the `width: auto` measurement path, which does report the
+            // rendered text width without affecting the unset-width fill default.)
             None
+        }
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
+        if self.expand {
+            None
+        } else {
+            // For `width: auto` sizing, report the rendered text's cell width so
+            // the box shrinks to its content (Python parity). Kept separate from
+            // `content_width()` so an UNSET width (fill default, e.g. a bare
+            // `Static`) is not turned into a content-width hint.
+            Some(self.intrinsic_content_width())
         }
     }
 
@@ -2026,6 +2040,20 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
             label.content_width(),
             None,
             "Label default should match Textual: no intrinsic shrink width unless explicitly enabled"
+        );
+    }
+
+    #[test]
+    fn label_auto_content_width_reports_rendered_text_width() {
+        // `width: auto` measurement sizes to the rendered text width (Python
+        // parity) via `auto_content_width()`, without turning the unset-width
+        // fill default into a content-width hint (`content_width()` stays None).
+        let text = "I must not fear.";
+        let label = Label::new(text);
+        assert_eq!(label.content_width(), None);
+        assert_eq!(
+            Widget::auto_content_width(&label),
+            Some(rich_rs::cell_len(text))
         );
     }
 

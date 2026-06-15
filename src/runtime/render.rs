@@ -3485,6 +3485,11 @@ mod tests {
             "when overflow is gone, app root content rect should expand to full layout width"
         );
 
+        // The Label defaults to `width: auto` (Python parity), so it sizes to its
+        // rendered content width ("fear is the mind-killer." = 24 cells) rather
+        // than filling the content area. Scrollbar-lane reclamation is verified by
+        // the app-root content_rect expansion above; here we confirm the auto-width
+        // child relaid out to its content width and fits within the reclaimed area.
         let label_width = tree
             .children(app_root_id)
             .iter()
@@ -3493,8 +3498,12 @@ mod tests {
             .map(|node| node.layout_rect.x1.saturating_sub(node.layout_rect.x0))
             .unwrap_or(0);
         assert_eq!(
-            label_width, wide_content_w,
-            "app root content child should relayout to reclaimed width once scrollbar disappears"
+            label_width, 24,
+            "auto-width Label should size to its rendered content width"
+        );
+        assert!(
+            label_width <= wide_content_w,
+            "auto-width Label must fit within the reclaimed content area"
         );
     }
 

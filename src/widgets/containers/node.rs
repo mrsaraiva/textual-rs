@@ -124,6 +124,10 @@ impl Widget for Node {
         "Node"
     }
 
+    fn is_transparent_wrapper(&self) -> bool {
+        true
+    }
+
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
     }
