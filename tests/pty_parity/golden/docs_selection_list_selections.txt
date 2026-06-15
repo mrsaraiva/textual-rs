@@ -1,0 +1,30 @@
+ ⭘                                                 SelectionListApp
+
+
+
+            ┌─ Shall we play some games? ──────────────────────────────────────────────────────────────────┐
+            │                                                                                              │
+            │ ▐X▌ Falken's Maze                                                                            │
+            │ ▐X▌ Black Jack                                                                               │
+            │ ▐X▌ Gin Rummy                                                                                │
+            │ ▐X▌ Hearts                                                                                   │
+            │ ▐X▌ Bridge                                                                                   │
+            │ ▐X▌ Checkers                                                                                 │
+            │ ▐X▌ Chess                                                                                    │
+            │ ▐X▌ Poker                                                                                    │
+            │ ▐X▌ Fighter Combat                                                                           │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+                                                                                                            ▏^p palette

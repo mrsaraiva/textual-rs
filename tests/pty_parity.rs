@@ -294,6 +294,114 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_data_table_cursors",
+        example: "data_table_cursors",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_footer",
+        example: "footer",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_header",
+        example: "header",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_header_app_title",
+        example: "header_app_title",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_masked_input",
+        example: "masked_input",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_pretty",
+        example: "pretty",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_radio_set_changed",
+        example: "radio_set_changed",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_select_from_values_widget",
+        example: "select_from_values_widget",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_selection_list_selections",
+        example: "selection_list_selections",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_selection_list_tuples",
+        example: "selection_list_tuples",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_sparkline",
+        example: "sparkline",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_sparkline_basic",
+        example: "sparkline_basic",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_content_switcher",
         example: "content_switcher",
         args: &[],
@@ -685,6 +793,18 @@ pty_case!(docs_digits, "docs_digits");
 pty_case!(docs_option_list_strings, "docs_option_list_strings");
 pty_case!(docs_radio_set, "docs_radio_set");
 pty_case!(docs_radio_button, "docs_radio_button");
+pty_case!(docs_data_table_cursors, "docs_data_table_cursors");
+pty_case!(docs_footer, "docs_footer");
+pty_case!(docs_header, "docs_header");
+pty_case!(docs_header_app_title, "docs_header_app_title");
+pty_case!(docs_masked_input, "docs_masked_input");
+pty_case!(docs_pretty, "docs_pretty");
+pty_case!(docs_radio_set_changed, "docs_radio_set_changed");
+pty_case!(docs_select_from_values_widget, "docs_select_from_values_widget");
+pty_case!(docs_selection_list_selections, "docs_selection_list_selections");
+pty_case!(docs_selection_list_tuples, "docs_selection_list_tuples");
+pty_case!(docs_sparkline, "docs_sparkline");
+pty_case!(docs_sparkline_basic, "docs_sparkline_basic");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");

@@ -1,0 +1,30 @@
+{
+    'title': 'Back to the Future',
+    'releaseYear': 1985,
+    'director': 'Robert Zemeckis',
+    'genre': 'Adventure, Comedy, Sci-Fi',
+    'cast': [
+        {'actor': 'Michael J. Fox', 'character': 'Marty McFly'},
+        {'actor': 'Christopher Lloyd', 'character': 'Dr. Emmett Brown'}
+    ]
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
